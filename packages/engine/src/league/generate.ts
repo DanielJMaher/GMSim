@@ -7,7 +7,6 @@ import type {
   OwnerId,
   GmId,
   CoachId,
-  ContractId,
 } from '../types/ids.js';
 import type { TeamState } from '../types/team.js';
 import type {
@@ -22,6 +21,9 @@ import type { LeagueState } from '../types/league.js';
 import { FranchiseHistory, CompetitiveWindow } from '../types/enums.js';
 import { generateTeamPersonnel } from '../personnel/generate-team-personnel.js';
 import { generateRoster } from '../players/roster.js';
+import { generateContract } from '../contracts/generate.js';
+import { ContractId } from '../types/ids.js';
+import type { ContractId as ContractIdType } from '../types/ids.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -53,6 +55,9 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   const coaches: Record<string, HeadCoach> = {};
   const teamPersonalities: Record<string, TeamPersonality> = {};
   const players: Record<string, Player> = {};
+  const contracts: Record<string, Contract> = {};
+
+  const initialTick = 0;
 
   for (const identity of NFL_TEAMS) {
     const teamPrng = rootPrng.fork(`team:${identity.abbreviation}`);
@@ -67,9 +72,18 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
       offensiveScheme: bundle.headCoach.offensiveScheme,
       defensiveScheme: bundle.headCoach.defensiveScheme,
     });
-    const rosterIds = roster.map((p) => p.id);
-    for (const player of roster) {
+    const rosterIds: typeof roster[number]['id'][] = [];
+    const contractsPrng = teamPrng.fork('contracts');
+    for (const rawPlayer of roster) {
+      const contract = generateContract(contractsPrng.fork(rawPlayer.id), {
+        player: rawPlayer,
+        idSuffix: String(rawPlayer.id),
+        currentTick: initialTick,
+      });
+      contracts[contract.id] = contract;
+      const player: Player = { ...rawPlayer, contractId: ContractId(contract.id) };
       players[player.id] = player;
+      rosterIds.push(player.id);
     }
 
     const team: TeamState = {
@@ -93,7 +107,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
 
   return {
     seed,
-    tick: 0,
+    tick: initialTick,
     seasonNumber: 1,
     phase: 'OFFSEASON_PRE_FA',
     salaryCap,
@@ -102,7 +116,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     owners: owners as Readonly<Record<OwnerId, Owner>>,
     gms: gms as Readonly<Record<GmId, Gm>>,
     coaches: coaches as Readonly<Record<CoachId, HeadCoach>>,
-    contracts: {} as Readonly<Record<ContractId, Contract>>,
+    contracts: contracts as Readonly<Record<ContractIdType, Contract>>,
     teamPersonalities: teamPersonalities as Readonly<Record<TeamId, TeamPersonality>>,
   };
 }

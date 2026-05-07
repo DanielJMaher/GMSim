@@ -69,6 +69,27 @@ export type {
   RolledSkills,
 } from './players/index.js';
 
+// Contracts + cap accounting
+export {
+  generateContract,
+  TIER_TEMPLATES,
+  deriveTier,
+  signingBonusProrationPerYear,
+  capHitForYear,
+  currentCapHit,
+  teamCapUsage,
+  summarizeTeamCap,
+  deadMoneyOnPreJune1Release,
+  LEAGUE_MINIMUM_SALARY,
+  MAX_PRORATION_YEARS,
+  WEEKS_PER_LEAGUE_YEAR,
+} from './contracts/index.js';
+export type {
+  GenerateContractOptions,
+  TierTemplate,
+  TeamCapSummary,
+} from './contracts/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';

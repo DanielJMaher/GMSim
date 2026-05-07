@@ -2,6 +2,16 @@ import type { PlayerId, TeamId, ContractId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
 
 /**
+ * Talent tier — a coarse "how good is this player" gradient used for
+ * initial contract sizing and as a one-number summary across systems.
+ *
+ * Generation-time distribution is roughly STAR 5% / STARTER 35% /
+ * BACKUP 40% / FRINGE 20%, matching the rough shape of NFL active
+ * rosters. Tier can drift later as a player's skills evolve.
+ */
+export type TalentTier = 'STAR' | 'STARTER' | 'BACKUP' | 'FRINGE';
+
+/**
  * String-literal union of all player archetype IDs registered in the
  * `engine/archetypes` catalog. Defined here (in the types layer) so
  * `Player.archetype` can be strictly typed without creating a circular
@@ -78,6 +88,14 @@ export interface Player {
 
   /** Hidden development archetype affecting growth response. NOT for display. */
   developmentArchetype: PlayerDevelopmentArchetype;
+
+  /**
+   * Talent tier rolled at generation. Drives initial contract sizing
+   * and is a useful one-number summary for systems that need a tier
+   * but don't want to recompute from skills. Player tier can shift
+   * over a career; the value here is the *generation-time* tier.
+   */
+  tier: TalentTier;
 
   /** Position-specific archetype tag. Drives scheme fit. See ArchetypeId enum. */
   archetype: ArchetypeId;

@@ -62,6 +62,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     current: skills.current,
     ceiling: skills.ceiling,
     developmentArchetype: development,
+    tier: skills.tier,
     archetype: archetype.id,
     injury: null,
     conditioning: 100,

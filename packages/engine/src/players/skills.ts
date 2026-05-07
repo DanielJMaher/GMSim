@@ -1,17 +1,13 @@
 import type { Prng } from '../prng/index.js';
-import type { PlayerSkills, PlayerDevelopmentArchetype } from '../types/player.js';
+import type {
+  PlayerSkills,
+  PlayerDevelopmentArchetype,
+  TalentTier,
+} from '../types/player.js';
 import type { PlayerArchetype } from '../archetypes/types.js';
 import type { AgeStage } from './age.js';
 
-/**
- * Talent tier — the rough "how good is this player" gradient applied
- * across all skills before archetype-specific weighting.
- *
- * Distribution roughly mirrors NFL roster reality: stars are rare,
- * starters and quality backups are most of a roster, and a tail of
- * fringe contributors round it out.
- */
-export type TalentTier = 'STAR' | 'STARTER' | 'BACKUP' | 'FRINGE';
+export type { TalentTier } from '../types/player.js';
 
 const TIER_WEIGHTS = [
   { value: 'STAR' as TalentTier, weight: 5 },
@@ -108,9 +104,15 @@ export function rollSkills(
 
   for (const key of ALL_SKILL_KEYS) {
     const weight = archetype.skillWeights[key] ?? 1.0;
-    // Cap weighted ceiling mean so a 1.6-weighted skill of a STAR doesn't
-    // immediately roll up against the 99 ceiling — keep some headroom.
-    const weightedMean = Math.min(95, ceilingBaseline * weight);
+    // Linear weight bias: each unit of weight above/below 1.0 shifts the
+    // mean by ~7 points. This preserves *tier* separation across all
+    // skills (stars have higher means than starters even on weighted
+    // skills) while still letting archetype priorities show through.
+    //
+    // Earlier formulation (multiplicative + 95-cap) was buggy: stars
+    // and starters both pinned at 95 on weighted skills, which in turn
+    // made deriveTier read everyone as a star and inflated cap usage.
+    const weightedMean = clamp(ceilingBaseline + (weight - 1) * 7, 25, 99);
     const ceilVal = Math.round(prng.normal(weightedMean, 7, { min: 1, max: 99 }));
     ceiling[key] = ceilVal;
 
@@ -141,4 +143,8 @@ const DEVELOPMENT_ARCHETYPES: readonly PlayerDevelopmentArchetype[] = [
 
 export function rollDevelopmentArchetype(prng: Prng): PlayerDevelopmentArchetype {
   return prng.pick(DEVELOPMENT_ARCHETYPES);
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
 }

@@ -17,6 +17,8 @@ export interface Contract {
   realYears: number;
   /** Void years appended for proration purposes. Counted in proration math, not in roster years. */
   voidYears: number;
+  /** Number of league-years remaining on this contract from the current league tick. */
+  yearsRemaining: number;
 
   /** Per-year base salary (length = realYears). */
   baseSalaries: readonly number[];

@@ -1,5 +1,11 @@
 import { useMemo, useState } from 'react';
-import { createLeague, getArchetypeById, schemeFitForPlayer } from '@gmsim/engine';
+import {
+  createLeague,
+  getArchetypeById,
+  schemeFitForPlayer,
+  summarizeTeamCap,
+  currentCapHit,
+} from '@gmsim/engine';
 import type {
   LeagueState,
   TeamState,
@@ -235,9 +241,41 @@ function TeamCard({
         <Dim label="stability" value={tp.organizationalStability} />
       </div>
 
-      <div className="mt-2 text-xs text-zinc-600">{team.rosterIds.length} players</div>
+      <CapBar team={team} league={league} />
     </article>
   );
+}
+
+function CapBar({ team, league }: { team: TeamState; league: LeagueState }) {
+  const cap = summarizeTeamCap(team, league);
+  const overCap = cap.capSpace < 0;
+  const usagePct = Math.min(100, (cap.capUsed / cap.capCeiling) * 100);
+  return (
+    <div className="mt-2">
+      <div className="flex items-baseline justify-between text-[11px] text-zinc-500">
+        <span>{team.rosterIds.length} players</span>
+        <span className={overCap ? 'text-rose-400' : 'text-zinc-400'}>
+          {formatMoney(cap.capUsed)} / {formatMoney(cap.capCeiling)}{' '}
+          <span className={overCap ? 'text-rose-400' : 'text-emerald-400'}>
+            ({overCap ? '+' : ''}
+            {formatMoney(Math.abs(cap.capSpace))})
+          </span>
+        </span>
+      </div>
+      <div className="mt-1 h-1 overflow-hidden rounded bg-zinc-800">
+        <div
+          className={`h-1 ${overCap ? 'bg-rose-500/70' : 'bg-emerald-500/60'}`}
+          style={{ width: `${usagePct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function formatMoney(value: number): string {
+  if (Math.abs(value) >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(value) >= 1_000) return `$${Math.round(value / 1_000)}k`;
+  return `$${value}`;
 }
 
 function PersonnelLine({
@@ -293,6 +331,8 @@ function TeamDetail({
   onClose: () => void;
 }) {
   const hc = league.coaches[team.headCoachId]!;
+  const cap = summarizeTeamCap(team, league);
+  const overCap = cap.capSpace < 0;
   const players = team.rosterIds
     .map((id) => league.players[id]!)
     .sort((a, b) => {
@@ -329,6 +369,11 @@ function TeamDetail({
             {hc.offensiveScheme.replace(/_/g, ' ').toLowerCase()} /{' '}
             {hc.defensiveScheme.replace(/_/g, ' ').toLowerCase()}
           </p>
+          <p className={`text-xs ${overCap ? 'text-rose-400' : 'text-emerald-400'}`}>
+            cap: {formatMoney(cap.capUsed)} / {formatMoney(cap.capCeiling)} ·{' '}
+            {overCap ? 'over by ' : 'space '}
+            {formatMoney(Math.abs(cap.capSpace))}
+          </p>
         </div>
         <button
           onClick={onClose}
@@ -342,7 +387,7 @@ function TeamDetail({
         {groups
           .filter((g) => g.players.length > 0)
           .map((group) => (
-            <PositionGroupTable key={group.group} group={group} hc={hc} />
+            <PositionGroupTable key={group.group} group={group} hc={hc} league={league} />
           ))}
       </div>
     </section>
@@ -352,9 +397,11 @@ function TeamDetail({
 function PositionGroupTable({
   group,
   hc,
+  league,
 }: {
   group: { group: PositionGroup; label: string; players: Player[] };
   hc: { offensiveScheme: string; defensiveScheme: string };
+  league: LeagueState;
 }) {
   return (
     <div>
@@ -368,9 +415,10 @@ function PositionGroupTable({
               <th className="px-2 py-1 font-medium">pos</th>
               <th className="px-2 py-1 font-medium">name</th>
               <th className="px-2 py-1 font-medium">age</th>
+              <th className="px-2 py-1 font-medium">tier</th>
               <th className="px-2 py-1 font-medium">archetype</th>
               <th className="px-2 py-1 font-medium" title="Average of relevant skills">
-                key skill
+                key
               </th>
               <th className="px-2 py-1 font-medium" title="Hidden ceiling — never shown to player">
                 ceil
@@ -380,6 +428,10 @@ function PositionGroupTable({
                 title="Scheme fit multiplier in this team's HC scheme"
               >
                 fit
+              </th>
+              <th className="px-2 py-1 font-medium">yrs</th>
+              <th className="px-2 py-1 font-medium" title="Current-year cap hit">
+                cap
               </th>
             </tr>
           </thead>
@@ -395,6 +447,16 @@ function PositionGroupTable({
                 fit >= 1.4 ? 'text-emerald-400' : fit <= 0.85 ? 'text-rose-400' : 'text-zinc-400';
               const cur = avgKeySkill(p);
               const ceil = avgKeyCeiling(p);
+              const contract = p.contractId ? league.contracts[p.contractId] : null;
+              const cap = contract ? currentCapHit(contract) : 0;
+              const tierTone =
+                p.tier === 'STAR'
+                  ? 'text-emerald-400'
+                  : p.tier === 'STARTER'
+                    ? 'text-zinc-200'
+                    : p.tier === 'BACKUP'
+                      ? 'text-zinc-500'
+                      : 'text-zinc-600';
               return (
                 <tr key={p.id} className="border-t border-zinc-800/60">
                   <td className="px-2 py-1 font-mono text-zinc-400">{p.position}</td>
@@ -402,10 +464,15 @@ function PositionGroupTable({
                     {p.firstName} {p.lastName}
                   </td>
                   <td className="px-2 py-1 text-zinc-500">{computeAge(p.birthDate)}</td>
+                  <td className={`px-2 py-1 font-mono text-[10px] ${tierTone}`}>
+                    {p.tier.toLowerCase()}
+                  </td>
                   <td className="px-2 py-1 text-zinc-400">{archetypeLabel}</td>
                   <td className="px-2 py-1 font-mono">{cur}</td>
                   <td className="px-2 py-1 font-mono text-zinc-500">{ceil}</td>
                   <td className={`px-2 py-1 font-mono ${fitTone}`}>{fit.toFixed(2)}</td>
+                  <td className="px-2 py-1 text-zinc-500">{contract?.yearsRemaining ?? '-'}</td>
+                  <td className="px-2 py-1 font-mono text-zinc-400">{formatMoney(cap)}</td>
                 </tr>
               );
             })}
