@@ -1,6 +1,6 @@
 {
   "name": "@gmsim/web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,6 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@gmsim/data": "workspace:*",
     "@gmsim/engine": "workspace:*",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

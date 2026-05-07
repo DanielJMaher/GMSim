@@ -1,5 +1,6 @@
 import type { TeamId, OwnerId, GmId, CoachId, PlayerId } from './ids.js';
 import type { Conference, Division, MarketSize, FranchiseHistory, CompetitiveWindow } from './enums.js';
+import type { FanBaseProfile } from './personnel.js';
 
 /**
  * Base team identity — the immutable parts of a franchise (city, division,
@@ -42,6 +43,8 @@ export interface TeamState {
   rosterIds: readonly PlayerId[];
   /** Procedurally generated franchise history archetype. Affects fan baseline. */
   franchiseHistory: FranchiseHistory;
+  /** Per-team fan-base profile. Evolves slowly with results. Feeds Team Personality. */
+  fanBase: FanBaseProfile;
   /** Current competitive window state. Updated by Dynasty Cycles module each offseason. */
   competitiveWindow: CompetitiveWindow;
   /** Year-end win-loss across all simulated seasons; indexed by season number from league start. */

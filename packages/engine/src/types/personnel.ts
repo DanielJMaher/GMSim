@@ -171,3 +171,24 @@ export interface TeamPersonality {
   championshipUrgency: number;
   organizationalStability: number;
 }
+
+// ─── FAN BASE ───────────────────────────────────────────────────────────────
+
+/**
+ * Fan-base profile influences Team Personality at 10% weight per the
+ * L/L-01 resolution. Derived at league creation from market size +
+ * franchise history archetype, then evolves slowly over multiple
+ * seasons in response to results (handled in season simulation).
+ *
+ * All six dimensions are 1..10. Like everything else in personnel,
+ * never displayed to the player as numbers — only manifest through
+ * media coverage tone, organizational pressure, and observable behavior.
+ */
+export interface FanBaseProfile {
+  riskTolerance: number;
+  analyticsOrientation: number;
+  patienceLevel: number;
+  financialAggressiveness: number;
+  championshipUrgency: number;
+  organizationalStability: number;
+}
