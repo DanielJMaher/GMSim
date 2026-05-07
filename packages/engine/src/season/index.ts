@@ -10,3 +10,5 @@ export {
   winPct,
   type TeamRecord,
 } from './standings.js';
+export { advanceSeason } from './advance.js';
+export { advancePlayerDevelopment, ageOfPlayer } from './development.js';

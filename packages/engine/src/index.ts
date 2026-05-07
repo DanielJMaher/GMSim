@@ -102,6 +102,9 @@ export {
   divisionStandings,
   playoffSeeds,
   winPct,
+  advanceSeason,
+  advancePlayerDevelopment,
+  ageOfPlayer,
   type TeamRecord,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';

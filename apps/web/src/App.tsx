@@ -6,16 +6,19 @@ import {
   summarizeTeamCap,
   currentCapHit,
   simulateSeason,
+  advanceSeason,
   computeRecords,
   divisionStandings,
   playoffSeeds,
   winPct,
+  ageOfPlayer,
 } from '@gmsim/engine';
 import type { TeamRecord } from '@gmsim/engine';
 import type {
   LeagueState,
   TeamState,
   TeamPersonality,
+  TeamSeasonRecord,
   Player,
   TeamId,
 } from '@gmsim/engine/types';
@@ -31,17 +34,14 @@ import { Division, PositionGroup, Conference } from '@gmsim/engine/types';
  * this with North Star-compliant attributed observations. See
  * `docs/NORTH_STAR.md`.
  */
-export function App() {
-  const [seed, setSeed] = useState('phase-2-season');
-  const [seedDraft, setSeedDraft] = useState(seed);
-  const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
-  const [seasonSimmed, setSeasonSimmed] = useState(false);
+const DEFAULT_SEED = 'phase-2-season';
 
-  const baseLeague = useMemo(() => createLeague({ seed }), [seed]);
-  const league = useMemo(
-    () => (seasonSimmed ? simulateSeason(baseLeague) : baseLeague),
-    [baseLeague, seasonSimmed],
-  );
+export function App() {
+  const [seedDraft, setSeedDraft] = useState(DEFAULT_SEED);
+  const [league, setLeague] = useState<LeagueState>(() => createLeague({ seed: DEFAULT_SEED }));
+  const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
+
+  const seasonSimmed = league.schedule !== null;
   const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
   const teams = Object.values(league.teams).sort((a, b) =>
     a.identity.division === b.identity.division
@@ -52,13 +52,47 @@ export function App() {
   const divisions = Object.values(Division);
   const selectedTeam = selectedTeamId ? league.teams[selectedTeamId] : null;
 
+  function reroll() {
+    setLeague(createLeague({ seed: seedDraft || 'default' }));
+    setSelectedTeamId(null);
+  }
+
+  function simulate() {
+    setLeague(simulateSeason(league));
+  }
+
+  function advance() {
+    setLeague(advanceSeason(league));
+  }
+
+  /**
+   * Run N full year-cycles. Each iteration ensures the current season
+   * is simulated (if not already), then advances. We reverse the order
+   * on the last iteration so the user lands on a state with the most
+   * recent season's schedule populated and results visible.
+   */
+  function fastForward(n: number) {
+    let l = league;
+    for (let i = 0; i < n; i++) {
+      if (l.schedule) l = advanceSeason(l);
+      l = simulateSeason(l);
+    }
+    setLeague(l);
+  }
+
   return (
     <main className="min-h-screen p-6 lg:p-10">
       <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight">GMSim</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">
+            GMSim{' '}
+            <span className="ml-2 text-base font-normal text-zinc-500">
+              Season {league.seasonNumber}
+              {seasonSimmed ? ' (in progress)' : ' (preseason)'}
+            </span>
+          </h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Phase 1 dev inspector — exposes raw engine state for verification.
+            Phase 2 dev inspector — exposes raw engine state for verification.
             Not player-facing.
           </p>
         </div>
@@ -67,9 +101,7 @@ export function App() {
             className="flex items-center gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              setSeed(seedDraft || 'default');
-              setSelectedTeamId(null);
-              setSeasonSimmed(false);
+              reroll();
             }}
           >
             <label className="text-xs uppercase tracking-wide text-zinc-500" htmlFor="seed">
@@ -88,16 +120,33 @@ export function App() {
               Re-roll
             </button>
           </form>
-          <button
-            onClick={() => setSeasonSimmed((v) => !v)}
-            className={`rounded border px-3 py-1 text-sm ${
-              seasonSimmed
-                ? 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
-                : 'border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20'
-            }`}
-          >
-            {seasonSimmed ? 'Reset to preseason' : 'Simulate Season'}
-          </button>
+          {seasonSimmed ? (
+            <button
+              onClick={advance}
+              className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-sm text-amber-300 hover:bg-amber-500/20"
+            >
+              Advance to Year {league.seasonNumber + 1}
+            </button>
+          ) : (
+            <button
+              onClick={simulate}
+              className="rounded border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-sm text-sky-300 hover:bg-sky-500/20"
+            >
+              Simulate Season {league.seasonNumber}
+            </button>
+          )}
+          <div className="flex items-center gap-1 rounded border border-zinc-800 bg-zinc-900/40 px-2 py-1 text-xs text-zinc-500">
+            <span className="uppercase tracking-wide">skip</span>
+            {[1, 5, 10].map((n) => (
+              <button
+                key={n}
+                onClick={() => fastForward(n)}
+                className="rounded border border-zinc-700 bg-zinc-950 px-2 py-0.5 font-mono text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-300"
+              >
+                +{n}y
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
@@ -127,6 +176,20 @@ export function App() {
       ))}
     </main>
   );
+}
+
+/**
+ * A team is flagged as a "dynasty" in the inspector when it has 3+
+ * playoff appearances in its history, or 2+ Super Bowl wins. Loose
+ * heuristic — just a visual cue for spotting emergent dynasties when
+ * fast-forwarding multiple seasons.
+ */
+function dynastyBadge(history: readonly TeamSeasonRecord[]): string | null {
+  const sbWins = history.filter((r) => r.championshipResult === 'won_super_bowl').length;
+  if (sbWins >= 2) return `${sbWins}× champ`;
+  const playoffApps = history.filter((r) => r.madePlayoffs).length;
+  if (playoffApps >= 3) return `${playoffApps}× playoffs`;
+  return null;
 }
 
 function LeagueOverview({ league }: { league: LeagueState }) {
@@ -259,9 +322,19 @@ function TeamCard({
             <span className="text-zinc-600">{team.identity.marketSize.toLowerCase()}</span>
           </div>
         </div>
-        <div className="text-xs text-zinc-500">
-          {team.franchiseHistory.toLowerCase().replace(/_/g, ' ')} ·{' '}
-          {team.competitiveWindow.toLowerCase()}
+        <div className="flex items-baseline gap-2 text-xs text-zinc-500">
+          <span>
+            {team.franchiseHistory.toLowerCase().replace(/_/g, ' ')} ·{' '}
+            {team.competitiveWindow.toLowerCase()}
+          </span>
+          {(() => {
+            const badge = dynastyBadge(team.seasonHistory);
+            return badge ? (
+              <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-amber-300">
+                {badge}
+              </span>
+            ) : null;
+          })()}
         </div>
       </header>
 
@@ -443,8 +516,89 @@ function TeamDetail({
             <PositionGroupTable key={group.group} group={group} hc={hc} league={league} />
           ))}
       </div>
+
+      {team.seasonHistory.length > 0 && (
+        <SeasonHistoryTable history={team.seasonHistory} />
+      )}
     </section>
   );
+}
+
+function SeasonHistoryTable({ history }: { history: readonly TeamSeasonRecord[] }) {
+  // Show most-recent first; cap at 12 to keep the drawer compact when
+  // simulations run long.
+  const rows = [...history].slice(-12).reverse();
+  return (
+    <div className="mt-6">
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        Season History ({history.length} seasons)
+      </h3>
+      <div className="overflow-x-auto rounded border border-zinc-800">
+        <table className="min-w-full text-xs">
+          <thead className="bg-zinc-900/60 text-left text-zinc-500">
+            <tr>
+              <th className="px-2 py-1 font-medium">year</th>
+              <th className="px-2 py-1 font-medium">record</th>
+              <th className="px-2 py-1 font-medium">div</th>
+              <th className="px-2 py-1 font-medium">postseason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.seasonNumber} className="border-t border-zinc-800/60">
+                <td className="px-2 py-1 font-mono text-zinc-400">{row.seasonNumber}</td>
+                <td className="px-2 py-1 font-mono">
+                  {row.wins}-{row.losses}
+                  {row.ties > 0 ? `-${row.ties}` : ''}
+                </td>
+                <td className="px-2 py-1 text-zinc-400">
+                  {row.divisionFinish === 1
+                    ? '1st'
+                    : row.divisionFinish === 2
+                      ? '2nd'
+                      : row.divisionFinish === 3
+                        ? '3rd'
+                        : `${row.divisionFinish}th`}
+                </td>
+                <td className="px-2 py-1">
+                  {row.championshipResult ? (
+                    <span
+                      className={
+                        row.championshipResult === 'won_super_bowl'
+                          ? 'font-medium text-amber-300'
+                          : 'text-zinc-400'
+                      }
+                    >
+                      {formatChampionshipResult(row.championshipResult)}
+                    </span>
+                  ) : row.madePlayoffs ? (
+                    <span className="text-zinc-500">made playoffs</span>
+                  ) : (
+                    <span className="text-zinc-700">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function formatChampionshipResult(r: NonNullable<TeamSeasonRecord['championshipResult']>): string {
+  switch (r) {
+    case 'won_super_bowl':
+      return '🏆 won Super Bowl';
+    case 'lost_super_bowl':
+      return 'lost Super Bowl';
+    case 'lost_conference':
+      return 'lost conf. champ';
+    case 'lost_divisional':
+      return 'lost divisional';
+    case 'lost_wildcard':
+      return 'lost wild card';
+  }
 }
 
 function PositionGroupTable({
@@ -516,7 +670,9 @@ function PositionGroupTable({
                   <td className="px-2 py-1">
                     {p.firstName} {p.lastName}
                   </td>
-                  <td className="px-2 py-1 text-zinc-500">{computeAge(p.birthDate)}</td>
+                  <td className="px-2 py-1 text-zinc-500">
+                    {ageOfPlayer(p, league.seasonNumber)}
+                  </td>
                   <td className={`px-2 py-1 font-mono text-[10px] ${tierTone}`}>
                     {p.tier.toLowerCase()}
                   </td>
@@ -574,11 +730,6 @@ function avgKeyCeiling(p: Player): number {
   if (keys.length === 0) return 0;
   const sum = keys.reduce((s, k) => s + p.ceiling[k], 0);
   return Math.round(sum / keys.length);
-}
-
-function computeAge(birthDate: string): number {
-  const birthYear = Number(birthDate.slice(0, 4));
-  return 2026 - birthYear;
 }
 
 // ─── SEASON RESULTS VIEW ─────────────────────────────────────────────────
