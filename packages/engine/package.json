@@ -1,6 +1,6 @@
 {
   "name": "@gmsim/engine",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -11,6 +11,9 @@
     "./prng": "./src/prng/index.ts",
     "./personnel": "./src/personnel/index.ts",
     "./league": "./src/league/index.ts",
+    "./scheme": "./src/scheme/index.ts",
+    "./archetypes": "./src/archetypes/index.ts",
+    "./players": "./src/players/index.ts",
     "./data": "./src/data/index.ts"
   },
   "scripts": {

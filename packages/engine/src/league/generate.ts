@@ -21,6 +21,7 @@ import type { Contract } from '../types/contract.js';
 import type { LeagueState } from '../types/league.js';
 import { FranchiseHistory, CompetitiveWindow } from '../types/enums.js';
 import { generateTeamPersonnel } from '../personnel/generate-team-personnel.js';
+import { generateRoster } from '../players/roster.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -30,13 +31,17 @@ export interface CreateLeagueOptions {
 }
 
 /**
- * Generate a fresh 32-team league from a seed. Phase 1 deliverable —
- * personnel only. Players/contracts will land in a subsequent slice.
+ * Generate a fresh 32-team league from a seed. The produced LeagueState
+ * is fully populated with personnel + 53-man rosters per team and is
+ * **deterministic** w.r.t. the seed. Two calls with the same seed
+ * produce structurally identical output (same names, same spectrums,
+ * same archetypes, same Team Personality scores, same player ratings).
  *
- * The produced LeagueState is **deterministic** w.r.t. the seed. Two
- * calls with the same seed produce structurally identical output
- * (same names, same spectrums, same archetypes, same Team Personality
- * scores).
+ * What's not yet here (deferred to later Phase 1+ slices):
+ *   - Contracts (cap accounting)
+ *   - Practice squad / IR / reserve lists
+ *   - Free agent pool
+ *   - College draft class
  */
 export function createLeague(options: CreateLeagueOptions): LeagueState {
   const { seed, salaryCap = 255_000_000 } = options;
@@ -47,18 +52,32 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   const gms: Record<string, Gm> = {};
   const coaches: Record<string, HeadCoach> = {};
   const teamPersonalities: Record<string, TeamPersonality> = {};
+  const players: Record<string, Player> = {};
 
   for (const identity of NFL_TEAMS) {
     const teamPrng = rootPrng.fork(`team:${identity.abbreviation}`);
     const franchiseHistory = rollFranchiseHistory(teamPrng.fork('franchise-history'));
     const bundle = generateTeamPersonnel(teamPrng, identity, franchiseHistory);
 
+    // Roster generation forked separately so refining the roster
+    // pipeline later doesn't shift personnel rolls.
+    const roster = generateRoster(teamPrng.fork('roster'), {
+      teamId: identity.id,
+      idPrefix: identity.abbreviation,
+      offensiveScheme: bundle.headCoach.offensiveScheme,
+      defensiveScheme: bundle.headCoach.defensiveScheme,
+    });
+    const rosterIds = roster.map((p) => p.id);
+    for (const player of roster) {
+      players[player.id] = player;
+    }
+
     const team: TeamState = {
       identity,
       ownerId: bundle.owner.id,
       gmId: bundle.gm.id,
       headCoachId: bundle.headCoach.id,
-      rosterIds: [], // players land in a later slice
+      rosterIds,
       franchiseHistory,
       fanBase: bundle.fanBase,
       competitiveWindow: pickStartingWindow(franchiseHistory),
@@ -79,7 +98,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     phase: 'OFFSEASON_PRE_FA',
     salaryCap,
     teams: teams as Readonly<Record<TeamId, TeamState>>,
-    players: {} as Readonly<Record<PlayerId, Player>>,
+    players: players as Readonly<Record<PlayerId, Player>>,
     owners: owners as Readonly<Record<OwnerId, Owner>>,
     gms: gms as Readonly<Record<GmId, Gm>>,
     coaches: coaches as Readonly<Record<CoachId, HeadCoach>>,

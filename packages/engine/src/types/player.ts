@@ -2,6 +2,54 @@ import type { PlayerId, TeamId, ContractId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
 
 /**
+ * String-literal union of all player archetype IDs registered in the
+ * `engine/archetypes` catalog. Defined here (in the types layer) so
+ * `Player.archetype` can be strictly typed without creating a circular
+ * dependency between the types and archetypes modules.
+ *
+ * Adding a new archetype: add its ID here, then add the data entry in
+ * `engine/archetypes/catalog.ts` with the same ID.
+ */
+export type ArchetypeId =
+  // Offense
+  | 'QB_PRECISION_PASSER'
+  | 'QB_VERTICAL_PASSER'
+  | 'QB_POCKET_PASSER'
+  | 'QB_DUAL_THREAT'
+  | 'RB_POWER_BACK'
+  | 'RB_RECEIVING_BACK'
+  | 'RB_ZONE_RUNNER'
+  | 'FB_LEAD_BLOCKER'
+  | 'WR_POSSESSION'
+  | 'WR_DEEP_THREAT'
+  | 'WR_SLOT_TECHNICIAN'
+  | 'WR_YAC_SPECIALIST'
+  | 'TE_RECEIVING'
+  | 'TE_BLOCKING'
+  | 'TE_VERSATILE'
+  | 'OL_ZONE_BLOCKER'
+  | 'OL_POWER_BLOCKER'
+  | 'OL_PASS_PROTECTOR'
+  // Defense
+  | 'DL_PENETRATING_DT'
+  | 'DL_NOSE_TACKLE'
+  | 'DL_EDGE_PASS_RUSHER'
+  | 'DL_TWO_GAP_DE'
+  | 'LB_4_3_MIKE'
+  | 'LB_3_4_ILB'
+  | 'LB_COVERAGE'
+  | 'LB_EDGE_3_4'
+  | 'DB_PRESS_CB'
+  | 'DB_ZONE_CB'
+  | 'DB_SLOT_CB'
+  | 'DB_BALL_HAWK_S'
+  | 'DB_BOX_S'
+  // Special teams
+  | 'ST_KICKER'
+  | 'ST_PUNTER'
+  | 'ST_LONG_SNAPPER';
+
+/**
  * Ground-truth player record. Hidden ratings (currentSkill, ceilings,
  * archetype fit) live here and are **never displayed numerically to the
  * player**. The UI reads from the knowledge layer with attributed
@@ -31,8 +79,8 @@ export interface Player {
   /** Hidden development archetype affecting growth response. NOT for display. */
   developmentArchetype: PlayerDevelopmentArchetype;
 
-  /** Position-specific archetype tag, e.g. "WEST_COAST_PRECISION_PASSER". Drives scheme fit. */
-  archetype: string;
+  /** Position-specific archetype tag. Drives scheme fit. See ArchetypeId enum. */
+  archetype: ArchetypeId;
 
   /** Injury status. Affects availability and game-sim performance. */
   injury: InjuryStatus | null;

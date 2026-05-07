@@ -1,20 +1,28 @@
 import { useMemo, useState } from 'react';
-import { createLeague } from '@gmsim/engine';
-import type { LeagueState, TeamState, TeamPersonality } from '@gmsim/engine/types';
-import { Division } from '@gmsim/engine/types';
+import { createLeague, getArchetypeById, schemeFitForPlayer } from '@gmsim/engine';
+import type {
+  LeagueState,
+  TeamState,
+  TeamPersonality,
+  Player,
+  TeamId,
+} from '@gmsim/engine/types';
+import { Division, PositionGroup } from '@gmsim/engine/types';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
- * exposes raw spectrum scores and archetype data so we can verify the
- * generation pipeline is producing varied, plausible leagues.
+ * exposes raw spectrum scores, archetype labels, and skill ratings so
+ * we can verify the generation pipeline is producing varied, plausible
+ * leagues.
  *
  * The player-facing UI (Phase 4 — Scouting Report UI/UX) will replace
  * this with North Star-compliant attributed observations. See
  * `docs/NORTH_STAR.md`.
  */
 export function App() {
-  const [seed, setSeed] = useState('phase-1-demo');
+  const [seed, setSeed] = useState('phase-1-rosters');
   const [seedDraft, setSeedDraft] = useState(seed);
+  const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
 
   const league = useMemo(() => createLeague({ seed }), [seed]);
   const teams = Object.values(league.teams).sort((a, b) =>
@@ -24,6 +32,7 @@ export function App() {
   );
 
   const divisions = Object.values(Division);
+  const selectedTeam = selectedTeamId ? league.teams[selectedTeamId] : null;
 
   return (
     <main className="min-h-screen p-6 lg:p-10">
@@ -40,6 +49,7 @@ export function App() {
           onSubmit={(e) => {
             e.preventDefault();
             setSeed(seedDraft || 'default');
+            setSelectedTeamId(null);
           }}
         >
           <label className="text-xs uppercase tracking-wide text-zinc-500" htmlFor="seed">
@@ -62,12 +72,22 @@ export function App() {
 
       <LeagueOverview league={league} />
 
+      {selectedTeam && (
+        <TeamDetail
+          team={selectedTeam}
+          league={league}
+          onClose={() => setSelectedTeamId(null)}
+        />
+      )}
+
       {divisions.map((division) => (
         <DivisionSection
           key={division}
           division={division}
           league={league}
           teams={teams.filter((t) => t.identity.division === division)}
+          selectedTeamId={selectedTeamId}
+          onSelect={setSelectedTeamId}
         />
       ))}
     </main>
@@ -92,11 +112,16 @@ function LeagueOverview({ league }: { league: LeagueState }) {
     { key: 'organizationalStability', label: 'Stability' },
   ];
 
+  const playerCount = Object.keys(league.players).length;
+
   return (
     <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
-        League distribution (Team Personality)
-      </h2>
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          League distribution (Team Personality)
+        </h2>
+        <span className="text-xs text-zinc-600">{playerCount} players generated</span>
+      </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {dims.map(({ key, label }) => {
           const s = summary(key);
@@ -116,7 +141,8 @@ function LeagueOverview({ league }: { league: LeagueState }) {
       </div>
       <p className="mt-2 text-xs text-zinc-600">
         L/L-01 constraint: ≤4 teams should sit at any single dimension's extreme. Numbers
-        in amber indicate this seed exceeded that.
+        in amber indicate this seed exceeded that. Click a team below to inspect its
+        roster.
       </p>
     </section>
   );
@@ -126,10 +152,14 @@ function DivisionSection({
   division,
   league,
   teams,
+  selectedTeamId,
+  onSelect,
 }: {
   division: Division;
   league: LeagueState;
   teams: readonly TeamState[];
+  selectedTeamId: TeamId | null;
+  onSelect: (id: TeamId) => void;
 }) {
   return (
     <section className="mb-8">
@@ -138,21 +168,44 @@ function DivisionSection({
       </h2>
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
         {teams.map((team) => (
-          <TeamCard key={team.identity.id} team={team} league={league} />
+          <TeamCard
+            key={team.identity.id}
+            team={team}
+            league={league}
+            selected={team.identity.id === selectedTeamId}
+            onClick={() => onSelect(team.identity.id)}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function TeamCard({ team, league }: { team: TeamState; league: LeagueState }) {
+function TeamCard({
+  team,
+  league,
+  selected,
+  onClick,
+}: {
+  team: TeamState;
+  league: LeagueState;
+  selected: boolean;
+  onClick: () => void;
+}) {
   const owner = league.owners[team.ownerId]!;
   const gm = league.gms[team.gmId]!;
   const hc = league.coaches[team.headCoachId]!;
   const tp = league.teamPersonalities[team.identity.id]!;
 
   return (
-    <article className="rounded border border-zinc-800 bg-zinc-900/30 p-3 text-sm">
+    <article
+      onClick={onClick}
+      className={`cursor-pointer rounded border p-3 text-sm transition ${
+        selected
+          ? 'border-emerald-500/60 bg-emerald-500/5'
+          : 'border-zinc-800 bg-zinc-900/30 hover:border-zinc-700 hover:bg-zinc-900/60'
+      }`}
+    >
       <header className="mb-2">
         <div className="flex items-baseline justify-between">
           <h3 className="font-medium">{team.identity.fullName}</h3>
@@ -181,6 +234,8 @@ function TeamCard({ team, league }: { team: TeamState; league: LeagueState }) {
         <Dim label="urgency" value={tp.championshipUrgency} />
         <Dim label="stability" value={tp.organizationalStability} />
       </div>
+
+      <div className="mt-2 text-xs text-zinc-600">{team.rosterIds.length} players</div>
     </article>
   );
 }
@@ -216,7 +271,6 @@ function PersonnelLine({
 }
 
 function Dim({ label, value }: { label: string; value: number }) {
-  // Color-code extremes so distribution patterns pop visually.
   const tone =
     value >= 9 ? 'text-emerald-400' : value <= 2 ? 'text-rose-400' : 'text-zinc-300';
   return (
@@ -227,3 +281,182 @@ function Dim({ label, value }: { label: string; value: number }) {
   );
 }
 
+// ─── TEAM DETAIL DRAWER ───────────────────────────────────────────────────
+
+function TeamDetail({
+  team,
+  league,
+  onClose,
+}: {
+  team: TeamState;
+  league: LeagueState;
+  onClose: () => void;
+}) {
+  const hc = league.coaches[team.headCoachId]!;
+  const players = team.rosterIds
+    .map((id) => league.players[id]!)
+    .sort((a, b) => {
+      // Group by positionGroup, then by overall current skill desc
+      if (a.positionGroup !== b.positionGroup) {
+        return positionGroupOrder(a.positionGroup) - positionGroupOrder(b.positionGroup);
+      }
+      const aScore = avgKeySkill(a);
+      const bScore = avgKeySkill(b);
+      return bScore - aScore;
+    });
+
+  const groups: { group: PositionGroup; label: string; players: Player[] }[] = [
+    { group: PositionGroup.QB, label: 'Quarterback', players: [] },
+    { group: PositionGroup.SKILL, label: 'Skill positions', players: [] },
+    { group: PositionGroup.OL, label: 'Offensive line', players: [] },
+    { group: PositionGroup.DL, label: 'Defensive line', players: [] },
+    { group: PositionGroup.LB, label: 'Linebackers', players: [] },
+    { group: PositionGroup.DB, label: 'Defensive backs', players: [] },
+    { group: PositionGroup.ST, label: 'Special teams', players: [] },
+  ];
+  for (const p of players) {
+    const target = groups.find((g) => g.group === p.positionGroup);
+    if (target) target.players.push(p);
+  }
+
+  return (
+    <section className="mb-8 rounded border border-emerald-500/40 bg-zinc-950 p-4">
+      <header className="mb-3 flex items-baseline justify-between">
+        <div>
+          <h2 className="text-lg font-medium">{team.identity.fullName}</h2>
+          <p className="text-xs text-zinc-500">
+            {team.rosterIds.length}-man roster · scheme:{' '}
+            {hc.offensiveScheme.replace(/_/g, ' ').toLowerCase()} /{' '}
+            {hc.defensiveScheme.replace(/_/g, ' ').toLowerCase()}
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs text-zinc-400 hover:bg-zinc-800"
+        >
+          close
+        </button>
+      </header>
+
+      <div className="space-y-4">
+        {groups
+          .filter((g) => g.players.length > 0)
+          .map((group) => (
+            <PositionGroupTable key={group.group} group={group} hc={hc} />
+          ))}
+      </div>
+    </section>
+  );
+}
+
+function PositionGroupTable({
+  group,
+  hc,
+}: {
+  group: { group: PositionGroup; label: string; players: Player[] };
+  hc: { offensiveScheme: string; defensiveScheme: string };
+}) {
+  return (
+    <div>
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+        {group.label} ({group.players.length})
+      </h3>
+      <div className="overflow-x-auto rounded border border-zinc-800">
+        <table className="min-w-full text-xs">
+          <thead className="bg-zinc-900/60 text-left text-zinc-500">
+            <tr>
+              <th className="px-2 py-1 font-medium">pos</th>
+              <th className="px-2 py-1 font-medium">name</th>
+              <th className="px-2 py-1 font-medium">age</th>
+              <th className="px-2 py-1 font-medium">archetype</th>
+              <th className="px-2 py-1 font-medium" title="Average of relevant skills">
+                key skill
+              </th>
+              <th className="px-2 py-1 font-medium" title="Hidden ceiling — never shown to player">
+                ceil
+              </th>
+              <th
+                className="px-2 py-1 font-medium"
+                title="Scheme fit multiplier in this team's HC scheme"
+              >
+                fit
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {group.players.map((p) => {
+              const archetype = getArchetypeById(p.archetype);
+              const archetypeLabel = archetype?.label ?? p.archetype;
+              const fit = schemeFitForPlayer(p, {
+                offensiveScheme: hc.offensiveScheme as never,
+                defensiveScheme: hc.defensiveScheme as never,
+              });
+              const fitTone =
+                fit >= 1.4 ? 'text-emerald-400' : fit <= 0.85 ? 'text-rose-400' : 'text-zinc-400';
+              const cur = avgKeySkill(p);
+              const ceil = avgKeyCeiling(p);
+              return (
+                <tr key={p.id} className="border-t border-zinc-800/60">
+                  <td className="px-2 py-1 font-mono text-zinc-400">{p.position}</td>
+                  <td className="px-2 py-1">
+                    {p.firstName} {p.lastName}
+                  </td>
+                  <td className="px-2 py-1 text-zinc-500">{computeAge(p.birthDate)}</td>
+                  <td className="px-2 py-1 text-zinc-400">{archetypeLabel}</td>
+                  <td className="px-2 py-1 font-mono">{cur}</td>
+                  <td className="px-2 py-1 font-mono text-zinc-500">{ceil}</td>
+                  <td className={`px-2 py-1 font-mono ${fitTone}`}>{fit.toFixed(2)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function positionGroupOrder(group: PositionGroup): number {
+  const order: Record<PositionGroup, number> = {
+    QB: 0,
+    SKILL: 1,
+    OL: 2,
+    DL: 3,
+    LB: 4,
+    DB: 5,
+    ST: 6,
+  };
+  return order[group];
+}
+
+function avgKeySkill(p: Player): number {
+  // For dev-inspector, take average of skills with archetype weight ≥ 1.2
+  // (the skills that actually matter for this player). Falls back to a
+  // small default set if archetype is unknown.
+  const archetype = getArchetypeById(p.archetype);
+  const keys = archetype
+    ? Object.entries(archetype.skillWeights)
+        .filter(([, w]) => (w ?? 1) >= 1.2)
+        .map(([k]) => k as keyof typeof p.current)
+    : (['technicalSkill', 'footballIq', 'speed'] as (keyof typeof p.current)[]);
+  if (keys.length === 0) return 0;
+  const sum = keys.reduce((s, k) => s + p.current[k], 0);
+  return Math.round(sum / keys.length);
+}
+
+function avgKeyCeiling(p: Player): number {
+  const archetype = getArchetypeById(p.archetype);
+  const keys = archetype
+    ? Object.entries(archetype.skillWeights)
+        .filter(([, w]) => (w ?? 1) >= 1.2)
+        .map(([k]) => k as keyof typeof p.ceiling)
+    : (['technicalSkill', 'footballIq', 'speed'] as (keyof typeof p.ceiling)[]);
+  if (keys.length === 0) return 0;
+  const sum = keys.reduce((s, k) => s + p.ceiling[k], 0);
+  return Math.round(sum / keys.length);
+}
+
+function computeAge(birthDate: string): number {
+  const birthYear = Number(birthDate.slice(0, 4));
+  return 2026 - birthYear;
+}

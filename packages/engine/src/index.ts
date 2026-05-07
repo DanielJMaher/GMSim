@@ -30,6 +30,45 @@ export type { TeamPersonnelBundle, Archetype, SpectrumRange } from './personnel/
 export { createLeague } from './league/index.js';
 export type { CreateLeagueOptions } from './league/index.js';
 
+// Scheme module
+export {
+  OFFENSIVE_SCHEMES,
+  DEFENSIVE_SCHEMES,
+  offensiveSchemeFit,
+  defensiveSchemeFit,
+  schemeFitForPlayer,
+} from './scheme/index.js';
+export type { OffensiveSchemeDefinition, DefensiveSchemeDefinition } from './scheme/index.js';
+
+// Player Archetype catalog
+export {
+  PLAYER_ARCHETYPES,
+  getArchetypeById,
+  getArchetypesForPosition,
+} from './archetypes/index.js';
+export type { PlayerArchetype, ArchetypeId } from './archetypes/index.js';
+
+// Player generation
+export {
+  generatePlayer,
+  generateRoster,
+  ROSTER_BLUEPRINT_53,
+  ROSTER_SIZE,
+  positionGroupFor,
+  rollAgeProfile,
+  rollSkills,
+  rollDevelopmentArchetype,
+} from './players/index.js';
+export type {
+  GeneratePlayerOptions,
+  GenerateRosterOptions,
+  RosterPositionSlot,
+  AgeStage,
+  AgeProfile,
+  TalentTier,
+  RolledSkills,
+} from './players/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';
