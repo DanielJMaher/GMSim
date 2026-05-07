@@ -1,0 +1,28 @@
+{
+  "name": "@gmsim/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types/index.ts",
+    "./prng": "./src/prng/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "echo 'lint placeholder — wire up eslint in Phase 1'",
+    "clean": "rimraf dist .turbo"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.2.0",
+    "fast-check": "^3.15.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  }
+}

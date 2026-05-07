@@ -1,0 +1,92 @@
+import type { PlayerId, TeamId, ContractId } from './ids.js';
+import type { Position, PositionGroup } from './enums.js';
+
+/**
+ * Ground-truth player record. Hidden ratings (currentSkill, ceilings,
+ * archetype fit) live here and are **never displayed numerically to the
+ * player**. The UI reads from the knowledge layer with attributed
+ * descriptions instead.
+ */
+export interface Player {
+  id: PlayerId;
+  firstName: string;
+  lastName: string;
+  position: Position;
+  positionGroup: PositionGroup;
+
+  /** Years since draft entry. 0 = rookie. */
+  experienceYears: number;
+  /** Birthdate in ISO YYYY-MM-DD; age is derived from sim clock. */
+  birthDate: string;
+
+  /** Team currently rostering this player; null = free agent / retired. */
+  teamId: TeamId | null;
+  contractId: ContractId | null;
+
+  /** Hidden current-skill ratings. NOT for display. Used by sim/dev/trade. */
+  current: PlayerSkills;
+  /** Hidden maximum-potential ceilings. NOT for display. Used by development module. */
+  ceiling: PlayerSkills;
+
+  /** Hidden development archetype affecting growth response. NOT for display. */
+  developmentArchetype: PlayerDevelopmentArchetype;
+
+  /** Position-specific archetype tag, e.g. "WEST_COAST_PRECISION_PASSER". Drives scheme fit. */
+  archetype: string;
+
+  /** Injury status. Affects availability and game-sim performance. */
+  injury: InjuryStatus | null;
+
+  /** Cumulative wear/conditioning from regular play; 0..100. Internal. */
+  conditioning: number;
+}
+
+/**
+ * Skill ratings are stored as 0..100 numbers in the engine but are
+ * **NEVER** displayed to the player as numbers. They surface only through
+ * descriptive scout reports, observable performance, and statistics.
+ */
+export interface PlayerSkills {
+  // Physical
+  speed: number;
+  acceleration: number;
+  agility: number;
+  strength: number;
+  durability: number;
+
+  // Position-skill umbrellas. Sub-skills under each are computed when needed.
+  // Stored at this granularity to keep the type small; sub-skill resolution
+  // happens in the archetype-fit + scheme-fit calculations.
+  technicalSkill: number;
+  footballIq: number;
+  decisionMaking: number;
+  handsBallSkills: number;
+  blockingTechnique: number;
+  passRushTechnique: number;
+  coverageTechnique: number;
+  tacklingTechnique: number;
+
+  // Mental/intangible
+  leadership: number;
+  competitiveness: number;
+  workEthic: number;
+  coachability: number;
+  composure: number;
+}
+
+export type PlayerDevelopmentArchetype =
+  | 'FAST_LEARNER'
+  | 'SLOW_STEADY'
+  | 'ADVERSITY_DRIVEN'
+  | 'EARLY_BLOOMER'
+  | 'LATE_DEVELOPER'
+  | 'CONFIDENCE_DEPENDENT';
+
+export interface InjuryStatus {
+  type: string;
+  severity: 'MINOR' | 'MODERATE' | 'MAJOR';
+  /** Sim-week the injury occurred. */
+  occurredOnTick: number;
+  /** Sim-week the player is expected back. */
+  estimatedReturnTick: number;
+}
