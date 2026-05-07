@@ -90,6 +90,22 @@ export type {
   TeamCapSummary,
 } from './contracts/index.js';
 
+// Phase 2 — Game simulation + season runner
+export { teamStrength, simulateGame } from './games/index.js';
+export type { SimulateGameOptions } from './games/index.js';
+export {
+  generateSchedule,
+  simulateSeason,
+  runPlayoffs,
+  computeRecords,
+  sortByRecord,
+  divisionStandings,
+  playoffSeeds,
+  winPct,
+  type TeamRecord,
+} from './season/index.js';
+export type { SimulateSeasonOptions } from './season/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';

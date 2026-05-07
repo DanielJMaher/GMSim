@@ -5,7 +5,13 @@ import {
   schemeFitForPlayer,
   summarizeTeamCap,
   currentCapHit,
+  simulateSeason,
+  computeRecords,
+  divisionStandings,
+  playoffSeeds,
+  winPct,
 } from '@gmsim/engine';
+import type { TeamRecord } from '@gmsim/engine';
 import type {
   LeagueState,
   TeamState,
@@ -13,7 +19,7 @@ import type {
   Player,
   TeamId,
 } from '@gmsim/engine/types';
-import { Division, PositionGroup } from '@gmsim/engine/types';
+import { Division, PositionGroup, Conference } from '@gmsim/engine/types';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -26,11 +32,17 @@ import { Division, PositionGroup } from '@gmsim/engine/types';
  * `docs/NORTH_STAR.md`.
  */
 export function App() {
-  const [seed, setSeed] = useState('phase-1-rosters');
+  const [seed, setSeed] = useState('phase-2-season');
   const [seedDraft, setSeedDraft] = useState(seed);
   const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
+  const [seasonSimmed, setSeasonSimmed] = useState(false);
 
-  const league = useMemo(() => createLeague({ seed }), [seed]);
+  const baseLeague = useMemo(() => createLeague({ seed }), [seed]);
+  const league = useMemo(
+    () => (seasonSimmed ? simulateSeason(baseLeague) : baseLeague),
+    [baseLeague, seasonSimmed],
+  );
+  const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
   const teams = Object.values(league.teams).sort((a, b) =>
     a.identity.division === b.identity.division
       ? a.identity.location.localeCompare(b.identity.location)
@@ -50,38 +62,54 @@ export function App() {
             Not player-facing.
           </p>
         </div>
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            setSeed(seedDraft || 'default');
-            setSelectedTeamId(null);
-          }}
-        >
-          <label className="text-xs uppercase tracking-wide text-zinc-500" htmlFor="seed">
-            seed
-          </label>
-          <input
-            id="seed"
-            value={seedDraft}
-            onChange={(e) => setSeedDraft(e.target.value)}
-            className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 font-mono text-sm focus:border-emerald-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-sm text-emerald-300 hover:bg-emerald-500/20"
+        <div className="flex flex-wrap items-center gap-2">
+          <form
+            className="flex items-center gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              setSeed(seedDraft || 'default');
+              setSelectedTeamId(null);
+              setSeasonSimmed(false);
+            }}
           >
-            Re-roll
+            <label className="text-xs uppercase tracking-wide text-zinc-500" htmlFor="seed">
+              seed
+            </label>
+            <input
+              id="seed"
+              value={seedDraft}
+              onChange={(e) => setSeedDraft(e.target.value)}
+              className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 font-mono text-sm focus:border-emerald-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-sm text-emerald-300 hover:bg-emerald-500/20"
+            >
+              Re-roll
+            </button>
+          </form>
+          <button
+            onClick={() => setSeasonSimmed((v) => !v)}
+            className={`rounded border px-3 py-1 text-sm ${
+              seasonSimmed
+                ? 'border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20'
+                : 'border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20'
+            }`}
+          >
+            {seasonSimmed ? 'Reset to preseason' : 'Simulate Season'}
           </button>
-        </form>
+        </div>
       </header>
 
       <LeagueOverview league={league} />
+
+      {seasonSimmed && records && <SeasonResultsView league={league} records={records} />}
 
       {selectedTeam && (
         <TeamDetail
           team={selectedTeam}
           league={league}
+          records={records}
           onClose={() => setSelectedTeamId(null)}
         />
       )}
@@ -91,6 +119,7 @@ export function App() {
           key={division}
           division={division}
           league={league}
+          records={records}
           teams={teams.filter((t) => t.identity.division === division)}
           selectedTeamId={selectedTeamId}
           onSelect={setSelectedTeamId}
@@ -157,12 +186,14 @@ function LeagueOverview({ league }: { league: LeagueState }) {
 function DivisionSection({
   division,
   league,
+  records,
   teams,
   selectedTeamId,
   onSelect,
 }: {
   division: Division;
   league: LeagueState;
+  records: Map<TeamId, TeamRecord> | null;
   teams: readonly TeamState[];
   selectedTeamId: TeamId | null;
   onSelect: (id: TeamId) => void;
@@ -178,6 +209,7 @@ function DivisionSection({
             key={team.identity.id}
             team={team}
             league={league}
+            record={records?.get(team.identity.id) ?? null}
             selected={team.identity.id === selectedTeamId}
             onClick={() => onSelect(team.identity.id)}
           />
@@ -190,11 +222,13 @@ function DivisionSection({
 function TeamCard({
   team,
   league,
+  record,
   selected,
   onClick,
 }: {
   team: TeamState;
   league: LeagueState;
+  record: TeamRecord | null;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -215,7 +249,15 @@ function TeamCard({
       <header className="mb-2">
         <div className="flex items-baseline justify-between">
           <h3 className="font-medium">{team.identity.fullName}</h3>
-          <span className="text-xs text-zinc-600">{team.identity.marketSize.toLowerCase()}</span>
+          <div className="flex items-baseline gap-2 text-xs">
+            {record && (
+              <span className="font-mono text-zinc-300">
+                {record.wins}-{record.losses}
+                {record.ties > 0 ? `-${record.ties}` : ''}
+              </span>
+            )}
+            <span className="text-zinc-600">{team.identity.marketSize.toLowerCase()}</span>
+          </div>
         </div>
         <div className="text-xs text-zinc-500">
           {team.franchiseHistory.toLowerCase().replace(/_/g, ' ')} ·{' '}
@@ -324,15 +366,18 @@ function Dim({ label, value }: { label: string; value: number }) {
 function TeamDetail({
   team,
   league,
+  records,
   onClose,
 }: {
   team: TeamState;
   league: LeagueState;
+  records: Map<TeamId, TeamRecord> | null;
   onClose: () => void;
 }) {
   const hc = league.coaches[team.headCoachId]!;
   const cap = summarizeTeamCap(team, league);
   const overCap = cap.capSpace < 0;
+  const record = records?.get(team.identity.id) ?? null;
   const players = team.rosterIds
     .map((id) => league.players[id]!)
     .sort((a, b) => {
@@ -363,7 +408,15 @@ function TeamDetail({
     <section className="mb-8 rounded border border-emerald-500/40 bg-zinc-950 p-4">
       <header className="mb-3 flex items-baseline justify-between">
         <div>
-          <h2 className="text-lg font-medium">{team.identity.fullName}</h2>
+          <h2 className="text-lg font-medium">
+            {team.identity.fullName}
+            {record && (
+              <span className="ml-3 font-mono text-sm text-zinc-300">
+                {record.wins}-{record.losses}
+                {record.ties > 0 ? `-${record.ties}` : ''}
+              </span>
+            )}
+          </h2>
           <p className="text-xs text-zinc-500">
             {team.rosterIds.length}-man roster · scheme:{' '}
             {hc.offensiveScheme.replace(/_/g, ' ').toLowerCase()} /{' '}
@@ -526,4 +579,94 @@ function avgKeyCeiling(p: Player): number {
 function computeAge(birthDate: string): number {
   const birthYear = Number(birthDate.slice(0, 4));
   return 2026 - birthYear;
+}
+
+// ─── SEASON RESULTS VIEW ─────────────────────────────────────────────────
+
+function SeasonResultsView({
+  league,
+  records,
+}: {
+  league: LeagueState;
+  records: Map<TeamId, TeamRecord>;
+}) {
+  const standings = divisionStandings(league, records);
+  const seeds = playoffSeeds(league, records);
+  const playoffs = league.schedule?.playoffs;
+  const championId = playoffs?.championId;
+  const champion = championId ? league.teams[championId] : null;
+
+  return (
+    <section className="mb-8 rounded border border-amber-500/30 bg-amber-500/5 p-4">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-300">
+        Season {league.seasonNumber} Results
+      </h2>
+      {champion && (
+        <p className="mb-4 text-lg">
+          <span className="text-zinc-500">🏆 Champion:</span>{' '}
+          <span className="font-medium text-amber-200">{champion.identity.fullName}</span>
+        </p>
+      )}
+
+      <div className="mb-6 grid gap-4 md:grid-cols-2">
+        {Object.values(Conference).map((conf) => (
+          <div key={conf} className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+              {conf} Playoff Seeds
+            </h3>
+            <ol className="space-y-0.5 text-sm">
+              {seeds[conf].map((rec, idx) => {
+                const team = league.teams[rec.teamId]!;
+                return (
+                  <li key={rec.teamId} className="flex justify-between">
+                    <span>
+                      <span className="mr-2 font-mono text-xs text-zinc-500">{idx + 1}.</span>
+                      {team.identity.fullName}
+                    </span>
+                    <span className="font-mono text-xs text-zinc-400">
+                      {rec.wins}-{rec.losses}
+                      {rec.ties > 0 ? `-${rec.ties}` : ''}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        ))}
+      </div>
+
+      <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+        Division Standings
+      </h3>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {Object.values(Division).map((division) => {
+          const recs = standings.get(division) ?? [];
+          return (
+            <div key={division} className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+              <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+                {division.replace('_', ' ')}
+              </div>
+              <ul className="space-y-0.5 text-xs">
+                {recs.map((rec) => {
+                  const team = league.teams[rec.teamId]!;
+                  return (
+                    <li key={rec.teamId} className="flex justify-between">
+                      <span>{team.identity.location}</span>
+                      <span className="font-mono text-zinc-400">
+                        {rec.wins}-{rec.losses}
+                        {rec.ties > 0 ? `-${rec.ties}` : ''}
+                        <span className="ml-1 text-[10px] text-zinc-600">
+                          ({(winPct(rec) * 100).toFixed(0)}%)
+                        </span>
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
 }

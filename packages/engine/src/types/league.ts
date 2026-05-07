@@ -2,6 +2,7 @@ import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
 import type { Contract } from './contract.js';
+import type { SeasonSchedule } from './game.js';
 import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ContractId } from './ids.js';
 
 /**
@@ -36,6 +37,9 @@ export interface LeagueState {
 
   /** Per-team computed Team Personality. Re-derived when components change. */
   teamPersonalities: Readonly<Record<TeamId, TeamPersonality>>;
+
+  /** Current season's schedule + playoff state. Null before generation. */
+  schedule: SeasonSchedule | null;
 }
 
 export type LeaguePhase =

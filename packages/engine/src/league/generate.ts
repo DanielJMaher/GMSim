@@ -118,6 +118,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     coaches: coaches as Readonly<Record<CoachId, HeadCoach>>,
     contracts: contracts as Readonly<Record<ContractIdType, Contract>>,
     teamPersonalities: teamPersonalities as Readonly<Record<TeamId, TeamPersonality>>,
+    schedule: null, // populated when simulateSeason runs
   };
 }
 
