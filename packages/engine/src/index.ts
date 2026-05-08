@@ -105,7 +105,11 @@ export {
   advanceSeason,
   advancePlayerDevelopment,
   ageOfPlayer,
+  rollRetirement,
+  retirementProbabilityForAge,
+  processRetirements,
   type TeamRecord,
+  type RetirementOutcome,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 

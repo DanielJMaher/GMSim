@@ -11,6 +11,14 @@ export interface GenerateContractOptions {
   idSuffix: string;
   /** Current league tick. Used to set yearsRemaining + signedOnTick consistently. */
   currentTick: number;
+  /**
+   * If true, the contract is brand new — yearsRemaining = realYears
+   * and signedOnTick = currentTick. Used by retirement replacement
+   * for incoming rookies. Default (false) rolls yearsRemaining
+   * uniformly in [1, realYears] so league-creation contracts look
+   * mid-stream.
+   */
+  fresh?: boolean;
 }
 
 /**
@@ -33,7 +41,7 @@ export function generateContract(prng: Prng, options: GenerateContractOptions): 
   const template = TIER_TEMPLATES[tier];
 
   const realYears = prng.nextRange(template.yearsRange[0], template.yearsRange[1] + 1);
-  const yearsRemaining = prng.nextRange(1, realYears + 1);
+  const yearsRemaining = options.fresh ? realYears : prng.nextRange(1, realYears + 1);
   const yearsElapsed = realYears - yearsRemaining;
   const signedOnTick = options.currentTick - yearsElapsed * WEEKS_PER_LEAGUE_YEAR;
 

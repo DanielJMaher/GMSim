@@ -12,3 +12,9 @@ export {
 } from './standings.js';
 export { advanceSeason } from './advance.js';
 export { advancePlayerDevelopment, ageOfPlayer } from './development.js';
+export {
+  rollRetirement,
+  retirementProbabilityForAge,
+  processRetirements,
+} from './retirement.js';
+export type { RetirementOutcome } from './retirement.js';

@@ -53,14 +53,17 @@ export function rollAgeProfile(prng: Prng): AgeProfile {
 
 /**
  * Convert an age in years to an ISO YYYY-MM-DD birthdate, anchored to
- * a fictional "current sim date" of 2026-09-01 (NFL season opener).
+ * the supplied sim year (defaults to the league epoch, 2026).
  *
- * The exact birthdate is rolled within the year for variety. Result is
- * stable for a given seed/age combination.
+ * Mid-sim generators (retirement replacement, draft) must pass the
+ * current sim year so newly-minted rookies are correctly aged for
+ * the season they enter, not for league epoch.
+ *
+ * The exact month/day is rolled within the year for variety. Result
+ * is stable for a given seed/age combination.
  */
-export function ageToBirthDate(prng: Prng, ageYears: number): string {
-  const SIM_NOW_YEAR = 2026;
-  const birthYear = SIM_NOW_YEAR - ageYears;
+export function ageToBirthDate(prng: Prng, ageYears: number, simYear = 2026): string {
+  const birthYear = simYear - ageYears;
   const month = prng.nextRange(1, 13);
   // Clamp days at 28 to avoid invalid Feb dates without doing month math.
   const day = prng.nextRange(1, 29);

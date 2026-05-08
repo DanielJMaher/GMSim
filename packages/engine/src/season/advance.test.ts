@@ -85,13 +85,18 @@ describe('advanceSeason', () => {
   });
 
   describe('player development', () => {
-    it('increments experienceYears for every player', () => {
+    it('increments experienceYears for every surviving player', () => {
       const before = simulateSeason(createLeague({ seed: 'adv-exp' }));
       const after = advanceSeason(before);
+      let checked = 0;
       for (const before_p of Object.values(before.players)) {
-        const after_p = after.players[before_p.id]!;
+        const after_p = after.players[before_p.id];
+        // Player may have retired and been removed; covered by retirement tests.
+        if (!after_p) continue;
         expect(after_p.experienceYears).toBe(before_p.experienceYears + 1);
+        checked++;
       }
+      expect(checked).toBeGreaterThan(0);
     });
 
     it('age derived from birthDate increments by 1 per season', () => {
@@ -133,14 +138,17 @@ describe('advanceSeason', () => {
       );
       expect(expiring.length).toBeGreaterThan(0); // sanity: some contracts expire
       const next = advanceSeason(played);
+      let checked = 0;
       for (const c of expiring) {
-        const renewed = next.contracts[c.id]!;
-        // After renewal, yearsRemaining is reset to a fresh contract length;
-        // it should match the new realYears (= 1 or 2 per the renewal logic).
+        const renewed = next.contracts[c.id];
+        // Player may have retired — their contract is dropped, not renewed.
+        if (!renewed) continue;
         expect(renewed.yearsRemaining).toBe(renewed.realYears);
         expect(renewed.realYears).toBeGreaterThanOrEqual(1);
         expect(renewed.realYears).toBeLessThanOrEqual(2);
+        checked++;
       }
+      expect(checked).toBeGreaterThan(0);
     });
 
     it('contract with multi-year remaining decrements by exactly 1', () => {
@@ -149,9 +157,14 @@ describe('advanceSeason', () => {
         (c) => c.yearsRemaining > 1,
       );
       const next = advanceSeason(played);
+      let checked = 0;
       for (const c of ongoing) {
-        expect(next.contracts[c.id]!.yearsRemaining).toBe(c.yearsRemaining - 1);
+        const after = next.contracts[c.id];
+        if (!after) continue; // retired
+        expect(after.yearsRemaining).toBe(c.yearsRemaining - 1);
+        checked++;
       }
+      expect(checked).toBeGreaterThan(0);
     });
   });
 

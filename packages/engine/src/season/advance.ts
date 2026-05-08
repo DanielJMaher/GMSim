@@ -3,10 +3,11 @@ import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState, TeamSeasonRecord } from '../types/team.js';
-import type { TeamId, ContractId as ContractIdType } from '../types/ids.js';
+import type { TeamId, PlayerId, ContractId as ContractIdType } from '../types/ids.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { computeRecords, divisionStandings } from './standings.js';
 import { advancePlayerDevelopment } from './development.js';
+import { processRetirements } from './retirement.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { TIER_TEMPLATES } from '../contracts/tiers.js';
 import { WEEKS_PER_LEAGUE_YEAR } from '../contracts/constants.js';
@@ -37,6 +38,8 @@ export function advanceSeason(league: LeagueState): LeagueState {
   const advancePrng = new PrngClass(`${league.seed}::advance-${league.seasonNumber}`);
   const records = computeRecords(league);
   const standings = divisionStandings(league, records);
+  const nextSeasonNumber = league.seasonNumber + 1;
+  const nextTick = league.tick + SECONDS_PER_LEAGUE_YEAR;
 
   // ─── Update team season history + competitive window ────────────────
   const teamsNext: Record<string, TeamState> = {};
@@ -52,39 +55,66 @@ export function advanceSeason(league: LeagueState): LeagueState {
   }
 
   // ─── Advance every player ──────────────────────────────────────────
-  const playersNext: Record<string, Player> = {};
+  // Offseason heals: any lingering Player.injury is cleared. The actual
+  // weeks-of-recovery model (active rehab, prolonged absences) is a
+  // medical-staff system in a later phase.
+  const playersAfterDev: Record<string, Player> = {};
   for (const player of Object.values(league.players)) {
     const playerPrng = advancePrng.fork(`player:${player.id}`);
     const advanced = advancePlayerDevelopment(playerPrng.fork('dev'), player, league);
-    // Note: injury propagation from GameResult.injuries → Player.injury
-    // is deferred to a later slice. Phase 2 advanceSeason ignores in-game
-    // injuries when advancing players.
-    playersNext[player.id] = advanced;
+    playersAfterDev[player.id] = advanced.injury ? { ...advanced, injury: null } : advanced;
   }
 
   // ─── Advance every contract ────────────────────────────────────────
-  const contractsNext: Record<string, Contract> = {};
+  const contractsAfterAdvance: Record<string, Contract> = {};
   for (const contract of Object.values(league.contracts)) {
-    const player = playersNext[contract.playerId];
-    if (!player) {
-      // Player no longer exists — drop contract (shouldn't happen in Phase 2).
-      continue;
-    }
+    const player = playersAfterDev[contract.playerId];
+    if (!player) continue;
     const contractPrng = advancePrng.fork(`contract:${contract.id}`);
-    contractsNext[contract.id] = advanceOrRenewContract(contractPrng, contract, player);
+    contractsAfterAdvance[contract.id] = advanceOrRenewContract(contractPrng, contract, player);
   }
 
-  // Update player contract IDs in case any were renewed/replaced.
-  // (Renewal currently keeps the same ContractId for simplicity — see
-  // advanceOrRenewContract — so no extra wiring needed here.)
+  // ─── Retirement + rookie replacement ───────────────────────────────
+  // Phase 2 placeholder: age-based retirement, slot-for-slot rookie
+  // backfill. Real retirement + draft replenishment lands in Phase 3.
+  const retirement = processRetirements(
+    advancePrng.fork('retirement'),
+    league,
+    nextSeasonNumber,
+    nextTick,
+  );
+
+  const playersNext: Record<string, Player> = {};
+  const retiredSet = new Set<PlayerId>(retirement.retiredPlayerIds);
+  for (const [id, player] of Object.entries(playersAfterDev)) {
+    if (retiredSet.has(id as PlayerId)) continue;
+    playersNext[id] = player;
+  }
+  Object.assign(playersNext, retirement.newPlayers);
+
+  const contractsNext: Record<string, Contract> = {};
+  const droppedSet = new Set<ContractIdType>(retirement.dropContractIds);
+  for (const [id, contract] of Object.entries(contractsAfterAdvance)) {
+    if (droppedSet.has(id as ContractIdType)) continue;
+    contractsNext[id] = contract;
+  }
+  Object.assign(contractsNext, retirement.newContracts);
+
+  // Splice updated rosterIds (with retiree → rookie swaps) into teams.
+  for (const teamId of Object.keys(teamsNext)) {
+    const newRoster = retirement.rosterIdsByTeam.get(teamId);
+    if (newRoster) {
+      teamsNext[teamId] = { ...teamsNext[teamId]!, rosterIds: newRoster };
+    }
+  }
 
   return {
     ...league,
     teams: teamsNext as Readonly<Record<TeamId, TeamState>>,
     players: playersNext as typeof league.players,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
-    seasonNumber: league.seasonNumber + 1,
-    tick: league.tick + SECONDS_PER_LEAGUE_YEAR,
+    seasonNumber: nextSeasonNumber,
+    tick: nextTick,
     phase: 'OFFSEASON_PRE_FA',
     schedule: null,
   };

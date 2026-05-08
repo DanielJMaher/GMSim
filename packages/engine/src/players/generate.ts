@@ -8,7 +8,7 @@ import {
   type PlayerArchetype,
 } from '../archetypes/index.js';
 import { positionGroupFor } from './position-group.js';
-import { rollAgeProfile, ageToBirthDate } from './age.js';
+import { rollAgeProfile, ageToBirthDate, type AgeStage, type AgeProfile } from './age.js';
 import { rollSkills, rollDevelopmentArchetype } from './skills.js';
 
 export interface GeneratePlayerOptions {
@@ -26,6 +26,19 @@ export interface GeneratePlayerOptions {
   };
   /** Stable suffix appended to the player ID (typically a counter). */
   idSuffix: string;
+  /**
+   * If set, skip the weighted age-stage roll and force the player into
+   * this stage (with a uniformly-random age inside the stage's range).
+   * Used by retirement replacement to inject true rookies mid-sim.
+   */
+  forceAgeStage?: AgeStage;
+  /**
+   * Sim year to anchor the rolled birthdate against. Defaults to 2026
+   * (league epoch). Mid-sim generators must pass the current sim year
+   * (e.g., `2026 + (seasonNumber - 1)`) so birthdates are correct for
+   * the season the player enters.
+   */
+  simYear?: number;
 }
 
 /**
@@ -41,11 +54,13 @@ export interface GeneratePlayerOptions {
  */
 export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Player {
   const archetype = pickArchetype(prng, options);
-  const age = rollAgeProfile(prng.fork('age'));
+  const age = options.forceAgeStage
+    ? rollForcedAge(prng.fork('age'), options.forceAgeStage)
+    : rollAgeProfile(prng.fork('age'));
   const skills = rollSkills(prng.fork('skills'), archetype, age.stage);
   const development = rollDevelopmentArchetype(prng.fork('dev'));
   const name = generateName(prng.fork('name'));
-  const birthDate = ageToBirthDate(prng.fork('birth'), age.ageYears);
+  const birthDate = ageToBirthDate(prng.fork('birth'), age.ageYears, options.simYear);
 
   const positionGroup: PositionGroup = positionGroupFor(options.position);
 
@@ -67,6 +82,19 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     injury: null,
     conditioning: 100,
   };
+}
+
+function rollForcedAge(prng: Prng, stage: AgeStage): AgeProfile {
+  const ranges: Record<AgeStage, [number, number]> = {
+    ROOKIE: [21, 22],
+    DEVELOPING: [23, 24],
+    PRIME: [25, 29],
+    VETERAN: [30, 33],
+    AGING: [34, 39],
+  };
+  const [min, max] = ranges[stage];
+  const ageYears = prng.nextRange(min, max + 1);
+  return { stage, ageYears, experienceYears: Math.max(0, ageYears - 22) };
 }
 
 function pickArchetype(prng: Prng, options: GeneratePlayerOptions): PlayerArchetype {

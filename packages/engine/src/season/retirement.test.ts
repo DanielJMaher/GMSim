@@ -1,0 +1,177 @@
+import { describe, it, expect } from 'vitest';
+import { Prng } from '../prng/index.js';
+import { createLeague } from '../league/generate.js';
+import { simulateSeason } from './runner.js';
+import { advanceSeason } from './advance.js';
+import { ageOfPlayer } from './development.js';
+import { rollRetirement, retirementProbabilityForAge } from './retirement.js';
+
+function runSeasons(seed: string, n: number) {
+  let league = createLeague({ seed });
+  for (let i = 0; i < n; i++) {
+    league = simulateSeason(league);
+    league = advanceSeason(league);
+  }
+  return league;
+}
+
+describe('retirementProbabilityForAge', () => {
+  it('is 0 for any age 33 or under', () => {
+    for (let age = 18; age <= 33; age++) {
+      expect(retirementProbabilityForAge(age)).toBe(0);
+    }
+  });
+
+  it('is 1 for age 40 and above', () => {
+    expect(retirementProbabilityForAge(40)).toBe(1);
+    expect(retirementProbabilityForAge(45)).toBe(1);
+  });
+
+  it('monotonically non-decreasing in age', () => {
+    let prev = -1;
+    for (let age = 18; age <= 50; age++) {
+      const p = retirementProbabilityForAge(age);
+      expect(p).toBeGreaterThanOrEqual(prev);
+      prev = p;
+    }
+  });
+});
+
+describe('rollRetirement', () => {
+  it('always returns false for under-34 players', () => {
+    const prng = new Prng('roll-young');
+    for (let i = 0; i < 100; i++) {
+      expect(rollRetirement(prng, 28)).toBe(false);
+    }
+  });
+
+  it('always returns true for 40+ players', () => {
+    const prng = new Prng('roll-old');
+    for (let i = 0; i < 50; i++) {
+      expect(rollRetirement(prng, 40)).toBe(true);
+      expect(rollRetirement(prng, 45)).toBe(true);
+    }
+  });
+
+  it('returns mixed results for 36-year-olds (~30% retire)', () => {
+    const prng = new Prng('roll-36');
+    let retired = 0;
+    const trials = 1000;
+    for (let i = 0; i < trials; i++) {
+      if (rollRetirement(prng, 36)) retired++;
+    }
+    // 30% target, allow ±5% statistical wiggle
+    expect(retired).toBeGreaterThan(trials * 0.25);
+    expect(retired).toBeLessThan(trials * 0.35);
+  });
+});
+
+describe('advanceSeason — retirement integration', () => {
+  it('retires at least one player per offseason on a 32-team league', () => {
+    const played = simulateSeason(createLeague({ seed: 'retire-some' }));
+    const before = Object.keys(played.players).length;
+    const after = advanceSeason(played);
+    const survived = Object.keys(after.players).length;
+    // Net player count is constant (rookies replace retirees), so check
+    // by intersecting player IDs.
+    const beforeIds = new Set(Object.keys(played.players));
+    const carried = Object.keys(after.players).filter((id) => beforeIds.has(id));
+    const retired = before - carried.length;
+    expect(retired).toBeGreaterThan(0);
+  });
+
+  it('keeps total league population at 1696 across 5 seasons', () => {
+    const league = runSeasons('retire-pop', 5);
+    expect(Object.keys(league.players).length).toBe(1696);
+  });
+
+  it('every team stays at 53 across 5 seasons even with retirement churn', () => {
+    const league = runSeasons('retire-rosters', 5);
+    for (const team of Object.values(league.teams)) {
+      expect(team.rosterIds.length).toBe(53);
+    }
+  });
+
+  it('caps player age — no one survives past 40 across 8 seasons', () => {
+    const league = runSeasons('retire-age-cap', 8);
+    for (const player of Object.values(league.players)) {
+      const age = ageOfPlayer(player, league.seasonNumber);
+      // 40+ retires unconditionally, so the upper bound after advance
+      // is exactly 40 (a 39 last year that survived the roll moves to 40).
+      expect(age).toBeLessThanOrEqual(40);
+    }
+  });
+
+  it('average roster age is plausible after 10 seasons (mid-20s to low-30s)', () => {
+    const league = runSeasons('retire-age-band', 10);
+    const players = Object.values(league.players);
+    const avgAge =
+      players.reduce((s, p) => s + ageOfPlayer(p, league.seasonNumber), 0) /
+      players.length;
+    // Without retirement the validation harness saw avg ~37. With
+    // retirement the population should reset toward the original
+    // distribution (avg ~26). Allow a wide band.
+    expect(avgAge).toBeGreaterThan(23);
+    expect(avgAge).toBeLessThan(33);
+  });
+
+  it('every retiree has their contract dropped from league.contracts', () => {
+    const played = simulateSeason(createLeague({ seed: 'retire-contracts' }));
+    const beforeContracts = new Set(Object.keys(played.contracts));
+    const after = advanceSeason(played);
+    const beforePlayerIds = new Set(Object.keys(played.players));
+    const afterPlayerIds = new Set(Object.keys(after.players));
+    const retiredIds = [...beforePlayerIds].filter((id) => !afterPlayerIds.has(id));
+    expect(retiredIds.length).toBeGreaterThan(0);
+
+    for (const retiredId of retiredIds) {
+      const retiree = played.players[retiredId]!;
+      if (!retiree.contractId) continue;
+      // Old contract gone…
+      expect(after.contracts[retiree.contractId]).toBeUndefined();
+      // …and old contract ID no longer claimed by any surviving player.
+      for (const p of Object.values(after.players)) {
+        expect(p.contractId).not.toBe(retiree.contractId);
+      }
+      expect(beforeContracts.has(retiree.contractId)).toBe(true); // sanity
+    }
+  });
+
+  it('every replacement rookie is age 21-22 with experienceYears 0', () => {
+    const played = simulateSeason(createLeague({ seed: 'retire-rookies' }));
+    const beforeIds = new Set(Object.keys(played.players));
+    const after = advanceSeason(played);
+    const newIds = Object.keys(after.players).filter((id) => !beforeIds.has(id));
+    expect(newIds.length).toBeGreaterThan(0);
+
+    for (const newId of newIds) {
+      const rookie = after.players[newId]!;
+      expect(rookie.experienceYears).toBe(0);
+      const age = ageOfPlayer(rookie, after.seasonNumber);
+      expect(age).toBeGreaterThanOrEqual(21);
+      expect(age).toBeLessThanOrEqual(22);
+    }
+  });
+
+  it('every replacement rookie has a fresh contract (yearsRemaining = realYears)', () => {
+    const played = simulateSeason(createLeague({ seed: 'retire-fresh-contracts' }));
+    const beforeIds = new Set(Object.keys(played.players));
+    const after = advanceSeason(played);
+    const newIds = Object.keys(after.players).filter((id) => !beforeIds.has(id));
+    for (const newId of newIds) {
+      const rookie = after.players[newId]!;
+      expect(rookie.contractId).not.toBeNull();
+      const contract = after.contracts[rookie.contractId!]!;
+      expect(contract.yearsRemaining).toBe(contract.realYears);
+    }
+  });
+
+  it('determinism — retirement outcomes match across identical runs', () => {
+    const a = runSeasons('retire-det', 4);
+    const b = runSeasons('retire-det', 4);
+    expect(Object.keys(a.players).sort()).toEqual(Object.keys(b.players).sort());
+    expect(Object.keys(a.contracts).sort()).toEqual(Object.keys(b.contracts).sort());
+    expect(a.players).toEqual(b.players);
+    expect(a.contracts).toEqual(b.contracts);
+  });
+});
