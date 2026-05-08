@@ -365,10 +365,18 @@ function CapBar({ team, league }: { team: TeamState; league: LeagueState }) {
   const cap = summarizeTeamCap(team, league);
   const overCap = cap.capSpace < 0;
   const usagePct = Math.min(100, (cap.capUsed / cap.capCeiling) * 100);
+  const injuredCount = countInjuredOnRoster(team, league);
   return (
     <div className="mt-2">
       <div className="flex items-baseline justify-between text-[11px] text-zinc-500">
-        <span>{team.rosterIds.length} players</span>
+        <span>
+          {team.rosterIds.length} players
+          {injuredCount > 0 && (
+            <span className="ml-2 text-rose-400" title={`${injuredCount} player(s) currently injured`}>
+              {injuredCount} inj
+            </span>
+          )}
+        </span>
         <span className={overCap ? 'text-rose-400' : 'text-zinc-400'}>
           {formatMoney(cap.capUsed)} / {formatMoney(cap.capCeiling)}{' '}
           <span className={overCap ? 'text-rose-400' : 'text-emerald-400'}>
@@ -385,6 +393,15 @@ function CapBar({ team, league }: { team: TeamState; league: LeagueState }) {
       </div>
     </div>
   );
+}
+
+function countInjuredOnRoster(team: TeamState, league: LeagueState): number {
+  let count = 0;
+  for (const id of team.rosterIds) {
+    const p = league.players[id];
+    if (p?.injury) count++;
+  }
+  return count;
 }
 
 function formatMoney(value: number): string {
@@ -640,6 +657,9 @@ function PositionGroupTable({
               <th className="px-2 py-1 font-medium" title="Current-year cap hit">
                 cap
               </th>
+              <th className="px-2 py-1 font-medium" title="Active injury (severity, weeks until expected return)">
+                inj
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -682,6 +702,9 @@ function PositionGroupTable({
                   <td className={`px-2 py-1 font-mono ${fitTone}`}>{fit.toFixed(2)}</td>
                   <td className="px-2 py-1 text-zinc-500">{contract?.yearsRemaining ?? '-'}</td>
                   <td className="px-2 py-1 font-mono text-zinc-400">{formatMoney(cap)}</td>
+                  <td className="px-2 py-1 text-[10px]">
+                    <InjuryCell player={p} league={league} />
+                  </td>
                 </tr>
               );
             })}
@@ -689,6 +712,29 @@ function PositionGroupTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function InjuryCell({ player, league }: { player: Player; league: LeagueState }) {
+  const inj = player.injury;
+  if (!inj) return <span className="text-zinc-700">—</span>;
+  const seasonStartTick = league.tick;
+  // During regular season league.tick stays at season start (advanceSeason
+  // jumps it forward 17). estimatedReturnTick was stamped relative to that
+  // base, so weeks-until = estimatedReturnTick - seasonStartTick gives a
+  // "weeks-from-week-1" figure. Clamp to non-negative for safety.
+  const weeksUntil = Math.max(0, inj.estimatedReturnTick - seasonStartTick);
+  const tone =
+    inj.severity === 'MAJOR'
+      ? 'text-rose-400'
+      : inj.severity === 'MODERATE'
+        ? 'text-amber-400'
+        : 'text-zinc-400';
+  const sev = inj.severity === 'MINOR' ? 'min' : inj.severity === 'MODERATE' ? 'mod' : 'maj';
+  return (
+    <span className={tone} title={`${inj.type} (${inj.severity.toLowerCase()})`}>
+      {sev} · w{weeksUntil}
+    </span>
   );
 }
 
