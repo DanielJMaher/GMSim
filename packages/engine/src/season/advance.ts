@@ -3,13 +3,16 @@ import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState, TeamSeasonRecord } from '../types/team.js';
-import type { TeamId, PlayerId, ContractId as ContractIdType } from '../types/ids.js';
+import type { HeadCoach } from '../types/personnel.js';
+import type { TeamId, PlayerId, CoachId, ContractId as ContractIdType } from '../types/ids.js';
 import type { CareerSeasonStats } from '../types/stats.js';
+import type { AwardKind } from '../types/awards.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { computeRecords, divisionStandings } from './standings.js';
 import { advancePlayerDevelopment } from './development.js';
 import { processRetirements } from './retirement.js';
 import { seasonStatsForLeague } from './stats.js';
+import { seasonAwards } from './awards.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { TIER_TEMPLATES } from '../contracts/tiers.js';
 import { WEEKS_PER_LEAGUE_YEAR } from '../contracts/constants.js';
@@ -56,10 +59,12 @@ export function advanceSeason(league: LeagueState): LeagueState {
     };
   }
 
-  // ─── Snapshot per-player stats for the just-played season ──────────
-  // Computed once before the player loop so every player gets a chance
-  // at a careerStats entry. Players with zero output don't get one.
+  // ─── Snapshot per-player stats + awards for the just-played season ──
+  // Stats and awards are computed once before the player loop so every
+  // player gets a chance at a careerStats / careerAwards entry.
   const seasonStats = seasonStatsForLeague(league);
+  const awards = seasonAwards(league);
+  const playerAwardMap = buildPlayerAwardMap(awards);
 
   // ─── Advance every player ──────────────────────────────────────────
   // Offseason heals: any lingering Player.injury is cleared. The actual
@@ -82,7 +87,33 @@ export function advanceSeason(league: LeagueState): LeagueState {
       };
     }
 
+    const wonKinds = playerAwardMap.get(player.id);
+    if (wonKinds && wonKinds.length > 0) {
+      advanced = {
+        ...advanced,
+        careerAwards: [
+          ...advanced.careerAwards,
+          ...wonKinds.map((kind) => ({ kind, seasonNumber: league.seasonNumber })),
+        ],
+      };
+    }
+
     playersAfterDev[player.id] = advanced.injury ? { ...advanced, injury: null } : advanced;
+  }
+
+  // ─── Snapshot Coach-of-the-Year onto the winning HC ─────────────────
+  const coachesNext: Record<string, HeadCoach> = { ...league.coaches };
+  if (awards.coy) {
+    const coach = coachesNext[awards.coy.coachId];
+    if (coach) {
+      coachesNext[awards.coy.coachId] = {
+        ...coach,
+        careerAwards: [
+          ...coach.careerAwards,
+          { kind: 'COY', seasonNumber: league.seasonNumber },
+        ],
+      };
+    }
   }
 
   // ─── Advance every contract ────────────────────────────────────────
@@ -132,12 +163,36 @@ export function advanceSeason(league: LeagueState): LeagueState {
     ...league,
     teams: teamsNext as Readonly<Record<TeamId, TeamState>>,
     players: playersNext as typeof league.players,
+    coaches: coachesNext as Readonly<Record<CoachId, HeadCoach>>,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
     seasonNumber: nextSeasonNumber,
     tick: nextTick,
     phase: 'OFFSEASON_PRE_FA',
     schedule: null,
   };
+}
+
+/**
+ * Invert the seasonAwards struct into a player-id → kinds map so the
+ * player-loop can do an O(1) lookup per player. COY is excluded — it's
+ * snapshotted on the coach record separately.
+ */
+function buildPlayerAwardMap(awards: ReturnType<typeof seasonAwards>): Map<PlayerId, AwardKind[]> {
+  const map = new Map<PlayerId, AwardKind[]>();
+  const entries: ReadonlyArray<[Exclude<AwardKind, 'COY'>, { playerId: PlayerId } | null]> = [
+    ['MVP', awards.mvp],
+    ['OPOY', awards.opoy],
+    ['DPOY', awards.dpoy],
+    ['OROY', awards.oroy],
+    ['DROY', awards.droy],
+  ];
+  for (const [kind, award] of entries) {
+    if (!award) continue;
+    const arr = map.get(award.playerId) ?? [];
+    arr.push(kind);
+    map.set(award.playerId, arr);
+  }
+  return map;
 }
 
 function buildSeasonRecord(

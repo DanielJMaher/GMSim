@@ -82,6 +82,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     injury: null,
     conditioning: 100,
     careerStats: [],
+    careerAwards: [],
   };
 }
 

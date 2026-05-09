@@ -86,6 +86,7 @@ export function generateHeadCoach(
     defensiveScheme,
     quirks,
     personality,
+    careerAwards: [],
   };
 }
 

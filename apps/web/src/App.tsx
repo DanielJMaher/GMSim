@@ -24,6 +24,7 @@ import type {
   Player,
   PlayerId,
   PlayerSeasonStats,
+  CareerAward,
   TeamId,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
@@ -362,6 +363,8 @@ function TeamCard({
       <PersonnelLine
         label="HC"
         name={hc.name}
+        nameSuffix={formatAwardBadge(hc.careerAwards)}
+        nameSuffixTooltip={awardBadgeTooltip(hc.careerAwards)}
         quirks={hc.quirks}
         extras={[hc.offensiveScheme, hc.defensiveScheme]}
       />
@@ -432,11 +435,15 @@ function formatMoney(value: number): string {
 function PersonnelLine({
   label,
   name,
+  nameSuffix,
+  nameSuffixTooltip,
   quirks,
   extras,
 }: {
   label: string;
   name: string;
+  nameSuffix?: string | null;
+  nameSuffixTooltip?: string;
   quirks: readonly string[];
   extras?: readonly string[];
 }) {
@@ -446,6 +453,14 @@ function PersonnelLine({
         {label}
       </span>
       <span>{name}</span>
+      {nameSuffix && (
+        <span
+          className="ml-2 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider text-amber-300"
+          title={nameSuffixTooltip}
+        >
+          {nameSuffix}
+        </span>
+      )}
       <div className="ml-12 mt-0.5 text-[11px] text-zinc-500">
         {quirks.map((q) => q.toLowerCase().replace(/_/g, ' ')).join(' · ')}
         {extras && extras.length > 0 && (
@@ -721,11 +736,20 @@ function PositionGroupTable({
                     : p.tier === 'BACKUP'
                       ? 'text-zinc-500'
                       : 'text-zinc-600';
+              const awardBadge = formatAwardBadge(p.careerAwards);
               return (
                 <tr key={p.id} className="border-t border-zinc-800/60">
                   <td className="px-2 py-1 font-mono text-zinc-400">{p.position}</td>
                   <td className="px-2 py-1">
                     {p.firstName} {p.lastName}
+                    {awardBadge && (
+                      <span
+                        className="ml-2 rounded border border-amber-500/40 bg-amber-500/10 px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider text-amber-300"
+                        title={awardBadgeTooltip(p.careerAwards)}
+                      >
+                        {awardBadge}
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-1 text-zinc-500">
                     {ageOfPlayer(p, league.seasonNumber)}
@@ -781,6 +805,31 @@ function InjuryCell({ player, league }: { player: Player; league: LeagueState })
       {sev} · w{weeksUntil}
     </span>
   );
+}
+
+/**
+ * Compact summary of a player or coach's career awards, e.g. "★ 3× MVP"
+ * or "★ 2× MVP, 1× DPOY". Returns null if the array is empty.
+ */
+function formatAwardBadge(awards: readonly CareerAward[]): string | null {
+  if (awards.length === 0) return null;
+  const counts = new Map<string, number>();
+  for (const a of awards) counts.set(a.kind, (counts.get(a.kind) ?? 0) + 1);
+  // Order awards by importance for the chip display.
+  const order = ['MVP', 'OPOY', 'DPOY', 'COY', 'OROY', 'DROY'];
+  const parts = order
+    .filter((k) => counts.has(k))
+    .map((k) => `${counts.get(k)}× ${k}`);
+  return `★ ${parts.join(', ')}`;
+}
+
+function awardBadgeTooltip(awards: readonly CareerAward[]): string {
+  if (awards.length === 0) return '';
+  return awards
+    .slice()
+    .sort((a, b) => a.seasonNumber - b.seasonNumber)
+    .map((a) => `Year ${a.seasonNumber}: ${a.kind}`)
+    .join('\n');
 }
 
 /**

@@ -16,6 +16,22 @@ _Nothing yet._
 
 ---
 
+## [0.11.0] — 2026-05-09
+
+### Added — Phase 2: Career awards snapshot
+
+- **`CareerAward` type** (`packages/engine/src/types/awards.ts`). `{ kind, seasonNumber }` with `AwardKind = 'MVP' | 'OPOY' | 'DPOY' | 'OROY' | 'DROY' | 'COY'`.
+- **`Player.careerAwards: readonly CareerAward[]`** and **`HeadCoach.careerAwards: readonly CareerAward[]`**. New fields. Initialized empty for league-creation players, retirement-replacement rookies, and all coaches.
+- **`advanceSeason` snapshots awards.** Each season's MVP/OPOY/DPOY/OROY/DROY winners get an entry appended to their `Player.careerAwards`; the COY winner gets one on `HeadCoach.careerAwards`. So a 4-year MVP appears as `[{kind:'MVP', seasonNumber:1}, ..., {kind:'MVP', seasonNumber:4}]`.
+- **Inspector — career award badges.** Roster table player names now show an amber chip like "★ 3× MVP" if the player has any career awards. Hovering shows the per-season breakdown ("Year 1: MVP\nYear 3: MVP\n..."). Same chip on head coach lines in team cards.
+- **7 new tests** (212 total, 1 skipped harness). Fresh leagues start empty; MVP winner's careerAwards has exactly one MVP entry tagged with the season just played; COY accrues to the coach (not players); multi-season counts league-wide equal seasons advanced (every season produces exactly one of each award); rookies start empty; multi-seed determinism.
+
+### Deferred
+
+- **Retiree award history is dropped** (same caveat as `careerStats`). A future retired-players archive preserves it.
+
+---
+
 ## [0.10.0] — 2026-05-09
 
 ### Added — Phase 2: Season awards

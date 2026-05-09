@@ -1,4 +1,5 @@
 import type { OwnerId, GmId, CoachId } from './ids.js';
+import type { CareerAward } from './awards.js';
 
 /**
  * Spectrum scores are 1–10. Stored as ground truth and **never displayed
@@ -141,6 +142,11 @@ export interface HeadCoach {
   defensiveScheme: DefensiveSchemeArchetype;
   quirks: readonly HcQuirk[];
   personality: PersonalityTraits;
+  /**
+   * Coach-of-the-Year awards earned across simulated seasons.
+   * Populated by `advanceSeason`. Empty for newly-generated coaches.
+   */
+  careerAwards: readonly CareerAward[];
 }
 
 // ─── PERSONALITY (shared across owner/gm/hc) ────────────────────────────────

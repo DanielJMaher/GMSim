@@ -1,6 +1,7 @@
 import type { PlayerId, TeamId, ContractId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
 import type { CareerSeasonStats } from './stats.js';
+import type { CareerAward } from './awards.js';
 
 /**
  * Talent tier — a coarse "how good is this player" gradient used for
@@ -114,6 +115,13 @@ export interface Player {
    * player on retirement.
    */
   careerStats: readonly CareerSeasonStats[];
+
+  /**
+   * Year-end awards this player has won. Populated by `advanceSeason`
+   * for the league's MVP / OPOY / DPOY / OROY / DROY winners. Empty
+   * for new rookies. Cleared with the player on retirement.
+   */
+  careerAwards: readonly CareerAward[];
 }
 
 /**
