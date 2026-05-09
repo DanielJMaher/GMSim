@@ -16,6 +16,59 @@ _Nothing yet._
 
 ---
 
+## [0.12.0] — 2026-05-09
+
+### Changed — stat realism + per-unit skill alignment
+
+Box-score-level stats now track NFL averages over the 2014-2024 decade
+and respond to roster talent (a STAR QB on a great OL produces
+meaningfully more passing yards than a FRINGE QB on a weak OL).
+
+**Per-unit team strengths.** New `unitStrengths(team, league)` returns
+`passOffense / rushOffense / passDefense / rushDefense` (each on the
+0-100 scale). `rollStats` consumes these so per-game yardage,
+turnovers, and sacks shift by relevant unit advantage:
+- passingYards mean = `220 + passAdv × 1.6 + pointsScored × 1.6`
+- rushingYards mean = `110 + rushAdv × 1.0 + pointsScored × 0.6`
+- turnovers mean = `1.3 + (oppPassDef − ownPassOff) × 0.018`
+- sacks mean = `2.4 + (ownPassDef − oppPassOff) × 0.035`
+
+Across a season this typically produces a ~1,300-yard spread between
+the worst-passOffense and best-passOffense team's QB1 — realistic NFL
+variance.
+
+**Stat distribution fixes.**
+- Pass + rush TDs are now derived from points scored (`~64% of points
+  → offensive TDs; ~62% of those are passing`), not from yardage. Old
+  formula gave starting QBs 50+ pass TDs/season — now ~25, matching
+  NFL avg.
+- INTs use `fractionalRound(turnovers × 0.5, gameSeed)` — a
+  deterministic mean-preserving round that avoids `Math.round`'s
+  round-half-up bias (which inflated INTs by ~50%).
+- Pass attempts derived from `passingYards / 7.6` (up from 7.0) for
+  ~30 attempts/game.
+- Tackles bumped from 55 to 62 per team per game to match top-end NFL
+  numbers (~150 tackles for a season leader).
+
+**Bug fix.** `isNonEmpty` now retains stat lines that have only
+yardage (no targets/attempts/tackles). Previously a 7th receiver
+picking up rounding-slack yards (e.g., 4 receiving yards on 0
+targets) was filtered out, silently dropping league-wide totals.
+
+### Audit numbers (3 seeds × 1 simulated season)
+| Stat | NFL avg / leader | New |
+|---|---|---|
+| QB starter pass yds | ~3,800 / 5,476 record | 4,266 / 5,200 |
+| QB starter pass TDs | ~25 / 55 record | 24.7 / 32 |
+| QB starter INTs | ~10 / 17 typical leader | 11.5 / 17 |
+| Top RB rush yds | ~1,400 / 2,027 record | 1,677 / 1,770 |
+| Top RB rush TDs | ~13 / 28 record | 14 / 15 |
+| Top WR rec yds | ~1,500 / 1,964 record | 1,555 / 1,568 |
+| Top sacks | ~17 / 22 record | 21 / 21 |
+| Top tackles | ~150 | 156 / 168 |
+
+---
+
 ## [0.11.0] — 2026-05-09
 
 ### Added — Phase 2: Career awards snapshot

@@ -32,12 +32,12 @@ export function deriveGamePlayerStats(
   if (!home || !away) return [];
 
   const lines = new Map<string, PlayerGameStats>();
-  attributeOffense(home, game.result.homeStats, lines, league);
-  attributeOffense(away, game.result.awayStats, lines, league);
+  attributeOffense(home, game.result.homeStats, game.result.homeScore, game.id, lines, league);
+  attributeOffense(away, game.result.awayStats, game.result.awayScore, game.id, lines, league);
   // Defense reads its own `sacks` (defensive credit) and the
   // opponent's `turnovers` (which the defense forced).
-  attributeDefense(home, game.result.homeStats, game.result.awayStats, lines, league);
-  attributeDefense(away, game.result.awayStats, game.result.homeStats, lines, league);
+  attributeDefense(home, game.result.homeStats, game.result.awayStats, game.id, lines, league);
+  attributeDefense(away, game.result.awayStats, game.result.homeStats, game.id, lines, league);
 
   // Drop empty stat lines (every-zero entries from rosters that didn't
   // contribute, e.g. a 3rd-string QB with 0 attempts).
@@ -45,10 +45,17 @@ export function deriveGamePlayerStats(
 }
 
 function isNonEmpty(s: PlayerGameStats): boolean {
+  // Any positive count triggers retention. Yardage fields are checked
+  // explicitly so a player who picked up rounding-slack yards (e.g. 4
+  // receiving yards on a single-yard target) doesn't get filtered out
+  // and silently lose those yards from the league total.
   return (
     s.passAttempts > 0 ||
+    s.passingYards > 0 ||
     s.rushingAttempts > 0 ||
+    s.rushingYards > 0 ||
     s.targets > 0 ||
+    s.receivingYards > 0 ||
     s.tackles > 0 ||
     s.sacks > 0 ||
     s.interceptions > 0
@@ -72,6 +79,8 @@ function getOrInit(
 function attributeOffense(
   team: TeamState,
   teamStats: TeamGameStats,
+  pointsScored: number,
+  gameId: string,
   lines: Map<string, PlayerGameStats>,
   league: LeagueState,
 ): void {
@@ -79,20 +88,40 @@ function attributeOffense(
     .map((id) => league.players[id])
     .filter((p): p is Player => Boolean(p));
 
+  // Total offensive TDs derived from points, not yardage. NFL avg
+  // 2014-2024: ~64% of total points come from offensive TDs (the rest
+  // are FGs, defensive scores, safeties, special-teams TDs). 62% of
+  // those offensive TDs are passing.
+  const totalOffensiveTds = Math.max(0, Math.round((pointsScored * 0.64) / 7));
+  const passShareOfTds = clamp01(
+    teamStats.passingYards / Math.max(1, teamStats.passingYards + teamStats.rushingYards),
+    0.45,
+    0.78,
+  );
+  const totalPassTds = Math.round(totalOffensiveTds * (passShareOfTds * 1.05));
+  const totalRushTds = Math.max(0, totalOffensiveTds - totalPassTds);
+
   // ── Passing ──────────────────────────────────────────────────────
   const qbs = players
     .filter((p) => p.position === Position.QB)
     .sort(byTierThenSkill);
   if (qbs.length > 0) {
-    // Approx attempts from yards-per-attempt = 7.0
-    const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7));
-    const totalCompletions = Math.round(totalAttempts * 0.65);
-    // Pass TDs: rough heuristic. ~1 pass TD per 80 passing yards.
-    const totalPassTds = Math.round(teamStats.passingYards / 80);
-    // INTs ≈ 60% of team turnovers (rest are fumbles).
-    const totalInts = Math.round(teamStats.turnovers * 0.6);
+    // NFL yards-per-attempt 2014-2024 averages ~7.2. Use 7.6 here so
+    // attempts land at ~30/game given ~230 pass yards (we slightly
+    // under-shoot pass volume on purpose to leave headroom for the
+    // top-end stat lines).
+    const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7.6));
+    const totalCompletions = Math.round(totalAttempts * 0.64);
+    // INTs ≈ 50% of team turnovers (the rest are fumbles by
+    // ball-carriers / strip-sacks). `fractionalRound` keeps the
+    // mean at 0.5 × turnovers — `Math.round` would round 0.5 up to 1
+    // and inflate INTs by ~50%.
+    const totalInts = fractionalRound(
+      teamStats.turnovers * 0.5,
+      `${gameId}:int:${team.identity.abbreviation}`,
+    );
 
-    // QB1 ~93% of pass volume, QB2 ~7%, QB3 ~0% unless QB1+QB2 absent.
+    // QB1 ~93% of pass volume, QB2 ~7%.
     const shares = qbs.length === 1 ? [1] : qbs.length === 2 ? [0.93, 0.07] : [0.93, 0.07, 0];
     splitInt(qbs, shares, totalAttempts, (qb, n) => (getOrInit(lines, qb.id).passAttempts += n));
     splitInt(qbs, shares, totalCompletions, (qb, n) => (getOrInit(lines, qb.id).passCompletions += n));
@@ -106,8 +135,7 @@ function attributeOffense(
     .filter((p) => p.position === Position.RB || p.position === Position.FB)
     .sort(byTierThenSkill);
   if (rbs.length > 0 && teamStats.rushingYards > 0) {
-    const totalCarries = Math.max(1, Math.round(teamStats.rushingYards / 4.2));
-    const totalRushTds = Math.round(teamStats.rushingYards / 60);
+    const totalCarries = Math.max(1, Math.round(teamStats.rushingYards / 4.3));
     const shares =
       rbs.length === 1
         ? [1]
@@ -134,15 +162,47 @@ function attributeOffense(
     .slice(0, 7) // top 7 get 95%+ of targets
     .map((x) => x.player);
   if (receivers.length > 0) {
-    const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7));
-    const totalCompletions = Math.round(totalAttempts * 0.65);
-    const totalPassTds = Math.round(teamStats.passingYards / 80);
+    const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7.6));
+    const totalCompletions = Math.round(totalAttempts * 0.64);
     const shares = recvSharesFor(receivers.length);
     splitInt(receivers, shares, totalAttempts, (p, n) => (getOrInit(lines, p.id).targets += n));
     splitInt(receivers, shares, totalCompletions, (p, n) => (getOrInit(lines, p.id).receptions += n));
     splitInt(receivers, shares, teamStats.passingYards, (p, n) => (getOrInit(lines, p.id).receivingYards += n));
     splitInt(receivers, shares, totalPassTds, (p, n) => (getOrInit(lines, p.id).receivingTds += n));
   }
+}
+
+function clamp01(v: number, min = 0, max = 1): number {
+  return Math.max(min, Math.min(max, v));
+}
+
+/**
+ * Deterministic mean-preserving fractional rounding. Rounds `value`
+ * to an integer where the fractional part determines the probability
+ * of rounding up, with the decision made by hashing `seed`. Same
+ * inputs → same output; aggregate expected value matches `value`.
+ *
+ * Used in stat derivation to avoid `Math.round`'s round-half-up bias
+ * when distributing fractional team-level numbers (e.g., INTs ≈
+ * turnovers × 0.5) into integer per-player game lines.
+ */
+function fractionalRound(value: number, seed: string): number {
+  const floor = Math.floor(value);
+  const frac = value - floor;
+  if (frac === 0) return floor;
+  const h = fnv1aHash(seed);
+  // h is in [0, 2^32). Scale to [0, 1).
+  const r = h / 0x100000000;
+  return floor + (r < frac ? 1 : 0);
+}
+
+function fnv1aHash(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
 function recvSharesFor(n: number): number[] {
@@ -172,6 +232,7 @@ function attributeDefense(
   team: TeamState,
   ownStats: TeamGameStats,
   oppStats: TeamGameStats,
+  gameId: string,
   lines: Map<string, PlayerGameStats>,
   league: LeagueState,
 ): void {
@@ -180,10 +241,10 @@ function attributeDefense(
     .filter((p): p is Player => Boolean(p));
 
   // ── Tackles ──────────────────────────────────────────────────────
-  // Roughly ~55 tackles per team per game in the NFL. LBs ~50-55%,
-  // DBs ~28-32%, DL ~12-18% — tuned a bit so totals don't explode for
-  // big-play games.
-  const totalTackles = 55;
+  // ~62 solo+assist tackles per team per game in the NFL. Distribution:
+  // LBs ~50-55%, DBs ~28-32%, DL ~13-18%. Slightly inflated for runs
+  // (more LB/DL involvement) and slightly compressed for shootouts.
+  const totalTackles = 62;
   const lbs = players.filter((p) => positionGroup(p.position) === PositionGroup.LB);
   const dbs = players.filter((p) => positionGroup(p.position) === PositionGroup.DB);
   const dls = players.filter((p) => positionGroup(p.position) === PositionGroup.DL);
@@ -212,9 +273,13 @@ function attributeDefense(
   }
 
   // ── Interceptions ────────────────────────────────────────────────
-  // Defensive INTs ≈ 60% of opposing team's turnovers. DBs catch most;
-  // a few go to LBs.
-  const totalInts = Math.round(oppStats.turnovers * 0.6);
+  // Defensive INTs ≈ 50% of opposing team's turnovers (the rest are
+  // forced fumbles). Matches the offensive 0.5 split. DBs catch
+  // most; a few go to LBs.
+  const totalInts = fractionalRound(
+    oppStats.turnovers * 0.5,
+    `${gameId}:def-int:${team.identity.abbreviation}`,
+  );
   if (totalInts > 0) {
     const dbInts = Math.round(totalInts * 0.8);
     const lbInts = Math.max(0, totalInts - dbInts);

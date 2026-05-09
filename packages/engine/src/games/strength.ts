@@ -116,3 +116,57 @@ function keySkillAvg(p: Player): number {
   for (const k of keys) s += p.current[k];
   return s / keys.length;
 }
+
+/**
+ * Per-unit strength breakdown used by the stat-rolling layer to scale
+ * passing/rushing yards, sacks, and turnovers by relevant roster
+ * skill. Each value is on the same 0-100 scale as `teamStrength`.
+ *
+ * The intent is "this team has a STAR QB and FRINGE OL" reads
+ * differently from "this team has a FRINGE QB and STAR OL" in the
+ * box score, even if their overall `teamStrength` happens to be equal.
+ */
+export interface UnitStrengths {
+  passOffense: number;
+  rushOffense: number;
+  passDefense: number;
+  rushDefense: number;
+}
+
+export function unitStrengths(team: TeamState, league: LeagueState): UnitStrengths {
+  const players = team.rosterIds
+    .map((id) => league.players[id])
+    .filter((p): p is Player => Boolean(p));
+  if (players.length === 0) {
+    return { passOffense: 50, rushOffense: 50, passDefense: 50, rushDefense: 50 };
+  }
+
+  const byPosition = (positions: readonly string[], topN: number): number => {
+    const scored = players
+      .filter((p) => positions.includes(p.position))
+      .map((p) => keySkillAvg(p))
+      .sort((a, b) => b - a)
+      .slice(0, topN);
+    if (scored.length === 0) return 50;
+    return scored.reduce((s, v) => s + v, 0) / scored.length;
+  };
+
+  const qb = byPosition(['QB'], 1);
+  const wrTeRb = byPosition(['WR', 'TE', 'RB'], 4);
+  const ol = byPosition(['LT', 'LG', 'C', 'RG', 'RT'], 5);
+  const rbFb = byPosition(['RB', 'FB'], 2);
+  const edgeDt = byPosition(['EDGE', 'DT', 'NT'], 4);
+  const lb = byPosition(['ILB', 'OLB'], 3);
+  const db = byPosition(['CB', 'S', 'NICKEL'], 4);
+
+  // Pass offense: QB carries the most weight; receivers + OL pass-pro fill in.
+  const passOffense = 0.55 * qb + 0.25 * wrTeRb + 0.20 * ol;
+  // Rush offense: top RBs + OL run blocking, with a small QB scrambling share.
+  const rushOffense = 0.50 * rbFb + 0.40 * ol + 0.10 * qb;
+  // Pass defense: pass-rushers and DBs split the load.
+  const passDefense = 0.50 * edgeDt + 0.50 * db;
+  // Rush defense: front seven dominates.
+  const rushDefense = 0.55 * edgeDt + 0.35 * lb + 0.10 * db;
+
+  return { passOffense, rushOffense, passDefense, rushDefense };
+}
