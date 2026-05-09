@@ -12,6 +12,7 @@ import {
   playoffSeeds,
   winPct,
   ageOfPlayer,
+  seasonStatsForLeague,
 } from '@gmsim/engine';
 import type { TeamRecord } from '@gmsim/engine';
 import type {
@@ -20,9 +21,11 @@ import type {
   TeamPersonality,
   TeamSeasonRecord,
   Player,
+  PlayerId,
+  PlayerSeasonStats,
   TeamId,
 } from '@gmsim/engine/types';
-import { Division, PositionGroup, Conference } from '@gmsim/engine/types';
+import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -43,6 +46,10 @@ export function App() {
 
   const seasonSimmed = league.schedule !== null;
   const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
+  const seasonStats = useMemo(
+    () => (seasonSimmed ? seasonStatsForLeague(league) : null),
+    [league, seasonSimmed],
+  );
   const teams = Object.values(league.teams).sort((a, b) =>
     a.identity.division === b.identity.division
       ? a.identity.location.localeCompare(b.identity.location)
@@ -154,11 +161,16 @@ export function App() {
 
       {seasonSimmed && records && <SeasonResultsView league={league} records={records} />}
 
+      {seasonSimmed && seasonStats && (
+        <SeasonLeadersView league={league} stats={seasonStats} />
+      )}
+
       {selectedTeam && (
         <TeamDetail
           team={selectedTeam}
           league={league}
           records={records}
+          seasonStats={seasonStats}
           onClose={() => setSelectedTeamId(null)}
         />
       )}
@@ -457,11 +469,13 @@ function TeamDetail({
   team,
   league,
   records,
+  seasonStats,
   onClose,
 }: {
   team: TeamState;
   league: LeagueState;
   records: Map<TeamId, TeamRecord> | null;
+  seasonStats: Map<PlayerId, PlayerSeasonStats> | null;
   onClose: () => void;
 }) {
   const hc = league.coaches[team.headCoachId]!;
@@ -530,7 +544,13 @@ function TeamDetail({
         {groups
           .filter((g) => g.players.length > 0)
           .map((group) => (
-            <PositionGroupTable key={group.group} group={group} hc={hc} league={league} />
+            <PositionGroupTable
+              key={group.group}
+              group={group}
+              hc={hc}
+              league={league}
+              seasonStats={seasonStats}
+            />
           ))}
       </div>
 
@@ -622,10 +642,12 @@ function PositionGroupTable({
   group,
   hc,
   league,
+  seasonStats,
 }: {
   group: { group: PositionGroup; label: string; players: Player[] };
   hc: { offensiveScheme: string; defensiveScheme: string };
   league: LeagueState;
+  seasonStats: Map<PlayerId, PlayerSeasonStats> | null;
 }) {
   return (
     <div>
@@ -660,6 +682,11 @@ function PositionGroupTable({
               <th className="px-2 py-1 font-medium" title="Active injury (severity, weeks until expected return)">
                 inj
               </th>
+              {seasonStats && (
+                <th className="px-2 py-1 font-medium" title="Position-relevant season stat">
+                  season
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -705,6 +732,11 @@ function PositionGroupTable({
                   <td className="px-2 py-1 text-[10px]">
                     <InjuryCell player={p} league={league} />
                   </td>
+                  {seasonStats && (
+                    <td className="px-2 py-1 text-zinc-300">
+                      {formatKeyStat(p, seasonStats.get(p.id) ?? null)}
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -736,6 +768,38 @@ function InjuryCell({ player, league }: { player: Player; league: LeagueState })
       {sev} · w{weeksUntil}
     </span>
   );
+}
+
+/**
+ * The single most relevant season stat per position. Returns "—" if
+ * the player has no recorded output (e.g. K/P/LS, untracked positions,
+ * or backup who never saw the field).
+ */
+function formatKeyStat(player: Player, stats: PlayerSeasonStats | null): string {
+  if (!stats) return '—';
+  switch (player.position) {
+    case Position.QB:
+      return `${stats.passingYards.toLocaleString()} pass yds, ${stats.passingTds} TD`;
+    case Position.RB:
+    case Position.FB:
+      return `${stats.rushingYards.toLocaleString()} rush yds, ${stats.rushingTds} TD`;
+    case Position.WR:
+    case Position.TE:
+      return `${stats.receptions} rec / ${stats.receivingYards.toLocaleString()} yds, ${stats.receivingTds} TD`;
+    case Position.EDGE:
+    case Position.DT:
+    case Position.NT:
+      return `${stats.sacks} sk, ${stats.tackles} tkl`;
+    case Position.ILB:
+    case Position.OLB:
+      return `${stats.tackles} tkl, ${stats.sacks} sk, ${stats.interceptions} INT`;
+    case Position.CB:
+    case Position.S:
+    case Position.NICKEL:
+      return `${stats.tackles} tkl, ${stats.interceptions} INT`;
+    default:
+      return '—';
+  }
 }
 
 function positionGroupOrder(group: PositionGroup): number {
@@ -860,6 +924,85 @@ function SeasonResultsView({
                   );
                 })}
               </ul>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+// ─── SEASON LEADERS PANEL ─────────────────────────────────────────────────
+
+function SeasonLeadersView({
+  league,
+  stats,
+}: {
+  league: LeagueState;
+  stats: Map<PlayerId, PlayerSeasonStats>;
+}) {
+  const lines = [...stats.values()];
+  const categories: {
+    label: string;
+    stat: keyof PlayerSeasonStats;
+    suffix: string;
+  }[] = [
+    { label: 'Passing yards', stat: 'passingYards', suffix: 'yds' },
+    { label: 'Passing TDs', stat: 'passingTds', suffix: 'TD' },
+    { label: 'Rushing yards', stat: 'rushingYards', suffix: 'yds' },
+    { label: 'Receiving yards', stat: 'receivingYards', suffix: 'yds' },
+    { label: 'Sacks', stat: 'sacks', suffix: 'sk' },
+    { label: 'Interceptions', stat: 'interceptions', suffix: 'INT' },
+  ];
+
+  return (
+    <section className="mb-8 rounded border border-emerald-500/30 bg-emerald-500/5 p-4">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-emerald-300">
+        Season {league.seasonNumber} Leaders
+      </h2>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {categories.map(({ label, stat, suffix }) => {
+          const top5 = [...lines]
+            .filter((l) => (l[stat] as number) > 0)
+            .sort((a, b) => (b[stat] as number) - (a[stat] as number))
+            .slice(0, 5);
+          return (
+            <div key={stat} className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-400">
+                {label}
+              </h3>
+              <ol className="space-y-0.5 text-sm">
+                {top5.length === 0 && (
+                  <li className="text-xs text-zinc-600">no entries</li>
+                )}
+                {top5.map((line, idx) => {
+                  const player = league.players[line.playerId];
+                  if (!player) return null;
+                  const team = player.teamId ? league.teams[player.teamId] : null;
+                  const value = line[stat] as number;
+                  return (
+                    <li
+                      key={line.playerId}
+                      className="flex items-baseline justify-between gap-2"
+                    >
+                      <span className="truncate">
+                        <span className="mr-1 font-mono text-xs text-zinc-500">
+                          {idx + 1}.
+                        </span>
+                        {player.firstName} {player.lastName}
+                        {team && (
+                          <span className="ml-1 font-mono text-[10px] text-zinc-500">
+                            {team.identity.abbreviation} · {player.position}
+                          </span>
+                        )}
+                      </span>
+                      <span className="whitespace-nowrap font-mono text-xs text-zinc-200">
+                        {value.toLocaleString()} {suffix}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ol>
             </div>
           );
         })}

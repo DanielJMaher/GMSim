@@ -5,4 +5,5 @@ export * from './personnel.js';
 export * from './player.js';
 export * from './contract.js';
 export * from './game.js';
+export * from './stats.js';
 export * from './league.js';

@@ -18,3 +18,4 @@ export {
   processRetirements,
 } from './retirement.js';
 export type { RetirementOutcome } from './retirement.js';
+export { seasonStatsForLeague, playerSeasonStats } from './stats.js';

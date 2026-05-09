@@ -16,6 +16,25 @@ _Nothing yet._
 
 ---
 
+## [0.8.0] — 2026-05-09
+
+### Added — Phase 2: Per-player stats persistence
+
+- **`PlayerGameStats` + `PlayerSeasonStats` types** (`packages/engine/src/types/stats.ts`). 15-stat surface covering passing (attempts, completions, yards, TDs, INTs thrown), rushing (attempts, yards, TDs), receiving (targets, receptions, yards, TDs), and defense (tackles, sacks, INTs). Intentionally narrow — enough to feed a leaders board and scouting/dev signal, not a play-by-play sheet.
+- **`deriveGamePlayerStats(game, league)`** (`packages/engine/src/games/stats.ts`). Pure & deterministic (no PRNG). Distributes team-level `GameResult` numbers across the rosters that played using largest-remainder integer splits: QB1/QB2 share pass volume 93/7; RBs share carries by tier; WR/TE/RB receivers share targets via a Pareto-ish distribution `[0.28, 0.20, 0.16, 0.13, 0.10, 0.08, 0.05]` ranked by `receivingWeight × keySkillAvg`; defensive tackles split LB/DB/DL 55/30/15%, sacks EDGE 60% / interior 40%, INTs DBs 80% / LBs 20%. Stat conventions match conventional NFL box scores: `team.turnovers` = offense committed, `team.sacks` = defense generated.
+- **`seasonStatsForLeague(league)`** (`packages/engine/src/season/stats.ts`). Walks every played regular-season + playoff game and aggregates per-player season totals. Plus `playerSeasonStats(league, playerId)` for single-player lookup. Per the `GameResult` design comment, stats are NOT stored on the game itself — they're derived at attribute time. The inspector `useMemo`s the aggregator so 272-game walks happen once per league change.
+- **Inspector — Season Leaders panel.** Top-5 boards for passing yards, passing TDs, rushing yards, receiving yards, sacks, and INTs across the league. Visible whenever a season has been simulated.
+- **Inspector — per-player season stat column.** Team detail roster table gained a `season` column showing the position-relevant key stat (passing yds + TDs for QB; rushing yds + TDs for RB; rec/yds/TDs for WR/TE; sacks + tackles for DL; tackles + sacks + INTs for LB; tackles + INTs for DB).
+- **15 new tests** (187 total, 1 skipped harness). Per-game reconciliation (passing/rushing/receiving yards, defensive sacks each sum to team totals), determinism, top-QB-has-non-zero-output, NFL-realistic passing leader range (2,500–7,000 yds), gamesPlayed in [17, 22], league-wide passing equals league-wide receiving, empty/cleared leagues return empty maps.
+
+### Deferred
+
+- **No PRNG noise in distribution** — same game + same rosters → same stat lines. Play-by-play resolution remains out of scope.
+- **No "did the player play?" gating.** Injured players can still receive stat lines; the game sim doesn't yet skip them when assembling lineups.
+- **No special-teams stats** (K/P/LS produce no output) and **no OL stats** (sacks allowed, pancakes).
+
+---
+
 ## [0.7.0] — 2026-05-07
 
 ### Added — Phase 2: Retirement + injury propagation

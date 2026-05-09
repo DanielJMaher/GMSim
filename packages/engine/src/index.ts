@@ -93,6 +93,7 @@ export type {
 // Phase 2 — Game simulation + season runner
 export { teamStrength, simulateGame } from './games/index.js';
 export type { SimulateGameOptions } from './games/index.js';
+export { deriveGamePlayerStats } from './games/stats.js';
 export {
   generateSchedule,
   simulateSeason,
@@ -108,6 +109,8 @@ export {
   rollRetirement,
   retirementProbabilityForAge,
   processRetirements,
+  seasonStatsForLeague,
+  playerSeasonStats,
   type TeamRecord,
   type RetirementOutcome,
 } from './season/index.js';
