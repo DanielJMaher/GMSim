@@ -16,6 +16,26 @@ _Nothing yet._
 
 ---
 
+## [0.10.0] — 2026-05-09
+
+### Added — Phase 2: Season awards
+
+- **`seasonAwards(league)`** (`packages/engine/src/season/awards.ts`). Pure & deterministic derivation of year-end awards from the just-played schedule + records + season stats. Returns null for every category when `league.schedule` is null.
+  - **MVP** — top QB by `passingYards + 30·passingTds + 2500·winPct(team)`. Heavily favors winning QBs (a 4500/35 QB on a 12-5 team beats a 5000/40 QB on a losing team).
+  - **OPOY** — top non-QB skill-position player by yards from scrimmage + TD bonus + record bonus.
+  - **DPOY** — top defender by `150·sacks + 100·INT + 1.5·tackles + 1500·winPct`.
+  - **OROY / DROY** — same scoring as OPOY/DPOY filtered to `experienceYears === 0`.
+  - **Coach of the Year** — head coach of the team with the best win pct, point-differential tiebreaker.
+- **Inspector — Awards panel.** New section under Season Leaders showing all six winners with player/coach name, team, and a stat-line summary.
+- **10 new tests** (205 total, 1 skipped harness). Empty/cleared leagues return all-null; complete slates produced for every played season; MVP is always a QB; OPOY is non-QB skill; DPOY is defensive; ROY winners are first-year; COY references a real team's head coach; multi-seed determinism.
+
+### Deferred
+
+- **Award histories.** Awards are not yet snapshotted into `Player.careerAwards` or `TeamSeasonRecord.awards`, so they vanish when `advanceSeason` clears the schedule. A history snapshot is the natural follow-up alongside Doc 12 (League News & Transaction Feed).
+- **Improvement-based COY.** Real NFL Coach-of-the-Year often goes to whoever exceeded prior-year expectations. Phase 2 just uses raw record because we don't yet have prior-year baselines for all teams.
+
+---
+
 ## [0.9.0] — 2026-05-09
 
 ### Added — Phase 2: Career stats history

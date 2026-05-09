@@ -111,8 +111,12 @@ export {
   processRetirements,
   seasonStatsForLeague,
   playerSeasonStats,
+  seasonAwards,
   type TeamRecord,
   type RetirementOutcome,
+  type SeasonAwards,
+  type PlayerAward,
+  type CoachAward,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 

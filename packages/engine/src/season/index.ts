@@ -19,3 +19,5 @@ export {
 } from './retirement.js';
 export type { RetirementOutcome } from './retirement.js';
 export { seasonStatsForLeague, playerSeasonStats } from './stats.js';
+export { seasonAwards } from './awards.js';
+export type { SeasonAwards, PlayerAward, CoachAward } from './awards.js';

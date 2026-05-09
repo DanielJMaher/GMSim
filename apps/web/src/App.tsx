@@ -13,8 +13,9 @@ import {
   winPct,
   ageOfPlayer,
   seasonStatsForLeague,
+  seasonAwards,
 } from '@gmsim/engine';
-import type { TeamRecord } from '@gmsim/engine';
+import type { TeamRecord, SeasonAwards } from '@gmsim/engine';
 import type {
   LeagueState,
   TeamState,
@@ -48,6 +49,10 @@ export function App() {
   const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
   const seasonStats = useMemo(
     () => (seasonSimmed ? seasonStatsForLeague(league) : null),
+    [league, seasonSimmed],
+  );
+  const awards = useMemo(
+    () => (seasonSimmed ? seasonAwards(league) : null),
     [league, seasonSimmed],
   );
   const teams = Object.values(league.teams).sort((a, b) =>
@@ -164,6 +169,8 @@ export function App() {
       {seasonSimmed && seasonStats && (
         <SeasonLeadersView league={league} stats={seasonStats} />
       )}
+
+      {seasonSimmed && awards && <AwardsView league={league} awards={awards} />}
 
       {selectedTeam && (
         <TeamDetail
@@ -1070,4 +1077,60 @@ function SeasonLeadersView({
       </div>
     </section>
   );
+}
+
+// ─── AWARDS PANEL ─────────────────────────────────────────────────────────
+
+function AwardsView({ league, awards }: { league: LeagueState; awards: SeasonAwards }) {
+  const rows: { label: string; entry: string | null }[] = [
+    { label: 'MVP', entry: formatPlayerAward(league, awards.mvp) },
+    { label: 'Offensive POY', entry: formatPlayerAward(league, awards.opoy) },
+    { label: 'Defensive POY', entry: formatPlayerAward(league, awards.dpoy) },
+    { label: 'Offensive ROY', entry: formatPlayerAward(league, awards.oroy) },
+    { label: 'Defensive ROY', entry: formatPlayerAward(league, awards.droy) },
+    { label: 'Coach of the Year', entry: formatCoachAward(league, awards.coy) },
+  ];
+
+  return (
+    <section className="mb-8 rounded border border-amber-500/30 bg-amber-500/5 p-4">
+      <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-amber-300">
+        Season {league.seasonNumber} Awards
+      </h2>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {rows.map(({ label, entry }) => (
+          <div key={label} className="rounded border border-zinc-800 bg-zinc-950/40 p-3">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-amber-300/80">
+              {label}
+            </div>
+            <div className="mt-1 text-sm text-zinc-100">
+              {entry ?? <span className="text-zinc-600">—</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function formatPlayerAward(
+  league: LeagueState,
+  award: SeasonAwards['mvp'],
+): string | null {
+  if (!award) return null;
+  const player = league.players[award.playerId];
+  if (!player) return null;
+  const team = player.teamId ? league.teams[player.teamId] : null;
+  const teamLabel = team ? team.identity.abbreviation : '?';
+  return `${player.firstName} ${player.lastName} (${teamLabel} · ${player.position}) — ${award.summary}`;
+}
+
+function formatCoachAward(
+  league: LeagueState,
+  award: SeasonAwards['coy'],
+): string | null {
+  if (!award) return null;
+  const coach = league.coaches[award.coachId];
+  const team = league.teams[award.teamId];
+  if (!coach || !team) return null;
+  return `${coach.name} (${team.identity.abbreviation}) — ${award.summary}`;
 }
