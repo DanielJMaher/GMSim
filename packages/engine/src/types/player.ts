@@ -1,5 +1,6 @@
 import type { PlayerId, TeamId, ContractId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
+import type { CareerSeasonStats } from './stats.js';
 
 /**
  * Talent tier — a coarse "how good is this player" gradient used for
@@ -105,6 +106,14 @@ export interface Player {
 
   /** Cumulative wear/conditioning from regular play; 0..100. Internal. */
   conditioning: number;
+
+  /**
+   * Year-by-year stat snapshots, one entry per season the player
+   * recorded non-zero output. Populated by `advanceSeason` at the end
+   * of each played season. Empty for new rookies. Cleared with the
+   * player on retirement.
+   */
+  careerStats: readonly CareerSeasonStats[];
 }
 
 /**

@@ -687,6 +687,9 @@ function PositionGroupTable({
                   season
                 </th>
               )}
+              <th className="px-2 py-1 font-medium" title="Position-relevant career total across all played seasons">
+                career
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -737,6 +740,9 @@ function PositionGroupTable({
                       {formatKeyStat(p, seasonStats.get(p.id) ?? null)}
                     </td>
                   )}
+                  <td className="px-2 py-1 text-zinc-400">
+                    {formatCareerStat(p)}
+                  </td>
                 </tr>
               );
             })}
@@ -768,6 +774,61 @@ function InjuryCell({ player, league }: { player: Player; league: LeagueState })
       {sev} · w{weeksUntil}
     </span>
   );
+}
+
+/**
+ * Aggregate a position-relevant career total across every season in
+ * `Player.careerStats`. Returns "—" if the player has no career
+ * history (rookies, untracked positions).
+ */
+function formatCareerStat(player: Player): string {
+  if (player.careerStats.length === 0) return '—';
+  const sum = (key: keyof PlayerSeasonStats) =>
+    player.careerStats.reduce((s, e) => s + (e[key] as number), 0);
+  const seasons = player.careerStats.length;
+  switch (player.position) {
+    case Position.QB: {
+      const yds = sum('passingYards');
+      const tds = sum('passingTds');
+      return `${yds.toLocaleString()} pass yds, ${tds} TD (${seasons}y)`;
+    }
+    case Position.RB:
+    case Position.FB: {
+      const yds = sum('rushingYards');
+      const tds = sum('rushingTds');
+      return `${yds.toLocaleString()} rush yds, ${tds} TD (${seasons}y)`;
+    }
+    case Position.WR:
+    case Position.TE: {
+      const rec = sum('receptions');
+      const yds = sum('receivingYards');
+      const tds = sum('receivingTds');
+      return `${rec} rec / ${yds.toLocaleString()} yds, ${tds} TD (${seasons}y)`;
+    }
+    case Position.EDGE:
+    case Position.DT:
+    case Position.NT: {
+      const sks = sum('sacks');
+      const tkl = sum('tackles');
+      return `${sks} sk, ${tkl} tkl (${seasons}y)`;
+    }
+    case Position.ILB:
+    case Position.OLB: {
+      const tkl = sum('tackles');
+      const sks = sum('sacks');
+      const ints = sum('interceptions');
+      return `${tkl} tkl, ${sks} sk, ${ints} INT (${seasons}y)`;
+    }
+    case Position.CB:
+    case Position.S:
+    case Position.NICKEL: {
+      const tkl = sum('tackles');
+      const ints = sum('interceptions');
+      return `${tkl} tkl, ${ints} INT (${seasons}y)`;
+    }
+    default:
+      return '—';
+  }
 }
 
 /**

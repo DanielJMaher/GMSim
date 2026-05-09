@@ -4,10 +4,12 @@ import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState, TeamSeasonRecord } from '../types/team.js';
 import type { TeamId, PlayerId, ContractId as ContractIdType } from '../types/ids.js';
+import type { CareerSeasonStats } from '../types/stats.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { computeRecords, divisionStandings } from './standings.js';
 import { advancePlayerDevelopment } from './development.js';
 import { processRetirements } from './retirement.js';
+import { seasonStatsForLeague } from './stats.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { TIER_TEMPLATES } from '../contracts/tiers.js';
 import { WEEKS_PER_LEAGUE_YEAR } from '../contracts/constants.js';
@@ -54,6 +56,11 @@ export function advanceSeason(league: LeagueState): LeagueState {
     };
   }
 
+  // ─── Snapshot per-player stats for the just-played season ──────────
+  // Computed once before the player loop so every player gets a chance
+  // at a careerStats entry. Players with zero output don't get one.
+  const seasonStats = seasonStatsForLeague(league);
+
   // ─── Advance every player ──────────────────────────────────────────
   // Offseason heals: any lingering Player.injury is cleared. The actual
   // weeks-of-recovery model (active rehab, prolonged absences) is a
@@ -61,7 +68,20 @@ export function advanceSeason(league: LeagueState): LeagueState {
   const playersAfterDev: Record<string, Player> = {};
   for (const player of Object.values(league.players)) {
     const playerPrng = advancePrng.fork(`player:${player.id}`);
-    const advanced = advancePlayerDevelopment(playerPrng.fork('dev'), player, league);
+    let advanced = advancePlayerDevelopment(playerPrng.fork('dev'), player, league);
+
+    const thisSeasonStats = seasonStats.get(player.id);
+    if (thisSeasonStats) {
+      const careerEntry: CareerSeasonStats = {
+        ...thisSeasonStats,
+        seasonNumber: league.seasonNumber,
+      };
+      advanced = {
+        ...advanced,
+        careerStats: [...advanced.careerStats, careerEntry],
+      };
+    }
+
     playersAfterDev[player.id] = advanced.injury ? { ...advanced, injury: null } : advanced;
   }
 

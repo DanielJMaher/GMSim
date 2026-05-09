@@ -81,6 +81,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     archetype: archetype.id,
     injury: null,
     conditioning: 100,
+    careerStats: [],
   };
 }
 

@@ -47,6 +47,20 @@ export interface PlayerSeasonStats extends PlayerGameStats {
 }
 
 /**
+ * One season's stat line attached to `Player.careerStats`. Same shape
+ * as `PlayerSeasonStats` plus the `seasonNumber` it was recorded in,
+ * so consumers can display year-by-year tables and compute career
+ * totals by walking the array.
+ *
+ * Snapshotted at end of season by `advanceSeason` for any player who
+ * recorded non-zero output.
+ */
+export interface CareerSeasonStats extends PlayerSeasonStats {
+  /** League season number this stat line is from (1-indexed). */
+  seasonNumber: number;
+}
+
+/**
  * Convenience: a zeroed stat line. Used as the addition identity.
  */
 export function emptyPlayerGameStats(playerId: PlayerId): PlayerGameStats {

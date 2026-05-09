@@ -16,6 +16,23 @@ _Nothing yet._
 
 ---
 
+## [0.9.0] — 2026-05-09
+
+### Added — Phase 2: Career stats history
+
+- **`CareerSeasonStats` type** (`packages/engine/src/types/stats.ts`). Same shape as `PlayerSeasonStats` plus the `seasonNumber` it was recorded in.
+- **`Player.careerStats: readonly CareerSeasonStats[]`**. New field on the player record. Initialized empty for league-creation players and rookie replacements; appended to in `advanceSeason`.
+- **`advanceSeason` snapshots stats**. After computing season stats via `seasonStatsForLeague`, each player who recorded non-zero output gets a new entry appended to `careerStats` tagged with the season just played. Players with zero output don't get sentinel entries — `careerStats.length` is the number of seasons they actually contributed in.
+- **Inspector — career column**. Team detail roster table gained a `career` column showing position-relevant aggregated totals across every recorded season (e.g. "18,420 pass yds, 142 TD (5y)" for a long-tenured QB).
+- **8 new tests** (195 total, 1 skipped harness). Fresh leagues start empty, entries strictly monotonic in `seasonNumber`, snapshotted entry equals aggregator output for the season just played, rookies (from retirement replacement) start with empty careerStats, multi-season determinism, NFL-realistic 5-season top-QB career yards (8k–35k).
+
+### Deferred
+
+- **Retiree career history is dropped.** When a player retires, their entire `careerStats` history goes with them since they're removed from `league.players`. A future "retired-players archive" slice (probably alongside Hall-of-Fame mechanics) preserves this.
+- **Awards / season recap derivation** (MVP / OPOY / DPOY / Coach of the Year) — natural follow-on now that career and season stats both exist. Deferred.
+
+---
+
 ## [0.8.0] — 2026-05-09
 
 ### Added — Phase 2: Per-player stats persistence
