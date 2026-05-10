@@ -130,8 +130,9 @@ export {
   applyContractExpirations,
   applyCapCuts,
   refillRosters,
+  executeTrade,
 } from './transactions/index.js';
-export type { SignFreeAgentOptions } from './transactions/index.js';
+export type { SignFreeAgentOptions, TradePayload } from './transactions/index.js';
 
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';

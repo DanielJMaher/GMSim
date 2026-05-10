@@ -16,6 +16,40 @@ _Nothing yet._
 
 ---
 
+## [0.14.0] — 2026-05-10
+
+### Added — Doc 14 Trades MVP
+
+`executeTrade(league, payload)` swaps players between two teams.
+Mirrors NFL trade-cap mechanics: each trading team accelerates the
+remaining signing-bonus proration of their traded-away players to
+current-year dead money, and the receiving team gets a fresh
+contract preserving the player's remaining base salaries +
+guarantees but with `signingBonus = 0` (the originator paid the
+bonus). `Player.teamId` and `Player.contractId` swap on each
+traded player; rosters update on both sides.
+
+Validations:
+- Both teams must exist and differ.
+- Each listed player must be on the listed team's active roster.
+- Players with `noTradeClause` reject unless `overrideNoTrade: true`.
+
+Public API: `executeTrade`, `TradePayload`. Multi-player swaps
+supported on each side. Draft picks, third-team brokers, and cash
+considerations land alongside the draft module — out of scope here.
+
+Tests (`trade.test.ts`, 11 new): single-player swap, multi-player
+swap, contract preservation w/ signingBonus zeroed, dead-money
+accrual on both trading teams, NTC blocked w/ override path, same-
+team rejection, missing-team rejection, cap impact direction,
+determinism.
+
+### Changed
+
+- 278 → 289 tests.
+
+---
+
 ## [0.13.0] — 2026-05-09
 
 ### Added — Doc 7 Roster Management (slices 1–9), playoff injuries, mid-season FA, top-51, stats-driven dev

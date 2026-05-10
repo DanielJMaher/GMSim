@@ -21,3 +21,5 @@ export {
   MAX_PS_PROTECTIONS_PER_WEEK,
 } from './poach.js';
 export { runWeeklyFreeAgentSignings } from './midseason-fa.js';
+export { executeTrade } from './trade.js';
+export type { TradePayload } from './trade.js';
