@@ -16,6 +16,33 @@ _Nothing yet._
 
 ---
 
+## [0.16.0] — 2026-05-10
+
+### Added — Trade builder UI in TeamDetail
+
+Inspector panel for composing + executing trades against the v0.14.0
+`executeTrade` primitive. From any team detail:
+
+- Pick a trade partner from a dropdown of the other 31 teams.
+- Two side-by-side roster columns: my outgoing players + partner's
+  outgoing players. Click a row to toggle that player into the trade.
+- Live "dead money" preview per side as players are toggled.
+- "Execute trade" button calls `executeTrade(...)` with
+  `overrideNoTrade: true` (so the inspector lets you push deals
+  through any clause). On error (e.g., player no longer on roster),
+  surfaces the message inline via alert.
+- Roster columns sort by skill summary so the highest-impact pieces
+  are at the top.
+
+This amplifies the v0.14.0 engine work — trades were previously
+only callable from code; now they're a click in the inspector.
+
+### Changed
+
+- Web bundle: 264KB → 271KB (gzip 81.6KB → 83.1KB).
+
+---
+
 ## [0.15.0] — 2026-05-10
 
 ### Added — Transaction log + inspector surface

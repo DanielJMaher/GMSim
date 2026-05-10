@@ -17,6 +17,8 @@ import {
   freeAgents,
   releasePlayer,
   deadMoneyOnPreJune1Release,
+  executeTrade,
+  signingBonusProrationPerYear,
 } from '@gmsim/engine';
 import type { TeamRecord, SeasonAwards } from '@gmsim/engine';
 import type {
@@ -875,6 +877,8 @@ function TeamDetail({
         </button>
       </header>
 
+      <TradeBuilderPanel team={team} league={league} onLeagueChange={onLeagueChange} />
+
       <div className="space-y-4">
         {groups
           .filter((g) => g.players.length > 0)
@@ -895,6 +899,225 @@ function TeamDetail({
       )}
     </section>
   );
+}
+
+function TradeBuilderPanel({
+  team,
+  league,
+  onLeagueChange,
+}: {
+  team: TeamState;
+  league: LeagueState;
+  onLeagueChange: (l: LeagueState) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [partnerId, setPartnerId] = useState<TeamId | null>(null);
+  const [outgoing, setOutgoing] = useState<Set<PlayerId>>(new Set());
+  const [incoming, setIncoming] = useState<Set<PlayerId>>(new Set());
+
+  const partnerOptions = useMemo(
+    () =>
+      Object.values(league.teams)
+        .filter((t) => t.identity.id !== team.identity.id)
+        .sort((a, b) => a.identity.fullName.localeCompare(b.identity.fullName)),
+    [league.teams, team.identity.id],
+  );
+
+  const partner = partnerId ? league.teams[partnerId] : null;
+
+  function reset() {
+    setOutgoing(new Set());
+    setIncoming(new Set());
+  }
+
+  function toggle(setFn: (s: Set<PlayerId>) => void, current: Set<PlayerId>, id: PlayerId) {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setFn(next);
+  }
+
+  function executeAndApply() {
+    if (!partner) return;
+    if (outgoing.size === 0 && incoming.size === 0) return;
+    try {
+      const result = executeTrade(league, {
+        teamAId: team.identity.id,
+        teamBId: partner.identity.id,
+        playersAToB: [...outgoing],
+        playersBToA: [...incoming],
+        overrideNoTrade: true,
+      });
+      onLeagueChange(result);
+      reset();
+    } catch (e) {
+      // Surface error inline; reset on cancel.
+      // eslint-disable-next-line no-alert
+      alert(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const outgoingDead = useMemo(() => {
+    let total = 0;
+    for (const id of outgoing) {
+      const player = league.players[id];
+      if (!player?.contractId) continue;
+      const c = league.contracts[player.contractId];
+      if (!c) continue;
+      total += signingBonusProrationPerYear(c) * c.yearsRemaining;
+    }
+    return total;
+  }, [outgoing, league]);
+
+  const incomingDead = useMemo(() => {
+    let total = 0;
+    for (const id of incoming) {
+      const player = league.players[id];
+      if (!player?.contractId) continue;
+      const c = league.contracts[player.contractId];
+      if (!c) continue;
+      total += signingBonusProrationPerYear(c) * c.yearsRemaining;
+    }
+    return total;
+  }, [incoming, league]);
+
+  return (
+    <section className="my-4 rounded border border-amber-500/30 bg-amber-500/5 p-3">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-amber-400">
+          Trade builder
+        </h3>
+        <button
+          onClick={() => {
+            setOpen((x) => !x);
+            if (open) reset();
+          }}
+          className="text-xs text-zinc-400 hover:text-zinc-200"
+        >
+          {open ? 'close' : 'open'}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <div className="flex items-center gap-2 text-xs">
+            <label className="text-zinc-500">Trade with:</label>
+            <select
+              value={partnerId ?? ''}
+              onChange={(e) => {
+                setPartnerId(e.target.value ? (e.target.value as TeamId) : null);
+                reset();
+              }}
+              className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-zinc-300"
+            >
+              <option value="">— pick a team —</option>
+              {partnerOptions.map((t) => (
+                <option key={t.identity.id} value={t.identity.id}>
+                  {t.identity.fullName}
+                </option>
+              ))}
+            </select>
+            {partner && (
+              <button
+                onClick={executeAndApply}
+                disabled={outgoing.size === 0 && incoming.size === 0}
+                className="ml-auto rounded border border-amber-500/50 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300 hover:bg-amber-500/20 disabled:opacity-40"
+              >
+                execute trade ({outgoing.size}+{incoming.size})
+              </button>
+            )}
+          </div>
+          {partner && (
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <TradeRosterColumn
+                heading={`${team.identity.abbreviation} sends →`}
+                team={team}
+                league={league}
+                selected={outgoing}
+                onToggle={(id) => toggle(setOutgoing, outgoing, id)}
+                deadMoney={outgoingDead}
+              />
+              <TradeRosterColumn
+                heading={`${partner.identity.abbreviation} sends →`}
+                team={partner}
+                league={league}
+                selected={incoming}
+                onToggle={(id) => toggle(setIncoming, incoming, id)}
+                deadMoney={incomingDead}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TradeRosterColumn({
+  heading,
+  team,
+  league,
+  selected,
+  onToggle,
+  deadMoney,
+}: {
+  heading: string;
+  team: TeamState;
+  league: LeagueState;
+  selected: Set<PlayerId>;
+  onToggle: (id: PlayerId) => void;
+  deadMoney: number;
+}) {
+  const players = team.rosterIds
+    .map((id) => league.players[id]!)
+    .sort((a, b) => avgKeySkill(b) - avgKeySkill(a));
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+      <div className="mb-1 flex items-baseline justify-between text-[11px]">
+        <span className="font-medium text-zinc-300">{heading}</span>
+        <span className="text-amber-400" title="Dead money this team would absorb if they trade these players away">
+          dead {formatMoney(deadMoney)}
+        </span>
+      </div>
+      <div className="max-h-72 overflow-y-auto">
+        <table className="w-full text-left text-[11px]">
+          <tbody>
+            {players.map((p) => {
+              const c = p.contractId ? league.contracts[p.contractId] : null;
+              const cap = c ? currentCapHit(c) : 0;
+              return (
+                <tr
+                  key={p.id}
+                  className={`cursor-pointer border-t border-zinc-800/60 hover:bg-amber-500/5 ${selected.has(p.id) ? 'bg-amber-500/15' : ''}`}
+                  onClick={() => onToggle(p.id)}
+                >
+                  <td className="px-1 py-0.5 font-mono text-zinc-500">{p.position}</td>
+                  <td className="px-1 py-0.5">
+                    {p.firstName.charAt(0)}. {p.lastName}
+                  </td>
+                  <td className={`px-1 py-0.5 text-[10px] font-mono ${tierToneFor(p.tier)}`}>
+                    {p.tier.toLowerCase()}
+                  </td>
+                  <td className="px-1 py-0.5 text-right font-mono text-zinc-400">
+                    {formatMoney(cap)}
+                  </td>
+                  <td className="px-1 py-0.5 text-right text-zinc-500">
+                    {c?.yearsRemaining ?? '-'}y
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function tierToneFor(tier: Player['tier']): string {
+  if (tier === 'STAR') return 'text-emerald-400';
+  if (tier === 'STARTER') return 'text-zinc-200';
+  if (tier === 'BACKUP') return 'text-zinc-500';
+  return 'text-zinc-600';
 }
 
 function SeasonHistoryTable({ history }: { history: readonly TeamSeasonRecord[] }) {
