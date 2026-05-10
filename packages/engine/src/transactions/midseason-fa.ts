@@ -11,9 +11,10 @@ import { ContractId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
 import type { Prng } from '../prng/index.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
-import { teamCapUsage } from '../contracts/cap.js';
+import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
+import type { Transaction } from '../types/transaction.js';
 
 /**
  * Run a single mid-season free-agent signing pass. Each team with fewer
@@ -158,6 +159,16 @@ function applySigning(
     incentives: [],
     noTradeClause: false,
   };
+  const entry: Transaction = {
+    kind: 'fa-sign',
+    tick: signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    playerId,
+    contractId: contract.id,
+    yearOneCapHit: currentCapHit(contract),
+    marketContract: false,
+  };
   return {
     ...league,
     teams: {
@@ -172,5 +183,6 @@ function applySigning(
       ...league.contracts,
       [contract.id]: contract,
     } as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, entry],
   };
 }

@@ -3,6 +3,7 @@ import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
+import type { Transaction } from './transaction.js';
 import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ContractId } from './ids.js';
 
 /**
@@ -40,6 +41,14 @@ export interface LeagueState {
 
   /** Current season's schedule + playoff state. Null before generation. */
   schedule: SeasonSchedule | null;
+
+  /**
+   * Append-only history of every roster / contract transaction (release,
+   * trade, FA signing, IR move, PS promotion, contract expiration, cap
+   * cut). Inspector reads the tail of this for at-a-glance visibility.
+   * Capped behavior is the caller's concern — engine never trims.
+   */
+  transactionLog: readonly Transaction[];
 }
 
 export type LeaguePhase =

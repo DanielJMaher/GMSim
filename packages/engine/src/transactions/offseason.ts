@@ -18,6 +18,7 @@ import { makeFreeAgentContract } from './free-agency.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { ContractId } from '../types/ids.js';
+import type { Transaction } from '../types/transaction.js';
 
 /**
  * Drop every contract whose `yearsRemaining` is 0. The corresponding
@@ -37,12 +38,24 @@ export function applyContractExpirations(league: LeagueState): LeagueState {
   const playersNext: Record<string, Player> = { ...league.players };
   const contractsNext: Record<string, Contract> = { ...league.contracts };
   const removalsByTeam = new Map<TeamId, Set<PlayerId>>();
+  const logEntries: Transaction[] = [];
 
   for (const contract of expired) {
     const player = playersNext[contract.playerId];
     delete contractsNext[contract.id];
     if (!player) continue; // retired or otherwise gone
     if (player.teamId) {
+      const team = league.teams[player.teamId];
+      const wasOnActive = team?.rosterIds.includes(player.id) ?? false;
+      logEntries.push({
+        kind: 'contract-expiration',
+        tick: league.tick,
+        seasonNumber: league.seasonNumber,
+        teamId: player.teamId,
+        playerId: player.id,
+        contractId: contract.id,
+        fromActiveRoster: wasOnActive,
+      });
       const set = removalsByTeam.get(player.teamId) ?? new Set<PlayerId>();
       set.add(player.id);
       removalsByTeam.set(player.teamId, set);
@@ -73,6 +86,7 @@ export function applyContractExpirations(league: LeagueState): LeagueState {
     teams: teamsNext as Readonly<Record<TeamId, TeamState>>,
     players: playersNext as Readonly<Record<PlayerId, Player>>,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, ...logEntries],
   };
 }
 
@@ -97,7 +111,13 @@ export function applyCapCuts(league: LeagueState): LeagueState {
       const candidate = pickCapCutCandidate(team, working);
       if (!candidate) break;
 
-      working = applyRelease(working, teamId, candidate.playerId, candidate.deadMoney);
+      working = applyRelease(
+        working,
+        teamId,
+        candidate.playerId,
+        candidate.deadMoney,
+        candidate.saving,
+      );
     }
   }
   return working;
@@ -135,6 +155,7 @@ function applyRelease(
   teamId: TeamId,
   playerId: PlayerId,
   deadMoney: number,
+  saving: number,
 ): LeagueState {
   const team = league.teams[teamId]!;
   const player = league.players[playerId]!;
@@ -157,11 +178,23 @@ function applyRelease(
   const contractsNext: Record<string, Contract> = { ...league.contracts };
   delete contractsNext[contractId];
 
+  const entry: Transaction = {
+    kind: 'cap-cut',
+    tick: league.tick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    playerId,
+    contractId,
+    deadMoney,
+    capSaving: saving,
+  };
+
   return {
     ...league,
     teams: teamsNext,
     players: playersNext,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, entry],
   };
 }
 
@@ -413,6 +446,16 @@ function mergeSigning(
   player: Player,
   contract: Contract,
 ): LeagueState {
+  const entry: Transaction = {
+    kind: 'fa-sign',
+    tick: contract.signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId: team.identity.id,
+    playerId: player.id,
+    contractId: contract.id,
+    yearOneCapHit: currentCapHit(contract),
+    marketContract: contract.realYears > 1 || contract.signingBonus > 0,
+  };
   return {
     ...league,
     teams: {
@@ -427,5 +470,6 @@ function mergeSigning(
       ...league.contracts,
       [contract.id]: contract,
     } as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, entry],
   };
 }

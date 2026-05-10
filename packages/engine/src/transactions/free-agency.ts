@@ -2,6 +2,8 @@ import type { LeagueState } from '../types/league.js';
 import type { Player, TalentTier } from '../types/player.js';
 import type { Contract, ContractGuarantee } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
+import type { Transaction } from '../types/transaction.js';
+import { currentCapHit } from '../contracts/cap.js';
 import type {
   PlayerId,
   TeamId,
@@ -77,6 +79,17 @@ export function signFreeAgent(
     rosterIds: [...team.rosterIds, playerId],
   };
 
+  const entry: Transaction = {
+    kind: 'fa-sign',
+    tick: options.signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    playerId,
+    contractId: contract.id,
+    yearOneCapHit: currentCapHit(contract),
+    marketContract: true,
+  };
+
   return {
     ...league,
     teams: { ...league.teams, [teamId]: updatedTeam } as Readonly<
@@ -89,6 +102,7 @@ export function signFreeAgent(
       ...league.contracts,
       [contract.id]: contract,
     } as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, entry],
   };
 }
 

@@ -30,6 +30,7 @@ import type {
   CareerAward,
   TeamId,
   Contract,
+  Transaction,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 
@@ -170,6 +171,8 @@ export function App() {
       <LeagueOverview league={league} />
 
       <FreeAgentPoolPanel league={league} />
+
+      <TransactionLogPanel league={league} />
 
       {seasonSimmed && records && <SeasonResultsView league={league} records={records} />}
 
@@ -377,6 +380,150 @@ function FreeAgentPoolPanel({ league }: { league: LeagueState }) {
       )}
     </section>
   );
+}
+
+function TransactionLogPanel({ league }: { league: LeagueState }) {
+  const [expanded, setExpanded] = useState(false);
+  const log = league.transactionLog;
+  const kindCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const entry of log) counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
+    return counts;
+  }, [log]);
+  const recent = useMemo(() => {
+    return [...log].slice(-100).reverse();
+  }, [log]);
+
+  if (log.length === 0) {
+    return (
+      <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Transaction log
+        </h2>
+        <p className="mt-2 text-xs text-zinc-600">
+          Empty — fast-forward a season to see releases, FA signings, trades,
+          IR moves, and PS promotions accumulate.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Transaction log
+        </h2>
+        <button
+          onClick={() => setExpanded((x) => !x)}
+          className="text-xs text-zinc-400 hover:text-zinc-200"
+        >
+          {expanded ? 'collapse' : 'expand'} ({log.length} total)
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        {(
+          [
+            ['release', 'releases'],
+            ['fa-sign', 'FA signings'],
+            ['trade', 'trades'],
+            ['ir-move', 'IR moves'],
+            ['ps-promotion', 'PS promos'],
+            ['contract-expiration', 'expirations'],
+            ['cap-cut', 'cap cuts'],
+          ] as const
+        ).map(([kind, label]) => (
+          <div
+            key={kind}
+            className="rounded border border-zinc-800 bg-zinc-950/50 p-2"
+          >
+            <div className="text-xs text-zinc-500">{label}</div>
+            <div className="font-mono text-sm">{kindCounts[kind] ?? 0}</div>
+          </div>
+        ))}
+      </div>
+      {expanded && (
+        <div className="mt-3 max-h-80 overflow-y-auto rounded border border-zinc-800 bg-zinc-950/40">
+          <table className="w-full text-left text-xs">
+            <thead className="sticky top-0 bg-zinc-900/95 text-zinc-500">
+              <tr>
+                <th className="px-2 py-1 font-medium">tick</th>
+                <th className="px-2 py-1 font-medium">season</th>
+                <th className="px-2 py-1 font-medium">kind</th>
+                <th className="px-2 py-1 font-medium">summary</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((entry, i) => (
+                <tr key={i} className="border-t border-zinc-800/60">
+                  <td className="px-2 py-1 font-mono text-zinc-500">{entry.tick}</td>
+                  <td className="px-2 py-1 font-mono text-zinc-500">
+                    s{entry.seasonNumber}
+                  </td>
+                  <td className={`px-2 py-1 font-mono text-[10px] ${kindColor(entry.kind)}`}>
+                    {entry.kind}
+                  </td>
+                  <td className="px-2 py-1 text-zinc-300">
+                    {summarizeTransaction(entry, league)}
+                  </td>
+                </tr>
+              ))}
+              {log.length > recent.length && (
+                <tr className="border-t border-zinc-800/60 text-center text-zinc-600">
+                  <td colSpan={4} className="py-2">
+                    … {log.length - recent.length} older entries hidden
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function kindColor(kind: Transaction['kind']): string {
+  switch (kind) {
+    case 'release':
+    case 'cap-cut':
+      return 'text-rose-400';
+    case 'fa-sign':
+    case 'ps-promotion':
+      return 'text-emerald-400';
+    case 'trade':
+      return 'text-amber-400';
+    case 'ir-move':
+      return 'text-orange-400';
+    case 'contract-expiration':
+      return 'text-zinc-500';
+  }
+}
+
+function summarizeTransaction(entry: Transaction, league: LeagueState): string {
+  const teamLabel = (id: TeamId): string => league.teams[id]?.identity.abbreviation ?? id;
+  const playerLabel = (id: PlayerId): string => {
+    const p = league.players[id];
+    return p ? `${p.firstName.charAt(0)}. ${p.lastName} (${p.position})` : id;
+  };
+  switch (entry.kind) {
+    case 'release':
+      return `${teamLabel(entry.teamId)} released ${playerLabel(entry.playerId)} · dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
+    case 'fa-sign':
+      return `${teamLabel(entry.teamId)} signed ${playerLabel(entry.playerId)} · cap $${(entry.yearOneCapHit / 1e6).toFixed(1)}M${entry.marketContract ? ' (FA market)' : ' (vet-min)'}`;
+    case 'trade':
+      return `${teamLabel(entry.teamAId)} ↔ ${teamLabel(entry.teamBId)} · ${entry.playersAToB.length}+${entry.playersBToA.length} players`;
+    case 'ir-move':
+      return `${teamLabel(entry.teamId)} placed ${playerLabel(entry.playerId)} on IR · ${entry.injurySeverity} ${entry.weeksOut}wk`;
+    case 'ps-promotion':
+      return entry.ownPromotion
+        ? `${teamLabel(entry.signingTeamId)} promoted own PS ${playerLabel(entry.playerId)}`
+        : `${teamLabel(entry.signingTeamId)} poached ${playerLabel(entry.playerId)} from ${teamLabel(entry.originTeamId)}`;
+    case 'contract-expiration':
+      return `${teamLabel(entry.teamId)} ${entry.fromActiveRoster ? 'roster' : 'PS'} contract expired for ${playerLabel(entry.playerId)}`;
+    case 'cap-cut':
+      return `${teamLabel(entry.teamId)} cap-cut ${playerLabel(entry.playerId)} · save $${(entry.capSaving / 1e6).toFixed(1)}M / dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
+  }
 }
 
 function DivisionSection({

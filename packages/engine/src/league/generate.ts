@@ -123,6 +123,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     contracts: contracts as Readonly<Record<ContractIdType, Contract>>,
     teamPersonalities: teamPersonalities as Readonly<Record<TeamId, TeamPersonality>>,
     schedule: null, // populated when simulateSeason runs
+    transactionLog: [],
   };
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.

@@ -3,6 +3,7 @@ import type { ScheduledGame, SeasonSchedule } from '../types/game.js';
 import type { Player } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
 import type { Contract } from '../types/contract.js';
+import type { Transaction } from '../types/transaction.js';
 import type { TeamId, PlayerId, ContractId } from '../types/ids.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { generateSchedule } from './schedule.js';
@@ -42,6 +43,7 @@ export function simulateSeason(
   let playersDuringSeason: Record<string, Player> = league.players as Record<string, Player>;
   let teamsDuringSeason: Record<string, TeamState> = league.teams as Record<string, TeamState>;
   let contractsDuringSeason: Record<string, Contract> = league.contracts as Record<string, Contract>;
+  let logDuringSeason: readonly Transaction[] = league.transactionLog;
   const playedWeeks: ScheduledGame[][] = [];
   for (let weekIdx = 0; weekIdx < schedule.regularSeason.length; weekIdx++) {
     const currentTick = league.tick + weekIdx;
@@ -100,6 +102,18 @@ export function simulateSeason(
           };
           if (inj.severity === 'MAJOR' && p.teamId) {
             irMoves.push({ playerId: inj.playerId, teamId: p.teamId });
+            logDuringSeason = [
+              ...logDuringSeason,
+              {
+                kind: 'ir-move',
+                tick: currentTick,
+                seasonNumber: league.seasonNumber,
+                teamId: p.teamId,
+                playerId: inj.playerId,
+                injurySeverity: inj.severity,
+                weeksOut: inj.weeksOut,
+              },
+            ];
           }
         }
         if (Object.keys(updates).length > 0) {
@@ -122,6 +136,7 @@ export function simulateSeason(
       teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
       contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
       phase: 'REGULAR_SEASON',
+      transactionLog: logDuringSeason,
     };
     const poachResult = runWeeklyPoaching(
       seasonPrng.fork(`poach-${weekIdx + 1}`),
@@ -131,6 +146,7 @@ export function simulateSeason(
     playersDuringSeason = poachResult.players as Record<string, Player>;
     teamsDuringSeason = poachResult.teams as Record<string, TeamState>;
     contractsDuringSeason = poachResult.contracts as Record<string, Contract>;
+    logDuringSeason = poachResult.transactionLog;
 
     // Mid-season FA signings: any team still below 53 with cap room
     // signs the best-fit FA from the pool to a 1-year league-min deal.
@@ -140,6 +156,7 @@ export function simulateSeason(
       teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
       contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
       phase: 'REGULAR_SEASON',
+      transactionLog: logDuringSeason,
     };
     const faResult = runWeeklyFreeAgentSignings(
       seasonPrng.fork(`fa-${weekIdx + 1}`),
@@ -149,6 +166,7 @@ export function simulateSeason(
     playersDuringSeason = faResult.players as Record<string, Player>;
     teamsDuringSeason = faResult.teams as Record<string, TeamState>;
     contractsDuringSeason = faResult.contracts as Record<string, Contract>;
+    logDuringSeason = faResult.transactionLog;
   }
 
   const regularSeasonComplete: SeasonSchedule = {
@@ -162,6 +180,7 @@ export function simulateSeason(
     players: playersDuringSeason as typeof league.players,
     teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
     contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
+    transactionLog: logDuringSeason,
     schedule: regularSeasonComplete,
     // Playoff games use the all-53 cap rule too.
     phase: 'PLAYOFFS',

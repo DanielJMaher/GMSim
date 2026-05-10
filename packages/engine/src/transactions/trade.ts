@@ -2,6 +2,7 @@ import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
+import type { Transaction } from '../types/transaction.js';
 import type {
   PlayerId,
   TeamId,
@@ -105,6 +106,18 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     deadMoneyByYear: addToYear(teamB.deadMoneyByYear, 0, deadB),
   };
 
+  const entry: Transaction = {
+    kind: 'trade',
+    tick: league.tick,
+    seasonNumber: league.seasonNumber,
+    teamAId: payload.teamAId,
+    teamBId: payload.teamBId,
+    playersAToB: [...payload.playersAToB],
+    playersBToA: [...payload.playersBToA],
+    deadMoneyTeamA: deadA,
+    deadMoneyTeamB: deadB,
+  };
+
   return {
     ...league,
     teams: {
@@ -114,6 +127,7 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     } as Readonly<Record<TeamId, TeamState>>,
     players: playersNext as Readonly<Record<PlayerId, Player>>,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, entry],
   };
 }
 

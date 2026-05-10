@@ -16,6 +16,52 @@ _Nothing yet._
 
 ---
 
+## [0.15.0] — 2026-05-10
+
+### Added — Transaction log + inspector surface
+
+Every roster / contract transaction now lands in
+`league.transactionLog`, an append-only history of typed entries.
+Surfaces in the inspector for at-a-glance visibility into what
+changed and when. 296 tests passing.
+
+**New types**: `Transaction` is a discriminated union over
+`release | fa-sign | trade | ir-move | ps-promotion |
+contract-expiration | cap-cut`. Each entry carries `tick`,
+`seasonNumber`, the players + teams involved, and kind-specific
+context (dead money, year-1 cap hit, severity + weeks out, etc).
+
+**Engine wiring**: every transaction primitive appends an entry to
+`league.transactionLog`:
+- `releasePlayer` → `release`
+- `executeTrade` → `trade`
+- `signFreeAgent` + offseason FA market signings → `fa-sign`
+- mid-season FA signings → `fa-sign` (with `marketContract: false`)
+- PS poaching / promotion → `ps-promotion`
+- IR moves during games → `ir-move`
+- offseason contract expirations → `contract-expiration`
+- offseason cap cuts → `cap-cut`
+
+`simulateSeason` threads the log through weekly poach + FA passes
+alongside players / teams / contracts so all in-season transactions
+land coherently in the post-season league state.
+
+**Inspector**: new top-level `Transaction log` panel below the FA
+pool. Shows total + per-kind counts, expandable to a 100-entry
+recent table with color-coded kinds (red for releases / cap cuts,
+green for signings / promotions, amber for trades, orange for IR).
+Each row summarizes the transaction in plain language with team
+abbreviations + player names.
+
+### Changed
+
+- `LeagueState.transactionLog` is a new required field. Any external
+  consumer constructing a `LeagueState` from scratch must initialize it
+  (`createLeague` already does).
+- 289 → 296 tests.
+
+---
+
 ## [0.14.0] — 2026-05-10
 
 ### Added — Doc 14 Trades MVP

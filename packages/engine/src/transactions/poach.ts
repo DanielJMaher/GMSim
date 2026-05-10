@@ -14,6 +14,7 @@ import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
+import type { Transaction } from '../types/transaction.js';
 
 /**
  * Run a single mid-season practice-squad poaching pass. Each team with
@@ -256,10 +257,22 @@ function applyPoach(
   if (oldContractId) delete contractsNext[oldContractId];
   contractsNext[newContract.id] = newContract;
 
+  const entry: Transaction = {
+    kind: 'ps-promotion',
+    tick: signedOnTick,
+    seasonNumber: league.seasonNumber,
+    originTeamId,
+    signingTeamId: poachingTeamId,
+    playerId,
+    ownPromotion: originTeamId === poachingTeamId,
+    contractId: newContract.id,
+  };
+
   return {
     ...league,
     teams: teamsNext,
     players: playersNext,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, entry],
   };
 }

@@ -2,6 +2,7 @@ import type { LeagueState } from '../types/league.js';
 import type { TeamState } from '../types/team.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
+import type { Transaction } from '../types/transaction.js';
 import type {
   PlayerId,
   TeamId,
@@ -73,11 +74,22 @@ export function releasePlayer(league: LeagueState, playerId: PlayerId): LeagueSt
   const contractsNext: Record<string, Contract> = { ...league.contracts };
   delete contractsNext[contract.id];
 
+  const entry: Transaction = {
+    kind: 'release',
+    tick: league.tick,
+    seasonNumber: league.seasonNumber,
+    teamId: team.identity.id,
+    playerId,
+    contractId: contract.id,
+    deadMoney: dead,
+  };
+
   return {
     ...league,
     teams: teamsNext,
     players: playersNext,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog: [...league.transactionLog, entry],
   };
 }
 
