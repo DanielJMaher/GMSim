@@ -80,15 +80,28 @@ describe('advanceSeason — retirement integration', () => {
     expect(retired).toBeGreaterThan(0);
   });
 
-  it('keeps total league population at 1696 across 5 seasons', () => {
+  it('keeps active + practice-squad population stable across 5 seasons', () => {
     const league = runSeasons('retire-pop', 5);
-    expect(Object.keys(league.players).length).toBe(1696);
+    let activeTotal = 0;
+    let psTotal = 0;
+    for (const team of Object.values(league.teams)) {
+      activeTotal += team.rosterIds.length;
+      psTotal += team.practiceSquadIds.length;
+    }
+    // Every team always at 53 active + 16 PS post-offseason.
+    expect(activeTotal).toBe(32 * 53);
+    expect(psTotal).toBe(32 * 16);
+    // The full league.players store also holds unsigned free agents
+    // (post-expiration leftovers); it stays bounded but isn't fixed at
+    // a single number.
+    expect(Object.keys(league.players).length).toBeGreaterThanOrEqual(activeTotal + psTotal);
   });
 
-  it('every team stays at 53 across 5 seasons even with retirement churn', () => {
+  it('every team stays at 53 active + 16 PS across 5 seasons even with retirement churn', () => {
     const league = runSeasons('retire-rosters', 5);
     for (const team of Object.values(league.teams)) {
       expect(team.rosterIds.length).toBe(53);
+      expect(team.practiceSquadIds.length).toBe(16);
     }
   });
 

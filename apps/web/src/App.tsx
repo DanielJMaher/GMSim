@@ -14,6 +14,9 @@ import {
   ageOfPlayer,
   seasonStatsForLeague,
   seasonAwards,
+  freeAgents,
+  releasePlayer,
+  deadMoneyOnPreJune1Release,
 } from '@gmsim/engine';
 import type { TeamRecord, SeasonAwards } from '@gmsim/engine';
 import type {
@@ -26,6 +29,7 @@ import type {
   PlayerSeasonStats,
   CareerAward,
   TeamId,
+  Contract,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 
@@ -165,6 +169,8 @@ export function App() {
 
       <LeagueOverview league={league} />
 
+      <FreeAgentPoolPanel league={league} />
+
       {seasonSimmed && records && <SeasonResultsView league={league} records={records} />}
 
       {seasonSimmed && seasonStats && (
@@ -180,6 +186,7 @@ export function App() {
           records={records}
           seasonStats={seasonStats}
           onClose={() => setSelectedTeamId(null)}
+          onLeagueChange={setLeague}
         />
       )}
 
@@ -262,6 +269,112 @@ function LeagueOverview({ league }: { league: LeagueState }) {
         in amber indicate this seed exceeded that. Click a team below to inspect its
         roster.
       </p>
+    </section>
+  );
+}
+
+function FreeAgentPoolPanel({ league }: { league: LeagueState }) {
+  const [expanded, setExpanded] = useState(false);
+  const fas = useMemo(() => freeAgents(league), [league]);
+  const tierCounts = useMemo(() => {
+    const counts = { STAR: 0, STARTER: 0, BACKUP: 0, FRINGE: 0 };
+    for (const player of fas) counts[player.tier]++;
+    return counts;
+  }, [fas]);
+  const topFAs = useMemo(() => {
+    const tierRank: Record<Player['tier'], number> = {
+      STAR: 0,
+      STARTER: 1,
+      BACKUP: 2,
+      FRINGE: 3,
+    };
+    return [...fas]
+      .sort((a, b) => {
+        const t = tierRank[a.tier] - tierRank[b.tier];
+        if (t !== 0) return t;
+        return avgKeySkill(b) - avgKeySkill(a);
+      })
+      .slice(0, 50);
+  }, [fas]);
+
+  if (fas.length === 0) {
+    return (
+      <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Free agent pool
+        </h2>
+        <p className="mt-2 text-xs text-zinc-600">
+          Empty — every player is on a roster. Fast-forward a season to see
+          expirations + cap cuts surface fresh free agents.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Free agent pool
+        </h2>
+        <button
+          onClick={() => setExpanded((x) => !x)}
+          className="text-xs text-zinc-400 hover:text-zinc-200"
+        >
+          {expanded ? 'collapse' : 'expand'} ({fas.length} total)
+        </button>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {(['STAR', 'STARTER', 'BACKUP', 'FRINGE'] as const).map((tier) => (
+          <div key={tier} className="rounded border border-zinc-800 bg-zinc-950/50 p-2">
+            <div className="text-xs text-zinc-500">{tier.toLowerCase()}</div>
+            <div className="font-mono text-sm">{tierCounts[tier]}</div>
+          </div>
+        ))}
+      </div>
+      {expanded && (
+        <div className="mt-3 max-h-72 overflow-y-auto rounded border border-zinc-800 bg-zinc-950/40">
+          <table className="w-full text-left text-xs">
+            <thead className="sticky top-0 bg-zinc-900/95 text-zinc-500">
+              <tr>
+                <th className="px-2 py-1 font-medium">name</th>
+                <th className="px-2 py-1 font-medium">pos</th>
+                <th className="px-2 py-1 font-medium">tier</th>
+                <th className="px-2 py-1 font-medium">arch</th>
+                <th className="px-2 py-1 text-right font-medium">age</th>
+                <th className="px-2 py-1 text-right font-medium">skill</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topFAs.map((player) => (
+                <tr key={player.id} className="border-t border-zinc-800/60">
+                  <td className="px-2 py-1">
+                    {player.firstName} {player.lastName}
+                  </td>
+                  <td className="px-2 py-1 font-mono text-zinc-400">{player.position}</td>
+                  <td className="px-2 py-1 text-zinc-400">{player.tier.toLowerCase()}</td>
+                  <td className="px-2 py-1 text-zinc-500">
+                    {player.archetype.toLowerCase().replace(/_/g, ' ')}
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono text-zinc-400">
+                    {ageOfPlayer(player, league.seasonNumber)}
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono text-zinc-300">
+                    {avgKeySkill(player).toFixed(0)}
+                  </td>
+                </tr>
+              ))}
+              {fas.length > topFAs.length && (
+                <tr className="border-t border-zinc-800/60 text-center text-zinc-600">
+                  <td colSpan={6} className="py-2">
+                    … {fas.length - topFAs.length} more not shown
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
@@ -388,6 +501,7 @@ function CapBar({ team, league }: { team: TeamState; league: LeagueState }) {
   const overCap = cap.capSpace < 0;
   const usagePct = Math.min(100, (cap.capUsed / cap.capCeiling) * 100);
   const injuredCount = countInjuredOnRoster(team, league);
+  const deadMoney = team.deadMoneyByYear[0] ?? 0;
   return (
     <div className="mt-2">
       <div className="flex items-baseline justify-between text-[11px] text-zinc-500">
@@ -396,6 +510,14 @@ function CapBar({ team, league }: { team: TeamState; league: LeagueState }) {
           {injuredCount > 0 && (
             <span className="ml-2 text-rose-400" title={`${injuredCount} player(s) currently injured`}>
               {injuredCount} inj
+            </span>
+          )}
+          {deadMoney > 0 && (
+            <span
+              className="ml-2 text-amber-400"
+              title={`${formatMoney(deadMoney)} of dead money charges from prior releases counted against this season's cap`}
+            >
+              ☠ {formatMoney(deadMoney)}
             </span>
           )}
         </span>
@@ -493,12 +615,14 @@ function TeamDetail({
   records,
   seasonStats,
   onClose,
+  onLeagueChange,
 }: {
   team: TeamState;
   league: LeagueState;
   records: Map<TeamId, TeamRecord> | null;
   seasonStats: Map<PlayerId, PlayerSeasonStats> | null;
   onClose: () => void;
+  onLeagueChange: (l: LeagueState) => void;
 }) {
   const hc = league.coaches[team.headCoachId]!;
   const cap = summarizeTeamCap(team, league);
@@ -553,6 +677,48 @@ function TeamDetail({
             {overCap ? 'over by ' : 'space '}
             {formatMoney(Math.abs(cap.capSpace))}
           </p>
+          {team.deadMoneyByYear.some((v) => v > 0) && (
+            <p className="text-xs text-amber-400" title="Dead-money cap charges from prior releases / trades, by future season offset">
+              ☠ dead money:{' '}
+              {team.deadMoneyByYear
+                .map((v, i) => `Y${i}=${formatMoney(v)}`)
+                .join(' · ')}
+            </p>
+          )}
+          {team.injuredReserveIds.length > 0 && (
+            <p
+              className="text-xs text-rose-400"
+              title="Injured reserve — players moved off the active roster after a MAJOR injury this season. Restored at offseason."
+            >
+              ⛑ IR ({team.injuredReserveIds.length}):{' '}
+              {team.injuredReserveIds
+                .map((id) => {
+                  const p = league.players[id];
+                  if (!p) return id;
+                  return `${p.firstName.charAt(0)}. ${p.lastName} (${p.position})`;
+                })
+                .join(', ')}
+            </p>
+          )}
+          {team.practiceSquadIds.length > 0 && (
+            <p
+              className="text-xs text-sky-400"
+              title="Practice squad — developmental players on 1-year PS-minimum contracts. Re-stocked each offseason. Not counted toward the salary cap."
+            >
+              🎓 PS ({team.practiceSquadIds.length}):{' '}
+              {(() => {
+                const positionCounts: Record<string, number> = {};
+                for (const id of team.practiceSquadIds) {
+                  const p = league.players[id];
+                  if (p) positionCounts[p.position] = (positionCounts[p.position] ?? 0) + 1;
+                }
+                return Object.entries(positionCounts)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([pos, n]) => `${n} ${pos}`)
+                  .join(' · ');
+              })()}
+            </p>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -572,6 +738,7 @@ function TeamDetail({
               hc={hc}
               league={league}
               seasonStats={seasonStats}
+              onLeagueChange={onLeagueChange}
             />
           ))}
       </div>
@@ -665,12 +832,15 @@ function PositionGroupTable({
   hc,
   league,
   seasonStats,
+  onLeagueChange,
 }: {
   group: { group: PositionGroup; label: string; players: Player[] };
   hc: { offensiveScheme: string; defensiveScheme: string };
   league: LeagueState;
   seasonStats: Map<PlayerId, PlayerSeasonStats> | null;
+  onLeagueChange: (l: LeagueState) => void;
 }) {
+  const [pendingReleaseId, setPendingReleaseId] = useState<PlayerId | null>(null);
   return (
     <div>
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -711,6 +881,9 @@ function PositionGroupTable({
               )}
               <th className="px-2 py-1 font-medium" title="Position-relevant career total across all played seasons">
                 career
+              </th>
+              <th className="px-2 py-1 font-medium" title="Release the player — drops contract, accrues dead money, player becomes a free agent">
+                action
               </th>
             </tr>
           </thead>
@@ -774,6 +947,20 @@ function PositionGroupTable({
                   <td className="px-2 py-1 text-zinc-400">
                     {formatCareerStat(p)}
                   </td>
+                  <td className="px-2 py-1">
+                    <ReleaseActionCell
+                      player={p}
+                      contract={contract}
+                      currentCap={cap}
+                      pending={pendingReleaseId === p.id}
+                      onPending={() => setPendingReleaseId(p.id)}
+                      onCancel={() => setPendingReleaseId(null)}
+                      onConfirm={() => {
+                        onLeagueChange(releasePlayer(league, p.id));
+                        setPendingReleaseId(null);
+                      }}
+                    />
+                  </td>
                 </tr>
               );
             })}
@@ -781,6 +968,67 @@ function PositionGroupTable({
         </table>
       </div>
     </div>
+  );
+}
+
+function ReleaseActionCell({
+  player,
+  contract,
+  currentCap,
+  pending,
+  onPending,
+  onCancel,
+  onConfirm,
+}: {
+  player: Player;
+  contract: Contract | null | undefined;
+  currentCap: number;
+  pending: boolean;
+  onPending: () => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!contract) {
+    return <span className="text-zinc-700">—</span>;
+  }
+  if (!pending) {
+    return (
+      <button
+        onClick={onPending}
+        className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-400 hover:border-rose-500/50 hover:text-rose-300"
+        title={`Release ${player.firstName} ${player.lastName}`}
+      >
+        release
+      </button>
+    );
+  }
+  const dead = deadMoneyOnPreJune1Release(contract);
+  const saving = currentCap - dead;
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap text-[10px]">
+      <span
+        className="text-zinc-500"
+        title="Cap saving this year (current cap hit minus dead money)"
+      >
+        <span className={saving > 0 ? 'text-emerald-400' : saving < 0 ? 'text-rose-400' : 'text-zinc-400'}>
+          {saving >= 0 ? '+' : ''}
+          {formatMoney(saving)}
+        </span>{' '}
+        / dead {formatMoney(dead)}
+      </span>
+      <button
+        onClick={onConfirm}
+        className="rounded border border-rose-500/50 bg-rose-500/10 px-1.5 py-0.5 text-rose-300 hover:bg-rose-500/20"
+      >
+        confirm
+      </button>
+      <button
+        onClick={onCancel}
+        className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-zinc-400 hover:bg-zinc-800"
+      >
+        cancel
+      </button>
+    </span>
   );
 }
 

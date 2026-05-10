@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from './generate.js';
 import { ROSTER_SIZE } from '../players/index.js';
+import { PRACTICE_SQUAD_SIZE } from '../contracts/constants.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 
 /**
@@ -15,9 +16,9 @@ describe('createLeague — rosters', () => {
     }
   });
 
-  it('total player count is 32 × 53 = 1,696', () => {
+  it('total player count is 32 × (53 active + 16 PS)', () => {
     const league = createLeague({ seed: 'total' });
-    expect(Object.keys(league.players).length).toBe(32 * ROSTER_SIZE);
+    expect(Object.keys(league.players).length).toBe(32 * (ROSTER_SIZE + PRACTICE_SQUAD_SIZE));
   });
 
   it('every roster ID resolves to a player record', () => {
@@ -34,7 +35,7 @@ describe('createLeague — rosters', () => {
   it('player IDs are unique league-wide', () => {
     const league = createLeague({ seed: 'unique' });
     const ids = new Set(Object.keys(league.players));
-    expect(ids.size).toBe(32 * ROSTER_SIZE);
+    expect(ids.size).toBe(32 * (ROSTER_SIZE + PRACTICE_SQUAD_SIZE));
   });
 
   it('league is fully deterministic including rosters', () => {

@@ -24,6 +24,7 @@ import { generateRoster } from '../players/roster.js';
 import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
+import { refillPracticeSquad } from '../transactions/practice-squad.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -92,6 +93,9 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
       gmId: bundle.gm.id,
       headCoachId: bundle.headCoach.id,
       rosterIds,
+      injuredReserveIds: [],
+      practiceSquadIds: [],
+      deadMoneyByYear: [],
       franchiseHistory,
       fanBase: bundle.fanBase,
       competitiveWindow: pickStartingWindow(franchiseHistory),
@@ -105,7 +109,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     teamPersonalities[identity.id] = bundle.teamPersonality;
   }
 
-  return {
+  const baseLeague: LeagueState = {
     seed,
     tick: initialTick,
     seasonNumber: 1,
@@ -120,6 +124,9 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     teamPersonalities: teamPersonalities as Readonly<Record<TeamId, TeamPersonality>>,
     schedule: null, // populated when simulateSeason runs
   };
+
+  // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.
+  return refillPracticeSquad(rootPrng.fork('ps-bootstrap'), baseLeague, initialTick, 1);
 }
 
 /**

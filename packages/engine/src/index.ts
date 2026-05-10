@@ -120,6 +120,19 @@ export {
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 
+// Roster transactions
+export {
+  releasePlayer,
+  freeAgents,
+  freeAgentsByPosition,
+  signFreeAgent,
+  makeFreeAgentContract,
+  applyContractExpirations,
+  applyCapCuts,
+  refillRosters,
+} from './transactions/index.js';
+export type { SignFreeAgentOptions } from './transactions/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';

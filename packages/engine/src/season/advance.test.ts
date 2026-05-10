@@ -131,24 +131,48 @@ describe('advanceSeason', () => {
       }
     });
 
-    it('contract that had 1 year remaining is renewed (realYears reset)', () => {
+    it('contract that had 1 year remaining expires — original contract is dropped', () => {
       const played = simulateSeason(createLeague({ seed: 'adv-renew-detect' }));
       const expiring = Object.values(played.contracts).filter(
         (c) => c.yearsRemaining === 1,
       );
       expect(expiring.length).toBeGreaterThan(0); // sanity: some contracts expire
       const next = advanceSeason(played);
-      let checked = 0;
       for (const c of expiring) {
-        const renewed = next.contracts[c.id];
-        // Player may have retired — their contract is dropped, not renewed.
-        if (!renewed) continue;
-        expect(renewed.yearsRemaining).toBe(renewed.realYears);
-        expect(renewed.realYears).toBeGreaterThanOrEqual(1);
-        expect(renewed.realYears).toBeLessThanOrEqual(2);
-        checked++;
+        // Original contract IDs no longer appear in the league after expiration.
+        // The player either becomes a free agent or signs a new (different-ID)
+        // 1-year prove-it deal during the offseason refill.
+        expect(next.contracts[c.id]).toBeUndefined();
       }
-      expect(checked).toBeGreaterThan(0);
+    });
+
+    it('expired-contract player is either retired, a free agent, or signed to a fresh tier-appropriate deal', () => {
+      const played = simulateSeason(createLeague({ seed: 'adv-fa-or-sign' }));
+      const expiring = Object.values(played.contracts).filter(
+        (c) => c.yearsRemaining === 1,
+      );
+      const next = advanceSeason(played);
+      let stillInLeague = 0;
+      let onTeam = 0;
+      for (const c of expiring) {
+        const player = next.players[c.playerId];
+        if (!player) continue; // retired and removed
+        stillInLeague++;
+        if (player.teamId === null) {
+          expect(player.contractId).toBeNull();
+        } else {
+          onTeam++;
+          const newContract = next.contracts[player.contractId!]!;
+          expect(newContract).toBeDefined();
+          expect(newContract.id).not.toBe(c.id); // fresh contract, not the same ID
+          expect(newContract.yearsRemaining).toBe(newContract.realYears);
+          // FA market deals: STAR=4, STARTER=3, BACKUP=2, FRINGE=1.
+          expect(newContract.realYears).toBeGreaterThanOrEqual(1);
+          expect(newContract.realYears).toBeLessThanOrEqual(4);
+        }
+      }
+      expect(stillInLeague).toBeGreaterThan(0);
+      expect(onTeam).toBeGreaterThan(0);
     });
 
     it('contract with multi-year remaining decrements by exactly 1', () => {

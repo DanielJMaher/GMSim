@@ -1,7 +1,7 @@
 import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
-import type { LeagueState } from '../types/league.js';
-import { MAX_PRORATION_YEARS } from './constants.js';
+import type { LeagueState, LeaguePhase } from '../types/league.js';
+import { MAX_PRORATION_YEARS, TOP_51_OFFSEASON } from './constants.js';
 
 /**
  * Compute the per-year proration of a signing bonus.
@@ -48,22 +48,43 @@ export function currentCapHit(contract: Contract): number {
 }
 
 /**
- * Sum the current-year cap hits for every contract on a team's roster.
+ * Sum the current-year cap hits for every contract on a team's roster,
+ * plus the team's current-year dead-money charge.
  *
- * Phase 1 simplification: counts all 53 active-roster contracts. NFL
- * actually uses "Top 51" rule during the offseason, but we'll add that
- * nuance once the season-phase scheduler lands.
+ * NFL Top-51 rule: during the offseason (any phase other than
+ * REGULAR_SEASON / PLAYOFFS), only the 51 largest cap hits count toward
+ * the cap. The bottom 2 contracts on a 53-man roster are excluded.
+ * Dead money is always counted regardless of phase.
  */
 export function teamCapUsage(team: TeamState, league: LeagueState): number {
-  let total = 0;
+  const capHits: number[] = [];
   for (const playerId of team.rosterIds) {
     const player = league.players[playerId];
     if (!player || !player.contractId) continue;
     const contract = league.contracts[player.contractId];
     if (!contract) continue;
-    total += currentCapHit(contract);
+    capHits.push(currentCapHit(contract));
   }
-  return total;
+
+  let counted = 0;
+  if (isOffseasonPhase(league.phase)) {
+    // Top-51 rule — sort descending and sum the top N.
+    capHits.sort((a, b) => b - a);
+    const limit = Math.min(TOP_51_OFFSEASON, capHits.length);
+    for (let i = 0; i < limit; i++) counted += capHits[i]!;
+  } else {
+    for (const hit of capHits) counted += hit;
+  }
+  return counted + (team.deadMoneyByYear[0] ?? 0);
+}
+
+/**
+ * True for any phase where the top-51 cap rule applies. The all-53
+ * accounting kicks in once the regular season opens and stays on
+ * through the playoffs.
+ */
+function isOffseasonPhase(phase: LeaguePhase): boolean {
+  return phase !== 'REGULAR_SEASON' && phase !== 'PLAYOFFS';
 }
 
 /**

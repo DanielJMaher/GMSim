@@ -1,10 +1,15 @@
 import type { LeagueState } from '../types/league.js';
 import type { ScheduledGame, SeasonSchedule } from '../types/game.js';
 import type { Player } from '../types/player.js';
+import type { TeamState } from '../types/team.js';
+import type { Contract } from '../types/contract.js';
+import type { TeamId, PlayerId, ContractId } from '../types/ids.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { generateSchedule } from './schedule.js';
 import { runPlayoffs } from './playoffs.js';
 import { simulateGame } from '../games/outcome.js';
+import { runWeeklyPoaching } from '../transactions/poach.js';
+import { runWeeklyFreeAgentSignings } from '../transactions/midseason-fa.js';
 
 export interface SimulateSeasonOptions {
   /** Override the regular-season PRNG seed. Defaults to league.seed + season number. */
@@ -31,8 +36,12 @@ export function simulateSeason(
   // Play each week's games, propagating injuries into Player.injury so
   // they affect subsequent weeks (and survive into the offseason for
   // inspection). Injury recovery sweeps run at the start of each week
-  // before games are played.
+  // before games are played. MAJOR injuries trigger an IR move — the
+  // player drops off `rosterIds` and onto `injuredReserveIds`, taking
+  // them out of subsequent game-sim strength and re-injury rolls.
   let playersDuringSeason: Record<string, Player> = league.players as Record<string, Player>;
+  let teamsDuringSeason: Record<string, TeamState> = league.teams as Record<string, TeamState>;
+  let contractsDuringSeason: Record<string, Contract> = league.contracts as Record<string, Contract>;
   const playedWeeks: ScheduledGame[][] = [];
   for (let weekIdx = 0; weekIdx < schedule.regularSeason.length; weekIdx++) {
     const currentTick = league.tick + weekIdx;
@@ -52,7 +61,15 @@ export function simulateSeason(
     const weekPrng = seasonPrng.fork(`week-${weekIdx + 1}`);
     const playedWeek: ScheduledGame[] = [];
     for (const pendingGame of week) {
-      const weekLeague: LeagueState = { ...league, players: playersDuringSeason };
+      const weekLeague: LeagueState = {
+        ...league,
+        players: playersDuringSeason,
+        teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
+        contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
+        // Force REGULAR_SEASON during play so cap math uses the all-53
+        // rule rather than the offseason top-51.
+        phase: 'REGULAR_SEASON',
+      };
       const home = weekLeague.teams[pendingGame.homeTeamId]!;
       const away = weekLeague.teams[pendingGame.awayTeamId]!;
       const played = simulateGame(weekPrng.fork(pendingGame.id), {
@@ -68,6 +85,7 @@ export function simulateSeason(
       // week's recovery sweep + game sim see the up-to-date state.
       if (played.result?.injuries.length) {
         const updates: Record<string, Player> = {};
+        const irMoves: { playerId: PlayerId; teamId: TeamId }[] = [];
         for (const inj of played.result.injuries) {
           const p = playersDuringSeason[inj.playerId];
           if (!p) continue;
@@ -80,13 +98,57 @@ export function simulateSeason(
               estimatedReturnTick: currentTick + inj.weeksOut,
             },
           };
+          if (inj.severity === 'MAJOR' && p.teamId) {
+            irMoves.push({ playerId: inj.playerId, teamId: p.teamId });
+          }
         }
         if (Object.keys(updates).length > 0) {
           playersDuringSeason = { ...playersDuringSeason, ...updates };
         }
+        if (irMoves.length > 0) {
+          teamsDuringSeason = applyIrMoves(teamsDuringSeason, irMoves);
+        }
       }
     }
     playedWeeks.push(playedWeek);
+
+    // After this week's games + IR moves: any team now below 53 active
+    // gets one shot at promoting a PS player to fill their biggest
+    // positional deficit. Cap-aware. PS contract is dropped, replaced
+    // with a 1-year league-minimum active deal.
+    const poachLeague: LeagueState = {
+      ...league,
+      players: playersDuringSeason,
+      teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
+      contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
+      phase: 'REGULAR_SEASON',
+    };
+    const poachResult = runWeeklyPoaching(
+      seasonPrng.fork(`poach-${weekIdx + 1}`),
+      poachLeague,
+      currentTick + 1,
+    );
+    playersDuringSeason = poachResult.players as Record<string, Player>;
+    teamsDuringSeason = poachResult.teams as Record<string, TeamState>;
+    contractsDuringSeason = poachResult.contracts as Record<string, Contract>;
+
+    // Mid-season FA signings: any team still below 53 with cap room
+    // signs the best-fit FA from the pool to a 1-year league-min deal.
+    const faLeague: LeagueState = {
+      ...league,
+      players: playersDuringSeason,
+      teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
+      contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
+      phase: 'REGULAR_SEASON',
+    };
+    const faResult = runWeeklyFreeAgentSignings(
+      seasonPrng.fork(`fa-${weekIdx + 1}`),
+      faLeague,
+      currentTick + 1,
+    );
+    playersDuringSeason = faResult.players as Record<string, Player>;
+    teamsDuringSeason = faResult.teams as Record<string, TeamState>;
+    contractsDuringSeason = faResult.contracts as Record<string, Contract>;
   }
 
   const regularSeasonComplete: SeasonSchedule = {
@@ -98,16 +160,49 @@ export function simulateSeason(
   const leagueAfterRegSeason: LeagueState = {
     ...league,
     players: playersDuringSeason as typeof league.players,
+    teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
+    contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
     schedule: regularSeasonComplete,
+    // Playoff games use the all-53 cap rule too.
+    phase: 'PLAYOFFS',
   };
 
-  // Run playoffs. Playoff injury propagation is deferred — the season
-  // ends right after, so injuries there don't alter outcomes elsewhere.
-  const playoffs = runPlayoffs(seasonPrng.fork('playoffs'), leagueAfterRegSeason);
+  // Run playoffs. Playoff games propagate injuries onto Player.injury so
+  // the inspector and offseason heal both see them. IR moves during the
+  // playoffs are skipped (the season ends immediately after, so on-roster
+  // vs IR doesn't change anything before the offseason heal clears state).
+  const playoffResult = runPlayoffs(seasonPrng.fork('playoffs'), leagueAfterRegSeason);
 
   return {
     ...leagueAfterRegSeason,
-    schedule: { ...regularSeasonComplete, playoffs },
+    players: playoffResult.players as typeof league.players,
+    schedule: { ...regularSeasonComplete, playoffs: playoffResult.playoffs },
   };
+}
+
+/**
+ * Apply a batch of mid-season IR moves to the teams map. Each move
+ * removes the player from `rosterIds` and appends them to
+ * `injuredReserveIds`. Players already on IR or no longer on the
+ * given team's roster are skipped (defensive — shouldn't happen
+ * under normal flow but keeps the helper resilient).
+ */
+function applyIrMoves(
+  teams: Record<string, TeamState>,
+  moves: readonly { playerId: PlayerId; teamId: TeamId }[],
+): Record<string, TeamState> {
+  const next: Record<string, TeamState> = { ...teams };
+  for (const { playerId, teamId } of moves) {
+    const team = next[teamId];
+    if (!team) continue;
+    if (!team.rosterIds.includes(playerId)) continue;
+    if (team.injuredReserveIds.includes(playerId)) continue;
+    next[teamId] = {
+      ...team,
+      rosterIds: team.rosterIds.filter((id) => id !== playerId),
+      injuredReserveIds: [...team.injuredReserveIds, playerId],
+    };
+  }
+  return next;
 }
 

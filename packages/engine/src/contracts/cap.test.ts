@@ -3,10 +3,12 @@ import {
   signingBonusProrationPerYear,
   capHitForYear,
   currentCapHit,
+  teamCapUsage,
   deadMoneyOnPreJune1Release,
 } from './cap.js';
 import type { Contract } from '../types/contract.js';
 import { ContractId, PlayerId, TeamId } from '../types/ids.js';
+import { createLeague } from '../league/generate.js';
 
 function makeContract(overrides: Partial<Contract> = {}): Contract {
   return {
@@ -82,6 +84,59 @@ describe('currentCapHit', () => {
   it('handles a freshly-signed deal (yearsRemaining = realYears)', () => {
     const c = makeContract({ yearsRemaining: 4 });
     expect(currentCapHit(c)).toBe(6_000_000); // 1M + 5M
+  });
+});
+
+describe('teamCapUsage — top-51 vs all-53', () => {
+  it('offseason phases use top-51; regular season uses all-53', () => {
+    const offseason = createLeague({ seed: 'top51-offseason' });
+    expect(offseason.phase).toBe('OFFSEASON_PRE_FA');
+    const team = Object.values(offseason.teams)[0]!;
+
+    const offseasonCap = teamCapUsage(team, offseason);
+    const regSeasonCap = teamCapUsage(team, { ...offseason, phase: 'REGULAR_SEASON' });
+
+    // All-53 must include at least as much as top-51 (the bottom-2 cap
+    // hits get included in regular-season accounting).
+    expect(team.rosterIds.length).toBe(53);
+    expect(regSeasonCap).toBeGreaterThan(offseasonCap);
+  });
+
+  it('top-51 excludes exactly the two cheapest contracts', () => {
+    const offseason = createLeague({ seed: 'top51-bottom2' });
+    const team = Object.values(offseason.teams)[0]!;
+    const allHits: number[] = [];
+    for (const playerId of team.rosterIds) {
+      const player = offseason.players[playerId]!;
+      const contract = offseason.contracts[player.contractId!]!;
+      allHits.push(currentCapHit(contract));
+    }
+    allHits.sort((a, b) => a - b);
+    const bottom2 = allHits[0]! + allHits[1]!;
+    const allSum = allHits.reduce((s, h) => s + h, 0);
+
+    const offseasonCap = teamCapUsage(team, offseason);
+    const regSeasonCap = teamCapUsage(team, { ...offseason, phase: 'REGULAR_SEASON' });
+
+    expect(regSeasonCap).toBe(allSum);
+    expect(offseasonCap).toBe(allSum - bottom2);
+  });
+
+  it('dead money is always counted regardless of phase', () => {
+    const base = createLeague({ seed: 'top51-dead' });
+    const team = Object.values(base.teams)[0]!;
+    const teamWithDead = { ...team, deadMoneyByYear: [5_000_000] };
+    const leagueOffseason = {
+      ...base,
+      teams: { ...base.teams, [team.identity.id]: teamWithDead } as typeof base.teams,
+    };
+    const leagueRegSeason = { ...leagueOffseason, phase: 'REGULAR_SEASON' as const };
+
+    const baseOffseason = teamCapUsage(team, base);
+    const baseRegSeason = teamCapUsage(team, { ...base, phase: 'REGULAR_SEASON' });
+
+    expect(teamCapUsage(teamWithDead, leagueOffseason)).toBe(baseOffseason + 5_000_000);
+    expect(teamCapUsage(teamWithDead, leagueRegSeason)).toBe(baseRegSeason + 5_000_000);
   });
 });
 

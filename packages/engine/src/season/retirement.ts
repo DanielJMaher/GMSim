@@ -149,7 +149,9 @@ export function processRetirements(
   const dropContractIds: ContractId[] = [];
   const newPlayers: Record<string, Player> = {};
   const newContracts: Record<string, Contract> = {};
+  const retiredSet = new Set<string>();
 
+  // ─── Active roster: retire + replace with rookie at same position ────
   for (const team of Object.values(league.teams)) {
     const teamPrng = prng.fork(`team:${team.identity.id}`);
     const newRoster: PlayerId[] = [];
@@ -164,6 +166,7 @@ export function processRetirements(
 
       if (retires) {
         retiredPlayerIds.push(playerId);
+        retiredSet.add(playerId);
         if (player.contractId) dropContractIds.push(player.contractId);
 
         const idSuffix = `${team.identity.abbreviation}_${player.position}_R${nextSeasonNumber}_${replacementCounter}`;
@@ -185,6 +188,25 @@ export function processRetirements(
     }
 
     rosterIdsByTeam.set(team.identity.id, newRoster);
+  }
+
+  // ─── Non-rostered retirees: PS + free agents retire too, but get no
+  //     rookie replacement (FA market and PS refill regenerate the pool).
+  //     Without this pass, aged-out PS players and unsigned FAs would
+  //     accumulate in `league.players` past age 40.
+  const offRosterPrng = prng.fork('off-roster');
+  for (const player of Object.values(league.players)) {
+    if (retiredSet.has(player.id)) continue;
+    // Skip players still on an active roster — already covered above.
+    if (player.teamId !== null && league.teams[player.teamId]?.rosterIds.includes(player.id)) {
+      continue;
+    }
+    const ageNext = ageOfPlayer(player, nextSeasonNumber);
+    if (rollRetirement(offRosterPrng.fork(`retire:${player.id}`), ageNext)) {
+      retiredPlayerIds.push(player.id);
+      retiredSet.add(player.id);
+      if (player.contractId) dropContractIds.push(player.contractId);
+    }
   }
 
   return {

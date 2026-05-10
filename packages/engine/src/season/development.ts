@@ -1,6 +1,10 @@
 import type { Prng } from '../prng/index.js';
 import type { Player, PlayerSkills, PlayerDevelopmentArchetype, TalentTier } from '../types/player.js';
 import type { LeagueState } from '../types/league.js';
+import type { PlayerSeasonStats } from '../types/stats.js';
+import type { PlayerId } from '../types/ids.js';
+import { PositionGroup } from '../types/enums.js';
+import { positionGroupFor } from '../players/position-group.js';
 
 /**
  * Apply one year of development to a player. Hidden ceilings shift only
@@ -19,11 +23,12 @@ export function advancePlayerDevelopment(
   prng: Prng,
   player: Player,
   league: LeagueState,
+  performanceMultiplier = 1.0,
 ): Player {
   const ageNext = ageOfPlayer(player, league.seasonNumber + 1);
   const stageNext = stageForAge(ageNext);
 
-  const newCurrent = applyDevelopment(prng, player, stageNext);
+  const newCurrent = applyDevelopment(prng, player, stageNext, performanceMultiplier);
   // Tier shifts as skills change. We don't store an "original" tier;
   // re-derive from new current ratings using the same skill-key logic
   // contracts use.
@@ -82,7 +87,12 @@ function categoryFor(key: keyof PlayerSkills): 'physical' | 'technical' | 'menta
   return 'stable';
 }
 
-function applyDevelopment(prng: Prng, player: Player, stage: AgeStage): PlayerSkills {
+function applyDevelopment(
+  prng: Prng,
+  player: Player,
+  stage: AgeStage,
+  performanceMultiplier: number,
+): PlayerSkills {
   const result = {} as PlayerSkills;
   for (const key of ALL_SKILL_KEYS) {
     const cur = player.current[key];
@@ -90,10 +100,15 @@ function applyDevelopment(prng: Prng, player: Player, stage: AgeStage): PlayerSk
     const cat = categoryFor(key);
     let next = cur;
 
-    // Growth: close some fraction of the gap to ceiling, scaled by stage + archetype.
+    // Growth: close some fraction of the gap to ceiling, scaled by
+    // stage + archetype, then by season-performance multiplier on
+    // technical/mental skills (the categories players can grow into).
     const gap = Math.max(0, ceil - cur);
     if (gap > 0) {
-      const rate = growthRate(stage, cat, player.developmentArchetype);
+      let rate = growthRate(stage, cat, player.developmentArchetype);
+      if (cat === 'technical' || cat === 'mental') {
+        rate *= performanceMultiplier;
+      }
       next += gap * rate + prng.normal(0, 0.5);
     }
 
@@ -212,4 +227,97 @@ function keySkillsForArchetype(archetypeId: string): readonly (keyof PlayerSkill
     return ['coverageTechnique', 'speed', 'agility', 'footballIq'];
   }
   return ['technicalSkill', 'composure'];
+}
+
+// ─── Performance-driven growth multipliers ────────────────────────────
+
+/**
+ * Compute a per-player development multiplier from their season stats.
+ * Players who outperform the league median for their position group
+ * grow faster (technical/mental skills only); below-median performers
+ * grow slightly slower. Players with no stats (didn't play, OL, ST)
+ * land on the neutral 1.0 multiplier — no penalty for unused players.
+ *
+ * Multiplier mapping (relative score = playerScore / positionMedian):
+ *   ≥ 1.5  → 1.30  (great season)
+ *   ≥ 1.1  → 1.10  (above average)
+ *   ≥ 0.5  → 1.00  (average / neutral)
+ *   <  0.5 → 0.95  (below average; mild slow-down)
+ */
+export function computePerformanceMultipliers(
+  league: LeagueState,
+  seasonStats: ReadonlyMap<PlayerId, PlayerSeasonStats>,
+): Map<PlayerId, number> {
+  // Collect scores per position group.
+  const scoresByGroup = new Map<PositionGroup, number[]>();
+  const playerScores = new Map<PlayerId, number>();
+  for (const [playerId, stats] of seasonStats) {
+    const player = league.players[playerId];
+    if (!player) continue;
+    const group = positionGroupFor(player.position);
+    const score = scorePerformance(group, stats);
+    if (score === null) continue;
+    playerScores.set(playerId, score);
+    const arr = scoresByGroup.get(group) ?? [];
+    arr.push(score);
+    scoresByGroup.set(group, arr);
+  }
+
+  // Median per group.
+  const medianByGroup = new Map<PositionGroup, number>();
+  for (const [group, arr] of scoresByGroup) {
+    medianByGroup.set(group, median(arr));
+  }
+
+  const result = new Map<PlayerId, number>();
+  for (const [playerId, score] of playerScores) {
+    const player = league.players[playerId]!;
+    const group = positionGroupFor(player.position);
+    const groupMedian = medianByGroup.get(group);
+    if (!groupMedian || groupMedian <= 0) {
+      result.set(playerId, 1.0);
+      continue;
+    }
+    const relative = score / groupMedian;
+    let multiplier: number;
+    if (relative >= 1.5) multiplier = 1.3;
+    else if (relative >= 1.1) multiplier = 1.1;
+    else if (relative >= 0.5) multiplier = 1.0;
+    else multiplier = 0.95;
+    result.set(playerId, multiplier);
+  }
+  return result;
+}
+
+/**
+ * Per-position-group performance score. Returns null for groups whose
+ * individual stats aren't tracked yet (OL, ST) — those players get the
+ * neutral 1.0 multiplier without skewing other groups' medians.
+ */
+function scorePerformance(group: PositionGroup, stats: PlayerSeasonStats): number | null {
+  switch (group) {
+    case PositionGroup.QB:
+      return stats.passingYards + 25 * stats.passingTds - 25 * stats.interceptionsThrown;
+    case PositionGroup.SKILL:
+      return (
+        stats.rushingYards +
+        stats.receivingYards +
+        50 * (stats.rushingTds + stats.receivingTds)
+      );
+    case PositionGroup.DL:
+    case PositionGroup.LB:
+    case PositionGroup.DB:
+      return stats.tackles + 30 * stats.sacks + 60 * stats.interceptions;
+    case PositionGroup.OL:
+    case PositionGroup.ST:
+      return null; // no individual stats yet
+  }
+}
+
+function median(arr: readonly number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) return (sorted[mid - 1]! + sorted[mid]!) / 2;
+  return sorted[mid]!;
 }

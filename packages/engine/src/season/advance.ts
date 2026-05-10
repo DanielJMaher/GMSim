@@ -1,4 +1,3 @@
-import { ContractId } from '../types/ids.js';
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
@@ -9,13 +8,18 @@ import type { CareerSeasonStats } from '../types/stats.js';
 import type { AwardKind } from '../types/awards.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { computeRecords, divisionStandings } from './standings.js';
-import { advancePlayerDevelopment } from './development.js';
+import { advancePlayerDevelopment, computePerformanceMultipliers } from './development.js';
 import { processRetirements } from './retirement.js';
 import { seasonStatsForLeague } from './stats.js';
 import { seasonAwards } from './awards.js';
 import { CompetitiveWindow } from '../types/enums.js';
-import { TIER_TEMPLATES } from '../contracts/tiers.js';
 import { WEEKS_PER_LEAGUE_YEAR } from '../contracts/constants.js';
+import {
+  applyContractExpirations,
+  applyCapCuts,
+  refillRosters,
+} from '../transactions/offseason.js';
+import { refillPracticeSquad } from '../transactions/practice-squad.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR; // re-exported as ticks
 
@@ -28,9 +32,15 @@ const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR; // re-exported as ticks
  *   2. Recompute competitive window from recent results.
  *   3. Advance every player's development (age + skills + tier).
  *   4. Recover injuries that have run their course.
- *   5. Decrement every contract's yearsRemaining; auto-renew expired
- *      ones at current tier (Phase 2 placeholder for free agency).
- *   6. Increment seasonNumber + tick; clear schedule for the new year.
+ *   5. Decrement every contract's yearsRemaining.
+ *   6. Process retirements (replaced in-place by rookies).
+ *   7. Apply contract expirations — players with hit-zero contracts
+ *      become free agents.
+ *   8. Cap-driven cuts — teams over cap release players (largest
+ *      positive cap saving first) until under cap.
+ *   9. Refill rosters from the FA pool with 1-year league-minimum
+ *      contracts, prioritizing positional deficits.
+ *  10. Increment seasonNumber + tick; clear schedule for the new year.
  *
  * Caller is expected to have run simulateSeason on the input league
  * first — `league.schedule` should be fully played.
@@ -56,6 +66,9 @@ export function advanceSeason(league: LeagueState): LeagueState {
       ...team,
       seasonHistory: [...team.seasonHistory, seasonRecord],
       competitiveWindow: newWindow,
+      // Drop index 0 — the season just closed — so index 0 always
+      // represents the upcoming league year's dead-money charge.
+      deadMoneyByYear: team.deadMoneyByYear.slice(1),
     };
   }
 
@@ -65,6 +78,11 @@ export function advanceSeason(league: LeagueState): LeagueState {
   const seasonStats = seasonStatsForLeague(league);
   const awards = seasonAwards(league);
   const playerAwardMap = buildPlayerAwardMap(awards);
+  // Performance multipliers boost growth for players who outperformed
+  // their position-group median; below-median performers grow slightly
+  // slower. Players without individual stats (OL, ST, didn't play) sit
+  // at neutral 1.0×.
+  const performanceMultipliers = computePerformanceMultipliers(league, seasonStats);
 
   // ─── Advance every player ──────────────────────────────────────────
   // Offseason heals: any lingering Player.injury is cleared. The actual
@@ -73,7 +91,8 @@ export function advanceSeason(league: LeagueState): LeagueState {
   const playersAfterDev: Record<string, Player> = {};
   for (const player of Object.values(league.players)) {
     const playerPrng = advancePrng.fork(`player:${player.id}`);
-    let advanced = advancePlayerDevelopment(playerPrng.fork('dev'), player, league);
+    const multiplier = performanceMultipliers.get(player.id) ?? 1.0;
+    let advanced = advancePlayerDevelopment(playerPrng.fork('dev'), player, league, multiplier);
 
     const thisSeasonStats = seasonStats.get(player.id);
     if (thisSeasonStats) {
@@ -116,13 +135,17 @@ export function advanceSeason(league: LeagueState): LeagueState {
     }
   }
 
-  // ─── Advance every contract ────────────────────────────────────────
+  // ─── Decrement every contract by one year ──────────────────────────
+  // Expired contracts (yearsRemaining hits 0) are NOT auto-renewed; the
+  // offseason transaction pipeline below converts them into free agents.
   const contractsAfterAdvance: Record<string, Contract> = {};
   for (const contract of Object.values(league.contracts)) {
     const player = playersAfterDev[contract.playerId];
     if (!player) continue;
-    const contractPrng = advancePrng.fork(`contract:${contract.id}`);
-    contractsAfterAdvance[contract.id] = advanceOrRenewContract(contractPrng, contract, player);
+    contractsAfterAdvance[contract.id] = {
+      ...contract,
+      yearsRemaining: contract.yearsRemaining - 1,
+    };
   }
 
   // ─── Retirement + rookie replacement ───────────────────────────────
@@ -151,15 +174,35 @@ export function advanceSeason(league: LeagueState): LeagueState {
   }
   Object.assign(contractsNext, retirement.newContracts);
 
-  // Splice updated rosterIds (with retiree → rookie swaps) into teams.
+  // Splice updated rosterIds (with retiree → rookie swaps) into teams,
+  // then activate IR — players on injuredReserveIds rejoin the roster
+  // for the upcoming season (the offseason heal earlier cleared their
+  // Player.injury). Practice-squad players who retired (off-roster
+  // pass in processRetirements) are filtered out of practiceSquadIds.
+  // Retirement runs against the in-season active roster, so IR'd
+  // players don't retire here; that nuance lands when the medical-
+  // staff system + extended-rehab modeling arrive in a later phase.
   for (const teamId of Object.keys(teamsNext)) {
-    const newRoster = retirement.rosterIdsByTeam.get(teamId);
-    if (newRoster) {
-      teamsNext[teamId] = { ...teamsNext[teamId]!, rosterIds: newRoster };
-    }
+    const team = teamsNext[teamId]!;
+    const postRetirementRoster = retirement.rosterIdsByTeam.get(teamId) ?? team.rosterIds;
+    // Filter retired IDs out of the IR-restore list — an IR'd player who
+    // retired (off-roster pass in processRetirements) was removed from
+    // league.players, so they must not be re-added to rosterIds.
+    const restoredIr = team.injuredReserveIds.filter((id) => !retiredSet.has(id));
+    teamsNext[teamId] = {
+      ...team,
+      rosterIds: [...postRetirementRoster, ...restoredIr],
+      injuredReserveIds: [],
+      practiceSquadIds: team.practiceSquadIds.filter((id) => !retiredSet.has(id)),
+    };
   }
 
-  return {
+  // ─── Pre-offseason snapshot ────────────────────────────────────────
+  // Stage the league with retirement applied, then run the offseason
+  // transaction pipeline (expirations → cap cuts → roster refill) in
+  // the new league-year tick so the resulting contracts are stamped
+  // with the upcoming season's signedOnTick.
+  const staged: LeagueState = {
     ...league,
     teams: teamsNext as Readonly<Record<TeamId, TeamState>>,
     players: playersNext as typeof league.players,
@@ -170,6 +213,17 @@ export function advanceSeason(league: LeagueState): LeagueState {
     phase: 'OFFSEASON_PRE_FA',
     schedule: null,
   };
+
+  let offseason = applyContractExpirations(staged);
+  offseason = applyCapCuts(offseason);
+  offseason = refillRosters(offseason, nextTick);
+  offseason = refillPracticeSquad(
+    advancePrng.fork('practice-squad'),
+    offseason,
+    nextTick,
+    nextSeasonNumber,
+  );
+  return offseason;
 }
 
 /**
@@ -283,56 +337,6 @@ function updateCompetitiveWindow(
   if (winPct >= 0.4) return CompetitiveWindow.RETOOLING;
   if (winPct >= 0.25) return CompetitiveWindow.STAGNANT;
   return CompetitiveWindow.REBUILDING;
-}
-
-/**
- * Decrement contract years; if expired, auto-renew at the player's
- * current tier baseline as a Phase 2 placeholder for real free agency.
- *
- * Renewals reuse the same ContractId so no Player.contractId update is
- * needed. Renewed contracts are 1-2 years at the lower bound of the
- * tier's salary range.
- */
-function advanceOrRenewContract(
-  prng: typeof PrngClass.prototype,
-  contract: Contract,
-  player: Player,
-): Contract {
-  const next = contract.yearsRemaining - 1;
-  if (next > 0) {
-    return { ...contract, yearsRemaining: next };
-  }
-  // Expired — generate a renewal at current tier.
-  const template = TIER_TEMPLATES[player.tier];
-  const realYears = prng.nextRange(1, Math.min(2, template.yearsRange[1]) + 1);
-  const baseSalaries: number[] = [];
-  for (let i = 0; i < realYears; i++) {
-    baseSalaries.push(
-      Math.round(
-        prng.nextRange(template.baseSalaryPerYearRange[0], template.baseSalaryPerYearRange[1] + 1) /
-          1000,
-      ) * 1000,
-    );
-  }
-  const signingBonus =
-    Math.round(
-      prng.nextRange(0, template.signingBonusRange[1] + 1) / 1000,
-    ) * 1000;
-  return {
-    ...contract,
-    id: ContractId(contract.id), // keep same ID
-    realYears,
-    voidYears: 0,
-    yearsRemaining: realYears,
-    baseSalaries,
-    signingBonus,
-    rosterBonuses: new Array(realYears).fill(0),
-    workoutBonuses: new Array(realYears).fill(0),
-    guarantees: new Array(realYears).fill({ baseGuaranteedPct: 0, type: 'NONE' }),
-    incentives: [],
-    noTradeClause: false,
-    signedOnTick: contract.signedOnTick, // not strictly accurate but harmless for Phase 2
-  };
 }
 
 void SECONDS_PER_LEAGUE_YEAR;

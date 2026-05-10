@@ -41,6 +41,29 @@ export interface TeamState {
   headCoachId: CoachId;
   /** Current 53-man active roster. Practice squad and reserve lists tracked separately. */
   rosterIds: readonly PlayerId[];
+  /**
+   * Players moved off the active roster onto injured reserve. Entries
+   * sit here until the offseason heal in `advanceSeason` returns them
+   * to `rosterIds`. IR players still count against the salary cap (their
+   * contracts remain active) but are skipped for game-sim strength and
+   * per-week injury rolls.
+   */
+  injuredReserveIds: readonly PlayerId[];
+  /**
+   * Practice squad — developmental players on cheap 1-year deals,
+   * separate from the active 53. PS contracts are below the league
+   * minimum and are NOT counted toward `teamCapUsage` (which iterates
+   * `rosterIds`). Re-stocked each offseason. Poaching / promotion
+   * mechanics land in a future slice.
+   */
+  practiceSquadIds: readonly PlayerId[];
+  /**
+   * Dead money cap charges from prior releases / trades, indexed by
+   * future season offset (0 = current league year, 1 = next, …).
+   * Charges shift left by one each `advanceSeason` call so index 0 is
+   * always the current year.
+   */
+  deadMoneyByYear: readonly number[];
   /** Procedurally generated franchise history archetype. Affects fan baseline. */
   franchiseHistory: FranchiseHistory;
   /** Per-team fan-base profile. Evolves slowly with results. Feeds Team Personality. */

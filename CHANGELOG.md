@@ -16,6 +16,125 @@ _Nothing yet._
 
 ---
 
+## [0.13.0] — 2026-05-09
+
+### Added — Doc 7 Roster Management (slices 1–9), playoff injuries, mid-season FA, top-51, stats-driven dev
+
+Phase 2's "auto-renewal placeholder" → real roster-management pipeline.
+Doc 7 now drives the full offseason and in-season transaction loop, plus
+two long-deferred items (playoff injury propagation; stats-driven dev).
+Tests grew 220 → 278.
+
+**Player releases + dead money.** New `releasePlayer(league, playerId)`
+drops the contract, marks the player a free agent, and accrues
+`deadMoneyOnPreJune1Release` to the team's new `deadMoneyByYear`
+field (per-year future cap charges, indexed by season offset). The
+charge shifts left each `advanceSeason` and is folded into
+`teamCapUsage`. Inspector shows `☠ $XM` chips on team cards.
+
+**Free-agent pool + offseason FA market.** Auto-renewal removed.
+`advanceSeason` now runs `applyContractExpirations` →
+`applyCapCuts` → `refillRosters` (tier-ordered FA market with
+multi-year contracts) → `refillPracticeSquad`. The market scores
+each FA by `positional need × scheme fit × cap room` and signs at
+tier-appropriate AAVs (STAR 4yr / STARTER 3yr / BACKUP 2yr / FRINGE
+1yr min). Cap-aware: signings respect the cap ceiling. Cap usage
+after 5 seasons settles around $200-220M average — the ~$425M
+auto-renewal bug is gone.
+
+**Injured Reserve.** New `TeamState.injuredReserveIds`. MAJOR-severity
+injuries during a season now move the player off `rosterIds` onto
+IR (so game-sim strength + re-injury rolls correctly skip them).
+Offseason `advanceSeason` activates IR back to active. Inspector
+shows `⛑ IR (n)` line in team detail.
+
+**Practice squad (16 per team).** New `TeamState.practiceSquadIds`,
+`PRACTICE_SQUAD_SIZE = 16`, `PRACTICE_SQUAD_SALARY = $250K`, and
+`refillPracticeSquad`. Each team starts with 16 PS rookies on
+1-year PS-min contracts; PS contracts expire each offseason and
+PS slots refill with fresh undrafted rookies. PS contracts are
+cleanly excluded from `teamCapUsage` (which iterates `rosterIds`).
+`processRetirements` extended with an off-roster pass so PS
+players + unsigned FAs don't accumulate past age 40.
+
+**PS poaching.** New `runWeeklyPoaching(prng, league, signedOnTick)`
+runs each week after games + IR moves. Teams below 53 active with
+cap room scan all 32 teams' PS lists for the best-fit player at
+their biggest positional deficit; promote with a 1-year league-min
+active contract.
+
+**PS protection list (4 per team per week).** Each team's top-4 PS
+players (by skill × scheme fit) are shielded from external
+poaching. Owning teams can still promote their own protected
+players — protection only blocks outside claims.
+
+**Mid-season FA signings.** New `runWeeklyFreeAgentSignings` runs
+after weekly poaching. Teams still below 53 with cap room sign
+the best-fit street FA at any of their positional deficits to a
+1-year league-min deal.
+
+**Interactive release in inspector.** Each player row in TeamDetail
+now has a `release` button that shows an inline `+$Xsav / dead $Y`
+preview before confirming. Confirm calls `releasePlayer` and
+threads new league state up to App.
+
+**Free-agent pool panel.** New top-level inspector section showing
+total FA count + per-tier breakdown, expandable to a 50-row table
+of top FAs sorted by tier desc + skill.
+
+### Added — Playoff injury propagation (deferred from v0.7.0)
+
+`runPlayoffs` now returns `{ playoffs, players }` instead of just the
+bracket. Each playoff game's `result.injuries` propagates onto
+`Player.injury` with playoff-specific `occurredOnTick` (WC=+17,
+DIV=+18, CONF=+19, SB=+20). IR moves intentionally skipped —
+playoffs end immediately and the offseason heal clears state.
+`simulateSeason` now writes the post-playoff player map back into
+the league.
+
+### Added — Top-51 cap rule
+
+Real NFL behavior: only the 51 highest cap hits count during the
+offseason; all 53 count during regular season + playoffs. New
+`TOP_51_OFFSEASON = 51` constant. `teamCapUsage` branches on
+`league.phase` — REGULAR_SEASON / PLAYOFFS use all-53; everything
+else uses top-51. Dead money always counted regardless of phase.
+`simulateSeason` overrides `phase: 'REGULAR_SEASON'` on weekly
+leagues used for game sim, poaching, and mid-season FA so in-game
+cap checks correctly see all 53.
+
+### Added — Stats-driven development (deferred from resume notes)
+
+Players who outperform their position-group median grow faster on
+technical/mental skills; below-median performers grow slightly
+slower. New `computePerformanceMultipliers(league, seasonStats)`
+returns per-player multipliers in `[0.95, 1.30]`:
+- QB: `passingYards + 25×passingTds − 25×interceptionsThrown`
+- SKILL: `rushingYards + receivingYards + 50×TDs`
+- DL/LB/DB: `tackles + 30×sacks + 60×interceptions`
+- OL/ST: no individual stats yet → neutral 1.0×
+
+Multiplier mapping vs position-group median: `≥1.5×` → 1.30,
+`≥1.1×` → 1.10, `≥0.5×` → 1.00, `<0.5×` → 0.95.
+`advancePlayerDevelopment` takes an optional `performanceMultiplier`
+(default `1.0`) and applies it to technical/mental growth rates only.
+Aging decline on physical skills is unchanged.
+
+### Changed
+
+- `runPlayoffs` return type changed to `RunPlayoffsResult` —
+  `{ playoffs: PlayoffsState, players: Record<string, Player> }`.
+  Single in-tree caller (`simulateSeason`) updated. Affects external
+  consumers of the public export.
+- FA-market AAVs trimmed ~25% (STAR base $7M + $14M signing; STARTER
+  $3M + $3M; BACKUP $1.1M + $200K) so steady-state cap leaves room
+  for fill-up signings to reach 53.
+- `advance.test.ts` semantic tests updated — "renewed at 1 year
+  remaining" replaced with "expired and re-signed via FA market"
+  matching the new flow.
+
+---
+
 ## [0.12.0] — 2026-05-09
 
 ### Changed — stat realism + per-unit skill alignment

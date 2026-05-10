@@ -1,22 +1,71 @@
 import type { LeagueState } from '../types/league.js';
 import type { ScheduledGame, PlayoffsState } from '../types/game.js';
+import type { Player } from '../types/player.js';
 import type { Prng } from '../prng/index.js';
 import { simulateGame } from '../games/outcome.js';
 import { computeRecords, playoffSeeds } from './standings.js';
 import { Conference } from '../types/enums.js';
 import type { TeamRecord } from './standings.js';
 
+/** First playoff week is one tick after the 17-week regular season. */
+const PLAYOFF_TICK_OFFSET: Partial<Record<ScheduledGame['kind'], number>> = {
+  WILD_CARD: 17,
+  DIVISIONAL: 18,
+  CONFERENCE: 19,
+  SUPER_BOWL: 20,
+};
+
+export interface RunPlayoffsResult {
+  /** The played-through playoff bracket. */
+  playoffs: PlayoffsState;
+  /** Updated player map with playoff-game injuries propagated onto Player.injury. */
+  players: Record<string, Player>;
+}
+
 /**
  * Run the full playoff bracket: Wild Card → Divisional → Conference →
  * Super Bowl. Higher seed hosts; Super Bowl is at a neutral site.
  *
- * Mutates a copy of league state — callers should pass the league after
- * the regular season completes and merge the returned PlayoffsState
- * back into `league.schedule.playoffs`.
+ * Returns the played bracket plus an updated player map. Per-game
+ * injuries are propagated onto `Player.injury` so the inspector and
+ * the offseason heal both see playoff outcomes consistently.
  */
-export function runPlayoffs(prng: Prng, league: LeagueState): PlayoffsState {
+export function runPlayoffs(prng: Prng, league: LeagueState): RunPlayoffsResult {
   const records = computeRecords(league);
   const seeds = playoffSeeds(league, records);
+  let players: Record<string, Player> = league.players as Record<string, Player>;
+
+  function play(
+    forkLabel: string,
+    higherSeed: TeamRecord,
+    lowerSeed: TeamRecord,
+    kind: ScheduledGame['kind'],
+    neutralSite = false,
+  ): ScheduledGame {
+    const leagueWithLatestPlayers: LeagueState = { ...league, players };
+    const game = playGame(prng.fork(forkLabel), leagueWithLatestPlayers, higherSeed, lowerSeed, kind, neutralSite);
+    if (game.result?.injuries.length) {
+      const occurredOnTick = league.tick + (PLAYOFF_TICK_OFFSET[kind] ?? 17);
+      const updates: Record<string, Player> = {};
+      for (const inj of game.result.injuries) {
+        const p = players[inj.playerId];
+        if (!p) continue;
+        updates[inj.playerId] = {
+          ...p,
+          injury: {
+            type: inj.type,
+            severity: inj.severity,
+            occurredOnTick,
+            estimatedReturnTick: occurredOnTick + inj.weeksOut,
+          },
+        };
+      }
+      if (Object.keys(updates).length > 0) {
+        players = { ...players, ...updates };
+      }
+    }
+    return game;
+  }
 
   // ─── Wild Card round ────────────────────────────────────────────────
   // Seeds 2v7, 3v6, 4v5 in each conference. Seed 1 has a bye.
@@ -24,9 +73,9 @@ export function runPlayoffs(prng: Prng, league: LeagueState): PlayoffsState {
   for (const conf of Object.values(Conference)) {
     const confSeeds = seeds[conf];
     if (confSeeds.length < 7) continue;
-    wildCard.push(playGame(prng.fork(`wc-${conf}-2v7`), league, confSeeds[1]!, confSeeds[6]!, 'WILD_CARD'));
-    wildCard.push(playGame(prng.fork(`wc-${conf}-3v6`), league, confSeeds[2]!, confSeeds[5]!, 'WILD_CARD'));
-    wildCard.push(playGame(prng.fork(`wc-${conf}-4v5`), league, confSeeds[3]!, confSeeds[4]!, 'WILD_CARD'));
+    wildCard.push(play(`wc-${conf}-2v7`, confSeeds[1]!, confSeeds[6]!, 'WILD_CARD'));
+    wildCard.push(play(`wc-${conf}-3v6`, confSeeds[2]!, confSeeds[5]!, 'WILD_CARD'));
+    wildCard.push(play(`wc-${conf}-4v5`, confSeeds[3]!, confSeeds[4]!, 'WILD_CARD'));
   }
 
   // ─── Divisional round ───────────────────────────────────────────────
@@ -44,22 +93,15 @@ export function runPlayoffs(prng: Prng, league: LeagueState): PlayoffsState {
       .map((x) => x.r);
     if (remainingBySeed.length < 4) continue;
     divisional.push(
-      playGame(
-        prng.fork(`div-${conf}-1vlow`),
-        league,
+      play(
+        `div-${conf}-1vlow`,
         remainingBySeed[0]!,
         remainingBySeed[remainingBySeed.length - 1]!,
         'DIVISIONAL',
       ),
     );
     divisional.push(
-      playGame(
-        prng.fork(`div-${conf}-mid`),
-        league,
-        remainingBySeed[1]!,
-        remainingBySeed[2]!,
-        'DIVISIONAL',
-      ),
+      play(`div-${conf}-mid`, remainingBySeed[1]!, remainingBySeed[2]!, 'DIVISIONAL'),
     );
   }
 
@@ -76,13 +118,7 @@ export function runPlayoffs(prng: Prng, league: LeagueState): PlayoffsState {
         seeds[conf].indexOf(a) - seeds[conf].indexOf(b),
     );
     conference.push(
-      playGame(
-        prng.fork(`conf-${conf}`),
-        league,
-        sortedWinners[0]!,
-        sortedWinners[1]!,
-        'CONFERENCE',
-      ),
+      play(`conf-${conf}`, sortedWinners[0]!, sortedWinners[1]!, 'CONFERENCE'),
     );
   }
 
@@ -93,9 +129,8 @@ export function runPlayoffs(prng: Prng, league: LeagueState): PlayoffsState {
   const superBowl: ScheduledGame[] = [];
   let championId: PlayoffsState['championId'] = null;
   if (conferenceWinners.length === 2) {
-    const game = playGame(
-      prng.fork('sb'),
-      league,
+    const game = play(
+      'sb',
       conferenceWinners[0]!,
       conferenceWinners[1]!,
       'SUPER_BOWL',
@@ -111,11 +146,14 @@ export function runPlayoffs(prng: Prng, league: LeagueState): PlayoffsState {
   }
 
   return {
-    wildCard,
-    divisional,
-    conference,
-    superBowl,
-    championId,
+    playoffs: {
+      wildCard,
+      divisional,
+      conference,
+      superBowl,
+      championId,
+    },
+    players,
   };
 }
 
