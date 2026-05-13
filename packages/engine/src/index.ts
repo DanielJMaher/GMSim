@@ -112,11 +112,24 @@ export {
   seasonStatsForLeague,
   playerSeasonStats,
   seasonAwards,
+  weeklyMoodUpdate,
+  moodBucket,
+  moodMultiplier,
+  MOOD_BUCKETS,
+  MOOD_BASELINE,
+  TRADE_REQUEST_THRESHOLD,
+  TRADE_REQUEST_RESOLVE_THRESHOLD,
+  teamChemistry,
+  chemistryBucket,
+  CHEMISTRY_BUCKETS,
   type TeamRecord,
   type RetirementOutcome,
   type SeasonAwards,
   type PlayerAward,
   type CoachAward,
+  type MoodBucket,
+  type ChemistryBucket,
+  type TeamChemistry,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 
@@ -131,6 +144,7 @@ export {
   applyCapCuts,
   refillRosters,
   executeTrade,
+  runWeeklyNpcTrades,
 } from './transactions/index.js';
 export type { SignFreeAgentOptions, TradePayload } from './transactions/index.js';
 

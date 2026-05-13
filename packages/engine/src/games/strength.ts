@@ -4,6 +4,7 @@ import type { Player } from '../types/player.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { PositionGroup } from '../types/enums.js';
+import { moodMultiplier } from '../season/mood.js';
 
 /**
  * Compute a single-number team strength used as the primary input to
@@ -93,7 +94,7 @@ function topTalentScore(players: readonly Player[]): number {
   for (const group of Object.keys(groupTopN) as PositionGroup[]) {
     const groupPlayers = players
       .filter((p) => p.positionGroup === group)
-      .map((p) => ({ p, score: keySkillAvg(p) }))
+      .map((p) => ({ p, score: keySkillAvg(p) * moodMultiplier(p.mood) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, groupTopN[group]);
     if (groupPlayers.length === 0) continue;
@@ -144,7 +145,7 @@ export function unitStrengths(team: TeamState, league: LeagueState): UnitStrengt
   const byPosition = (positions: readonly string[], topN: number): number => {
     const scored = players
       .filter((p) => positions.includes(p.position))
-      .map((p) => keySkillAvg(p))
+      .map((p) => keySkillAvg(p) * moodMultiplier(p.mood))
       .sort((a, b) => b - a)
       .slice(0, topN);
     if (scored.length === 0) return 50;

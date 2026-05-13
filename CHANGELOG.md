@@ -16,6 +16,136 @@ _Nothing yet._
 
 ---
 
+## [0.17.0] — 2026-05-13
+
+### Added — Team Chemistry MVP (7 slices through NPC trade-finder)
+
+Seven slices of Doc 7's Team Chemistry System. Every player now carries
+a hidden 0..100 `mood` value that drifts weekly during the regular
+season, feeds back into game-sim strength so chemistry actually matters
+on the field, triggers trade demands when a STAR / STARTER mood
+collapses, spreads through the locker room in both directions
+(frustrated players drag teammates down; veteran leaders lift the room),
+rolls up into a single `teamChemistry` score per team for media /
+inspector surfaces, and — closing the loop — an NPC trade-finder
+matches dissatisfied stars to interested buyers and actually executes
+the deals. 337 tests passing.
+
+**New on `Player`**: `mood: number` — hidden, 0..100, baseline 75.
+Never displayed numerically in the eventual player-facing UI; the dev
+inspector exposes both bucket label and raw value for tuning.
+
+**New module**: `season/mood.ts` exports `weeklyMoodUpdate`,
+`moodBucket`, `MOOD_BUCKETS`, `MOOD_BASELINE`. The update is a pure
+function — no PRNG dependence — called from `simulateSeason` after
+each week's IR / poach / FA passes so the depth-chart check sees
+post-roster-churn state.
+
+**Drift inputs** (each player, each week):
+- Regression toward 75 baseline (×0.02 / week).
+- Last-week W/L (+0.6 / -0.6) plus a streak amplifier at 3+ in
+  either direction.
+- HC `playerRelationships` spectrum centered at 5.5 (±0.9 / week);
+  `CULTURE_CARRIER` quirk adds +0.4 on top.
+- IR penalty scaled by tier (STAR -1.2 → FRINGE -0.1).
+- Depth-chart penalty when a player is "buried" behind same-position
+  peers occupying the team's starter slots for that position.
+- `composure` skill dampens negative deltas at 80+, amplifies at ≤30.
+
+**New transaction kind**: `mood-shift` — appended to `transactionLog`
+when a player crosses a bucket boundary. Buckets: `wants_out` (0..19),
+`frustrated` (20..39), `unsettled` (40..59), `content` (60..79),
+`happy` (80..100).
+
+**Inspector**:
+- New "mood" column on `PositionGroupTable` showing bucket label
+  with tone + raw value.
+- `mood-shift` events surface in the transaction-log panel with a
+  violet tone and a "X. Lastname unsettled → frustrated (mood 35)"
+  summary.
+
+**On-field impact**: `moodMultiplier(mood)` scales each player's
+contribution to `teamStrength` and `unitStrengths` by an asymmetric
+0.94..1.015× factor (penalty grows faster than bonus, matching "winning
+covers many sins"). Effect is narrow on purpose — chemistry shifts box
+scores without dominating talent gaps. Plays through both team-strength
+(game outcome roll) and unit-strength (per-stat scaling), so frustrated
+stars also drag passing/rushing/defense unit lines.
+
+**NPC trade-finder**: `runWeeklyNpcTrades(prng, league, tick)` runs
+after the weekly mood pass and tries to honor open trade requests.
+For each player whose `tradeRequestedOnTick !== null` (oldest request
+first):
+
+- Scores the other 31 teams by STAR + STARTER deficit at the
+  requester's position; the deepest-need buyer with cap room wins.
+- Return piece is the buyer's lowest-tier player at that position,
+  enforcing the "you're losing a star, we're losing depth" trope.
+- Executes via `executeTrade` with `overrideNoTrade: true` — once a
+  player has demanded a trade, NTC pressure is moot.
+- Post-trade: requester's mood resets to baseline (75) and the
+  request flag clears. "Wish granted."
+- Caps: ≤1 trade per seller AND ≤1 per buyer per week, so a single
+  team can't absorb a league-wide fire sale in one Sunday.
+
+Trade-finder runs only on existing trade requests in v0.17.0 — no
+proactive NPC dealmaking yet (that's Doc 14 follow-up territory).
+
+**Team-wide aggregation**: `teamChemistry(team, league)` rolls roster
+moods (active 53 + IR) into a single 0..100 score weighted by tier —
+STAR mood weighs 4× a FRINGE's, since the room feels what its best
+player feels. Returns bucket label (`toxic` / `divided` / `neutral` /
+`cohesive` / `locked_in`) plus narrative counters: `unhappyCount`
+(mood < 20) and `tradeRequestCount`. Pure compute over `Player.mood`;
+no storage to keep in sync. Surfaces as a chip on each TeamCard +
+expanded "locker room: X (score) · N unhappy · M trade reqs" line in
+TeamDetail. Intentionally does NOT feed into `teamStrength` — the
+per-player `moodMultiplier` already routes mood through to the field,
+so adding an aggregate term would double-count.
+
+**Locker-room contagion (bidirectional)**: a second pass after primary
+mood drift computes both directions in one loop:
+
+- *Negative pressure* — teammates whose staged mood is below 50
+  contribute frustration weighted by their `leadership` (loud,
+  respected players spread it further). Applied as drag, scaled by
+  `(1 - composure × 0.7)` so stoic players resist while volatile ones
+  spiral with the room.
+- *Positive lift* — veterans (`experienceYears ≥ 4`) whose staged mood
+  is above 75 AND whose `(leadership + workEthic) / 2` clears 60
+  contribute leadership lift. `workEthic` proxies for Doc 7's
+  "integrity" trait since Player doesn't carry one directly. Applied
+  as boost, scaled by `(0.3 + coachability × 0.7)` so coachable
+  teammates absorb more vet leadership than skeptics.
+
+Asymmetric requirements match the doc: bad apples come from anywhere,
+but stabilising voices come from veterans specifically. Mood-shift and
+trade-request transactions fire against the post-contagion mood so a
+player dragged into the wants-out band by their teammates still
+generates the demand.
+
+**Trade requests**: when a STAR or STARTER's mood drops to or below
+`TRADE_REQUEST_THRESHOLD` (15), they demand a trade through their agent.
+`Player.tradeRequestedOnTick` records the active request; a
+`trade-request` transaction (`state: 'requested'`) lands in the log.
+The demand is withdrawn once mood recovers to
+`TRADE_REQUEST_RESOLVE_THRESHOLD` (40), emitting a `state: 'resolved'`
+follow-up. BACKUP / FRINGE tiers never trigger — their agents lack
+the leverage. The trade primitive doesn't act on the flag automatically;
+this is observable state that a future NPC trade-finder will consume.
+Inspector roster row shows a "wants out" chip on players with an
+active request.
+
+### Deliberately out of scope (later slices)
+- Locker-room contagion (chemistry problems spread).
+- Team-wide chemistry aggregation.
+- Veteran-leadership recovery + scheme-fit driver.
+- Offseason mood behavior (currently mood persists; no offseason
+  drift toward baseline yet).
+- Practice-squad players' mood (skipped — different dynamic).
+
+---
+
 ## [0.16.0] — 2026-05-10
 
 ### Added — Trade builder UI in TeamDetail

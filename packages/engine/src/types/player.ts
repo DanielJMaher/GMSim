@@ -109,6 +109,37 @@ export interface Player {
   conditioning: number;
 
   /**
+   * Sim tick at which this player most recently demanded a trade
+   * through their agent, or `null` if they're currently content with
+   * their situation. Set when a STAR / STARTER's mood collapses below
+   * the trade-request threshold; cleared when their mood recovers.
+   *
+   * Future slices will let NPC GMs read this flag to decide which
+   * dissatisfied players to pursue. The trade primitive itself
+   * (v0.14.0) is unaware of this flag — the existence of a request
+   * doesn't force any team to act, it just makes the demand observable.
+   */
+  tradeRequestedOnTick: number | null;
+
+  /**
+   * Hidden mood — the player's happiness with their current situation.
+   * 0..100, baseline 75 ("content"). Drifts weekly during the season
+   * based on team results, HC fit, and playing-time expectations vs
+   * reality. Per North Star, never displayed numerically to the player;
+   * the dev inspector exposes both bucket label and raw value, the
+   * eventual Phase 4 scouting/news surfaces will use attributed
+   * observations only.
+   *
+   * Buckets (see `moodBucket`):
+   *   0..19   wants_out
+   *   20..39  frustrated
+   *   40..59  unsettled
+   *   60..79  content
+   *   80..100 happy
+   */
+  mood: number;
+
+  /**
    * Year-by-year stat snapshots, one entry per season the player
    * recorded non-zero output. Populated by `advanceSeason` at the end
    * of each played season. Empty for new rookies. Cleared with the

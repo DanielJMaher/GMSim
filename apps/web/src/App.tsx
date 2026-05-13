@@ -19,8 +19,15 @@ import {
   deadMoneyOnPreJune1Release,
   executeTrade,
   signingBonusProrationPerYear,
+  moodBucket,
+  teamChemistry,
 } from '@gmsim/engine';
-import type { TeamRecord, SeasonAwards } from '@gmsim/engine';
+import type {
+  TeamRecord,
+  SeasonAwards,
+  MoodBucket,
+  ChemistryBucket,
+} from '@gmsim/engine';
 import type {
   LeagueState,
   TeamState,
@@ -433,6 +440,8 @@ function TransactionLogPanel({ league }: { league: LeagueState }) {
             ['ps-promotion', 'PS promos'],
             ['contract-expiration', 'expirations'],
             ['cap-cut', 'cap cuts'],
+            ['mood-shift', 'mood shifts'],
+            ['trade-request', 'trade reqs'],
           ] as const
         ).map(([kind, label]) => (
           <div
@@ -497,6 +506,10 @@ function kindColor(kind: Transaction['kind']): string {
       return 'text-amber-400';
     case 'ir-move':
       return 'text-orange-400';
+    case 'mood-shift':
+      return 'text-violet-400';
+    case 'trade-request':
+      return 'text-fuchsia-400';
     case 'contract-expiration':
       return 'text-zinc-500';
   }
@@ -525,6 +538,42 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${teamLabel(entry.teamId)} ${entry.fromActiveRoster ? 'roster' : 'PS'} contract expired for ${playerLabel(entry.playerId)}`;
     case 'cap-cut':
       return `${teamLabel(entry.teamId)} cap-cut ${playerLabel(entry.playerId)} · save $${(entry.capSaving / 1e6).toFixed(1)}M / dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
+    case 'mood-shift':
+      return `${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} ${entry.fromBucket} → ${entry.toBucket} (mood ${Math.round(entry.mood)})`;
+    case 'trade-request':
+      return entry.state === 'requested'
+        ? `${teamLabel(entry.teamId)} · ${entry.tier} ${playerLabel(entry.playerId)} demanded a trade (mood ${Math.round(entry.mood)})`
+        : `${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} withdrew trade demand (mood ${Math.round(entry.mood)})`;
+  }
+}
+
+function moodBucketTone(bucket: MoodBucket): string {
+  switch (bucket) {
+    case 'happy':
+      return 'text-emerald-300';
+    case 'content':
+      return 'text-zinc-300';
+    case 'unsettled':
+      return 'text-amber-300';
+    case 'frustrated':
+      return 'text-orange-400';
+    case 'wants_out':
+      return 'text-rose-400';
+  }
+}
+
+function chemistryChipClass(bucket: ChemistryBucket): string {
+  switch (bucket) {
+    case 'locked_in':
+      return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+    case 'cohesive':
+      return 'border-emerald-700/40 bg-emerald-900/20 text-emerald-200';
+    case 'neutral':
+      return 'border-zinc-700 bg-zinc-900/40 text-zinc-400';
+    case 'divided':
+      return 'border-orange-500/40 bg-orange-500/10 text-orange-300';
+    case 'toxic':
+      return 'border-rose-500/40 bg-rose-500/10 text-rose-300';
   }
 }
 
@@ -581,6 +630,7 @@ function TeamCard({
   const gm = league.gms[team.gmId]!;
   const hc = league.coaches[team.headCoachId]!;
   const tp = league.teamPersonalities[team.identity.id]!;
+  const chem = teamChemistry(team, league);
 
   return (
     <article
@@ -617,6 +667,15 @@ function TeamCard({
               </span>
             ) : null;
           })()}
+          <span
+            className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide ${chemistryChipClass(chem.bucket)}`}
+            title={`Weighted roster-mood roll-up (${Math.round(chem.score)}). ${chem.unhappyCount} unhappy · ${chem.tradeRequestCount} trade reqs.`}
+          >
+            {chem.bucket.replace('_', ' ')}
+            {chem.tradeRequestCount > 0 && (
+              <span className="ml-1 text-fuchsia-300">·{chem.tradeRequestCount}⚠</span>
+            )}
+          </span>
         </div>
       </header>
 
@@ -826,6 +885,28 @@ function TeamDetail({
             {overCap ? 'over by ' : 'space '}
             {formatMoney(Math.abs(cap.capSpace))}
           </p>
+          {(() => {
+            const tc = teamChemistry(team, league);
+            return (
+              <p className="text-xs text-zinc-400">
+                locker room:{' '}
+                <span
+                  className={`rounded border px-1 py-0.5 font-mono text-[10px] uppercase tracking-wide ${chemistryChipClass(tc.bucket)}`}
+                  title={`Weighted roster-mood roll-up. STAR mood weighs 4×, FRINGE 0.5×.`}
+                >
+                  {tc.bucket.replace('_', ' ')} ({Math.round(tc.score)})
+                </span>
+                <span className="ml-2 text-zinc-500">
+                  {tc.unhappyCount} unhappy
+                  {tc.tradeRequestCount > 0 && (
+                    <span className="ml-1 text-fuchsia-300">
+                      · {tc.tradeRequestCount} trade {tc.tradeRequestCount === 1 ? 'req' : 'reqs'}
+                    </span>
+                  )}
+                </span>
+              </p>
+            );
+          })()}
           {team.deadMoneyByYear.some((v) => v > 0) && (
             <p className="text-xs text-amber-400" title="Dead-money cap charges from prior releases / trades, by future season offset">
               ☠ dead money:{' '}
@@ -1244,6 +1325,9 @@ function PositionGroupTable({
               <th className="px-2 py-1 font-medium" title="Active injury (severity, weeks until expected return)">
                 inj
               </th>
+              <th className="px-2 py-1 font-medium" title="Hidden mood — bucket label and raw 0..100. Drifts weekly during the season based on team results, HC fit, and depth-chart position.">
+                mood
+              </th>
               {seasonStats && (
                 <th className="px-2 py-1 font-medium" title="Position-relevant season stat">
                   season
@@ -1308,6 +1392,18 @@ function PositionGroupTable({
                   <td className="px-2 py-1 font-mono text-zinc-400">{formatMoney(cap)}</td>
                   <td className="px-2 py-1 text-[10px]">
                     <InjuryCell player={p} league={league} />
+                  </td>
+                  <td className={`px-2 py-1 text-[10px] ${moodBucketTone(moodBucket(p.mood))}`}>
+                    {moodBucket(p.mood).replace('_', ' ')}{' '}
+                    <span className="font-mono text-zinc-500">({Math.round(p.mood)})</span>
+                    {p.tradeRequestedOnTick !== null && (
+                      <span
+                        className="ml-1 rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider text-fuchsia-300"
+                        title={`Demanded a trade on tick ${p.tradeRequestedOnTick}. Recovers once mood rises above the resolve threshold.`}
+                      >
+                        wants out
+                      </span>
+                    )}
                   </td>
                   {seasonStats && (
                     <td className="px-2 py-1 text-zinc-300">

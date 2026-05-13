@@ -21,3 +21,19 @@ export type { RetirementOutcome } from './retirement.js';
 export { seasonStatsForLeague, playerSeasonStats } from './stats.js';
 export { seasonAwards } from './awards.js';
 export type { SeasonAwards, PlayerAward, CoachAward } from './awards.js';
+export {
+  weeklyMoodUpdate,
+  moodBucket,
+  moodMultiplier,
+  MOOD_BUCKETS,
+  MOOD_BASELINE,
+  TRADE_REQUEST_THRESHOLD,
+  TRADE_REQUEST_RESOLVE_THRESHOLD,
+} from './mood.js';
+export type { MoodBucket, WeeklyMoodResult } from './mood.js';
+export {
+  teamChemistry,
+  chemistryBucket,
+  CHEMISTRY_BUCKETS,
+} from './chemistry.js';
+export type { ChemistryBucket, TeamChemistry } from './chemistry.js';

@@ -1,4 +1,5 @@
 import type { PlayerId, TeamId, ContractId } from './ids.js';
+import type { TalentTier } from './player.js';
 
 /**
  * League-wide transaction log entry. Each engine primitive that mutates
@@ -19,7 +20,22 @@ export type Transaction =
   | TransactionIrMove
   | TransactionPsPromotion
   | TransactionContractExpiration
-  | TransactionCapCut;
+  | TransactionCapCut
+  | TransactionMoodShift
+  | TransactionTradeRequest;
+
+/**
+ * Coarse mood label produced by `moodBucket(n)`. The engine stores
+ * `Player.mood` as a 0..100 number; this enum surfaces in the
+ * transaction log only when a player crosses a bucket boundary, so the
+ * log captures meaningful narrative shifts rather than every micro-tick.
+ */
+export type MoodBucket =
+  | 'wants_out'
+  | 'frustrated'
+  | 'unsettled'
+  | 'content'
+  | 'happy';
 
 interface TransactionBase {
   /** Sim tick the transaction took effect. */
@@ -102,4 +118,40 @@ export interface TransactionCapCut extends TransactionBase {
   deadMoney: number;
   /** Cap saving (cap-hit minus dead money) the cut produced. */
   capSaving: number;
+}
+
+/**
+ * Logged when a player's hidden mood crosses a bucket boundary. The
+ * micro-drift between buckets is not logged (would be noisy); only the
+ * coarse narrative shift "this player became frustrated" is appended.
+ *
+ * `mood` records the post-shift numeric value so downstream consumers
+ * (inspector, eventual news feed) can render an attributed quote
+ * proportional to severity without re-reading player state at log time.
+ */
+export interface TransactionMoodShift extends TransactionBase {
+  kind: 'mood-shift';
+  teamId: TeamId;
+  playerId: PlayerId;
+  fromBucket: MoodBucket;
+  toBucket: MoodBucket;
+  mood: number;
+}
+
+/**
+ * Demands a trade out (state: 'requested') or withdraws the demand
+ * (state: 'resolved'). Triggered by mood collapse / recovery for
+ * STAR / STARTER tier players — backups and fringe players don't
+ * generate trade requests by design (their agents have less leverage).
+ *
+ * Recording `tier` makes the log readable on its own: a STAR demanding
+ * a trade is a much louder narrative beat than a STARTER doing so.
+ */
+export interface TransactionTradeRequest extends TransactionBase {
+  kind: 'trade-request';
+  teamId: TeamId;
+  playerId: PlayerId;
+  state: 'requested' | 'resolved';
+  mood: number;
+  tier: TalentTier;
 }

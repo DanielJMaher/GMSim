@@ -11,6 +11,8 @@ import { runPlayoffs } from './playoffs.js';
 import { simulateGame } from '../games/outcome.js';
 import { runWeeklyPoaching } from '../transactions/poach.js';
 import { runWeeklyFreeAgentSignings } from '../transactions/midseason-fa.js';
+import { runWeeklyNpcTrades } from '../transactions/npc-trade.js';
+import { weeklyMoodUpdate } from './mood.js';
 
 export interface SimulateSeasonOptions {
   /** Override the regular-season PRNG seed. Defaults to league.seed + season number. */
@@ -167,6 +169,49 @@ export function simulateSeason(
     teamsDuringSeason = faResult.teams as Record<string, TeamState>;
     contractsDuringSeason = faResult.contracts as Record<string, Contract>;
     logDuringSeason = faResult.transactionLog;
+
+    // Mood update: apply after all roster churn for the week so the
+    // depth-chart check sees post-promotion / post-FA-sign state. The
+    // function is pure (no PRNG) — feeding the just-played weeks lets
+    // it detect streaks for the streak amplifier.
+    const moodLeague: LeagueState = {
+      ...league,
+      players: playersDuringSeason,
+      teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
+      contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
+      phase: 'REGULAR_SEASON',
+      transactionLog: logDuringSeason,
+    };
+    const moodResult = weeklyMoodUpdate({
+      league: moodLeague,
+      playedWeeks: playedWeeks,
+      tick: currentTick,
+    });
+    playersDuringSeason = moodResult.players as Record<string, Player>;
+    logDuringSeason = moodResult.transactionLog;
+
+    // NPC trade-finder: match any open trade requests to interested
+    // buyers. Runs after the mood pass so this tick's freshly-fired
+    // trade-request transactions get a chance to resolve in the same
+    // week they're filed.
+    const tradeLeague: LeagueState = {
+      ...league,
+      players: playersDuringSeason,
+      teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
+      contracts: contractsDuringSeason as Readonly<Record<ContractId, Contract>>,
+      phase: 'REGULAR_SEASON',
+      transactionLog: logDuringSeason,
+      tick: currentTick,
+    };
+    const tradeResult = runWeeklyNpcTrades(
+      seasonPrng.fork(`npc-trade-${weekIdx + 1}`),
+      tradeLeague,
+      currentTick,
+    );
+    playersDuringSeason = tradeResult.players as Record<string, Player>;
+    teamsDuringSeason = tradeResult.teams as Record<string, TeamState>;
+    contractsDuringSeason = tradeResult.contracts as Record<string, Contract>;
+    logDuringSeason = tradeResult.transactionLog;
   }
 
   const regularSeasonComplete: SeasonSchedule = {
