@@ -16,6 +16,107 @@ _Nothing yet._
 
 ---
 
+## [0.19.0] — 2026-05-14
+
+Two chemistry-system follow-ups close out a v0.17.0/v0.18.x open
+thread: practice-squad players are no longer frozen at their
+generation-time setPoint through the season, and the existing
+transaction log now powers a curated narrative news feed surfaced
+in the inspector.
+
+### Added — Practice-squad mood (engine)
+
+PS players had `Player.mood` and `Player.moodProfile` set at
+generation, but `weeklyMoodUpdate` iterated only `rosterIds +
+injuredReserveIds` — so their mood sat frozen through the in-season
+window even as the rest of the league drifted. v0.19.0 adds a
+dampened in-season pass that keeps PS players outside the active
+locker room (no contagion, no incidents, no trade demands) while
+still letting their mood evolve with team context.
+
+Drivers applied to PS:
+- Drift toward personal setPoint — same rate as active (preserves
+  the v0.18.2 long-horizon stability invariant).
+- Team result @ `PS_TEAM_RESULT_SCALE` (0.3) — they're in the building.
+- HC `playerRelationships` + quirks @ `PS_HC_INFLUENCE_SCALE` (0.5).
+- Owner spectrum + quirks @ `PS_OWNER_INFLUENCE_SCALE` (0.3).
+- Weekly noise envelope @ `PS_NOISE_SCALE` (0.5).
+
+Drivers explicitly NOT applied to PS:
+- Depth-chart penalty, IR penalty, scheme-fit driver, composure
+  modifier — none of these match the developmental periphery role.
+- Locker-room contagion in OR out — per Doc 7's framing of PS as a
+  separate room from the active 53.
+- Incident roll — no media blow-ups, social posts, or sideline rants.
+- Trade-request emission — PS players are FRINGE/BACKUP rookies and
+  shouldn't generate trade demands.
+
+`mood-shift` transactions still emit when a PS player crosses a
+bucket boundary — useful debugging signal and symmetric with active.
+
+Structural note: the Pass 3 PS noise loop sits *after* the active
+team-iteration loop, not interleaved inside it. Keeping every
+active-roster PRNG draw in the exact order it had in v0.18.2 was
+necessary to preserve the long-horizon dispersion invariants — a
+first attempt that interleaved PS draws shifted active noise and
+broke the HC-dispersion regression test.
+
+### Added — Chemistry → news feed (engine + web)
+
+Doc 12 (League News & Transaction Feed) MVP. Wires the append-only
+`transactionLog` into a curated narrative feed that surfaces chemistry
+events (leaked locker-room incidents, trade demands) plus marquee
+transactions (trades, STAR/STARTER releases, big-name signings).
+Pure derivation — no new persisted state — keeping the raw transaction
+log available as a debug surface alongside.
+
+Engine — new `packages/engine/src/season/news.ts`:
+- `deriveNewsFeed(league, opts) → readonly NewsItem[]`
+- `NewsItem` carries severity 1–5, source attribution
+  (`national_insider` / `beat_writer` / `anonymous_source` /
+  `social_media`), headline + body, and the underlying transaction
+  kind for filter chips.
+- Filter options: `sinceTick`, `teamId`, `limit`. Newest-first
+  ordering, deterministic by construction.
+
+Source-routing rules:
+- `locker-room-incident`: surfaced only if `mediaLeak=true`.
+  `social_media_post` flavor → `social_media`; everything else →
+  `anonymous_source`.
+- `trade-request` requested: STAR → `national_insider` sev 5,
+  STARTER → `anonymous_source` sev 3.
+- `trade-request` resolved: `beat_writer` sev 2.
+- `trade`: `national_insider`, severity from highest tier involved.
+- `release` / `cap-cut` / `fa-sign`: tier-gated to STAR/STARTER; STAR
+  → `national_insider`, STARTER → `beat_writer`. `fa-sign` skips
+  `marketContract=false` (vet-min street signings aren't news).
+- `ir-move` / `ps-promotion` / `contract-expiration` / `mood-shift`:
+  routine bookkeeping, not surfaced.
+
+Web — new `NewsFeedPanel` above the existing `TransactionLogPanel` in
+the inspector. Source filter chips, severity-driven left-border color,
+source attribution chips, expandable, caps at 40 visible items.
+Default-expanded — news is the primary narrative surface.
+
+### Deferred — the rest of Doc 12
+
+This is the *narrative surfacing* MVP. Doc 12 envisions a full
+multi-source media ecosystem (multiple outlets covering the same
+event with varying accuracy), source reliability + bias discovery
+mechanics, fan sentiment by market, a sortable transaction database
+with multi-dimensional filtering, generated quotes attributed to
+specific reporters, and draft/prospect coverage with viral hype
+cycles. All explicitly deferred to future slices — see Drive ID
+`1KmRs01SHC7Wn8JhYNUgaQKtmp3XgWQPPKVxYKLU5Y4Q` for the full design.
+
+### Notes
+
+371 tests passing (was 350 at v0.18.2). Existing saves work without
+migration — both slices read from data already present on
+`Player.moodProfile` and `LeagueState.transactionLog`.
+
+---
+
 ## [0.18.2] — 2026-05-14
 
 ### Fixed — Mood survivor drift (resolves the v0.18.0 known issue)
