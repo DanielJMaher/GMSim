@@ -637,6 +637,58 @@ describe('locker-room contagion', () => {
 });
 
 describe('long-horizon stability (v0.18.0 saturation regression)', () => {
+  // Instrumentation — not a strict assertion test. Logs per-season
+  // league mood mean and league setPoint mean (recomputed each season
+  // because retirement + rookie churn shifts the distribution), and
+  // the running delta. Run with `pnpm test -- --run mood -t "trajectory"`
+  // when investigating drift. The lone assertion is loose (delta < 15)
+  // — purpose is the log output, not the gate.
+  it('instrument: per-season mood trajectory vs setPoint', () => {
+    const seeds = ['traj-a', 'traj-b', 'traj-c'];
+    const N_SEASONS = 12;
+    const trajectories: { seed: string; rows: { season: number; moodMean: number; setPointMean: number; delta: number }[] }[] = [];
+    for (const seed of seeds) {
+      let league = createLeague({ seed });
+      const rows: { season: number; moodMean: number; setPointMean: number; delta: number }[] = [];
+      // Record season 0 (pre-sim) baseline.
+      const initRostered = Object.values(league.players).filter((p) => p.teamId !== null);
+      rows.push({
+        season: 0,
+        moodMean: initRostered.reduce((s, p) => s + p.mood, 0) / initRostered.length,
+        setPointMean: initRostered.reduce((s, p) => s + p.moodProfile.setPoint, 0) / initRostered.length,
+        delta: 0,
+      });
+      rows[0]!.delta = rows[0]!.moodMean - rows[0]!.setPointMean;
+      for (let i = 1; i <= N_SEASONS; i++) {
+        league = simulateSeason(league);
+        league = advanceSeason(league);
+        const rostered = Object.values(league.players).filter((p) => p.teamId !== null);
+        const moodMean = rostered.reduce((s, p) => s + p.mood, 0) / rostered.length;
+        const setPointMean = rostered.reduce((s, p) => s + p.moodProfile.setPoint, 0) / rostered.length;
+        rows.push({ season: i, moodMean, setPointMean, delta: moodMean - setPointMean });
+      }
+      trajectories.push({ seed, rows });
+    }
+    // Log a compact table per seed.
+    for (const t of trajectories) {
+      console.log(`\n--- ${t.seed} ---`);
+      console.log('season | mood_mean | setpt_mean | delta');
+      for (const r of t.rows) {
+        console.log(
+          `  ${String(r.season).padStart(2)}   |   ${r.moodMean.toFixed(2)}   |   ${r.setPointMean.toFixed(2)}    | ${r.delta >= 0 ? '+' : ''}${r.delta.toFixed(2)}`,
+        );
+      }
+    }
+    // Loose gate so this test can run in CI without flakiness — real
+    // assertions live in the strict regression tests below. We just
+    // want the log to surface.
+    for (const t of trajectories) {
+      for (const r of t.rows) {
+        expect(Math.abs(r.delta)).toBeLessThan(15);
+      }
+    }
+  });
+
   it('league-mean mood tracks the league-mean setPoint over many seasons', () => {
     // The v0.17.0/early-v0.18.0 bug was systemic upward drift: every
     // driver leaned a little positive, the offseason drift only pulled
