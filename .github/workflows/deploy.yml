@@ -37,7 +37,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build inspector
-        run: pnpm --filter @gmsim/web build
+        # `...` includes workspace dependencies so packages/engine builds
+        # first — without it the web tsc step fails because the engine's
+        # dist/*.d.ts (referenced via tsconfig project refs) hasn't been
+        # emitted yet.
+        run: pnpm --filter @gmsim/web... build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
