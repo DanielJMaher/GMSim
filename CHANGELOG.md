@@ -12,26 +12,22 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-### Added — Scheme-fit driver on weekly mood drift
-
-Players whose archetype suits their head coach's scheme now get a small
-weekly mood lift; miscast players drift down. `schemeFitForPlayer`
-returns a multiplier in roughly [0.5, 1.7] centered at 1.0, mapped
-directly to a per-week mood delta. A `QB_PRECISION_PASSER` in a
-`WEST_COAST` scheme (fit 1.4) gains +0.4/wk; the same player in
-`AIR_RAID` (fit 0.85) loses 0.15/wk. Stacks with the
-`playerRelationships` HC driver — a great communicator can still run a
-scheme that miscasts particular players, and both signals matter.
-
-Special-teams archetypes are scheme-neutral (fit 1.0) so they're
-unaffected. Composure dampens the negative side as it does for the
-other drivers.
-
-346 tests passing (+2 scheme-fit regressions).
+_Nothing yet._
 
 ---
 
 ## [0.18.0] — 2026-05-13
+
+### Known issue (flagged for follow-up)
+
+Despite the rework and the bias fix below, the user's inspector
+playthrough still showed mood trending up year-over-year. The
+regression tests (league mean within ±5 of setPoint mean across 4
+seeds × 8 seasons) pass, so the asserted invariants hold — but the
+visible behavior in the inspector tells a different story. A future
+session needs to instrument the actual league trajectory across
+many seasons and identify whatever bias the unit tests aren't
+catching.
 
 ### Changed — Mood rework: personality-driven, no more "everyone locked in"
 
@@ -82,6 +78,43 @@ missing it (deterministic from `playerId`). Called at the top of both
 `simulateSeason` and `advanceSeason`, so loading an old save is a
 no-op for the user.
 
+### Added — Scheme-fit driver on weekly mood drift
+
+Players whose archetype suits their head coach's scheme get a small
+weekly mood lift; miscast players drift down. `schemeFitForPlayer`
+returns a multiplier in [0.85, 1.7] with catalog mean 1.144, mapped
+to a per-week delta of `(fit - 1.15) * 0.7` — recentered on the
+catalog mean so the driver is zero-mean across the league. Stacks
+with the `playerRelationships` HC driver: a coach can be a great
+communicator yet still run a scheme that miscasts a particular
+player. Special-teams archetypes always return 1.0.
+
+### Added — Owner driver on weekly mood drift
+
+Players are also subtly attuned to who owns the team. Two spectrum
+contributions (`patience` and `financialCommitment`, centered at
+5.5) and a symmetric set of quirk bonuses: `LOYALTY_BLIND`,
+`COMMUNITY_CHAMPION`, `TALENT_MAGNET`, `RING_CHASER` lift mood;
+`MICRO_MANAGER`, `PANIC_SELLER`, `RELOCATION_THREAT`, `PR_OBSESSED`
+drag it. `HEADLINE_HUNGRY` and `RELIC` are neutral. Quirk bonuses
+net to zero across the league.
+
+### Fixed — Driver bias audit pass
+
+Original v0.18.0 build still saturated upward in long simulations.
+A bias audit caught four asymmetric drivers and rebalanced each so
+the league-mean mood tracks the league-mean setPoint:
+- `CULTURE_CARRIER` (+0.6) is now paired with
+  `PRESS_CONFERENCE_DISASTER` (-0.6) on HC quirks.
+- `playerRelationships` coefficient bumped 0.2 → 0.3 so
+  good-vs-bad coach dispersion has real bite.
+- Scheme-fit recentered on catalog mean 1.15 (was 1.0) — the
+  catalog skews positive and the v0.18.0 first cut inherited
+  +0.15/wk upward bias.
+- Locker-room contagion lift floor raised 75 → 84 (symmetric
+  around the league-mean setPoint with the drag ceiling at 50);
+  positive coefficient lowered 0.20 → 0.15 to match drag.
+
 ### Added — Inspector surface
 
 Player mood column now shows a personality archetype chip alongside
@@ -101,10 +134,14 @@ with 📰 so they stand out from purely internal beef.
 `season/runner.ts`, `season/advance.ts`, `season/index.ts`,
 `types/transaction.ts`, `apps/web/src/App.tsx`.
 
-**344 tests passing** (1 skipped harness). Regression coverage:
-6-season saturation check (league mean stays in 55–80, <2% pinned at
-extremes), distraction-vs-stabilizer mean gap >15 points,
-offseason-drift unit test, incident-fires-at-all test.
+**347 tests passing** (1 skipped harness). Regression coverage:
+league-mean mood within ±5 of league-mean setPoint across 4 seeds ×
+8 seasons (tight enough to catch the saturation that the original
+55–80 bound let through), top-quartile vs bottom-quartile HC
+playerRelationships dispersion >3 mood points, distraction vs
+stabilizer mean gap >15 points, scheme-fit good vs bad direction
+holds across 6 quiet weeks, offseason-drift unit test,
+incident-fires-at-all test.
 
 ---
 
