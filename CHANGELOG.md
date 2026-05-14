@@ -16,6 +16,100 @@ _Nothing yet._
 
 ---
 
+## [0.23.0] — 2026-05-14
+
+Adds multi-dimensional filtering to the transaction log. The existing
+count cards become click-to-filter chips, plus new chip grids for
+team and position selection, a min-price ($M) input that hides
+non-price kinds, a live result counter, and a "Show next 100" button
+that lazy-loads older matches when filters narrow a window. No engine
+changes — pure inspector slice.
+
+### Added — Kind filter chips (web)
+
+The 10 transaction-kind count cards at the top of the panel are now
+clickable toggles. Click "releases" — only releases show. Click
+"trades" too — both show. Active chip = emerald border + tinted
+background; inactive = dim zinc. Counts stay total (not filtered) so
+the full picture is always visible. Clicking any chip auto-expands
+the table view so users don't need to also click expand.
+
+### Added — Team filter chip grid (web)
+
+32 team-abbreviation chips in a wrapping grid below the kind row.
+Click to toggle inclusion. A transaction matches if *any* of its
+involved teams is selected — covers both teams in a trade, both
+origin + signing in a PS poach. Shows the active count next to the
+section header; per-section "clear" link when any are selected.
+
+### Added — Position filter chip grid (web)
+
+21 position chips (QB, RB, WR, TE, OL, EDGE, DT, LB, CB, S, K, P,
+LS, etc.). Click to toggle. A transaction matches if any player
+referenced by it plays one of the selected positions — covers
+trades (multiple players) and locker-room incidents (primary + any
+involved teammate).
+
+### Added — Min cap hit / dead money filter (web)
+
+Numeric input ($M). When > 0, filters to transactions whose largest
+dollar dimension meets the threshold:
+- `fa-sign`: `yearOneCapHit`
+- `trade`: `max(deadMoneyTeamA, deadMoneyTeamB)`
+- `release`: `deadMoney`
+- `cap-cut`: `max(deadMoney, capSaving)`
+
+Per the design choice locked in, **setting a min price > 0 hides
+kinds that have no price dimension** (mood-shift, IR, expirations,
+PS promotions, trade requests, locker-room incidents). The UI shows
+a small hint next to the input when active.
+
+### Added — Result counter + Show next 100 (web)
+
+A live counter above the table: "Showing 37 of 412 matching
+transactions (X hidden by filters)." The default visible window is
+100 most-recent matches. If filters narrow the matching set to fewer
+than 100, all match. If filters leave more than 100 matches, a "Show
+next 100 (X remaining)" button at the bottom of the table pages in
+the next chunk — keeps the render bounded without virtualization.
+
+Resetting any filter or changing the price input resets the
+visible-count to 100 (so the most recent 100 matches are always
+foregrounded after a filter change).
+
+### Added — Clear filters affordance (web)
+
+Top-right "clear filters" link appears whenever any filter is
+active. Resets kind, team, position, and price filters in one click.
+Per-section "clear" links scope to that dimension only.
+
+### Implementation notes
+
+- All filters compose: kind ∧ team ∧ position ∧ min-price.
+- Empty Set = "no filter" for that dimension — the default
+  shows-everything case.
+- Filtering happens up front over the full log (in a `useMemo`),
+  then the most-recent slice is taken. Render cost stays O(visible
+  rows), independent of total log size.
+- Row keys now use `tick-kind-index` so the expanded-row state
+  survives filter changes that shift the visible window.
+
+No new tests — the filter logic is straightforward UI state. Engine
+test suite (396 passing) untouched. Pre-existing FA-sign detail panel
+from v0.22 continues to work; clicking a fa-sign row still expands
+the bidder table + winner explanation.
+
+### Plan shift — trade detail bumps to v0.24
+
+The v0.23 plan in the resume notes was "trade-detail panel + Doc 14
+5-factor evaluator." That work is real and still queued, but the
+filter-UX gap was the more pressing issue once eyes-on revealed
+that even a few seasons produce thousands of transactions that the
+flat 100-row tail couldn't navigate. Trade detail + 5-factor lands
+in v0.24.
+
+---
+
 ## [0.22.0] — 2026-05-14
 
 Adds rich FA-sign detail in the inspector — click any FA-sign row in

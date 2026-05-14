@@ -559,18 +559,185 @@ function newsSourceChipClass(source: NewsSource): string {
   }
 }
 
+const TRANSACTION_KINDS = [
+  ['release', 'releases'],
+  ['fa-sign', 'FA signings'],
+  ['trade', 'trades'],
+  ['ir-move', 'IR moves'],
+  ['ps-promotion', 'PS promos'],
+  ['contract-expiration', 'expirations'],
+  ['cap-cut', 'cap cuts'],
+  ['mood-shift', 'mood shifts'],
+  ['trade-request', 'trade reqs'],
+  ['locker-room-incident', 'incidents'],
+] as const;
+
+type TransactionKind = Transaction['kind'];
+
+/** Kinds that carry a dollar-denominated price. Min-price filter only applies to these. */
+const PRICE_KINDS: ReadonlySet<TransactionKind> = new Set([
+  'fa-sign',
+  'trade',
+  'release',
+  'cap-cut',
+]);
+
+function transactionTeams(entry: Transaction): TeamId[] {
+  switch (entry.kind) {
+    case 'trade':
+      return [entry.teamAId, entry.teamBId];
+    case 'ps-promotion':
+      return entry.originTeamId === entry.signingTeamId
+        ? [entry.originTeamId]
+        : [entry.originTeamId, entry.signingTeamId];
+    case 'release':
+    case 'fa-sign':
+    case 'ir-move':
+    case 'contract-expiration':
+    case 'cap-cut':
+    case 'mood-shift':
+    case 'trade-request':
+    case 'locker-room-incident':
+      return [entry.teamId];
+  }
+}
+
+function transactionPlayers(entry: Transaction): PlayerId[] {
+  switch (entry.kind) {
+    case 'trade':
+      return [...entry.playersAToB, ...entry.playersBToA];
+    case 'locker-room-incident':
+      return entry.involvedPlayerId
+        ? [entry.playerId, entry.involvedPlayerId]
+        : [entry.playerId];
+    case 'release':
+    case 'fa-sign':
+    case 'ir-move':
+    case 'ps-promotion':
+    case 'contract-expiration':
+    case 'cap-cut':
+    case 'mood-shift':
+    case 'trade-request':
+      return [entry.playerId];
+  }
+}
+
+/**
+ * Largest dollar dimension on the transaction (cap hit or dead money),
+ * used for the min-price filter. Null for kinds without a price.
+ */
+function transactionPrice(entry: Transaction): number | null {
+  switch (entry.kind) {
+    case 'fa-sign':
+      return entry.yearOneCapHit;
+    case 'trade':
+      return Math.max(entry.deadMoneyTeamA, entry.deadMoneyTeamB);
+    case 'release':
+      return entry.deadMoney;
+    case 'cap-cut':
+      return Math.max(entry.deadMoney, entry.capSaving);
+    default:
+      return null;
+  }
+}
+
 function TransactionLogPanel({ league }: { league: LeagueState }) {
   const [expanded, setExpanded] = useState(false);
-  const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+
+  // Filter state — empty Set means "no filter applied on this dimension."
+  const [kindFilter, setKindFilter] = useState<Set<TransactionKind>>(new Set());
+  const [teamFilter, setTeamFilter] = useState<Set<TeamId>>(new Set());
+  const [positionFilter, setPositionFilter] = useState<Set<Position>>(new Set());
+  const [minPriceMillionsInput, setMinPriceMillionsInput] = useState('');
+  const [visibleCount, setVisibleCount] = useState(100);
+
+  const minPriceMillions = Number.parseFloat(minPriceMillionsInput) || 0;
   const log = league.transactionLog;
+
   const kindCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const entry of log) counts[entry.kind] = (counts[entry.kind] ?? 0) + 1;
     return counts;
   }, [log]);
+
+  const filtered = useMemo(() => {
+    return log.filter((entry) => {
+      if (kindFilter.size > 0 && !kindFilter.has(entry.kind)) return false;
+      if (teamFilter.size > 0) {
+        const teams = transactionTeams(entry);
+        if (!teams.some((t) => teamFilter.has(t))) return false;
+      }
+      if (positionFilter.size > 0) {
+        const players = transactionPlayers(entry);
+        const matchedPos = players.some((pid) => {
+          const pos = league.players[pid]?.position;
+          return pos !== undefined && positionFilter.has(pos);
+        });
+        if (!matchedPos) return false;
+      }
+      if (minPriceMillions > 0) {
+        if (!PRICE_KINDS.has(entry.kind)) return false;
+        const price = transactionPrice(entry);
+        if (price === null || price < minPriceMillions * 1e6) return false;
+      }
+      return true;
+    });
+  }, [log, kindFilter, teamFilter, positionFilter, minPriceMillions, league.players]);
+
   const recent = useMemo(() => {
-    return [...log].slice(-100).reverse();
-  }, [log]);
+    return [...filtered].slice(-visibleCount).reverse();
+  }, [filtered, visibleCount]);
+
+  const teamList = useMemo(
+    () =>
+      Object.values(league.teams)
+        .map((t) => t.identity)
+        .sort((a, b) => a.abbreviation.localeCompare(b.abbreviation)),
+    [league.teams],
+  );
+
+  const anyFilter =
+    kindFilter.size > 0 ||
+    teamFilter.size > 0 ||
+    positionFilter.size > 0 ||
+    minPriceMillions > 0;
+
+  function toggleKind(kind: TransactionKind) {
+    setKindFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+    setExpanded(true);
+    setVisibleCount(100);
+  }
+  function toggleTeam(teamId: TeamId) {
+    setTeamFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(teamId)) next.delete(teamId);
+      else next.add(teamId);
+      return next;
+    });
+    setVisibleCount(100);
+  }
+  function togglePosition(pos: Position) {
+    setPositionFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(pos)) next.delete(pos);
+      else next.add(pos);
+      return next;
+    });
+    setVisibleCount(100);
+  }
+  function resetAll() {
+    setKindFilter(new Set());
+    setTeamFilter(new Set());
+    setPositionFilter(new Set());
+    setMinPriceMillionsInput('');
+    setVisibleCount(100);
+  }
 
   if (log.length === 0) {
     return (
@@ -592,105 +759,244 @@ function TransactionLogPanel({ league }: { league: LeagueState }) {
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
           Transaction log
         </h2>
-        <button
-          onClick={() => setExpanded((x) => !x)}
-          className="text-xs text-zinc-400 hover:text-zinc-200"
-        >
-          {expanded ? 'collapse' : 'expand'} ({log.length} total)
-        </button>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
-        {(
-          [
-            ['release', 'releases'],
-            ['fa-sign', 'FA signings'],
-            ['trade', 'trades'],
-            ['ir-move', 'IR moves'],
-            ['ps-promotion', 'PS promos'],
-            ['contract-expiration', 'expirations'],
-            ['cap-cut', 'cap cuts'],
-            ['mood-shift', 'mood shifts'],
-            ['trade-request', 'trade reqs'],
-            ['locker-room-incident', 'incidents'],
-          ] as const
-        ).map(([kind, label]) => (
-          <div
-            key={kind}
-            className="rounded border border-zinc-800 bg-zinc-950/50 p-2"
+        <div className="flex items-center gap-3">
+          {anyFilter && (
+            <button
+              onClick={resetAll}
+              className="text-xs text-zinc-400 hover:text-rose-300"
+            >
+              clear filters
+            </button>
+          )}
+          <button
+            onClick={() => setExpanded((x) => !x)}
+            className="text-xs text-zinc-400 hover:text-zinc-200"
           >
-            <div className="text-xs text-zinc-500">{label}</div>
-            <div className="font-mono text-sm">{kindCounts[kind] ?? 0}</div>
-          </div>
-        ))}
+            {expanded ? 'collapse' : 'expand'} ({log.length} total)
+          </button>
+        </div>
       </div>
+
+      {/* Kind filter chips (replaces the old count grid). Always visible. */}
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        {TRANSACTION_KINDS.map(([kind, label]) => {
+          const active = kindFilter.has(kind);
+          const count = kindCounts[kind] ?? 0;
+          return (
+            <button
+              key={kind}
+              onClick={() => toggleKind(kind)}
+              className={`rounded border p-2 text-left transition-colors ${
+                active
+                  ? 'border-emerald-500/50 bg-emerald-500/10'
+                  : 'border-zinc-800 bg-zinc-950/50 hover:border-zinc-700'
+              } ${count === 0 ? 'opacity-40' : ''}`}
+            >
+              <div className={`text-xs ${active ? 'text-emerald-300' : 'text-zinc-500'}`}>
+                {label}
+              </div>
+              <div className="font-mono text-sm">{count}</div>
+            </button>
+          );
+        })}
+      </div>
+
       {expanded && (
-        <div className="mt-3 max-h-80 overflow-y-auto rounded border border-zinc-800 bg-zinc-950/40">
-          <table className="w-full text-left text-xs">
-            <thead className="sticky top-0 bg-zinc-900/95 text-zinc-500">
-              <tr>
-                <th className="px-2 py-1 font-medium">tick</th>
-                <th className="px-2 py-1 font-medium">season</th>
-                <th className="px-2 py-1 font-medium">kind</th>
-                <th className="px-2 py-1 font-medium">summary</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recent.map((entry, i) => {
-                const isExpandable = hasTransactionDetail(entry);
-                const isOpen = expandedRow === i;
+        <>
+          {/* Team filter */}
+          <div className="mt-3">
+            <div className="mb-1 flex items-baseline justify-between">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+                Teams {teamFilter.size > 0 && <span className="text-emerald-400">({teamFilter.size})</span>}
+              </div>
+              {teamFilter.size > 0 && (
+                <button
+                  onClick={() => setTeamFilter(new Set())}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                >
+                  clear
+                </button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {teamList.map((t) => {
+                const active = teamFilter.has(t.id);
                 return (
-                  <React.Fragment key={i}>
-                    <tr
-                      className={`border-t border-zinc-800/60 ${
-                        isExpandable
-                          ? 'cursor-pointer hover:bg-zinc-900/60'
-                          : ''
-                      } ${isOpen ? 'bg-zinc-900/40' : ''}`}
-                      onClick={() => {
-                        if (!isExpandable) return;
-                        setExpandedRow(isOpen ? null : i);
-                      }}
-                    >
-                      <td className="px-2 py-1 font-mono text-zinc-500">
-                        {isExpandable && (
-                          <span className="mr-1 text-zinc-600">
-                            {isOpen ? '▼' : '▶'}
-                          </span>
-                        )}
-                        {entry.tick}
-                      </td>
-                      <td className="px-2 py-1 font-mono text-zinc-500">
-                        s{entry.seasonNumber}
-                      </td>
-                      <td
-                        className={`px-2 py-1 font-mono text-[10px] ${kindColor(entry.kind)}`}
-                      >
-                        {entry.kind}
-                      </td>
-                      <td className="px-2 py-1 text-zinc-300">
-                        {summarizeTransaction(entry, league)}
-                      </td>
-                    </tr>
-                    {isOpen && (
-                      <tr className="border-t border-zinc-800/60 bg-zinc-950/60">
-                        <td colSpan={4} className="px-3 py-3">
-                          <TransactionDetail entry={entry} league={league} />
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                  <button
+                    key={t.id}
+                    onClick={() => toggleTeam(t.id)}
+                    className={`rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                      active
+                        ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+                        : 'border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    {t.abbreviation}
+                  </button>
                 );
               })}
-              {log.length > recent.length && (
-                <tr className="border-t border-zinc-800/60 text-center text-zinc-600">
-                  <td colSpan={4} className="py-2">
-                    … {log.length - recent.length} older entries hidden
-                  </td>
-                </tr>
+            </div>
+          </div>
+
+          {/* Position filter */}
+          <div className="mt-3">
+            <div className="mb-1 flex items-baseline justify-between">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+                Positions {positionFilter.size > 0 && <span className="text-emerald-400">({positionFilter.size})</span>}
+              </div>
+              {positionFilter.size > 0 && (
+                <button
+                  onClick={() => setPositionFilter(new Set())}
+                  className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                >
+                  clear
+                </button>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {Object.values(Position).map((pos) => {
+                const active = positionFilter.has(pos);
+                return (
+                  <button
+                    key={pos}
+                    onClick={() => togglePosition(pos)}
+                    className={`rounded border px-1.5 py-0.5 font-mono text-[10px] transition-colors ${
+                      active
+                        ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300'
+                        : 'border-zinc-800 bg-zinc-950/40 text-zinc-400 hover:border-zinc-700'
+                    }`}
+                  >
+                    {pos}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Min price filter */}
+          <div className="mt-3 flex items-baseline gap-2">
+            <label className="text-[10px] uppercase tracking-wider text-zinc-500">
+              Min cap hit / dead money
+            </label>
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-zinc-500">$</span>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={minPriceMillionsInput}
+                onChange={(e) => {
+                  setMinPriceMillionsInput(e.target.value);
+                  setVisibleCount(100);
+                }}
+                placeholder="0"
+                className="w-20 rounded border border-zinc-800 bg-zinc-950 px-2 py-0.5 font-mono text-xs focus:border-emerald-500 focus:outline-none"
+              />
+              <span className="text-xs text-zinc-500">M</span>
+              {minPriceMillions > 0 && (
+                <span className="ml-2 text-[10px] text-zinc-600">
+                  (hides mood-shift, IR, expirations, etc.)
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Result counter */}
+          <div className="mt-3 flex items-baseline justify-between text-xs text-zinc-500">
+            <div>
+              Showing <span className="font-mono text-zinc-300">{recent.length}</span> of{' '}
+              <span className="font-mono text-zinc-300">{filtered.length}</span>{' '}
+              {anyFilter ? 'matching' : 'total'} transactions
+              {anyFilter && filtered.length !== log.length && (
+                <span className="text-zinc-600"> ({log.length - filtered.length} hidden by filters)</span>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-2 max-h-80 overflow-y-auto rounded border border-zinc-800 bg-zinc-950/40">
+            <table className="w-full text-left text-xs">
+              <thead className="sticky top-0 bg-zinc-900/95 text-zinc-500">
+                <tr>
+                  <th className="px-2 py-1 font-medium">tick</th>
+                  <th className="px-2 py-1 font-medium">season</th>
+                  <th className="px-2 py-1 font-medium">kind</th>
+                  <th className="px-2 py-1 font-medium">summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recent.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-2 py-4 text-center text-zinc-600">
+                      No transactions match the current filters.
+                    </td>
+                  </tr>
+                )}
+                {recent.map((entry, i) => {
+                  const isExpandable = hasTransactionDetail(entry);
+                  // Stable key across re-renders: tick + kind + index-within-log.
+                  // Index from the full log identifies a single transaction even
+                  // when filters / scrolling change the visible slice.
+                  const rowKey = `${entry.tick}-${entry.kind}-${i}`;
+                  const isOpen = expandedRow === rowKey;
+                  return (
+                    <React.Fragment key={rowKey}>
+                      <tr
+                        className={`border-t border-zinc-800/60 ${
+                          isExpandable
+                            ? 'cursor-pointer hover:bg-zinc-900/60'
+                            : ''
+                        } ${isOpen ? 'bg-zinc-900/40' : ''}`}
+                        onClick={() => {
+                          if (!isExpandable) return;
+                          setExpandedRow(isOpen ? null : rowKey);
+                        }}
+                      >
+                        <td className="px-2 py-1 font-mono text-zinc-500">
+                          {isExpandable && (
+                            <span className="mr-1 text-zinc-600">
+                              {isOpen ? '▼' : '▶'}
+                            </span>
+                          )}
+                          {entry.tick}
+                        </td>
+                        <td className="px-2 py-1 font-mono text-zinc-500">
+                          s{entry.seasonNumber}
+                        </td>
+                        <td
+                          className={`px-2 py-1 font-mono text-[10px] ${kindColor(entry.kind)}`}
+                        >
+                          {entry.kind}
+                        </td>
+                        <td className="px-2 py-1 text-zinc-300">
+                          {summarizeTransaction(entry, league)}
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="border-t border-zinc-800/60 bg-zinc-950/60">
+                          <td colSpan={4} className="px-3 py-3">
+                            <TransactionDetail entry={entry} league={league} />
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+                {filtered.length > recent.length && (
+                  <tr className="border-t border-zinc-800/60 text-center">
+                    <td colSpan={4} className="py-2">
+                      <button
+                        onClick={() => setVisibleCount((n) => n + 100)}
+                        className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1 text-xs text-zinc-300 hover:border-emerald-500/40 hover:text-emerald-300"
+                      >
+                        Show next 100 ({filtered.length - recent.length} remaining)
+                      </button>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </section>
   );
