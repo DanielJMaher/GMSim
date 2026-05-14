@@ -176,6 +176,25 @@ const NOISE_CAP = 6;
 const POSITIVE_LIFT_CEILING_OFFSET = 15;
 
 /**
+ * Practice-squad mood is governed by the same setPoint drift as the
+ * active roster, but the in-season drivers reach PS players at reduced
+ * strength — they're around the building but not playing on Sundays.
+ * Doc 7 explicitly treats the PS as a separate locker room: no
+ * contagion in or out, no incidents, no depth-chart competition for
+ * starter slots. These scalars dampen the drivers that *do* still
+ * apply (team result, HC influence, owner culture) to roughly the
+ * fraction of weekly impact a PS player would plausibly feel.
+ *
+ * Drift toward setPoint is NOT scaled — every player, PS or not,
+ * regresses to their personality at the same rate. That preserves the
+ * long-horizon stability invariant from v0.18.2.
+ */
+const PS_TEAM_RESULT_SCALE = 0.3;
+const PS_HC_INFLUENCE_SCALE = 0.5;
+const PS_OWNER_INFLUENCE_SCALE = 0.3;
+const PS_NOISE_SCALE = 0.5;
+
+/**
  * Distribution of incident flavors when a volatility roll fires.
  * Mostly negative beats (media blowups, social posts, disputes); a
  * minority positive (team-bonding) so it's not pure misery noise.
@@ -190,12 +209,15 @@ const INCIDENT_FLAVOR_WEIGHTS: readonly { value: LockerRoomIncidentFlavor; weigh
 ];
 
 /**
- * Apply one week's worth of mood drift to every rostered player
- * (active 53 + IR). Practice-squad players are skipped for now — their
- * developmental dynamics get their own slice later.
+ * Apply one week's worth of mood drift to every player attached to a
+ * team — active 53, IR, AND practice squad. PS players use a dampened
+ * driver set (no depth, no IR, no scheme-fit, no contagion, no
+ * incidents) but still drift toward their personal setPoint and react
+ * mildly to team result + HC + owner culture so their mood evolves
+ * rather than sitting frozen at generation through the season.
  *
- * Drift inputs per player:
- *   - regression toward 75 baseline
+ * Active-roster + IR drift inputs:
+ *   - regression toward the player's personal setPoint
  *   - last-week team W/L (and current 3+ streak amplifier)
  *   - HC `playerRelationships` spectrum (positive bias)
  *   - HC `CULTURE_CARRIER` quirk (additive bonus)
@@ -204,9 +226,17 @@ const INCIDENT_FLAVOR_WEIGHTS: readonly { value: LockerRoomIncidentFlavor; weigh
  *     same-position peers occupying the starter slots
  *   - `composure` skill dampens or amplifies negative deltas
  *
+ * Practice-squad drift inputs (developmental periphery):
+ *   - regression toward the player's personal setPoint (same rate)
+ *   - team result scaled by `PS_TEAM_RESULT_SCALE`
+ *   - HC influence scaled by `PS_HC_INFLUENCE_SCALE`
+ *   - owner influence scaled by `PS_OWNER_INFLUENCE_SCALE`
+ *   - noise envelope scaled by `PS_NOISE_SCALE`
+ *
  * Returns the updated players map plus any `mood-shift` transactions
- * appended for bucket-boundary crossings. Determinism: pure function of
- * its inputs — no PRNG dependence.
+ * appended for bucket-boundary crossings. Trade-request emission is
+ * gated to STAR/STARTER tier *and* off-PS only; PS players never
+ * generate trade demands by design.
  */
 export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
   const { league, playedWeeks, tick, prng } = input;
@@ -285,6 +315,21 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
 
       stagedMoods.set(playerId, clamp(player.mood + total, 0, 100));
     }
+
+    // Practice-squad pass — same setPoint drift, dampened external
+    // drivers, no depth / IR / scheme / composure modifiers. The PS
+    // is a developmental periphery, not a Sunday locker room.
+    const psTeamD = teamDelta * PS_TEAM_RESULT_SCALE;
+    const psHcD = hcDelta * PS_HC_INFLUENCE_SCALE;
+    const psOwnerD = ownerD * PS_OWNER_INFLUENCE_SCALE;
+    for (const playerId of team.practiceSquadIds) {
+      const player = league.players[playerId];
+      if (!player) continue;
+      const { setPoint, resilience } = player.moodProfile;
+      const drift = (setPoint - player.mood) * resilience * 0.05;
+      const total = drift + psTeamD + psHcD + psOwnerD;
+      stagedMoods.set(playerId, clamp(player.mood + total, 0, 100));
+    }
   }
 
   // Pass 2 — locker-room contagion: for each team, sum negative
@@ -294,8 +339,10 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
   // by their composure resistance (negative) and coachability
   // receptivity (positive). Per Doc 7: "chemistry problems can spread
   // to other players" + "veterans with high Integrity and Leadership
-  // help stabilize locker room." Practice-squad players don't
-  // participate — they're separate from the active locker room.
+  // help stabilize locker room." Practice-squad players neither
+  // contribute pressure nor receive contagion — they get their own
+  // dampened pass in Pass 1 and are explicitly outside the active
+  // locker room's chemistry cycle.
   for (const team of Object.values(league.teams)) {
     const rosterIds = [...team.rosterIds, ...team.injuredReserveIds];
     if (rosterIds.length === 0) continue;
@@ -408,6 +455,33 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
     }
   }
 
+  // Practice-squad noise pass — same volatility-scaled gaussian as the
+  // active roster, with a halved envelope. No incident roll: PS guys
+  // don't show up in the press box, on Twitter, or in sideline blow-ups.
+  // When something noteworthy happens to a PS player it tends to be a
+  // transaction (promotion / release), not a mood event.
+  //
+  // Kept as a separate team-iteration loop *after* the active pass so
+  // every active-roster PRNG draw runs in the same order as v0.18.2 —
+  // interleaving PS draws inside the active loop would shift the noise /
+  // incident sequence for active players and silently change their
+  // long-horizon stability invariants.
+  for (const team of Object.values(league.teams)) {
+    for (const playerId of team.practiceSquadIds) {
+      const player = league.players[playerId];
+      if (!player) continue;
+      const vol = player.moodProfile.volatility;
+      const cap = NOISE_CAP * (vol / 10) * PS_NOISE_SCALE;
+      const noise = clamp(
+        prng.gaussian() * (vol * 0.3 * PS_NOISE_SCALE),
+        -cap,
+        cap,
+      );
+      const stagedMood = stagedMoods.get(playerId) ?? player.mood;
+      stagedMoods.set(playerId, clamp(stagedMood + noise, 0, 100));
+    }
+  }
+
   // Pass 4 — emit transactions + finalize player updates based on the
   // post-contagion, post-noise mood. Trade-request transitions
   // intentionally fire against the final mood so a player dragged into
@@ -470,6 +544,34 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
       if (nextPlayer !== player) {
         updatedPlayers[playerId] = nextPlayer;
       }
+    }
+
+    // Practice-squad finalize — write mood updates and emit mood-shift
+    // on bucket-boundary crossings. No trade-request logic: PS players
+    // are FRINGE/BACKUP rookies and the tier gate would exclude them
+    // anyway, but keeping the loops distinct documents the design
+    // intent that PS guys never demand trades — they get promoted,
+    // poached, or released.
+    for (const playerId of team.practiceSquadIds) {
+      const player = league.players[playerId];
+      if (!player) continue;
+      const finalMood = stagedMoods.get(playerId) ?? player.mood;
+      if (finalMood === player.mood) continue;
+      const before = moodBucket(player.mood);
+      const after = moodBucket(finalMood);
+      if (before !== after) {
+        newTransactions.push({
+          kind: 'mood-shift',
+          tick,
+          seasonNumber: league.seasonNumber,
+          teamId: team.identity.id,
+          playerId,
+          fromBucket: before,
+          toBucket: after,
+          mood: finalMood,
+        });
+      }
+      updatedPlayers[playerId] = { ...player, mood: finalMood };
     }
   }
 

@@ -928,6 +928,160 @@ describe('long-horizon stability (v0.18.0 saturation regression)', () => {
   });
 });
 
+describe('practice-squad mood', () => {
+  it('PS players evolve through a season — not all frozen at setPoint', () => {
+    const before = createLeague({ seed: 'ps-evolve' });
+    const after = simulateSeason(before);
+    const psAfter = collectPracticeSquad(after);
+    expect(psAfter.length).toBeGreaterThan(0);
+    let moved = 0;
+    for (const p of psAfter) {
+      const baseline = before.players[p.id];
+      if (baseline && Math.abs(p.mood - baseline.mood) > 0.5) moved++;
+    }
+    // Most PS players should drift off their generation-time setPoint
+    // across 18 weeks of dampened drivers + noise. Threshold is loose
+    // (40%) to absorb the long tail of low-volatility stabilizers that
+    // sit tight; the point of the test is that the loop runs at all.
+    expect(moved).toBeGreaterThan(psAfter.length * 0.4);
+  });
+
+  it('PS players never generate locker-room-incident transactions', () => {
+    const after = simulateSeason(createLeague({ seed: 'ps-no-incidents' }));
+    const psIds = collectPsIds(after);
+    const incidentsOnPs = after.transactionLog.filter(
+      (t) => t.kind === 'locker-room-incident' && psIds.has(t.playerId),
+    );
+    expect(incidentsOnPs).toHaveLength(0);
+  });
+
+  it('PS players never generate trade-request transactions', () => {
+    const after = simulateSeason(createLeague({ seed: 'ps-no-trade-req' }));
+    const psIds = collectPsIds(after);
+    const tradeReqsOnPs = after.transactionLog.filter(
+      (t) => t.kind === 'trade-request' && psIds.has(t.playerId),
+    );
+    expect(tradeReqsOnPs).toHaveLength(0);
+  });
+
+  it('PS players are insulated from active-roster contagion drag', () => {
+    // Force the entire active roster of one team to mood=5 (deep
+    // wants_out) so contagion fires at max strength. The team's PS
+    // player at mood=75 should barely move — drift toward setPoint
+    // and a dampened tie-game team result are the only drivers.
+    const base = createLeague({ seed: 'ps-no-contagion' });
+    const team = Object.values(base.teams)[0]!;
+    const other = Object.values(base.teams).find(
+      (t) => t.identity.id !== team.identity.id,
+    )!;
+    const psId = team.practiceSquadIds[0]!;
+    const playersNext = { ...base.players };
+    for (const id of [...team.rosterIds, ...team.injuredReserveIds]) {
+      const p = playersNext[id];
+      if (p) playersNext[id] = { ...p, mood: 5 };
+    }
+    const psPlayer = playersNext[psId]!;
+    playersNext[psId] = { ...psPlayer, mood: 75 };
+    const league: LeagueState = { ...base, players: playersNext };
+    const { players } = weeklyMoodUpdate({
+      league,
+      playedWeeks: [[makeFakeGame(team.identity.id, other.identity.id, 14, 14)]],
+      tick: league.tick,
+      prng: new Prng('ps-contagion-test'),
+    });
+    // If contagion leaked into PS the room would have dragged a 75-mood
+    // player well below 65. The 60 floor leaves headroom for noise.
+    expect(players[psId]!.mood).toBeGreaterThan(60);
+  });
+
+  it('emits mood-shift transactions for PS players crossing bucket boundaries', () => {
+    // PS player at mood 41 (just above the unsettled→frustrated boundary)
+    // with setPoint 10 + max resilience should drop a bucket from drift
+    // alone (drift = (10-41) * 1.0 * 0.05 = -1.55), with a losing streak
+    // adding another -0.48 on top via the dampened team-result driver.
+    const base = createLeague({ seed: 'ps-mood-shift' });
+    const team = Object.values(base.teams)[0]!;
+    const other = Object.values(base.teams).find(
+      (t) => t.identity.id !== team.identity.id,
+    )!;
+    const psId = team.practiceSquadIds[0]!;
+    const psPlayer = base.players[psId]!;
+    const league: LeagueState = {
+      ...base,
+      players: {
+        ...base.players,
+        [psId]: {
+          ...psPlayer,
+          mood: 41,
+          moodProfile: { ...psPlayer.moodProfile, setPoint: 10, volatility: 3, resilience: 1.0 },
+        },
+      },
+    };
+    const losses = [
+      [makeFakeGame(team.identity.id, other.identity.id, 0, 24, 0)],
+      [makeFakeGame(team.identity.id, other.identity.id, 7, 31, 1)],
+      [makeFakeGame(team.identity.id, other.identity.id, 10, 28, 2)],
+    ];
+    const { players, transactionLog } = weeklyMoodUpdate({
+      league,
+      playedWeeks: losses,
+      tick: league.tick,
+      prng: new Prng('ps-shift-test'),
+    });
+    expect(players[psId]!.mood).toBeLessThan(40);
+    const shifts = transactionLog.filter(
+      (t) => t.kind === 'mood-shift' && t.playerId === psId,
+    );
+    expect(shifts).toHaveLength(1);
+  });
+
+  it('PS players still get offseason drift toward setPoint', () => {
+    const base = createLeague({ seed: 'ps-offseason' });
+    const team = Object.values(base.teams)[0]!;
+    const psId = team.practiceSquadIds[0]!;
+    const psPlayer = base.players[psId]!;
+    const setPoint = psPlayer.moodProfile.setPoint;
+    const league: LeagueState = {
+      ...base,
+      players: {
+        ...base.players,
+        [psId]: { ...psPlayer, mood: 20 },
+      },
+    };
+    const after = offseasonMoodDrift(league);
+    const expected = 20 + (setPoint - 20) * 0.9;
+    expect(after.players[psId]!.mood).toBeCloseTo(expected, 1);
+  });
+
+  it('PS HC influence lands at lower strength than active HC influence', () => {
+    // Boost every HC to max playerRelationships + CULTURE_CARRIER and
+    // sim a season. PS sees the HC at 0.5×, so the mean mood lift over
+    // baseline should be smaller for PS than for active roster.
+    const baselineLeague = createLeague({ seed: 'ps-vs-active' });
+    const boostedLeague = withBoostedAllHcRelationships(baselineLeague);
+
+    const baselineAfter = simulateSeason(baselineLeague);
+    const boostedAfter = simulateSeason(boostedLeague);
+
+    const activeLift =
+      avgMoodOnRoster(boostedAfter) - avgMoodOnRoster(baselineAfter);
+    const psLift =
+      avgMoodOnPracticeSquad(boostedAfter) - avgMoodOnPracticeSquad(baselineAfter);
+
+    expect(activeLift).toBeGreaterThan(0);
+    expect(psLift).toBeGreaterThan(0);
+    expect(activeLift).toBeGreaterThan(psLift);
+  });
+
+  it('is deterministic across identical inputs', () => {
+    const a = simulateSeason(createLeague({ seed: 'ps-determinism' }));
+    const b = simulateSeason(createLeague({ seed: 'ps-determinism' }));
+    const moodsA = collectPracticeSquad(a).map((p) => p.mood);
+    const moodsB = collectPracticeSquad(b).map((p) => p.mood);
+    expect(moodsA).toEqual(moodsB);
+  });
+});
+
 describe('offseasonMoodDrift', () => {
   it('pulls mood ~90% back toward setPoint', () => {
     const league = createLeague({ seed: 'offseason-drift' });
@@ -1228,5 +1382,38 @@ function withBoostedScenario(
       },
     },
   };
+}
+
+function collectPracticeSquad(league: LeagueState): Player[] {
+  const ps: Player[] = [];
+  for (const team of Object.values(league.teams)) {
+    for (const id of team.practiceSquadIds) {
+      const p = league.players[id];
+      if (p) ps.push(p);
+    }
+  }
+  return ps;
+}
+
+function collectPsIds(league: LeagueState): Set<string> {
+  const ids = new Set<string>();
+  for (const team of Object.values(league.teams)) {
+    for (const id of team.practiceSquadIds) ids.add(id);
+  }
+  return ids;
+}
+
+function avgMoodOnPracticeSquad(league: LeagueState): number {
+  const ps = collectPracticeSquad(league);
+  if (ps.length === 0) return 0;
+  return ps.reduce((s, p) => s + p.mood, 0) / ps.length;
+}
+
+function withBoostedAllHcRelationships(league: LeagueState): LeagueState {
+  const coaches: Record<CoachId, HeadCoach> = {};
+  for (const [id, hc] of Object.entries(league.coaches)) {
+    coaches[id as CoachId] = withHighRelationships(hc);
+  }
+  return { ...league, coaches };
 }
 
