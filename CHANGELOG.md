@@ -16,6 +16,58 @@ _Nothing yet._
 
 ---
 
+## [0.18.2] — 2026-05-14
+
+### Fixed — Mood survivor drift (resolves the v0.18.0 known issue)
+
+v0.18.0's regression tests passed but the user's inspector playthrough
+still showed mood trending up year over year. Granular instrumentation
+located the bias: league mean stayed flat near setPoint mean across 12
+simulated seasons, but individual players who survived 10 seasons on a
+roster drifted **+2.5 mood points on average**, with the drift amplified
+by *inverse* resilience — `distraction` archetype +2.08, `moody` +0.87,
+`stabilizer` −0.44. That fingerprint pointed at a small persistent
+positive driver firing every week that resilience-based drift couldn't
+pull back fast enough.
+
+Two fixes in `packages/engine/src/season/mood.ts`:
+
+1. **`depthChartDelta` no longer rewards starters.** Removed the +0.2
+   bonus for "clear starter with no same-tier peer" and the +0.1 bonus
+   for buried FRINGE. Both were persistent positive biases firing every
+   week for the bulk of the roster (~25 starters per team). Being a
+   starter is already baked into the player's `setPoint` at generation,
+   so the bonus was double-counting role satisfaction. Depth chart is
+   now a *negative-only* driver — frustration when a STAR/STARTER is
+   buried behind a peer.
+
+2. **`offseasonMoodDrift` strength bumped `0.7` → `0.9`.** The 70% value
+   let small in-season biases compound year over year — even a tiny
+   +0.05/wk bias accumulates noticeably across a 10-year career when
+   the offseason only resets 70% of it. 0.9 wipes the slate close enough
+   to setPoint each year that careers don't drift.
+
+Re-ran the per-tier and long-tenured instrumentation after the fixes:
+
+| Metric                                 | Before | After |
+|----------------------------------------|--------|-------|
+| Survivor mood change (10 seasons)      | +2.52  | +0.64 |
+| STAR delta vs setPoint                 | +1.39  | +0.23 |
+| STARTER delta                          | +0.40  | +0.08 |
+| `distraction` archetype delta          | +2.08  | +0.50 |
+| League-mean trajectory (12 seasons)    | drifting | ±0.3 of setPoint mean, flat |
+
+**Tradeoff captured:** HC `playerRelationships` dispersion compressed
+from >3 to ~1.5 mood points between top and bottom quartiles. Direction
+still holds (good HC trends up, bad HC trends down), just smaller
+magnitude — most HC influence now accumulates within a single season,
+then the offseason pulls it back toward setPoint. Loosened the
+dispersion regression test to `>1` to match.
+
+350 tests passing. Inspector visual check confirmed.
+
+---
+
 ## [0.18.1] — 2026-05-13
 
 ### Fixed — Inspector deploy workflow
