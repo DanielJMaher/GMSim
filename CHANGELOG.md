@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.18.1] — 2026-05-13
+
+### Fixed — Inspector deploy workflow
+
+The `Deploy inspector to GitHub Pages` workflow had been failing on
+every push to `main` since the inspector was first wired up. Root
+cause: the workflow ran `pnpm --filter @gmsim/web build`, but the
+web app's `tsconfig.json` declares a TypeScript project reference
+to `packages/engine`. Web's `tsc -p` step expects the engine's
+compiled `dist/*.d.ts` files to already exist, so without an
+explicit engine build it failed immediately with a cascade of
+`TS6305 Output file ... has not been built` errors.
+
+Changed the workflow build step to `pnpm --filter @gmsim/web...
+build` — the trailing `...` includes workspace dependencies in
+topological order, so `packages/engine` builds and emits its
+`dist/` before the web app's `tsc` runs. Verified locally from a
+fully clean state.
+
+No engine or web source changes — this is a CI / deploy
+infrastructure patch only.
+
+---
+
 ## [0.18.0] — 2026-05-13
 
 ### Known issue (flagged for follow-up)
