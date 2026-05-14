@@ -12,6 +12,12 @@ export {
   refillRosters,
 } from './offseason.js';
 export {
+  auctionFreeAgent,
+  computeTeamCashBid,
+  computePlayerPreference,
+} from './fa-bidding.js';
+export type { FaAuctionResult } from './fa-bidding.js';
+export {
   refillPracticeSquad,
   makePracticeSquadContract,
 } from './practice-squad.js';

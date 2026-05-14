@@ -264,6 +264,13 @@ function newsFromFreeAgentSign(
   const team = league.teams[txn.teamId];
   const severity: NewsItem['severity'] = player.tier === 'STAR' ? 4 : 2;
   const source: NewsSource = player.tier === 'STAR' ? 'national_insider' : 'beat_writer';
+  const runnerAbbrs = (txn.runnersUp ?? [])
+    .map((id) => league.teams[id]?.identity.abbreviation)
+    .filter((s): s is string => Boolean(s));
+  const runnersFragment =
+    runnerAbbrs.length > 0
+      ? ` Reported runner${runnerAbbrs.length === 1 ? '' : 's'}-up: ${runnerAbbrs.join(', ')}.`
+      : '';
   return {
     tick: txn.tick,
     seasonNumber: txn.seasonNumber,
@@ -273,8 +280,9 @@ function newsFromFreeAgentSign(
     headline: `${abbrOf(team)} signs ${player.tier} ${nameOf(player)}`,
     body:
       `${nameOf(player)} agrees to a deal with ${abbrOf(team)} ` +
-      `at $${(txn.yearOneCapHit / 1e6).toFixed(1)}M Y1 cap hit.`,
-    teamIds: [txn.teamId],
+      `at $${(txn.yearOneCapHit / 1e6).toFixed(1)}M Y1 cap hit.` +
+      runnersFragment,
+    teamIds: [txn.teamId, ...(txn.runnersUp ?? [])],
     playerIds: [txn.playerId],
   };
 }

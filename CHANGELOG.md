@@ -16,6 +16,99 @@ _Nothing yet._
 
 ---
 
+## [0.20.0] — 2026-05-14
+
+Replaces the v0.13.0 deterministic best-fit free-agent signer with a
+second-price bidding auction. Every team computes a cash valuation +
+player-preference multiplier per FA; the winner is whoever maximises
+perceived value, and the price is set by the runner-up. Runners-up
+flow through `fa-sign` transactions into the news feed, so the
+narrative surface picks up who else was in on each deal.
+
+### Added — Free-agent bidding auction (engine)
+
+New `packages/engine/src/transactions/fa-bidding.ts`:
+- `auctionFreeAgent(league, player) → FaAuctionResult` — pure compute
+  over `league` state, no mutation. Returns winner, final Y1 price,
+  valuation multiplier, and up to 3 runners-up.
+- `computeTeamCashBid(team, player, league, blueprintByPos) → number`
+  — cash valuation in dollars: scheme fit × positional need × cap
+  room, the combined multiplier bounded to [0.7, 1.2] × tier-standard
+  Y1 to keep individual bids inside a stable league cap band.
+- `computePlayerPreference(team, player, league) → number` — clamped
+  [0.85, 1.15], built from `moodProfile.archetype` × team
+  `marketSize`, owner quirks (RING_CHASER, PANIC_SELLER,
+  LOYALTY_BLIND, COMMUNITY_CHAMPION, MICRO_MANAGER), HC quirks
+  (CULTURE_CARRIER, PRESS_CONFERENCE_DISASTER), and HC
+  `spectrums.playerRelationships`.
+
+Pricing rules:
+- Multi-bidder: `min(runnerUp.cash × 1.02, winner.cash)` — second-
+  price with a 2% nudge above the runner-up, capped at the winner's
+  own cash so they never pay more than they were willing to.
+- Lone bidder: `winner.cash × 0.85` — 85% discount, no one to bid
+  them up.
+- Tier-standard Y1 anchors: STAR=$10.5M, STARTER=$4M, BACKUP=$1.2M,
+  FRINGE=$900k.
+
+`refillRosters` now drives the FA market through `auctionFreeAgent`
+instead of `pickPrimarySigningTeam`. The fill-up backstop behind the
+auction is unchanged — any FA who can't find a bidder still gets a
+1-year vet-min deal at the most-depleted team with cap room.
+
+### Added — Auction-driven contract scaling (engine)
+
+`makeFreeAgentContract` grew a 5th parameter `valuationMultiplier`
+(default 1.0). When called from the auction it scales both the
+per-year base salary and signing bonus around the tier-standard
+shape, producing real dispersion across signings of the same tier.
+Caller-driven sign primitives (mid-season vet-min, explicit
+team-signs-player flows) keep multiplier 1.0 and produce identical
+contracts to pre-v0.20.
+
+### Added — Runners-up on `fa-sign` transactions (engine)
+
+`TransactionFreeAgentSign` grew an optional `runnersUp?: readonly
+TeamId[]` field. Populated only by the offseason auction; mid-season
+vet-min signings omit it. Pre-v0.20 saves load unchanged — the field
+is optional and consumers tolerate its absence.
+
+### Added — Runner-up coverage in the news feed (engine)
+
+`newsFromFreeAgentSign` now surfaces runners-up in both the body
+("Reported runners-up: TEAM A, TEAM B.") and the `teamIds` array, so
+the news feed can attribute interest to losing bidders alongside the
+winner. Tier-gating, source attribution (`national_insider` for STARs,
+`beat_writer` otherwise), and severity are unchanged.
+
+### Diagnosis note — cap-distribution mechanism
+
+The initial implementation kept a `0.55` floor on the cap factor so
+cap-pinned teams still had some bidding power. This produced a
+cascade: a handful of "preferred" teams (high cap room + great HC)
+won auction after auction until they sat $0.6–0.9M over cap — below
+`LEAGUE_MINIMUM_SALARY` — leaving the fill-up pass with no team able
+to even sign a vet-min player. Result: rosters stuck in the low 40s.
+Stripping the floor (`capFactor = clamp(capRoomFrac × 1.2, 0, 1.2)`)
+lets cap-poor teams drop out of bidding wars naturally, mirroring the
+pre-v0.20 best-fit signer's distribution behavior without sacrificing
+the auction's pricing dynamics. Diagnosis used instrumented
+per-signing cap tracing rather than parameter-tweaking. League cap
+band post-fix on 10-season seeds: avg $204–211M (cap $255M), max
+$253–255M.
+
+### Known limitation
+
+The 10-season validate-progression harness reports 1–3 teams off-53
+on 2 of 3 seeds — a milder long-horizon residual of the same
+cap-distribution mechanism. 5-season unit tests are clean and the
+single-season offseason end-to-end is clean. Pinned for a follow-up
+release once we have eyes on the auction's broader behavior.
+
+382 tests passing (was 371 at v0.19.0).
+
+---
+
 ## [0.19.0] — 2026-05-14
 
 Two chemistry-system follow-ups close out a v0.17.0/v0.18.x open

@@ -12,11 +12,9 @@ import {
   deadMoneyOnPreJune1Release,
   teamCapUsage,
 } from '../contracts/cap.js';
-import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
-import type { Position } from '../types/enums.js';
 import { makeFreeAgentContract } from './free-agency.js';
+import { auctionFreeAgent } from './fa-bidding.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
-import { schemeFitForPlayer } from '../scheme/fit.js';
 import { ContractId } from '../types/ids.js';
 import type { Transaction } from '../types/transaction.js';
 
@@ -211,27 +209,22 @@ function addToYear(
 
 /**
  * Run the offseason free-agent market. Each available FA — sorted in
- * tier order (STAR → FRINGE), then by skill within tier — is matched
- * with the best-fit signing team:
+ * tier order (STAR → FRINGE), then by skill within tier — goes through
+ * `auctionFreeAgent`, a second-price bidding pass where every team
+ * computes a cash valuation (scheme fit × positional need × cap room)
+ * and a player-preference multiplier (personality + market size +
+ * owner/HC quirks). The winner is whoever maximises `cash × preference`;
+ * the price is the runner-up's cash valuation plus a 2% nudge, capped
+ * at the winner's own valuation. A lone bidder gets the player at 85%
+ * of their valuation (the single-bidder discount).
  *
- *   primary score = (positional need / blueprint count)
- *                 × scheme fit
- *                 × (cap room / cap ceiling)
- *
- * The signing team must have:
- *   - Roster space (< 53 players)
- *   - Positional need (under blueprint count at the FA's position)
- *   - Cap room to absorb the contract's first-year hit
- *
- * If no team qualifies under the primary criteria, a **fill-up** pass
- * signs the FA to a 1-year veteran-minimum deal at any team that has
- * roster space and minimum-salary cap room — guaranteeing rosters
- * approach 53 even when scheme/need/cap pinches in the primary pass.
+ * If no team has roster space, positional need, AND cap room for any
+ * positive bid, the FA falls through to a **fill-up** pass that signs
+ * them to a 1-year veteran-minimum deal at the most-depleted team with
+ * room — guaranteeing rosters approach 53 even when scheme/need/cap
+ * pinches in the auction.
  */
 export function refillRosters(league: LeagueState, signedOnTick: number): LeagueState {
-  const blueprintByPos = new Map<Position, number>();
-  for (const slot of ROSTER_BLUEPRINT_53) blueprintByPos.set(slot.position, slot.count);
-
   const orderedPool = sortedFreeAgentPool(league);
 
   let working = league;
@@ -242,11 +235,19 @@ export function refillRosters(league: LeagueState, signedOnTick: number): League
     const player = working.players[playerId];
     if (!player || player.teamId !== null) continue;
 
-    const teamId = pickPrimarySigningTeam(working, player, blueprintByPos);
-    if (teamId) {
-      const team = working.teams[teamId]!;
+    const auction = auctionFreeAgent(working, player);
+    if (auction.winnerTeamId) {
+      const team = working.teams[auction.winnerTeamId]!;
       const idSuffix = `${team.identity.abbreviation}_FA${working.seasonNumber}_${signCounter++}`;
-      working = signFreeAgentTo(working, teamId, playerId, idSuffix, signedOnTick);
+      working = signAuctionWinner(
+        working,
+        auction.winnerTeamId,
+        playerId,
+        idSuffix,
+        signedOnTick,
+        auction.valuationMultiplier,
+        auction.runnersUp,
+      );
     } else {
       stillUnsigned.push(playerId);
     }
@@ -311,49 +312,6 @@ function skillSummary(player: Player): number {
 }
 
 /**
- * Pick the best-fit signing team for a free agent, scored by need ×
- * scheme fit × cap-room. Returns null if no team has roster space,
- * positional need, AND cap room for the contract's first-year hit.
- */
-function pickPrimarySigningTeam(
-  league: LeagueState,
-  player: Player,
-  blueprintByPos: Map<Position, number>,
-): TeamId | null {
-  const firstYearHit = firstYearCapHit(player);
-
-  let bestId: TeamId | null = null;
-  let bestScore = -Infinity;
-
-  for (const team of Object.values(league.teams)) {
-    if (team.rosterIds.length >= 53) continue;
-
-    const have = countAtPosition(team, league, player.position);
-    const blueprintCount = blueprintByPos.get(player.position) ?? 0;
-    const deficit = blueprintCount - have;
-    if (deficit <= 0) continue;
-    const needFactor = blueprintCount > 0 ? deficit / blueprintCount : 0;
-
-    const capRoom = league.salaryCap - teamCapUsage(team, league);
-    if (capRoom < firstYearHit) continue;
-    const capFactor = capRoom / league.salaryCap;
-
-    const hc = league.coaches[team.headCoachId]!;
-    const fit = schemeFitForPlayer(player, {
-      offensiveScheme: hc.offensiveScheme,
-      defensiveScheme: hc.defensiveScheme,
-    });
-
-    const score = needFactor * fit * capFactor;
-    if (score > bestScore || (score === bestScore && (bestId === null || team.identity.id < bestId))) {
-      bestScore = score;
-      bestId = team.identity.id;
-    }
-  }
-  return bestId;
-}
-
-/**
  * Pick a team for the fill-up pass: most under-53, with at least
  * league-minimum cap room. Ignores scheme and positional fit.
  */
@@ -377,34 +335,32 @@ function pickFillUpTeam(league: LeagueState): TeamId | null {
   return bestId;
 }
 
-function countAtPosition(team: TeamState, league: LeagueState, position: Position): number {
-  let n = 0;
-  for (const playerId of team.rosterIds) {
-    const p = league.players[playerId];
-    if (p && p.position === position) n++;
-  }
-  return n;
-}
-
-function firstYearCapHit(player: Player): number {
-  const tmpContract = makeFreeAgentContract(player, '' as TeamId, 'TMP', 0);
-  return currentCapHit(tmpContract);
-}
-
 /**
- * Sign a free agent at their tier-appropriate market deal.
+ * Sign an auction-winning team to the FA at a deal scaled by the
+ * auction outcome. The tier-shape (years, signing-bonus split,
+ * guarantee depth) is preserved; only base salary and signing bonus
+ * scale with `valuationMultiplier`. Runners-up land on the resulting
+ * `fa-sign` transaction so the news feed can surface lost-out interest.
  */
-function signFreeAgentTo(
+function signAuctionWinner(
   league: LeagueState,
   teamId: TeamId,
   playerId: PlayerId,
   idSuffix: string,
   signedOnTick: number,
+  valuationMultiplier: number,
+  runnersUp: readonly TeamId[],
 ): LeagueState {
   const player = league.players[playerId]!;
   const team = league.teams[teamId]!;
-  const contract = makeFreeAgentContract(player, teamId, idSuffix, signedOnTick);
-  return mergeSigning(league, team, player, contract);
+  const contract = makeFreeAgentContract(
+    player,
+    teamId,
+    idSuffix,
+    signedOnTick,
+    valuationMultiplier,
+  );
+  return mergeSigning(league, team, player, contract, runnersUp);
 }
 
 /**
@@ -445,6 +401,7 @@ function mergeSigning(
   team: TeamState,
   player: Player,
   contract: Contract,
+  runnersUp: readonly TeamId[] = [],
 ): LeagueState {
   const entry: Transaction = {
     kind: 'fa-sign',
@@ -455,6 +412,7 @@ function mergeSigning(
     contractId: contract.id,
     yearOneCapHit: currentCapHit(contract),
     marketContract: contract.realYears > 1 || contract.signingBonus > 0,
+    ...(runnersUp.length > 0 ? { runnersUp } : {}),
   };
   return {
     ...league,

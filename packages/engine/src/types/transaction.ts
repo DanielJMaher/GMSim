@@ -64,6 +64,17 @@ export interface TransactionFreeAgentSign extends TransactionBase {
   yearOneCapHit: number;
   /** True if this signing came from the offseason FA market (vs. mid-season "vet-min" street signing). */
   marketContract: boolean;
+  /**
+   * Teams that bid on the FA but lost the auction, ordered from
+   * strongest to weakest runner-up. Optional — only the offseason
+   * auction populates this; mid-season vet-min signings and pre-v0.20
+   * saves omit it.
+   *
+   * Populated by `auctionFreeAgent`; surfaced in the news feed as
+   * "TEAM A signed STAR X despite heavy TEAM B interest" so the
+   * runner-up market context isn't lost to the inspector.
+   */
+  runnersUp?: readonly TeamId[];
 }
 
 export interface TransactionTrade extends TransactionBase {

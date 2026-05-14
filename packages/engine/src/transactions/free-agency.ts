@@ -153,17 +153,34 @@ const FA_DEAL_BY_TIER: Record<TalentTier, FreeAgentDealShape> = {
  * Build a tier-appropriate free-agent contract — multi-year for
  * STAR/STARTER/BACKUP, 1-year league-minimum for FRINGE.
  *
- * Deterministic given (player, teamId, idSuffix, signedOnTick): each
- * tier collapses to a fixed deal shape, so no PRNG is needed.
+ * `valuationMultiplier` scales both the per-year base salary and the
+ * signing bonus around the tier's standard shape. Default 1.0 reproduces
+ * the v0.13.0–v0.19.0 flat tier deals (used by mid-season vet-min
+ * signings and explicit caller-driven signings). The offseason auction
+ * in `fa-bidding.ts` supplies a multiplier in roughly [0.55, 1.80] based
+ * on competitive bidding outcomes.
+ *
+ * Deterministic given the inputs — no PRNG.
  */
 export function makeFreeAgentContract(
   player: Player,
   teamId: TeamId,
   idSuffix: string,
   signedOnTick: number,
+  valuationMultiplier: number = 1.0,
 ): Contract {
   const shape = FA_DEAL_BY_TIER[player.tier];
-  const baseSalaries = new Array(shape.realYears).fill(shape.baseSalary);
+  const scaledBase = Math.round(shape.baseSalary * valuationMultiplier);
+  const scaledBonus = Math.round(shape.signingBonus * valuationMultiplier);
+  // No LEAGUE_MIN floor on the per-year base — the auction filters
+  // teams on the cash valuation they're committing to, and the
+  // resulting contract Y1 cap hit must equal that valuation. Adding
+  // a min-salary floor here would push the contract above the auction
+  // price and produce small cap-room overflows. At multiplier 1.0
+  // every tier's standard base is already at/above the league
+  // minimum, so this only affects sub-1.0 single-bidder auctions on
+  // FRINGE players. (Caller-driven sign primitives keep multiplier 1.)
+  const baseSalaries = new Array(shape.realYears).fill(scaledBase);
   const guarantees: ContractGuarantee[] = [];
   for (let y = 0; y < shape.realYears; y++) {
     if (y < shape.guaranteedYears) {
@@ -181,7 +198,7 @@ export function makeFreeAgentContract(
     voidYears: 0,
     yearsRemaining: shape.realYears,
     baseSalaries,
-    signingBonus: shape.signingBonus,
+    signingBonus: scaledBonus,
     rosterBonuses: new Array(shape.realYears).fill(0),
     workoutBonuses: new Array(shape.realYears).fill(0),
     guarantees,
