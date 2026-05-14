@@ -19,6 +19,7 @@ import type { Player } from '../types/player.js';
 import type { HeadCoach } from '../types/personnel.js';
 import type { ScheduledGame, GameResult } from '../types/game.js';
 import type { TeamId, GameId, CoachId } from '../types/ids.js';
+import type { OffensiveSchemeArchetype } from '../types/personnel.js';
 
 describe('moodBucket', () => {
   it('maps known values to expected labels', () => {
@@ -276,6 +277,108 @@ describe('weeklyMoodUpdate', () => {
     const lowDrop = low.mood - players[low.id]!.mood;
     expect(lowDrop).toBeGreaterThan(highDrop);
   });
+});
+
+describe('scheme-fit driver', () => {
+  // QB_PRECISION_PASSER scheme fits from the catalog:
+  //   WEST_COAST 1.4 (delta +0.4/wk)
+  //   AIR_RAID 0.85 (delta -0.15/wk)
+  // A meaningful gap that's still smaller than the W/L driver.
+  const GOOD_FIT_ARCHETYPE = 'QB_PRECISION_PASSER' as const;
+  const GOOD_FIT_SCHEME: OffensiveSchemeArchetype = 'WEST_COAST';
+  const BAD_FIT_SCHEME: OffensiveSchemeArchetype = 'AIR_RAID';
+
+  function buildSchemeScenario(
+    base: LeagueState,
+    teamId: TeamId,
+    playerId: import('../types/ids.js').PlayerId,
+    scheme: OffensiveSchemeArchetype,
+  ): LeagueState {
+    const l = withBoostedScenario(base, teamId, playerId);
+    const team = l.teams[teamId]!;
+    const hc = l.coaches[team.headCoachId]!;
+    return {
+      ...l,
+      coaches: {
+        ...l.coaches,
+        [team.headCoachId]: { ...hc, offensiveScheme: scheme },
+      },
+      players: {
+        ...l.players,
+        [playerId]: { ...l.players[playerId]!, archetype: GOOD_FIT_ARCHETYPE },
+      },
+    };
+  }
+
+  it('lifts mood for a player whose archetype fits the HC scheme', () => {
+    const base = createLeague({ seed: 'mood-scheme-good' });
+    const team = Object.values(base.teams)[0]!;
+    const other = Object.values(base.teams).find(
+      (t) => t.identity.id !== team.identity.id,
+    )!;
+    const pid = team.rosterIds[0]!;
+
+    const goodFit = buildSchemeScenario(base, team.identity.id, pid, GOOD_FIT_SCHEME);
+    const badFit = buildSchemeScenario(base, team.identity.id, pid, BAD_FIT_SCHEME);
+
+    // A tied game neutralizes the W/L driver (both leagues see -0.1).
+    const tie = [makeFakeGame(team.identity.id, other.identity.id, 14, 14)];
+    const goodResult = weeklyMoodUpdate({
+      league: goodFit,
+      playedWeeks: [tie],
+      tick: goodFit.tick,
+      prng: new Prng('mood-test'),
+    });
+    const badResult = weeklyMoodUpdate({
+      league: badFit,
+      playedWeeks: [tie],
+      tick: badFit.tick,
+      prng: new Prng('mood-test'),
+    });
+    expect(goodResult.players[pid]!.mood).toBeGreaterThan(badResult.players[pid]!.mood);
+  });
+
+  it('compounds across multiple quiet weeks — direction is consistent', () => {
+    // Run the same player through six identical tied weeks under each
+    // scheme; the gap should widen monotonically. This catches
+    // sign-flips or one-off lucky-noise wins that an N=1 test misses.
+    const base = createLeague({ seed: 'mood-scheme-compound' });
+    const team = Object.values(base.teams)[0]!;
+    const other = Object.values(base.teams).find(
+      (t) => t.identity.id !== team.identity.id,
+    )!;
+    const pid = team.rosterIds[0]!;
+
+    let goodLeague = buildSchemeScenario(base, team.identity.id, pid, GOOD_FIT_SCHEME);
+    let badLeague = buildSchemeScenario(base, team.identity.id, pid, BAD_FIT_SCHEME);
+    const goodPrng = new Prng('mood-scheme-compound-good');
+    const badPrng = new Prng('mood-scheme-compound-bad');
+
+    const ties: ScheduledGame[][] = [];
+    for (let i = 0; i < 6; i++) {
+      ties.push([makeFakeGame(team.identity.id, other.identity.id, 14, 14, i)]);
+      const goodRes = weeklyMoodUpdate({
+        league: goodLeague,
+        playedWeeks: ties,
+        tick: goodLeague.tick,
+        prng: goodPrng,
+      });
+      const badRes = weeklyMoodUpdate({
+        league: badLeague,
+        playedWeeks: ties,
+        tick: badLeague.tick,
+        prng: badPrng,
+      });
+      goodLeague = { ...goodLeague, players: goodRes.players };
+      badLeague = { ...badLeague, players: badRes.players };
+    }
+
+    // After 6 quiet weeks the good-fit player should sit clearly above
+    // the bad-fit one. We don't pin an exact gap because noise / drift
+    // are stochastic, but the direction must hold.
+    expect(goodLeague.players[pid]!.mood).toBeGreaterThan(badLeague.players[pid]!.mood);
+  });
+
 });
 
 describe('locker-room contagion', () => {

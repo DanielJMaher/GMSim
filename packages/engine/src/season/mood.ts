@@ -11,6 +11,7 @@ import type {
 import type { TeamId, PlayerId } from '../types/ids.js';
 import { Position, MarketSize } from '../types/enums.js';
 import type { Prng } from '../prng/index.js';
+import { schemeFitForPlayer } from '../scheme/fit.js';
 
 export type { MoodBucket } from '../types/transaction.js';
 
@@ -257,6 +258,7 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
         ? 0
         : depthChartDelta(player, byPosition.get(player.position) ?? []);
       const irD = onIr ? irPenalty(player) : 0;
+      const schemeD = schemeFitDelta(player, hc);
       // Drift pulls toward the player's personal setPoint, not a
       // league-flat baseline. Stabilizers (high resilience) snap back
       // hard; distractions (low resilience) drift loosely so noise
@@ -265,9 +267,9 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
       const drift = (setPoint - player.mood) * resilience * 0.05;
 
       const positiveSum = Math.max(0, teamDelta) + Math.max(0, hcDelta)
-        + Math.max(0, depthD);
+        + Math.max(0, depthD) + Math.max(0, schemeD);
       const negativeSum = Math.min(0, teamDelta) + Math.min(0, hcDelta)
-        + Math.min(0, depthD) + irD;
+        + Math.min(0, depthD) + Math.min(0, schemeD) + irD;
       const composureMul = composureModifier(player);
       const total = drift + positiveSum + negativeSum * composureMul;
 
@@ -591,6 +593,28 @@ function depthChartDelta(player: Player, samePosition: readonly Player[]): numbe
     case 'FRINGE':
       return 0.1;
   }
+}
+
+/**
+ * Scheme-fit contribution. A player whose archetype suits the head
+ * coach's scheme loves their role and gets a small weekly lift; a
+ * mismatched player feels miscast and drifts down. `schemeFitForPlayer`
+ * returns a multiplier in roughly [0.5, 1.7] centered at 1.0, so the
+ * mapping (fit - 1.0) lands deltas in roughly [-0.5, +0.7] per week —
+ * meaningful when sustained across the season but not big enough to
+ * single-handedly flip a player's bucket on its own.
+ *
+ * Special-teams archetypes (K / P / LS) always fit at 1.0 by design,
+ * so they're unaffected. Stacks with `hcMoodDelta` (the relationships
+ * spectrum) — a coach can be a great communicator yet still run a
+ * scheme that miscasts a particular player, and both signals matter.
+ */
+function schemeFitDelta(player: Player, hc: HeadCoach): number {
+  const fit = schemeFitForPlayer(player, {
+    offensiveScheme: hc.offensiveScheme,
+    defensiveScheme: hc.defensiveScheme,
+  });
+  return (fit - 1.0) * 1.0;
 }
 
 /**

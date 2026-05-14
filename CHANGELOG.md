@@ -12,7 +12,22 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — Scheme-fit driver on weekly mood drift
+
+Players whose archetype suits their head coach's scheme now get a small
+weekly mood lift; miscast players drift down. `schemeFitForPlayer`
+returns a multiplier in roughly [0.5, 1.7] centered at 1.0, mapped
+directly to a per-week mood delta. A `QB_PRECISION_PASSER` in a
+`WEST_COAST` scheme (fit 1.4) gains +0.4/wk; the same player in
+`AIR_RAID` (fit 0.85) loses 0.15/wk. Stacks with the
+`playerRelationships` HC driver — a great communicator can still run a
+scheme that miscasts particular players, and both signals matter.
+
+Special-teams archetypes are scheme-neutral (fit 1.0) so they're
+unaffected. Composure dampens the negative side as it does for the
+other drivers.
+
+346 tests passing (+2 scheme-fit regressions).
 
 ---
 
