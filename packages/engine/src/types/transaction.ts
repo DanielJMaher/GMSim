@@ -1,5 +1,34 @@
 import type { PlayerId, TeamId, ContractId, CoachId, OwnerId } from './ids.js';
 import type { TalentTier } from './player.js';
+import type { LeaguePhase } from './league.js';
+
+/**
+ * Per-bidder detail persisted on `fa-sign` transactions so the
+ * inspector can show the full market context behind a signing.
+ * Mirrors `FaBidderDetail` from the auction module but is duplicated
+ * in the transaction types so the type layer doesn't depend on a
+ * transactions module.
+ */
+export interface FaSignBidder {
+  teamId: TeamId;
+  cashValuation: number;
+  preferenceMultiplier: number;
+  perceivedBid: number;
+  capRoomAtTime: number;
+  preferenceFactors: FaSignPreferenceFactors;
+}
+
+/** Labeled breakdown of how `preferenceMultiplier` was constructed. */
+export interface FaSignPreferenceFactors {
+  total: number;
+  archetypeMarket: number;
+  ownerQuirks: number;
+  hcQuirks: number;
+  hcPlayerRelationships: number;
+  archetypeLabel: string | null;
+  ownerQuirkLabels: readonly string[];
+  hcQuirkLabels: readonly string[];
+}
 
 /**
  * League-wide transaction log entry. Each engine primitive that mutates
@@ -75,6 +104,20 @@ export interface TransactionFreeAgentSign extends TransactionBase {
    * runner-up market context isn't lost to the inspector.
    */
   runnersUp?: readonly TeamId[];
+  /**
+   * Full list of bidders with cash valuations, preference multipliers,
+   * and preference breakdowns — feeds the inspector's FA-sign detail
+   * panel. Optional for back-compat: pre-v0.22 saves and mid-season
+   * vet-min signings (no auction) omit it. Sorted descending by
+   * `perceivedBid` to match the auction ordering.
+   */
+  bidders?: readonly FaSignBidder[];
+  /**
+   * League phase at the moment of signing. Lets the inspector show
+   * "Offseason FA market" vs "Week 7 vet-min" without re-deriving
+   * from tick. Optional for back-compat with pre-v0.22 saves.
+   */
+  phaseAtSigning?: LeaguePhase;
 }
 
 export interface TransactionTrade extends TransactionBase {

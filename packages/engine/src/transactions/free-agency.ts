@@ -88,6 +88,7 @@ export function signFreeAgent(
     contractId: contract.id,
     yearOneCapHit: currentCapHit(contract),
     marketContract: true,
+    phaseAtSigning: league.phase,
   };
 
   return {

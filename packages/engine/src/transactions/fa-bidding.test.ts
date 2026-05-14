@@ -2,7 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
 import { simulateSeason } from '../season/runner.js';
 import { advanceSeason } from '../season/advance.js';
-import { auctionFreeAgent } from './fa-bidding.js';
+import {
+  auctionFreeAgent,
+  computePlayerPreference,
+  computePlayerPreferenceBreakdown,
+} from './fa-bidding.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { MarketSize, Position } from '../types/enums.js';
 import type { LeagueState } from '../types/league.js';
@@ -201,6 +205,111 @@ describe('auctionFreeAgent', () => {
         expect(teamCapUsage(team, league)).toBeLessThanOrEqual(league.salaryCap);
       }
     }
+  });
+
+  it('returns a bidders array with one entry per eligible team', () => {
+    const base = createLeague({ seed: 'auction-bidders' });
+    const league = withWrNeedAtEveryTeam(base);
+    const fa = makeWrFreeAgent(league, 'STAR');
+    const result = auctionFreeAgent(league, fa);
+    expect(result.bidders.length).toBeGreaterThan(0);
+    // Bidders sorted descending by perceivedBid.
+    for (let i = 1; i < result.bidders.length; i++) {
+      expect(result.bidders[i - 1]!.perceivedBid).toBeGreaterThanOrEqual(
+        result.bidders[i]!.perceivedBid,
+      );
+    }
+    // Winner is the first bidder.
+    expect(result.bidders[0]!.teamId).toBe(result.winnerTeamId);
+    // Every bidder has all the persisted fields.
+    for (const b of result.bidders) {
+      expect(b.cashValuation).toBeGreaterThan(0);
+      expect(b.preferenceMultiplier).toBeGreaterThanOrEqual(0.85);
+      expect(b.preferenceMultiplier).toBeLessThanOrEqual(1.15);
+      expect(b.perceivedBid).toBeCloseTo(b.cashValuation * b.preferenceMultiplier, 5);
+      expect(b.capRoomAtTime).toBeGreaterThan(0);
+      expect(b.preferenceFactors.total).toBe(b.preferenceMultiplier);
+    }
+  });
+
+  it('end-to-end: fa-sign transactions persist bidders + phaseAtSigning', () => {
+    let league = createLeague({ seed: 'auction-persist' });
+    league = simulateSeason(league);
+    league = advanceSeason(league);
+    const auctionSigns = league.transactionLog.filter(
+      (t) => t.kind === 'fa-sign' && t.tick === league.tick && t.marketContract,
+    );
+    expect(auctionSigns.length).toBeGreaterThan(0);
+    // At least one of the market signings has the new fields populated.
+    let withBidders = 0;
+    let withPhase = 0;
+    for (const t of auctionSigns) {
+      if (t.kind !== 'fa-sign') continue;
+      if (t.bidders && t.bidders.length > 0) withBidders++;
+      if (t.phaseAtSigning) withPhase++;
+    }
+    expect(withBidders).toBeGreaterThan(0);
+    expect(withPhase).toBe(auctionSigns.length); // every signing should have a phase
+  });
+});
+
+describe('computePlayerPreferenceBreakdown', () => {
+  it('total equals the value computePlayerPreference returns', () => {
+    const league = createLeague({ seed: 'pref-breakdown-parity' });
+    // Sample a few player × team pairings.
+    const players = Object.values(league.players).slice(0, 5);
+    const teams = Object.values(league.teams).slice(0, 4);
+    for (const player of players) {
+      for (const team of teams) {
+        const total = computePlayerPreference(team, player, league);
+        const breakdown = computePlayerPreferenceBreakdown(team, player, league);
+        expect(breakdown.total).toBe(total);
+      }
+    }
+  });
+
+  it('breakdown component sum (clamped) matches total', () => {
+    const league = createLeague({ seed: 'pref-breakdown-sum' });
+    const players = Object.values(league.players).slice(0, 10);
+    const teams = Object.values(league.teams);
+    for (const player of players) {
+      for (const team of teams) {
+        const f = computePlayerPreferenceBreakdown(team, player, league);
+        const raw =
+          1.0 +
+          f.archetypeMarket +
+          f.ownerQuirks +
+          f.hcQuirks +
+          f.hcPlayerRelationships;
+        const expected = Math.max(0.85, Math.min(1.15, raw));
+        expect(f.total).toBeCloseTo(expected, 5);
+      }
+    }
+  });
+
+  it('emits human-readable labels for fired factors', () => {
+    const league = createLeague({ seed: 'pref-breakdown-labels' });
+    // Find a player whose breakdown actually moved off neutral so we
+    // have something interesting to inspect.
+    let foundActive = false;
+    for (const player of Object.values(league.players)) {
+      for (const team of Object.values(league.teams)) {
+        const f = computePlayerPreferenceBreakdown(team, player, league);
+        const hasLabels =
+          f.archetypeLabel !== null ||
+          f.ownerQuirkLabels.length > 0 ||
+          f.hcQuirkLabels.length > 0;
+        if (hasLabels) {
+          foundActive = true;
+          if (f.archetypeLabel) expect(f.archetypeLabel.length).toBeGreaterThan(0);
+          for (const l of f.ownerQuirkLabels) expect(l.length).toBeGreaterThan(0);
+          for (const l of f.hcQuirkLabels) expect(l.length).toBeGreaterThan(0);
+          break;
+        }
+      }
+      if (foundActive) break;
+    }
+    expect(foundActive).toBe(true);
   });
 });
 

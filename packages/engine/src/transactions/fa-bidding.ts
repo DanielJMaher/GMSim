@@ -40,6 +40,61 @@ export interface FaAuctionResult {
   valuationMultiplier: number;
   /** Up to 3 best runners-up, in order of strongest perceived bid. */
   runnersUp: readonly TeamId[];
+  /**
+   * Full list of eligible bidders with their cash valuations,
+   * preference multipliers, and the perceived bid that drove the
+   * auction sort. Empty when `winnerTeamId === null` (no team
+   * qualified). Sorted descending by `perceivedBid` to match the
+   * auction ordering. Persisted on `fa-sign` transactions so the
+   * inspector can show the full market context behind each signing.
+   */
+  bidders: readonly FaBidderDetail[];
+}
+
+/**
+ * One team's full bid context for a single FA. Captures both the
+ * dollar valuation (`cashValuation`) and the player's preference
+ * multiplier (`preferenceMultiplier`), plus the structured breakdown
+ * that explains *why* preference came out the way it did — feeds the
+ * inspector's "why this team won" callout.
+ */
+export interface FaBidderDetail {
+  teamId: TeamId;
+  /** What the team was willing to pay in Y1 cap dollars. */
+  cashValuation: number;
+  /** Player preference for this team, clamped [0.85, 1.15]. */
+  preferenceMultiplier: number;
+  /** `cashValuation × preferenceMultiplier` — the auction sort key. */
+  perceivedBid: number;
+  /** Cap room available to this team at the moment of the auction. */
+  capRoomAtTime: number;
+  /** Labeled component breakdown of how `preferenceMultiplier` was built. */
+  preferenceFactors: PreferenceFactors;
+}
+
+/**
+ * Structured breakdown of a `computePlayerPreference` evaluation, so
+ * the inspector can render "MIA preference was 1.08 because:
+ * distraction × LARGE +0.06, RING_CHASER owner +0.05, HC
+ * PRESS_CONFERENCE_DISASTER −0.06" rather than just a single number.
+ */
+export interface PreferenceFactors {
+  /** Final clamped preference value — equals `computePlayerPreference`. */
+  total: number;
+  /** Contribution from the archetype × team market-size pairing. */
+  archetypeMarket: number;
+  /** Sum of owner-quirk contributions. */
+  ownerQuirks: number;
+  /** Sum of HC-quirk contributions. */
+  hcQuirks: number;
+  /** Contribution from HC playerRelationships (centered at 5.5). */
+  hcPlayerRelationships: number;
+  /** Human-readable label for the archetype × market pairing, if it moved preference. */
+  archetypeLabel: string | null;
+  /** Human-readable labels for each owner quirk that fired (signed). */
+  ownerQuirkLabels: readonly string[];
+  /** Human-readable labels for each HC quirk that fired (signed). */
+  hcQuirkLabels: readonly string[];
 }
 
 /**
@@ -85,7 +140,13 @@ export function auctionFreeAgent(
 
   const bids = collectBids(league, player, blueprintByPos);
   if (bids.length === 0) {
-    return { winnerTeamId: null, finalPrice: 0, valuationMultiplier: 0, runnersUp: [] };
+    return {
+      winnerTeamId: null,
+      finalPrice: 0,
+      valuationMultiplier: 0,
+      runnersUp: [],
+      bidders: [],
+    };
   }
 
   // Sort by perceived bid desc; deterministic tie-break by TeamId.
@@ -108,11 +169,21 @@ export function auctionFreeAgent(
   const valuationMultiplier = finalPrice / standardY1;
   const runnersUp = bids.slice(1, 4).map((b) => b.teamId);
 
+  const bidders: FaBidderDetail[] = bids.map((b) => ({
+    teamId: b.teamId,
+    cashValuation: b.cash,
+    preferenceMultiplier: b.preference,
+    perceivedBid: b.perceived,
+    capRoomAtTime: b.capRoom,
+    preferenceFactors: b.preferenceFactors,
+  }));
+
   return {
     winnerTeamId: winner.teamId,
     finalPrice,
     valuationMultiplier,
     runnersUp,
+    bidders,
   };
 }
 
@@ -121,6 +192,8 @@ interface Bid {
   cash: number;
   preference: number;
   perceived: number;
+  capRoom: number;
+  preferenceFactors: PreferenceFactors;
 }
 
 function collectBids(
@@ -155,12 +228,14 @@ function collectBids(
     const desiredCash = computeTeamCashBid(team, player, league, blueprintByPos);
     const cash = Math.min(desiredCash, capRoom);
 
-    const preference = computePlayerPreference(team, player, league);
+    const preferenceFactors = computePlayerPreferenceBreakdown(team, player, league);
     bids.push({
       teamId: team.identity.id,
       cash,
-      preference,
-      perceived: cash * preference,
+      preference: preferenceFactors.total,
+      perceived: cash * preferenceFactors.total,
+      capRoom,
+      preferenceFactors,
     });
   }
   return bids;
@@ -229,51 +304,130 @@ export function computeTeamCashBid(
  *  - Owner quirks (RING_CHASER, PANIC_SELLER, LOYALTY_BLIND, etc.).
  *  - HC quirks (CULTURE_CARRIER, PRESS_CONFERENCE_DISASTER).
  *  - HC `playerRelationships` spectrum (centered at 5.5).
+ *
+ * Thin wrapper around `computePlayerPreferenceBreakdown` — the
+ * breakdown function is the single source of truth and feeds both
+ * the auction (uses `.total`) and the inspector (renders the labels).
  */
 export function computePlayerPreference(
   team: TeamState,
   player: Player,
   league: LeagueState,
 ): number {
-  let pref = 1.0;
+  return computePlayerPreferenceBreakdown(team, player, league).total;
+}
 
+/**
+ * Same as `computePlayerPreference` but returns the structured
+ * breakdown of every factor contribution + a human-readable label
+ * per fired effect. The inspector renders these labels in the
+ * "why this team won" callout on FA-sign detail panels.
+ */
+export function computePlayerPreferenceBreakdown(
+  team: TeamState,
+  player: Player,
+  league: LeagueState,
+): PreferenceFactors {
   const owner = league.owners[team.ownerId];
   const hc = league.coaches[team.headCoachId];
-  if (!owner || !hc) return pref;
 
+  // Owner or HC missing — defensive guard; mirrors the v0.20 behavior
+  // of returning the neutral 1.0 in that case.
+  if (!owner || !hc) {
+    return {
+      total: 1.0,
+      archetypeMarket: 0,
+      ownerQuirks: 0,
+      hcQuirks: 0,
+      hcPlayerRelationships: 0,
+      archetypeLabel: null,
+      ownerQuirkLabels: [],
+      hcQuirkLabels: [],
+    };
+  }
+
+  // Archetype × market.
+  let archetypeMarket = 0;
+  let archetypeLabel: string | null = null;
   switch (player.moodProfile.archetype) {
     case 'distraction':
-      if (team.identity.marketSize === MarketSize.LARGE) pref += 0.06;
-      else if (team.identity.marketSize === MarketSize.SMALL) pref -= 0.05;
+      if (team.identity.marketSize === MarketSize.LARGE) {
+        archetypeMarket = 0.06;
+        archetypeLabel = 'distraction × LARGE market';
+      } else if (team.identity.marketSize === MarketSize.SMALL) {
+        archetypeMarket = -0.05;
+        archetypeLabel = 'distraction × SMALL market';
+      }
       break;
     case 'stabilizer':
     case 'anchor':
-      if (team.identity.marketSize === MarketSize.SMALL) pref += 0.02;
-      else if (team.identity.marketSize === MarketSize.LARGE) pref -= 0.01;
+      if (team.identity.marketSize === MarketSize.SMALL) {
+        archetypeMarket = 0.02;
+        archetypeLabel = `${player.moodProfile.archetype} × SMALL market`;
+      } else if (team.identity.marketSize === MarketSize.LARGE) {
+        archetypeMarket = -0.01;
+        archetypeLabel = `${player.moodProfile.archetype} × LARGE market`;
+      }
       break;
     case 'moody':
     case 'normal':
       break;
   }
 
-  // STAR-tier players are the face of the franchise — they care more
-  // about ownership stability and the head coach's media presence.
+  // Owner + HC quirks. STAR-tier quirks apply only to STARs (they're
+  // face-of-franchise — they care more about ownership + HC media).
+  let ownerQuirks = 0;
+  let hcQuirks = 0;
+  const ownerQuirkLabels: string[] = [];
+  const hcQuirkLabels: string[] = [];
+
   if (player.tier === 'STAR') {
-    if (owner.quirks.includes('RING_CHASER')) pref += 0.05;
-    if (hc.quirks.includes('PRESS_CONFERENCE_DISASTER')) pref -= 0.06;
-    if (hc.quirks.includes('CULTURE_CARRIER')) pref += 0.03;
+    if (owner.quirks.includes('RING_CHASER')) {
+      ownerQuirks += 0.05;
+      ownerQuirkLabels.push('RING_CHASER owner (STAR)');
+    }
+    if (hc.quirks.includes('PRESS_CONFERENCE_DISASTER')) {
+      hcQuirks -= 0.06;
+      hcQuirkLabels.push('PRESS_CONFERENCE_DISASTER HC (STAR)');
+    }
+    if (hc.quirks.includes('CULTURE_CARRIER')) {
+      hcQuirks += 0.03;
+      hcQuirkLabels.push('CULTURE_CARRIER HC (STAR)');
+    }
+  }
+  if (owner.quirks.includes('PANIC_SELLER')) {
+    ownerQuirks -= 0.04;
+    ownerQuirkLabels.push('PANIC_SELLER owner');
+  }
+  if (owner.quirks.includes('LOYALTY_BLIND')) {
+    ownerQuirks += 0.03;
+    ownerQuirkLabels.push('LOYALTY_BLIND owner');
+  }
+  if (owner.quirks.includes('MICRO_MANAGER')) {
+    ownerQuirks -= 0.03;
+    ownerQuirkLabels.push('MICRO_MANAGER owner');
+  }
+  if (owner.quirks.includes('COMMUNITY_CHAMPION')) {
+    ownerQuirks += 0.02;
+    ownerQuirkLabels.push('COMMUNITY_CHAMPION owner');
   }
 
-  // Universal owner-culture cues.
-  if (owner.quirks.includes('PANIC_SELLER')) pref -= 0.04;
-  if (owner.quirks.includes('LOYALTY_BLIND')) pref += 0.03;
-  if (owner.quirks.includes('MICRO_MANAGER')) pref -= 0.03;
-  if (owner.quirks.includes('COMMUNITY_CHAMPION')) pref += 0.02;
-
   // HC playerRelationships — centered at 5.5, ±0.045 max.
-  pref += (hc.spectrums.playerRelationships - 5.5) * 0.01;
+  const hcPlayerRelationships = (hc.spectrums.playerRelationships - 5.5) * 0.01;
 
-  return clamp(pref, 0.85, 1.15);
+  const raw = 1.0 + archetypeMarket + ownerQuirks + hcQuirks + hcPlayerRelationships;
+  const total = clamp(raw, 0.85, 1.15);
+
+  return {
+    total,
+    archetypeMarket,
+    ownerQuirks,
+    hcQuirks,
+    hcPlayerRelationships,
+    archetypeLabel,
+    ownerQuirkLabels,
+    hcQuirkLabels,
+  };
 }
 
 function countAtPosition(team: TeamState, league: LeagueState, position: Position): number {

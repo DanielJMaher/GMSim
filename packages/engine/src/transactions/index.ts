@@ -15,8 +15,13 @@ export {
   auctionFreeAgent,
   computeTeamCashBid,
   computePlayerPreference,
+  computePlayerPreferenceBreakdown,
 } from './fa-bidding.js';
-export type { FaAuctionResult } from './fa-bidding.js';
+export type {
+  FaAuctionResult,
+  FaBidderDetail,
+  PreferenceFactors,
+} from './fa-bidding.js';
 export {
   refillPracticeSquad,
   makePracticeSquadContract,

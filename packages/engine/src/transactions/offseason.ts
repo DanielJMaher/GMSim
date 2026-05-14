@@ -14,9 +14,10 @@ import {
 } from '../contracts/cap.js';
 import { makeFreeAgentContract } from './free-agency.js';
 import { auctionFreeAgent } from './fa-bidding.js';
+import type { FaBidderDetail } from './fa-bidding.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { ContractId } from '../types/ids.js';
-import type { Transaction } from '../types/transaction.js';
+import type { Transaction, FaSignBidder } from '../types/transaction.js';
 
 /**
  * Drop every contract whose `yearsRemaining` is 0. The corresponding
@@ -247,6 +248,7 @@ export function refillRosters(league: LeagueState, signedOnTick: number): League
         signedOnTick,
         auction.valuationMultiplier,
         auction.runnersUp,
+        auction.bidders,
       );
     } else {
       stillUnsigned.push(playerId);
@@ -350,6 +352,7 @@ function signAuctionWinner(
   signedOnTick: number,
   valuationMultiplier: number,
   runnersUp: readonly TeamId[],
+  bidders: readonly FaBidderDetail[],
 ): LeagueState {
   const player = league.players[playerId]!;
   const team = league.teams[teamId]!;
@@ -360,7 +363,19 @@ function signAuctionWinner(
     signedOnTick,
     valuationMultiplier,
   );
-  return mergeSigning(league, team, player, contract, runnersUp);
+  // FaBidderDetail (auction module) and FaSignBidder (transaction
+  // type) are structurally identical — copy across to keep the
+  // transaction type free of an inbound dependency on the auction
+  // module.
+  const txnBidders: FaSignBidder[] = bidders.map((b) => ({
+    teamId: b.teamId,
+    cashValuation: b.cashValuation,
+    preferenceMultiplier: b.preferenceMultiplier,
+    perceivedBid: b.perceivedBid,
+    capRoomAtTime: b.capRoomAtTime,
+    preferenceFactors: { ...b.preferenceFactors },
+  }));
+  return mergeSigning(league, team, player, contract, runnersUp, txnBidders);
 }
 
 /**
@@ -402,6 +417,7 @@ function mergeSigning(
   player: Player,
   contract: Contract,
   runnersUp: readonly TeamId[] = [],
+  bidders: readonly FaSignBidder[] = [],
 ): LeagueState {
   const entry: Transaction = {
     kind: 'fa-sign',
@@ -412,7 +428,9 @@ function mergeSigning(
     contractId: contract.id,
     yearOneCapHit: currentCapHit(contract),
     marketContract: contract.realYears > 1 || contract.signingBonus > 0,
+    phaseAtSigning: league.phase,
     ...(runnersUp.length > 0 ? { runnersUp } : {}),
+    ...(bidders.length > 0 ? { bidders } : {}),
   };
   return {
     ...league,

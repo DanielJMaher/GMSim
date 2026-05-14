@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   createLeague,
   getArchetypeById,
@@ -561,6 +561,7 @@ function newsSourceChipClass(source: NewsSource): string {
 
 function TransactionLogPanel({ league }: { league: LeagueState }) {
   const [expanded, setExpanded] = useState(false);
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const log = league.transactionLog;
   const kindCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -634,20 +635,52 @@ function TransactionLogPanel({ league }: { league: LeagueState }) {
               </tr>
             </thead>
             <tbody>
-              {recent.map((entry, i) => (
-                <tr key={i} className="border-t border-zinc-800/60">
-                  <td className="px-2 py-1 font-mono text-zinc-500">{entry.tick}</td>
-                  <td className="px-2 py-1 font-mono text-zinc-500">
-                    s{entry.seasonNumber}
-                  </td>
-                  <td className={`px-2 py-1 font-mono text-[10px] ${kindColor(entry.kind)}`}>
-                    {entry.kind}
-                  </td>
-                  <td className="px-2 py-1 text-zinc-300">
-                    {summarizeTransaction(entry, league)}
-                  </td>
-                </tr>
-              ))}
+              {recent.map((entry, i) => {
+                const isExpandable = hasTransactionDetail(entry);
+                const isOpen = expandedRow === i;
+                return (
+                  <React.Fragment key={i}>
+                    <tr
+                      className={`border-t border-zinc-800/60 ${
+                        isExpandable
+                          ? 'cursor-pointer hover:bg-zinc-900/60'
+                          : ''
+                      } ${isOpen ? 'bg-zinc-900/40' : ''}`}
+                      onClick={() => {
+                        if (!isExpandable) return;
+                        setExpandedRow(isOpen ? null : i);
+                      }}
+                    >
+                      <td className="px-2 py-1 font-mono text-zinc-500">
+                        {isExpandable && (
+                          <span className="mr-1 text-zinc-600">
+                            {isOpen ? '▼' : '▶'}
+                          </span>
+                        )}
+                        {entry.tick}
+                      </td>
+                      <td className="px-2 py-1 font-mono text-zinc-500">
+                        s{entry.seasonNumber}
+                      </td>
+                      <td
+                        className={`px-2 py-1 font-mono text-[10px] ${kindColor(entry.kind)}`}
+                      >
+                        {entry.kind}
+                      </td>
+                      <td className="px-2 py-1 text-zinc-300">
+                        {summarizeTransaction(entry, league)}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="border-t border-zinc-800/60 bg-zinc-950/60">
+                        <td colSpan={4} className="px-3 py-3">
+                          <TransactionDetail entry={entry} league={league} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
               {log.length > recent.length && (
                 <tr className="border-t border-zinc-800/60 text-center text-zinc-600">
                   <td colSpan={4} className="py-2">
@@ -720,6 +753,291 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       const delta = entry.moodDelta >= 0 ? `+${entry.moodDelta.toFixed(1)}` : entry.moodDelta.toFixed(1);
       return `${leak}${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} ${formatIncidentFlavor(entry.flavor)} (mood ${delta})`;
     }
+  }
+}
+
+function hasTransactionDetail(entry: Transaction): boolean {
+  // For v0.22 only fa-sign has a rich detail panel. More kinds will
+  // graduate as we extend the underlying transaction state.
+  return entry.kind === 'fa-sign';
+}
+
+function TransactionDetail({
+  entry,
+  league,
+}: {
+  entry: Transaction;
+  league: LeagueState;
+}) {
+  if (entry.kind === 'fa-sign') {
+    return <FaSignDetail entry={entry} league={league} />;
+  }
+  return null;
+}
+
+function FaSignDetail({
+  entry,
+  league,
+}: {
+  entry: Extract<Transaction, { kind: 'fa-sign' }>;
+  league: LeagueState;
+}) {
+  const player = league.players[entry.playerId];
+  const team = league.teams[entry.teamId];
+  const contract = league.contracts[entry.contractId];
+  const bidders = entry.bidders ?? [];
+  const phaseLabel = formatPhaseLabel(entry.phaseAtSigning, entry.marketContract);
+  const winningBidder = bidders.find((b) => b.teamId === entry.teamId) ?? null;
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <div className="font-semibold text-zinc-200">
+          {team?.identity.abbreviation ?? entry.teamId} signs{' '}
+          {player ? `${player.firstName} ${player.lastName}` : entry.playerId}
+        </div>
+        <div className="text-zinc-500">
+          {player ? `${player.tier} ${player.position} · age ${ageOfPlayer(player, league.tick)}` : ''}
+        </div>
+        <div className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+          {phaseLabel}
+        </div>
+      </div>
+
+      {/* Contract terms */}
+      {contract && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Contract
+          </div>
+          <ContractTermsTable contract={contract} />
+        </div>
+      )}
+
+      {/* Bidders */}
+      {bidders.length > 0 ? (
+        <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Bidders ({bidders.length}) — sorted by perceived bid
+          </div>
+          <BiddersTable
+            bidders={bidders}
+            league={league}
+            winnerTeamId={entry.teamId}
+          />
+        </div>
+      ) : (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2 text-zinc-500">
+          No auction took place — this was a {entry.marketContract ? 'direct' : 'vet-min street'} signing.
+        </div>
+      )}
+
+      {/* Why this team won */}
+      {winningBidder && bidders.length > 1 && (
+        <WinnerExplanation
+          winner={winningBidder}
+          bidders={bidders}
+          league={league}
+        />
+      )}
+    </div>
+  );
+}
+
+function ContractTermsTable({ contract }: { contract: Contract }) {
+  const totalBase = contract.baseSalaries.reduce((sum, b) => sum + b, 0);
+  const totalRosterBonus = contract.rosterBonuses.reduce((sum, b) => sum + b, 0);
+  const totalWorkoutBonus = contract.workoutBonuses.reduce((sum, b) => sum + b, 0);
+  const totalValue =
+    totalBase + contract.signingBonus + totalRosterBonus + totalWorkoutBonus;
+  const totalGuaranteed = contract.guarantees.reduce((sum, g, y) => {
+    if (g.type === 'FULLY_GUARANTEED') {
+      return sum + (contract.baseSalaries[y] ?? 0) * (g.baseGuaranteedPct / 100);
+    }
+    return sum;
+  }, 0) + contract.signingBonus; // signing bonus is always fully guaranteed
+  const prorationPerYear = signingBonusProrationPerYear(contract);
+
+  return (
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <Stat label="Years" value={`${contract.realYears}${contract.voidYears > 0 ? ` + ${contract.voidYears} void` : ''}`} />
+      <Stat label="Total value" value={`$${(totalValue / 1e6).toFixed(2)}M`} />
+      <Stat label="Total guaranteed" value={`$${(totalGuaranteed / 1e6).toFixed(2)}M`} />
+      <Stat label="Signing bonus" value={`$${(contract.signingBonus / 1e6).toFixed(2)}M`} />
+      <Stat label="Proration / year" value={`$${(prorationPerYear / 1e6).toFixed(2)}M`} />
+      <Stat label="NTC" value={contract.noTradeClause ? 'yes' : 'no'} />
+      <div className="col-span-2 sm:col-span-4">
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+          Year-by-year base salary
+        </div>
+        <div className="mt-1 flex flex-wrap gap-1 font-mono">
+          {contract.baseSalaries.map((b, y) => (
+            <span
+              key={y}
+              className="rounded border border-zinc-800 bg-zinc-900 px-1.5 py-0.5"
+            >
+              Y{y + 1} ${(b / 1e6).toFixed(2)}M
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+        {label}
+      </div>
+      <div className="font-mono text-zinc-300">{value}</div>
+    </div>
+  );
+}
+
+function BiddersTable({
+  bidders,
+  league,
+  winnerTeamId,
+}: {
+  bidders: readonly NonNullable<
+    Extract<Transaction, { kind: 'fa-sign' }>['bidders']
+  >[number][];
+  league: LeagueState;
+  winnerTeamId: TeamId;
+}) {
+  return (
+    <table className="w-full text-[10px]">
+      <thead className="text-zinc-500">
+        <tr>
+          <th className="px-1 py-0.5 text-left font-medium">team</th>
+          <th className="px-1 py-0.5 text-right font-medium">cash bid</th>
+          <th className="px-1 py-0.5 text-right font-medium">×preference</th>
+          <th className="px-1 py-0.5 text-right font-medium">=perceived</th>
+          <th className="px-1 py-0.5 text-right font-medium">cap room</th>
+        </tr>
+      </thead>
+      <tbody>
+        {bidders.map((b) => {
+          const team = league.teams[b.teamId];
+          const isWinner = b.teamId === winnerTeamId;
+          return (
+            <tr
+              key={b.teamId}
+              className={`border-t border-zinc-800/50 ${
+                isWinner ? 'bg-emerald-500/10' : ''
+              }`}
+            >
+              <td className="px-1 py-0.5 font-mono">
+                {isWinner && <span className="mr-1 text-emerald-400">★</span>}
+                {team?.identity.abbreviation ?? b.teamId}
+              </td>
+              <td className="px-1 py-0.5 text-right font-mono">
+                ${(b.cashValuation / 1e6).toFixed(2)}M
+              </td>
+              <td className="px-1 py-0.5 text-right font-mono">
+                ×{b.preferenceMultiplier.toFixed(3)}
+              </td>
+              <td className="px-1 py-0.5 text-right font-mono text-zinc-300">
+                ${(b.perceivedBid / 1e6).toFixed(2)}M
+              </td>
+              <td className="px-1 py-0.5 text-right font-mono text-zinc-500">
+                ${(b.capRoomAtTime / 1e6).toFixed(1)}M
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function WinnerExplanation({
+  winner,
+  bidders,
+  league,
+}: {
+  winner: NonNullable<
+    Extract<Transaction, { kind: 'fa-sign' }>['bidders']
+  >[number];
+  bidders: readonly NonNullable<
+    Extract<Transaction, { kind: 'fa-sign' }>['bidders']
+  >[number][];
+  league: LeagueState;
+}) {
+  const runnerUp = bidders.find((b) => b.teamId !== winner.teamId);
+  const factors = winner.preferenceFactors;
+  const labelParts: string[] = [];
+  if (factors.archetypeLabel) {
+    labelParts.push(
+      `${factors.archetypeLabel} ${formatSigned(factors.archetypeMarket)}`,
+    );
+  }
+  for (const l of factors.ownerQuirkLabels) labelParts.push(l);
+  for (const l of factors.hcQuirkLabels) labelParts.push(l);
+  if (Math.abs(factors.hcPlayerRelationships) > 0.001) {
+    labelParts.push(
+      `HC relationships ${formatSigned(factors.hcPlayerRelationships)}`,
+    );
+  }
+  const winnerTeam = league.teams[winner.teamId];
+  const winnerAbbr = winnerTeam?.identity.abbreviation ?? winner.teamId;
+
+  // Compare to runner-up to highlight why the winner edged them out.
+  const cashEdge = runnerUp ? winner.cashValuation - runnerUp.cashValuation : 0;
+  const prefEdge = runnerUp
+    ? winner.preferenceMultiplier - runnerUp.preferenceMultiplier
+    : 0;
+
+  return (
+    <div className="rounded border border-emerald-500/30 bg-emerald-500/5 p-2">
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-emerald-400/80">
+        Why {winnerAbbr} won
+      </div>
+      <div className="space-y-1 text-zinc-300">
+        <div>
+          Preference multiplier{' '}
+          <span className="font-mono text-zinc-200">
+            ×{winner.preferenceMultiplier.toFixed(3)}
+          </span>
+          {labelParts.length > 0 ? (
+            <>: {labelParts.join(', ')}</>
+          ) : (
+            ' (neutral — no specific factors fired)'
+          )}
+        </div>
+        {runnerUp && (
+          <div className="text-zinc-500">
+            vs runner-up {league.teams[runnerUp.teamId]?.identity.abbreviation ?? runnerUp.teamId}:{' '}
+            cash {cashEdge >= 0 ? '+' : ''}${(cashEdge / 1e6).toFixed(2)}M,{' '}
+            preference {prefEdge >= 0 ? '+' : ''}{prefEdge.toFixed(3)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatSigned(n: number): string {
+  return n >= 0 ? `+${n.toFixed(3)}` : n.toFixed(3);
+}
+
+function formatPhaseLabel(
+  phase: string | undefined,
+  marketContract: boolean,
+): string {
+  if (!phase) return marketContract ? 'FA market' : 'vet-min';
+  switch (phase) {
+    case 'OFFSEASON_PRE_FA':
+    case 'FREE_AGENCY':
+      return 'Offseason FA market';
+    case 'REGULAR_SEASON':
+      return marketContract ? 'In-season signing' : 'In-season vet-min';
+    case 'PLAYOFFS':
+      return 'Playoff signing';
+    default:
+      return phase.toLowerCase().replace(/_/g, ' ');
   }
 }
 

@@ -150,6 +150,7 @@ export {
   auctionFreeAgent,
   computeTeamCashBid,
   computePlayerPreference,
+  computePlayerPreferenceBreakdown,
   executeTrade,
   runWeeklyNpcTrades,
   runProactiveTrades,
@@ -158,6 +159,8 @@ export type {
   SignFreeAgentOptions,
   TradePayload,
   FaAuctionResult,
+  FaBidderDetail,
+  PreferenceFactors,
 } from './transactions/index.js';
 
 // Static reference content (32 NFL teams + name pools)

@@ -16,6 +16,96 @@ _Nothing yet._
 
 ---
 
+## [0.22.0] — 2026-05-14
+
+Adds rich FA-sign detail in the inspector — click any FA-sign row in
+the transaction log to expand an inline panel showing the full bidder
+table (cash valuations, preference multipliers, perceived bids, cap
+room at signing time), the contract terms (years × base, signing
+bonus, guarantees, Y1 cap hit, proration), and a "why this team won"
+callout that breaks down the winner's preference multiplier into
+labeled component contributions (archetype × market size, each owner
+quirk, each HC quirk, HC playerRelationships). Trade-detail panel is
+deferred to v0.23 — see "Known limitation".
+
+### Added — PreferenceFactors breakdown (engine)
+
+New `computePlayerPreferenceBreakdown(team, player, league)` exposes
+the structured contribution of every factor that goes into a
+preference multiplier. Returns `{ total, archetypeMarket, ownerQuirks,
+hcQuirks, hcPlayerRelationships }` numeric components plus
+human-readable `archetypeLabel`, `ownerQuirkLabels[]`,
+`hcQuirkLabels[]` arrays. `computePlayerPreference` is now a thin
+wrapper returning `.total` — single source of truth for the
+computation.
+
+### Added — Full bidder list on auction results (engine)
+
+`FaAuctionResult` gained a `bidders: readonly FaBidderDetail[]`
+field. Each entry carries `teamId`, `cashValuation`,
+`preferenceMultiplier`, `perceivedBid`, `capRoomAtTime`, and the full
+`preferenceFactors` breakdown. Sorted descending by `perceivedBid`
+to match the auction ordering. The existing `runnersUp: readonly
+TeamId[]` (top 3) is preserved for back-compat with the news feed.
+
+### Added — Bidders + phase on `fa-sign` transactions (engine)
+
+`TransactionFreeAgentSign` grew two optional fields:
+- `bidders?: readonly FaSignBidder[]` — populated only by the offseason
+  auction. Mid-season vet-min signings and pre-v0.22 saves omit it.
+- `phaseAtSigning?: LeaguePhase` — populated on every fresh fa-sign
+  (auction + free-agency + mid-season vet-min paths). Lets the
+  inspector show "Offseason FA market" vs "In-season vet-min"
+  directly rather than re-deriving from tick.
+
+Both fields are optional so pre-v0.22 saves load unchanged. The
+inspector tolerates absence with a fallback "No auction took place
+— this was a direct / vet-min street signing" message.
+
+### Added — Inspector FA-sign detail panel (web)
+
+`TransactionLogPanel` rows for `fa-sign` transactions are now
+clickable. Clicking expands an inline panel beneath the row with:
+- Player + tier + position + age header
+- Phase chip (e.g. "Offseason FA market", "In-season vet-min")
+- Contract terms: years, total value, total guaranteed, signing
+  bonus, proration/year, NTC, year-by-year base salary chips
+- Bidders table sorted by perceived bid, winner highlighted in
+  emerald — columns: cash bid, ×preference, =perceived, cap room
+- "Why TEAM won" callout — surfaces the winner's preferenceFactors
+  labels (e.g. "distraction × LARGE market +0.060, RING_CHASER
+  owner (STAR), HC relationships +0.030") plus a vs-runner-up
+  comparison (cash edge + preference edge)
+
+Only `fa-sign` rows are expandable in v0.22; other kinds keep their
+flat summary display. The chevron indicator (▶/▼) marks expandable
+rows so users can see what's clickable at a glance.
+
+5 new tests in `fa-bidding.test.ts`:
+- `bidders` array on `FaAuctionResult` is sorted by perceived bid +
+  has all the persisted fields
+- end-to-end: `fa-sign` transactions persist `bidders` +
+  `phaseAtSigning` after advanceSeason
+- `computePlayerPreferenceBreakdown` total equals
+  `computePlayerPreference` return value (parity guard)
+- breakdown component sum (clamped) matches total
+- labels emit human-readable strings for fired factors
+
+396 tests passing (was 391 at v0.21.0).
+
+### Known limitation
+
+Trade-detail panel is **not in v0.22**. The user asked for both FA
+and trade detail; FA detail ships first because (a) the engine math
+is fully there already (`auctionFreeAgent` carries the bidder list,
+`computePlayerPreferenceBreakdown` provides the labeled
+contributions), and (b) trade detail wants Doc 14's 5-factor
+trade-value evaluator behind it so the trade panel ships with
+polished value numbers rather than the current heuristic priority
+scores. Trade detail lands in v0.23 alongside the 5-factor model.
+
+---
+
 ## [0.21.0] — 2026-05-14
 
 Adds proactive NPC dealmaking — teams initiate trades to address

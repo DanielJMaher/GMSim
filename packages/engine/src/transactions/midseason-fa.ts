@@ -168,6 +168,7 @@ function applySigning(
     contractId: contract.id,
     yearOneCapHit: currentCapHit(contract),
     marketContract: false,
+    phaseAtSigning: league.phase,
   };
   return {
     ...league,
