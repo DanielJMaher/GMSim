@@ -643,6 +643,129 @@ describe('long-horizon stability (v0.18.0 saturation regression)', () => {
   // the running delta. Run with `pnpm test -- --run mood -t "trajectory"`
   // when investigating drift. The lone assertion is loose (delta < 15)
   // — purpose is the log output, not the gate.
+  it('instrument: per-tier and per-archetype mood drift', () => {
+    // The aggregate trajectory test below shows the league-mean delta
+    // sits near zero. But the user reports visible upward drift in the
+    // inspector — meaning the bias is hiding in a subset masked by
+    // averaging. Slice by tier and by personality archetype to find
+    // where it lives.
+    const seeds = ['slice-a', 'slice-b', 'slice-c'];
+    const N_SEASONS = 8;
+    type Slice = { name: string; mood: number; setPoint: number; n: number };
+    const accumulate = (rows: Slice[], key: string, mood: number, setPoint: number) => {
+      let row = rows.find((r) => r.name === key);
+      if (!row) {
+        row = { name: key, mood: 0, setPoint: 0, n: 0 };
+        rows.push(row);
+      }
+      row.mood += mood;
+      row.setPoint += setPoint;
+      row.n += 1;
+    };
+    const tierRows: Slice[] = [];
+    const archetypeRows: Slice[] = [];
+    for (const seed of seeds) {
+      let league = createLeague({ seed });
+      for (let i = 0; i < N_SEASONS; i++) {
+        league = simulateSeason(league);
+        league = advanceSeason(league);
+      }
+      for (const p of Object.values(league.players)) {
+        if (p.teamId === null) continue;
+        accumulate(tierRows, p.tier, p.mood, p.moodProfile.setPoint);
+        accumulate(archetypeRows, p.moodProfile.archetype, p.mood, p.moodProfile.setPoint);
+      }
+    }
+    console.log(`\n=== By tier (avg across ${seeds.length} seeds × ${N_SEASONS} seasons) ===`);
+    console.log('tier      | n     | mood   | setpt  | delta');
+    for (const r of tierRows.sort((a, b) => a.name.localeCompare(b.name))) {
+      const moodAvg = r.mood / r.n;
+      const setPointAvg = r.setPoint / r.n;
+      const d = moodAvg - setPointAvg;
+      console.log(
+        `${r.name.padEnd(9)} | ${String(r.n).padStart(5)} | ${moodAvg.toFixed(2).padStart(6)} | ${setPointAvg.toFixed(2).padStart(6)} | ${d >= 0 ? '+' : ''}${d.toFixed(2)}`,
+      );
+    }
+    console.log(`\n=== By personality archetype ===`);
+    console.log('archetype   | n     | mood   | setpt  | delta');
+    for (const r of archetypeRows.sort((a, b) => a.name.localeCompare(b.name))) {
+      const moodAvg = r.mood / r.n;
+      const setPointAvg = r.setPoint / r.n;
+      const d = moodAvg - setPointAvg;
+      console.log(
+        `${r.name.padEnd(11)} | ${String(r.n).padStart(5)} | ${moodAvg.toFixed(2).padStart(6)} | ${setPointAvg.toFixed(2).padStart(6)} | ${d >= 0 ? '+' : ''}${d.toFixed(2)}`,
+      );
+    }
+    // No assertion — log-only diagnostic.
+    expect(true).toBe(true);
+  });
+
+  it('instrument: long-tenured player mood drift', () => {
+    // Track players who've been on a roster for many seasons. If
+    // long-tenured players accumulate upward bias each season that
+    // would explain a "drift up year over year" visible bug while
+    // league-wide averages look fine (most players churn out within
+    // a few years).
+    const seed = 'tenure-a';
+    const N_SEASONS = 10;
+    let league = createLeague({ seed });
+    // Snapshot per-player mood + setPoint at season 0.
+    const baseline = new Map<string, { mood: number; setPoint: number; archetype: string; tier: string }>();
+    for (const p of Object.values(league.players)) {
+      if (p.teamId === null) continue;
+      baseline.set(p.id, {
+        mood: p.mood,
+        setPoint: p.moodProfile.setPoint,
+        archetype: p.moodProfile.archetype,
+        tier: p.tier,
+      });
+    }
+    for (let i = 0; i < N_SEASONS; i++) {
+      league = simulateSeason(league);
+      league = advanceSeason(league);
+    }
+    // Find players who started season-0 and are still rostered at season-N.
+    const survivors: { id: string; baseMood: number; baseSetPoint: number; finalMood: number; finalSetPoint: number; archetype: string; tier: string }[] = [];
+    for (const p of Object.values(league.players)) {
+      if (p.teamId === null) continue;
+      const b = baseline.get(p.id);
+      if (!b) continue;
+      survivors.push({
+        id: p.id,
+        baseMood: b.mood,
+        baseSetPoint: b.setPoint,
+        finalMood: p.mood,
+        finalSetPoint: p.moodProfile.setPoint,
+        archetype: b.archetype,
+        tier: b.tier,
+      });
+    }
+    console.log(`\n=== Long-tenured player drift (${survivors.length} survivors after ${N_SEASONS} seasons) ===`);
+    if (survivors.length === 0) {
+      console.log('(no players survived all seasons)');
+    } else {
+      const moodChange = survivors.reduce((s, p) => s + (p.finalMood - p.baseMood), 0) / survivors.length;
+      const setPointChange = survivors.reduce((s, p) => s + (p.finalSetPoint - p.baseSetPoint), 0) / survivors.length;
+      const finalDelta = survivors.reduce((s, p) => s + (p.finalMood - p.finalSetPoint), 0) / survivors.length;
+      console.log(`Avg mood change:     ${moodChange >= 0 ? '+' : ''}${moodChange.toFixed(2)}`);
+      console.log(`Avg setPoint change: ${setPointChange >= 0 ? '+' : ''}${setPointChange.toFixed(2)} (should be ~0; setPoint is stable)`);
+      console.log(`Avg final mood - final setPoint: ${finalDelta >= 0 ? '+' : ''}${finalDelta.toFixed(2)}`);
+      // Break down by tier.
+      const byTier = new Map<string, { count: number; moodDelta: number }>();
+      for (const s of survivors) {
+        const row = byTier.get(s.tier) ?? { count: 0, moodDelta: 0 };
+        row.count += 1;
+        row.moodDelta += s.finalMood - s.baseMood;
+        byTier.set(s.tier, row);
+      }
+      console.log(`\nMood change by season-0 tier:`);
+      for (const [tier, row] of [...byTier].sort()) {
+        console.log(`  ${tier.padEnd(9)} (n=${row.count}): ${row.moodDelta / row.count >= 0 ? '+' : ''}${(row.moodDelta / row.count).toFixed(2)}`);
+      }
+    }
+    expect(true).toBe(true);
+  });
+
   it('instrument: per-season mood trajectory vs setPoint', () => {
     const seeds = ['traj-a', 'traj-b', 'traj-c'];
     const N_SEASONS = 12;
@@ -764,8 +887,11 @@ describe('long-horizon stability (v0.18.0 saturation regression)', () => {
     const bottomMean = bottomQ.reduce((s, t) => s + t.moodMean, 0) / bottomQ.length;
     const topMean = topQ.reduce((s, t) => s + t.moodMean, 0) / topQ.length;
     expect(topMean).toBeGreaterThan(bottomMean);
-    // And the dispersion should be meaningful — at least a few points.
-    expect(topMean - bottomMean).toBeGreaterThan(3);
+    // Dispersion is measurable but compressed by the offseason 0.9
+    // pull-back to setPoint — most HC influence accumulates within a
+    // single season, then resets. The directional ordering matters
+    // more than absolute magnitude here.
+    expect(topMean - bottomMean).toBeGreaterThan(1);
     // Both groups should fall within sensible distance of the league
     // mean (no group has saturated up or down).
     expect(Math.abs(topMean - leagueMean)).toBeLessThan(15);
@@ -803,13 +929,13 @@ describe('long-horizon stability (v0.18.0 saturation regression)', () => {
 });
 
 describe('offseasonMoodDrift', () => {
-  it('pulls mood ~70% back toward setPoint', () => {
+  it('pulls mood ~90% back toward setPoint', () => {
     const league = createLeague({ seed: 'offseason-drift' });
     const player = Object.values(league.players)[0]!;
     const setPoint = player.moodProfile.setPoint;
     // Force player to a known mood far from setPoint.
     const startMood = 10;
-    const expected = startMood + (setPoint - startMood) * 0.7;
+    const expected = startMood + (setPoint - startMood) * 0.9;
     const withMood: LeagueState = {
       ...league,
       players: { ...league.players, [player.id]: { ...player, mood: startMood } },
@@ -836,7 +962,7 @@ describe('offseasonMoodDrift', () => {
       },
     };
     const after = offseasonMoodDrift(withRequest);
-    // Mood drifts from 20 toward 80: 20 + (80-20)*0.7 = 62. Above resolve threshold (40).
+    // Mood drifts from 20 toward 80: 20 + (80-20)*0.9 = 74. Above resolve threshold (40).
     expect(after.players[player.id]!.mood).toBeGreaterThan(40);
     expect(after.players[player.id]!.tradeRequestedOnTick).toBeNull();
   });

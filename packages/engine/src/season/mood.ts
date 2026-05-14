@@ -592,19 +592,19 @@ function depthChartDelta(player: Player, samePosition: readonly Player[]): numbe
     FRINGE: 3,
   };
   const ahead = peers.filter((p) => tierRank[p.tier] < tierRank[player.tier]).length;
-  const sameTierAhead = peers.filter((p) => tierRank[p.tier] === tierRank[player.tier]).length;
-  // Conservative interpretation: a player is "starting" when their
-  // rank-among-peers (strictly-better ahead) leaves them in a slot.
-  // Same-tier peers split the remaining slots — we treat any same-tier
-  // competition at a 1-slot position as a mild dissatisfaction signal.
+  // A player is "starting" when their rank-among-peers (strictly-better
+  // ahead) leaves them in a starter slot.
+  //
+  // Depth chart is intentionally a NEGATIVE-ONLY driver. Earlier
+  // versions handed out a +0.2 bonus to clear starters and a +0.1
+  // bonus to buried FRINGE players — both produced persistent upward
+  // bias every week for the majority of the roster (~25 starters per
+  // team), which low-resilience archetypes (distraction, moody)
+  // couldn't fight off via drift. The fix: starting is the assumed
+  // baseline (already reflected in setPoint), and only frustration —
+  // a STAR / STARTER buried behind a peer — moves mood.
   const starting = ahead < slots;
-  if (starting) {
-    // Small bonus for being the clear starter when no same-tier peer
-    // is competing; rookies / FRINGE players are also happy just to
-    // make the active 53.
-    if (sameTierAhead === 0) return 0.2;
-    return 0;
-  }
+  if (starting) return 0;
   switch (player.tier) {
     case 'STAR':
       return -1.5;
@@ -613,7 +613,7 @@ function depthChartDelta(player: Player, samePosition: readonly Player[]): numbe
     case 'BACKUP':
       return 0;
     case 'FRINGE':
-      return 0.1;
+      return 0;
   }
 }
 
@@ -746,11 +746,17 @@ function rollMediaLeak(
  * Offseason mood adjustment. Called from `advanceSeason` after roster
  * churn so retired players are gone and fresh rookies are in.
  *
- * Pulls every remaining player's mood ~70% of the way back to their
+ * Pulls every remaining player's mood ~90% of the way back to their
  * personal setPoint — the months away from the locker room reset
  * accumulated frustration / euphoria toward each player's baseline
- * personality. Trade requests that no longer reflect the player's
- * current mood (after the regression) clear silently.
+ * personality. Strength 0.9 (up from an earlier 0.7) is what keeps
+ * long-tenured players from accumulating drift across careers; the
+ * 70% value let small in-season biases compound year over year, which
+ * shows up in inspector playthroughs as stars who drift higher each
+ * offseason without ever fully resetting.
+ *
+ * Trade requests that no longer reflect the player's current mood
+ * (after the regression) clear silently.
  *
  * Pure of any PRNG — same league in → same league out.
  */
@@ -760,7 +766,7 @@ export function offseasonMoodDrift(league: LeagueState): LeagueState {
     if (!player.moodProfile) continue;
     const { setPoint } = player.moodProfile;
     const newMood = clamp(
-      player.mood + (setPoint - player.mood) * 0.7,
+      player.mood + (setPoint - player.mood) * 0.9,
       0,
       100,
     );
