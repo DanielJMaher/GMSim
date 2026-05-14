@@ -122,6 +122,7 @@ export {
   teamChemistry,
   chemistryBucket,
   CHEMISTRY_BUCKETS,
+  deriveNewsFeed,
   type TeamRecord,
   type RetirementOutcome,
   type SeasonAwards,
@@ -130,6 +131,9 @@ export {
   type MoodBucket,
   type ChemistryBucket,
   type TeamChemistry,
+  type NewsItem,
+  type NewsSource,
+  type NewsFeedOptions,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 

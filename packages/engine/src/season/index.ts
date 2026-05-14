@@ -39,3 +39,5 @@ export {
   CHEMISTRY_BUCKETS,
 } from './chemistry.js';
 export type { ChemistryBucket, TeamChemistry } from './chemistry.js';
+export { deriveNewsFeed } from './news.js';
+export type { NewsItem, NewsSource, NewsFeedOptions } from './news.js';

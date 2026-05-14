@@ -21,12 +21,15 @@ import {
   signingBonusProrationPerYear,
   moodBucket,
   teamChemistry,
+  deriveNewsFeed,
 } from '@gmsim/engine';
 import type {
   TeamRecord,
   SeasonAwards,
   MoodBucket,
   ChemistryBucket,
+  NewsItem,
+  NewsSource,
 } from '@gmsim/engine';
 import type { MoodArchetype, LockerRoomIncidentFlavor } from '@gmsim/engine/types';
 import type {
@@ -181,6 +184,8 @@ export function App() {
       <LeagueOverview league={league} />
 
       <FreeAgentPoolPanel league={league} />
+
+      <NewsFeedPanel league={league} />
 
       <TransactionLogPanel league={league} />
 
@@ -390,6 +395,165 @@ function FreeAgentPoolPanel({ league }: { league: LeagueState }) {
       )}
     </section>
   );
+}
+
+function NewsFeedPanel({ league }: { league: LeagueState }) {
+  const [expanded, setExpanded] = useState(true);
+  const [sourceFilter, setSourceFilter] = useState<NewsSource | 'all'>('all');
+  const allItems = useMemo(() => deriveNewsFeed(league), [league]);
+  const filtered = useMemo(
+    () => (sourceFilter === 'all' ? allItems : allItems.filter((n) => n.source === sourceFilter)),
+    [allItems, sourceFilter],
+  );
+  const visible = useMemo(() => filtered.slice(0, 40), [filtered]);
+
+  if (allItems.length === 0) {
+    return (
+      <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          News feed
+        </h2>
+        <p className="mt-2 text-xs text-zinc-600">
+          The wire is quiet. Fast-forward a season to see trade demands,
+          leaked locker-room incidents, blockbuster trades, and big-name
+          signings populate the feed.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+      <div className="flex items-baseline justify-between">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          News feed
+        </h2>
+        <button
+          onClick={() => setExpanded((x) => !x)}
+          className="text-xs text-zinc-400 hover:text-zinc-200"
+        >
+          {expanded ? 'collapse' : 'expand'} ({allItems.length} item
+          {allItems.length === 1 ? '' : 's'})
+        </button>
+      </div>
+      {expanded && (
+        <>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {(
+              [
+                ['all', 'all sources'],
+                ['national_insider', 'national'],
+                ['beat_writer', 'beat'],
+                ['anonymous_source', 'anon'],
+                ['social_media', 'social'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setSourceFilter(key)}
+                className={`rounded border px-2 py-0.5 text-[10px] uppercase tracking-wider ${
+                  sourceFilter === key
+                    ? 'border-zinc-500 bg-zinc-700/40 text-zinc-100'
+                    : 'border-zinc-800 bg-zinc-950/40 text-zinc-500 hover:border-zinc-700 hover:text-zinc-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-col gap-2">
+            {visible.map((item, i) => (
+              <NewsFeedRow key={`${item.tick}-${i}`} item={item} />
+            ))}
+            {filtered.length > visible.length && (
+              <div className="py-2 text-center text-xs text-zinc-600">
+                … {filtered.length - visible.length} older items hidden
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function NewsFeedRow({ item }: { item: NewsItem }) {
+  return (
+    <article
+      className={`rounded border-l-2 ${newsSeverityBorderClass(item.severity)} bg-zinc-950/40 px-3 py-2`}
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <div className={`text-sm ${newsSeverityTextClass(item.severity)}`}>
+          {item.headline}
+        </div>
+        <div className="shrink-0 font-mono text-[10px] text-zinc-500">
+          s{item.seasonNumber} · t{item.tick}
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-zinc-400">{item.body}</p>
+      <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wider text-zinc-500">
+        <span className={newsSourceChipClass(item.source)}>{newsSourceLabel(item.source)}</span>
+        <span className="text-zinc-700">·</span>
+        <span className="font-mono">{item.sourceKind}</span>
+      </div>
+    </article>
+  );
+}
+
+function newsSeverityBorderClass(severity: NewsItem['severity']): string {
+  switch (severity) {
+    case 5:
+      return 'border-rose-500';
+    case 4:
+      return 'border-amber-500';
+    case 3:
+      return 'border-zinc-400';
+    case 2:
+      return 'border-zinc-600';
+    case 1:
+      return 'border-zinc-700';
+  }
+}
+
+function newsSeverityTextClass(severity: NewsItem['severity']): string {
+  switch (severity) {
+    case 5:
+      return 'font-semibold text-rose-200';
+    case 4:
+      return 'font-semibold text-amber-200';
+    case 3:
+      return 'text-zinc-100';
+    case 2:
+      return 'text-zinc-300';
+    case 1:
+      return 'text-zinc-400';
+  }
+}
+
+function newsSourceLabel(source: NewsSource): string {
+  switch (source) {
+    case 'national_insider':
+      return 'national insider';
+    case 'beat_writer':
+      return 'beat writer';
+    case 'anonymous_source':
+      return 'anon source';
+    case 'social_media':
+      return 'social';
+  }
+}
+
+function newsSourceChipClass(source: NewsSource): string {
+  switch (source) {
+    case 'national_insider':
+      return 'rounded border border-sky-500/40 bg-sky-500/10 px-1.5 py-0.5 text-sky-300';
+    case 'beat_writer':
+      return 'rounded border border-zinc-600/40 bg-zinc-700/20 px-1.5 py-0.5 text-zinc-300';
+    case 'anonymous_source':
+      return 'rounded border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 text-violet-300';
+    case 'social_media':
+      return 'rounded border border-pink-500/40 bg-pink-500/10 px-1.5 py-0.5 text-pink-300';
+  }
 }
 
 function TransactionLogPanel({ league }: { league: LeagueState }) {
