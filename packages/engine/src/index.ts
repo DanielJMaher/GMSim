@@ -152,6 +152,7 @@ export {
   computePlayerPreference,
   executeTrade,
   runWeeklyNpcTrades,
+  runProactiveTrades,
 } from './transactions/index.js';
 export type {
   SignFreeAgentOptions,

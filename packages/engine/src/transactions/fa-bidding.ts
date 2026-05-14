@@ -7,8 +7,6 @@ import { MarketSize } from '../types/enums.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
-import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
-
 /**
  * Free-agent bidding auction — v0.20.0 Doc 7 follow-up.
  *

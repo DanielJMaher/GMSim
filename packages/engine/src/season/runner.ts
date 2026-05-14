@@ -12,6 +12,7 @@ import { simulateGame } from '../games/outcome.js';
 import { runWeeklyPoaching } from '../transactions/poach.js';
 import { runWeeklyFreeAgentSignings } from '../transactions/midseason-fa.js';
 import { runWeeklyNpcTrades } from '../transactions/npc-trade.js';
+import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { weeklyMoodUpdate } from './mood.js';
 import { migrateLeagueForward } from './migrations.js';
 
@@ -211,10 +212,19 @@ export function simulateSeason(
       tradeLeague,
       currentTick,
     );
-    playersDuringSeason = tradeResult.players as Record<string, Player>;
-    teamsDuringSeason = tradeResult.teams as Record<string, TeamState>;
-    contractsDuringSeason = tradeResult.contracts as Record<string, Contract>;
-    logDuringSeason = tradeResult.transactionLog;
+    const proactiveLeague: LeagueState = {
+      ...tradeResult,
+      tick: currentTick,
+    };
+    const proactiveResult = runProactiveTrades(
+      seasonPrng.fork(`proactive-trade-${weekIdx + 1}`),
+      proactiveLeague,
+      currentTick,
+    );
+    playersDuringSeason = proactiveResult.players as Record<string, Player>;
+    teamsDuringSeason = proactiveResult.teams as Record<string, TeamState>;
+    contractsDuringSeason = proactiveResult.contracts as Record<string, Contract>;
+    logDuringSeason = proactiveResult.transactionLog;
   }
 
   const regularSeasonComplete: SeasonSchedule = {

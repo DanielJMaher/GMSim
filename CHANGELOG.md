@@ -16,6 +16,127 @@ _Nothing yet._
 
 ---
 
+## [0.21.0] — 2026-05-14
+
+Adds proactive NPC dealmaking — teams initiate trades to address
+positional holes and scheme-fit mismatches without waiting on a
+specific player to demand a move. Layers on top of the v0.17.0
+trade-request matcher; both run weekly in-season, and the proactive
+pass also runs once per offseason between cap-compliance and the FA
+market (matching NFL "trade window before FA opens" timing). Also
+fixes a long-hidden own-promotion bug in `applyPoach` that the new
+trade interaction exposed.
+
+### Added — Proactive trade primitive (engine)
+
+New `packages/engine/src/transactions/proactive-trades.ts`:
+- `runProactiveTrades(prng, league, tick) → LeagueState` — pure
+  compute, no mutation of input.
+
+Two parallel candidate generators feed a single prioritized execution
+queue (buyer-once / seller-once caps per call):
+
+- **Pass 1 — buyer-driven positional need.** Teams in
+  `CHAMPIONSHIP/CONTENDER/EMERGING` competitive windows scan for
+  positional holes (below blueprint count of STAR+STARTER). For each
+  hole they look for sellers willing to part with a STAR/STARTER at
+  that position. A seller is willing if they have *surplus* depth
+  above blueprint OR they are in a rebuild window
+  (`REBUILDING/STAGNANT/RETOOLING`). STAR trades additionally require
+  the seller to be a rebuilder — contending teams don't ship their
+  best player without an explicit player request.
+- **Pass 2 — mutual scheme-fit swap** (the "Sweat-for-Johnson"
+  archetype). For each pair of same-tier players at the same
+  position where each player is a poor fit on their current team
+  (schemeFit < 0.85) AND a good fit on the other (schemeFit > 1.1),
+  propose a swap. Both teams improve. Fires regardless of
+  competitive window.
+
+Pass 2 candidates carry a priority boost of `1000 +
+improvement * 1000` so a mutual-fit swap consistently outranks a
+positional-need trade — Sweat-for-Johnson is the headline behavior
+the design was after.
+
+### Added — Cap-safety guard (engine)
+
+`PROACTIVE_TRADE_CAP_SAFETY = $5M`. Both teams must retain at least
+this much cap room before a proactive trade fires. Both sides accrue
+dead money from the outgoing players' remaining proration, which
+without this guard could push teams past `LEAGUE_MINIMUM_SALARY`
+fill-up threshold and leave them short of 53 after the offseason
+FA refill. Picked to be comfortably above LEAGUE_MIN ($900k) plus a
+typical mid-tier remaining-proration band ($1–4M).
+
+### Added — In-season + offseason integration (engine)
+
+- `simulateSeason` weekly loop now calls `runProactiveTrades` after
+  `runWeeklyNpcTrades` so request-driven trades resolve first and the
+  proactive pass sees the latest state.
+- `advanceSeason` calls `runProactiveTrades` between `applyCapCuts`
+  and `refillRosters` so teams trade first (using post-cuts roster as
+  the need snapshot), then go FA shopping with a clearer picture of
+  remaining holes.
+
+No-trade clauses are respected — a proactive trade is league-
+initiated, not player-requested, so the player's NTC stands unless
+they've explicitly demanded a move via `tradeRequestedOnTick`.
+
+### Added — Inspector running-version chip (web)
+
+`apps/web/src/App.tsx` header now displays the running version as a
+small monospace chip next to the title (e.g. `v0.21.0`). Wired via a
+Vite `define` (`__APP_VERSION__`) that reads `apps/web/package.json`
+at build time, so the chip stays in sync with the version that was
+just shipped. Useful to confirm a deploy actually picked up the
+latest tag when eyeballing the inspector.
+
+### Fixed — `applyPoach` own-promotion phantom PS entry (engine)
+
+When a team poached their own PS player (`originTeamId ===
+poachingTeamId`), the team-update object literal had two entries
+keyed on the same TeamId — one filtering `practiceSquadIds`, one
+extending `rosterIds`. The second silently overwrote the first
+because JS object-literal evaluation evaluates keys left-to-right
+and keeps the rightmost. The PS filter was lost, leaving a phantom
+entry on the origin team's `practiceSquadIds` (the player was also
+correctly on `rosterIds`, so the phantom usually didn't cause
+visible harm — `applyContractExpirations` cleaned both lists at
+year-end based on the player's current `teamId`).
+
+Exposed by the new proactive trade interaction: a player got
+self-poached (phantom PS entry leaks), then traded away mid-season.
+The trade updated `player.teamId` to the new team, so the
+year-end contract expiration cleaned up the *new* team's lists,
+never returning to filter the phantom PS entry on the original team.
+Result: a season-1 PS player ID re-appeared in season-2 PS data on
+the original team.
+
+Fix: fuse the own-promotion case into a single team-object update
+with both `practiceSquadIds` and `rosterIds` set correctly.
+
+### Diagnosis note
+
+Both regressions were caught via the standard test suite (PS-
+lifecycle + career-stats tests), then traced with a small one-off
+diagnostic that dumped per-player provenance (start team, current
+PS list, `player.teamId`, on-roster/on-PS flags, contract id). The
+diagnostic surfaced the dual-residence (BAL.rosterIds AND
+NE.practiceSquadIds) inconsistency that pointed straight at the
+poach own-promotion code path. Diagnostic deleted before commit.
+
+391 tests passing (was 382 at v0.20.0).
+
+### Known limitation
+
+The v0.20.0 long-horizon roster shortfall residual (1–3 teams off-53
+on some seeds at 10+ seasons) still applies. Proactive trades use
+the `PROACTIVE_TRADE_CAP_SAFETY` guard to avoid making it worse, but
+they don't address the underlying mechanism. Carrying forward to a
+follow-up release once we have eyes on the auction + proactive trade
+behavior in the inspector.
+
+---
+
 ## [0.20.0] — 2026-05-14
 
 Replaces the v0.13.0 deterministic best-fit free-agent signer with a

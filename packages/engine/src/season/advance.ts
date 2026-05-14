@@ -19,6 +19,7 @@ import {
   applyCapCuts,
   refillRosters,
 } from '../transactions/offseason.js';
+import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
@@ -219,6 +220,15 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
 
   let offseason = applyContractExpirations(staged);
   offseason = applyCapCuts(offseason);
+  // Offseason proactive trades happen between cap-compliance and FA
+  // shopping. Matches NFL timing: teams clear cap, swap players to
+  // address scheme-fit + positional holes, *then* hit the FA market
+  // with a clearer picture of what they still need.
+  offseason = runProactiveTrades(
+    advancePrng.fork('proactive-trade-offseason'),
+    offseason,
+    nextTick,
+  );
   offseason = refillRosters(offseason, nextTick);
   offseason = refillPracticeSquad(
     advancePrng.fork('practice-squad'),

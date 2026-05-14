@@ -117,6 +117,9 @@ export function App() {
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">
             GMSim{' '}
+            <span className="ml-2 rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 align-middle font-mono text-xs text-zinc-400">
+              v{__APP_VERSION__}
+            </span>
             <span className="ml-2 text-base font-normal text-zinc-500">
               Season {league.seasonNumber}
               {seasonSimmed ? ' (in progress)' : ' (preseason)'}

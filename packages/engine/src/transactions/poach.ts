@@ -236,17 +236,32 @@ function applyPoach(
     noTradeClause: false,
   };
 
-  const teamsNext = {
-    ...league.teams,
-    [originTeamId]: {
-      ...origin,
-      practiceSquadIds: origin.practiceSquadIds.filter((id) => id !== playerId),
-    },
-    [poachingTeamId]: {
-      ...poacher,
-      rosterIds: [...poacher.rosterIds, playerId],
-    },
-  } as Readonly<Record<TeamId, TeamState>>;
+  // Own-promotion case (originTeamId === poachingTeamId) needs both
+  // updates fused into a single team object — two object-literal keys
+  // would silently overwrite each other and lose the PS filter,
+  // leaving a phantom entry on the origin's practiceSquadIds.
+  const teamsNext = (
+    originTeamId === poachingTeamId
+      ? {
+          ...league.teams,
+          [originTeamId]: {
+            ...origin,
+            practiceSquadIds: origin.practiceSquadIds.filter((id) => id !== playerId),
+            rosterIds: [...origin.rosterIds, playerId],
+          },
+        }
+      : {
+          ...league.teams,
+          [originTeamId]: {
+            ...origin,
+            practiceSquadIds: origin.practiceSquadIds.filter((id) => id !== playerId),
+          },
+          [poachingTeamId]: {
+            ...poacher,
+            rosterIds: [...poacher.rosterIds, playerId],
+          },
+        }
+  ) as Readonly<Record<TeamId, TeamState>>;
 
   const playersNext = {
     ...league.players,
