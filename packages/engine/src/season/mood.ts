@@ -65,16 +65,23 @@ export const TRADE_REQUEST_RESOLVE_THRESHOLD = 40;
  * veteran-leadership bar (see below) contribute positive lift
  * (vet leadership stabilizes the room).
  *
- * Asymmetric requirements match Doc 7:
- *   - Negative spreads from anyone unhappy — the bad apple in the locker
- *     room can be any tier or experience level.
- *   - Positive comes specifically from "veterans with high Integrity
- *     and Leadership" (Doc 7's exact language). We approximate
- *     integrity-on-players via `workEthic`, since the integrity
+ * Thresholds are symmetric around the league-mean setPoint (~67) so
+ * contagion fires equally often in both directions across the league.
+ * Previously LIFT_FLOOR sat at 75 (only 8 above mean) while DRAG_CEILING
+ * sat at 50 (17 below mean) — that asymmetry meant happy clusters
+ * triggered lift far more often than unhappy clusters triggered drag,
+ * which amplified the v0.17.0/v0.18.0 upward saturation bug.
+ *
+ * Asymmetric *participation* requirements still match Doc 7:
+ *   - Negative drag spreads from anyone unhappy — the bad apple in the
+ *     locker room can be any tier or experience level.
+ *   - Positive lift comes specifically from "veterans with high
+ *     Integrity and Leadership" (Doc 7's exact language). We
+ *     approximate integrity via `workEthic` since the integrity
  *     personality trait sits on owner/GM/HC, not Player.
  */
 const LOCKER_ROOM_DRAG_CEILING = 50;
-const LOCKER_ROOM_LIFT_FLOOR = MOOD_BASELINE; // 75
+const LOCKER_ROOM_LIFT_FLOOR = 84;
 const VETERAN_EXPERIENCE_THRESHOLD = 4; // years past rookie deal
 const VETERAN_LEADERSHIP_FLOOR = 60; // (leadership + workEthic) / 2 must clear this
 
@@ -249,6 +256,9 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
       byPosition.set(p.position, list);
     }
 
+    const owner = league.owners[team.ownerId];
+    const ownerD = owner ? ownerMoodDelta(owner) : 0;
+
     for (const playerId of [...team.rosterIds, ...team.injuredReserveIds]) {
       const player = league.players[playerId];
       if (!player) continue;
@@ -267,9 +277,9 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
       const drift = (setPoint - player.mood) * resilience * 0.05;
 
       const positiveSum = Math.max(0, teamDelta) + Math.max(0, hcDelta)
-        + Math.max(0, depthD) + Math.max(0, schemeD);
+        + Math.max(0, depthD) + Math.max(0, schemeD) + Math.max(0, ownerD);
       const negativeSum = Math.min(0, teamDelta) + Math.min(0, hcDelta)
-        + Math.min(0, depthD) + Math.min(0, schemeD) + irD;
+        + Math.min(0, depthD) + Math.min(0, schemeD) + Math.min(0, ownerD) + irD;
       const composureMul = composureModifier(player);
       const total = drift + positiveSum + negativeSum * composureMul;
 
@@ -314,8 +324,10 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
       }
     }
     if (negativePressure === 0 && positiveLift === 0) continue;
+    // Coefficients equal in both directions — keeping them asymmetric
+    // was the dominant source of upward drift after the v0.18.0 rework.
     const negPerTeammate = (negativePressure / rosterIds.length) * 0.15;
-    const posPerTeammate = (positiveLift / rosterIds.length) * 0.20;
+    const posPerTeammate = (positiveLift / rosterIds.length) * 0.15;
 
     for (const playerId of rosterIds) {
       const player = league.players[playerId];
@@ -525,15 +537,25 @@ function teamResultDelta(result: 'W' | 'L' | 'T' | null, streak: number): number
 
 /**
  * HC contribution. `playerRelationships` is the spectrum the design doc
- * highlights as the chemistry-management lever — centered at 5.5 it
- * gives ±0.9 per week, enough to noticeably shift mood over a season.
- * `CULTURE_CARRIER` is the explicit "this coach holds the room together"
- * quirk and stacks on top.
+ * highlights as the chemistry-management lever — centered at 5.5 with
+ * coefficient 0.3 it gives ±1.35 per week, the biggest single weekly
+ * driver. The user-facing requirement is "good coaches should trend
+ * their teams up, bad coaches should trend their teams down" — that
+ * dispersion lives almost entirely in this term, so it has to bite.
+ *
+ * Quirks layer on top SYMMETRICALLY: `CULTURE_CARRIER` is the explicit
+ * "holds the room together" coach (+0.6), `PRESS_CONFERENCE_DISASTER`
+ * is the locker-room poison coach whose pressers leak frustration and
+ * whose room loses trust week by week (-0.6). Both quirks have the
+ * same selection probability (~30% from the HC quirk pool of 10), so
+ * the expected league-wide quirk contribution is zero.
  */
 function hcMoodDelta(hc: HeadCoach): number {
-  const fit = (hc.spectrums.playerRelationships - 5.5) * 0.2;
-  const cultureBonus = hc.quirks.includes('CULTURE_CARRIER') ? 0.4 : 0;
-  return fit + cultureBonus;
+  const fit = (hc.spectrums.playerRelationships - 5.5) * 0.3;
+  let quirkBonus = 0;
+  if (hc.quirks.includes('CULTURE_CARRIER')) quirkBonus += 0.6;
+  if (hc.quirks.includes('PRESS_CONFERENCE_DISASTER')) quirkBonus -= 0.6;
+  return fit + quirkBonus;
 }
 
 /**
@@ -596,25 +618,67 @@ function depthChartDelta(player: Player, samePosition: readonly Player[]): numbe
 }
 
 /**
+ * Owner contribution. Owners shape mood through stability signals
+ * (financial commitment, patience) and quirk-driven culture cues.
+ * Quirks are picked to net to zero across the league — four positives
+ * (`LOYALTY_BLIND`, `COMMUNITY_CHAMPION`, `TALENT_MAGNET`, `RING_CHASER`)
+ * and four negatives (`MICRO_MANAGER`, `PANIC_SELLER`,
+ * `RELOCATION_THREAT`, `PR_OBSESSED`) of equal magnitude, with the
+ * remaining two (`HEADLINE_HUNGRY`, `RELIC`) treated as neutral.
+ *
+ * Spectrum coefficients are small (0.05) per spectrum — owner is the
+ * background presence in a player's life, not the day-to-day driver
+ * the way HC or scheme is. Patience and financial commitment are the
+ * two spectrums players are most attuned to: an impatient
+ * trigger-happy owner makes the room edgy; a stingy one alienates
+ * agents. Centered at 5.5 to keep the spectrum contribution roughly
+ * zero-mean across the league.
+ */
+function ownerMoodDelta(owner: Owner): number {
+  const patience = (owner.spectrums.patience - 5.5) * 0.05;
+  const money = (owner.spectrums.financialCommitment - 5.5) * 0.05;
+  let quirkBonus = 0;
+  if (owner.quirks.includes('LOYALTY_BLIND')) quirkBonus += 0.4;
+  if (owner.quirks.includes('COMMUNITY_CHAMPION')) quirkBonus += 0.3;
+  if (owner.quirks.includes('TALENT_MAGNET')) quirkBonus += 0.3;
+  if (owner.quirks.includes('RING_CHASER')) quirkBonus += 0.2;
+  if (owner.quirks.includes('MICRO_MANAGER')) quirkBonus -= 0.4;
+  if (owner.quirks.includes('PANIC_SELLER')) quirkBonus -= 0.3;
+  if (owner.quirks.includes('RELOCATION_THREAT')) quirkBonus -= 0.3;
+  if (owner.quirks.includes('PR_OBSESSED')) quirkBonus -= 0.2;
+  return patience + money + quirkBonus;
+}
+
+/**
  * Scheme-fit contribution. A player whose archetype suits the head
  * coach's scheme loves their role and gets a small weekly lift; a
  * mismatched player feels miscast and drifts down. `schemeFitForPlayer`
- * returns a multiplier in roughly [0.5, 1.7] centered at 1.0, so the
- * mapping (fit - 1.0) lands deltas in roughly [-0.5, +0.7] per week —
- * meaningful when sustained across the season but not big enough to
- * single-handedly flip a player's bucket on its own.
+ * returns a multiplier in roughly [0.85, 1.7]; the *league-wide
+ * catalog mean fit is ~1.15*, not 1.0, so the v0.18.0 mapping (fit -
+ * 1.0) introduced a structural +0.15/wk upward bias across the
+ * league. Recentering on `SCHEME_FIT_CATALOG_MEAN` makes the driver
+ * zero-mean: well-cast players still gain, miscast players still
+ * lose, and the league average doesn't drift.
  *
- * Special-teams archetypes (K / P / LS) always fit at 1.0 by design,
- * so they're unaffected. Stacks with `hcMoodDelta` (the relationships
- * spectrum) — a coach can be a great communicator yet still run a
- * scheme that miscasts a particular player, and both signals matter.
+ * Coefficient 0.7 keeps the per-week range in roughly ±0.4 — enough
+ * to matter over a 17-game season, small enough that no single
+ * driver dominates.
+ *
+ * Special-teams archetypes (K / P / LS) always return 1.0 — they sit
+ * below the catalog mean and so produce a small *negative* delta
+ * (~-0.1/wk). That's intentional: kickers don't get the role
+ * satisfaction skill players feel when their scheme suits them, and
+ * the mild penalty is dwarfed by their personalities' setPoint
+ * drift, so the long-term equilibrium for a stable kicker still
+ * tracks their setPoint.
  */
+const SCHEME_FIT_CATALOG_MEAN = 1.15;
 function schemeFitDelta(player: Player, hc: HeadCoach): number {
   const fit = schemeFitForPlayer(player, {
     offensiveScheme: hc.offensiveScheme,
     defensiveScheme: hc.defensiveScheme,
   });
-  return (fit - 1.0) * 1.0;
+  return (fit - SCHEME_FIT_CATALOG_MEAN) * 0.7;
 }
 
 /**

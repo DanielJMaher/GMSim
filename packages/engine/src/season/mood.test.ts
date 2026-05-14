@@ -637,28 +637,87 @@ describe('locker-room contagion', () => {
 });
 
 describe('long-horizon stability (v0.18.0 saturation regression)', () => {
-  it('mood does not saturate at 100 across many simmed seasons', () => {
-    // v0.17.0 bug: after a handful of seasons every team converged to
-    // "locked in" with players at mood 100. With personal setPoints,
-    // stronger drift, capped lift, weekly noise, and offseason drift,
-    // mood should stay distributed near setPoints — NOT collapse to
-    // 100 across the league.
-    let league = createLeague({ seed: 'v018-saturation' });
-    for (let i = 0; i < 6; i++) {
+  it('league-mean mood tracks the league-mean setPoint over many seasons', () => {
+    // The v0.17.0/early-v0.18.0 bug was systemic upward drift: every
+    // driver leaned a little positive, the offseason drift only pulled
+    // back partially, and after a few seasons the whole league sat
+    // pegged near 100. The fix balances every driver to be zero-mean
+    // across the league, so the long-horizon mean must stay close to
+    // the league-mean setPoint (~67 from the archetype weighting).
+    // Run several seeds + many seasons to make sure the equilibrium
+    // doesn't drift across runs.
+    const seeds = ['v018-eq-a', 'v018-eq-b', 'v018-eq-c', 'v018-eq-d'];
+    let totalSetPoint = 0;
+    let totalMood = 0;
+    let totalPlayers = 0;
+    for (const seed of seeds) {
+      let league = createLeague({ seed });
+      const rostered = Object.values(league.players).filter((p) => p.teamId !== null);
+      totalSetPoint += rostered.reduce((s, p) => s + p.moodProfile.setPoint, 0);
+      for (let i = 0; i < 8; i++) {
+        league = simulateSeason(league);
+        league = advanceSeason(league);
+      }
+      const moods = Object.values(league.players)
+        .filter((p) => p.teamId !== null)
+        .map((p) => p.mood);
+      totalMood += moods.reduce((s, m) => s + m, 0);
+      totalPlayers += moods.length;
+      // No team-level saturation either.
+      const at100 = moods.filter((m) => m >= 99).length;
+      const at0 = moods.filter((m) => m <= 1).length;
+      expect(at100 / moods.length).toBeLessThan(0.02);
+      expect(at0 / moods.length).toBeLessThan(0.02);
+    }
+    const setPointMean = totalSetPoint / totalPlayers;
+    const moodMean = totalMood / totalPlayers;
+    // Across 4 seeds × 8 seasons the average mood should land within
+    // ±5 points of the average setPoint. Wider than this was the bug.
+    expect(Math.abs(moodMean - setPointMean)).toBeLessThan(5);
+  });
+
+  it('teams with good HC playerRelationships trend above league mean; bad HC trend below', () => {
+    // The user-facing requirement: "good coaches should trend their
+    // teams up, bad coaches should trend their teams down." If every
+    // driver were zero-mean across the league but had no per-team
+    // variance the test of the previous block would pass and this one
+    // would not — so this guards the *dispersion* side of the contract.
+    let league = createLeague({ seed: 'v018-hc-dispersion' });
+    for (let i = 0; i < 4; i++) {
       league = simulateSeason(league);
       league = advanceSeason(league);
     }
-    const moods = Object.values(league.players)
-      .filter((p) => p.teamId !== null)
-      .map((p) => p.mood);
-    const at100 = moods.filter((m) => m >= 99).length;
-    const at0 = moods.filter((m) => m <= 1).length;
-    expect(at100 / moods.length).toBeLessThan(0.02);
-    expect(at0 / moods.length).toBeLessThan(0.02);
-    // League-wide mean should be in the personality range, not saturated.
-    const mean = moods.reduce((s, m) => s + m, 0) / moods.length;
-    expect(mean).toBeGreaterThan(55);
-    expect(mean).toBeLessThan(80);
+    const teamMeans: { teamId: string; hcRel: number; moodMean: number }[] = [];
+    for (const team of Object.values(league.teams)) {
+      const hc = league.coaches[team.headCoachId];
+      if (!hc) continue;
+      const rosterMoods = team.rosterIds
+        .map((id) => league.players[id])
+        .filter((p) => p !== undefined)
+        .map((p) => p!.mood);
+      if (rosterMoods.length === 0) continue;
+      teamMeans.push({
+        teamId: team.identity.id,
+        hcRel: hc.spectrums.playerRelationships,
+        moodMean: rosterMoods.reduce((s, m) => s + m, 0) / rosterMoods.length,
+      });
+    }
+    const leagueMean = teamMeans.reduce((s, t) => s + t.moodMean, 0) / teamMeans.length;
+    // Split top and bottom quartiles by HC playerRelationships, compare
+    // their team-mood means. Top quartile should clearly lead.
+    const sortedByHc = [...teamMeans].sort((a, b) => a.hcRel - b.hcRel);
+    const q = Math.floor(sortedByHc.length / 4);
+    const bottomQ = sortedByHc.slice(0, q);
+    const topQ = sortedByHc.slice(-q);
+    const bottomMean = bottomQ.reduce((s, t) => s + t.moodMean, 0) / bottomQ.length;
+    const topMean = topQ.reduce((s, t) => s + t.moodMean, 0) / topQ.length;
+    expect(topMean).toBeGreaterThan(bottomMean);
+    // And the dispersion should be meaningful — at least a few points.
+    expect(topMean - bottomMean).toBeGreaterThan(3);
+    // Both groups should fall within sensible distance of the league
+    // mean (no group has saturated up or down).
+    expect(Math.abs(topMean - leagueMean)).toBeLessThan(15);
+    expect(Math.abs(bottomMean - leagueMean)).toBeLessThan(15);
   });
 
   it('distractions track lower than stabilizers over a simmed season', () => {
