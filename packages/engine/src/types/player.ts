@@ -122,6 +122,15 @@ export interface Player {
   tradeRequestedOnTick: number | null;
 
   /**
+   * Hidden personality dial for how this player carries themselves in
+   * the locker room. Rolled at generation, stable for life. Drives the
+   * mood drift target, the per-week noise envelope, and the cap on
+   * positive contagion lift. See `MoodProfile` for the archetype
+   * distribution.
+   */
+  moodProfile: MoodProfile;
+
+  /**
    * Hidden mood — the player's happiness with their current situation.
    * 0..100, baseline 75 ("content"). Drifts weekly during the season
    * based on team results, HC fit, and playing-time expectations vs
@@ -186,6 +195,42 @@ export interface PlayerSkills {
   workEthic: number;
   coachability: number;
   composure: number;
+}
+
+/**
+ * Personality archetype determining how a player engages with the
+ * locker room. NOT directly displayed to the player — surfaces only
+ * through observable behavior (mood swings, media leaks, leadership
+ * presence). Inspector exposes this for tuning.
+ *
+ *   stabilizer  — Manning/Lewis-tier room anchors. Setpoint 80-90,
+ *                 minimal week-to-week variance. ~5% of the league.
+ *   anchor      — Reliable veterans, content professionals. Setpoint
+ *                 70-80, low variance. ~20%.
+ *   normal      — The bulk of the league. Setpoint 60-75, moderate
+ *                 variance. ~50%.
+ *   moody       — Swings with the wind, susceptible to results +
+ *                 locker-room weather. Setpoint 50-65, high variance.
+ *                 ~20%.
+ *   distraction — Talent that brings drama: media blowups, off-field
+ *                 incidents, openly feuds (Hill / Ruggs / AJ Brown
+ *                 archetype). Setpoint 35-55, very high variance. ~5%.
+ */
+export type MoodArchetype =
+  | 'stabilizer'
+  | 'anchor'
+  | 'normal'
+  | 'moody'
+  | 'distraction';
+
+export interface MoodProfile {
+  archetype: MoodArchetype;
+  /** Their natural equilibrium mood, 30..95. Drift pulls toward this. */
+  setPoint: number;
+  /** Per-week swing envelope, 1..10. Multiplies weekly noise + incident odds. */
+  volatility: number;
+  /** Strength of regression toward `setPoint` each week, 0.1..1.0. */
+  resilience: number;
 }
 
 export type PlayerDevelopmentArchetype =

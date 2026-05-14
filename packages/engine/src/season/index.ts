@@ -23,6 +23,7 @@ export { seasonAwards } from './awards.js';
 export type { SeasonAwards, PlayerAward, CoachAward } from './awards.js';
 export {
   weeklyMoodUpdate,
+  offseasonMoodDrift,
   moodBucket,
   moodMultiplier,
   MOOD_BUCKETS,
@@ -30,6 +31,7 @@ export {
   TRADE_REQUEST_THRESHOLD,
   TRADE_REQUEST_RESOLVE_THRESHOLD,
 } from './mood.js';
+export { migrateLeagueForward } from './migrations.js';
 export type { MoodBucket, WeeklyMoodResult } from './mood.js';
 export {
   teamChemistry,

@@ -10,6 +10,7 @@ import {
 import { positionGroupFor } from './position-group.js';
 import { rollAgeProfile, ageToBirthDate, type AgeStage, type AgeProfile } from './age.js';
 import { rollSkills, rollDevelopmentArchetype } from './skills.js';
+import { rollMoodProfile } from './mood-profile.js';
 
 export interface GeneratePlayerOptions {
   position: Position;
@@ -59,6 +60,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     : rollAgeProfile(prng.fork('age'));
   const skills = rollSkills(prng.fork('skills'), archetype, age.stage);
   const development = rollDevelopmentArchetype(prng.fork('dev'));
+  const moodProfile = rollMoodProfile(prng.fork('mood'));
   const name = generateName(prng.fork('name'));
   const birthDate = ageToBirthDate(prng.fork('birth'), age.ageYears, options.simYear);
 
@@ -81,7 +83,8 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     archetype: archetype.id,
     injury: null,
     conditioning: 100,
-    mood: 75,
+    moodProfile,
+    mood: moodProfile.setPoint,
     tradeRequestedOnTick: null,
     careerStats: [],
     careerAwards: [],

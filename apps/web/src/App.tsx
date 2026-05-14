@@ -28,6 +28,7 @@ import type {
   MoodBucket,
   ChemistryBucket,
 } from '@gmsim/engine';
+import type { MoodArchetype, LockerRoomIncidentFlavor } from '@gmsim/engine/types';
 import type {
   LeagueState,
   TeamState,
@@ -442,6 +443,7 @@ function TransactionLogPanel({ league }: { league: LeagueState }) {
             ['cap-cut', 'cap cuts'],
             ['mood-shift', 'mood shifts'],
             ['trade-request', 'trade reqs'],
+            ['locker-room-incident', 'incidents'],
           ] as const
         ).map(([kind, label]) => (
           <div
@@ -510,6 +512,8 @@ function kindColor(kind: Transaction['kind']): string {
       return 'text-violet-400';
     case 'trade-request':
       return 'text-fuchsia-400';
+    case 'locker-room-incident':
+      return 'text-pink-400';
     case 'contract-expiration':
       return 'text-zinc-500';
   }
@@ -544,6 +548,28 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return entry.state === 'requested'
         ? `${teamLabel(entry.teamId)} · ${entry.tier} ${playerLabel(entry.playerId)} demanded a trade (mood ${Math.round(entry.mood)})`
         : `${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} withdrew trade demand (mood ${Math.round(entry.mood)})`;
+    case 'locker-room-incident': {
+      const leak = entry.mediaLeak ? '📰 ' : '';
+      const delta = entry.moodDelta >= 0 ? `+${entry.moodDelta.toFixed(1)}` : entry.moodDelta.toFixed(1);
+      return `${leak}${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} ${formatIncidentFlavor(entry.flavor)} (mood ${delta})`;
+    }
+  }
+}
+
+function formatIncidentFlavor(flavor: LockerRoomIncidentFlavor): string {
+  switch (flavor) {
+    case 'media_blowup':
+      return 'media blow-up';
+    case 'practice_conflict':
+      return 'practice conflict';
+    case 'social_media_post':
+      return 'social media post';
+    case 'coach_dispute':
+      return 'coach dispute';
+    case 'off_field_issue':
+      return 'off-field issue';
+    case 'positive_moment':
+      return 'positive moment';
   }
 }
 
@@ -559,6 +585,36 @@ function moodBucketTone(bucket: MoodBucket): string {
       return 'text-orange-400';
     case 'wants_out':
       return 'text-rose-400';
+  }
+}
+
+function moodArchetypeLabel(archetype: MoodArchetype): string {
+  switch (archetype) {
+    case 'stabilizer':
+      return 'stab';
+    case 'anchor':
+      return 'anch';
+    case 'normal':
+      return 'norm';
+    case 'moody':
+      return 'mood';
+    case 'distraction':
+      return 'dist';
+  }
+}
+
+function moodArchetypeChipClass(archetype: MoodArchetype): string {
+  switch (archetype) {
+    case 'stabilizer':
+      return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300';
+    case 'anchor':
+      return 'border-emerald-800/40 bg-emerald-900/20 text-emerald-200/80';
+    case 'normal':
+      return 'border-zinc-700 bg-zinc-900/40 text-zinc-500';
+    case 'moody':
+      return 'border-amber-700/40 bg-amber-900/20 text-amber-300/80';
+    case 'distraction':
+      return 'border-rose-500/40 bg-rose-500/10 text-rose-300';
   }
 }
 
@@ -1396,6 +1452,12 @@ function PositionGroupTable({
                   <td className={`px-2 py-1 text-[10px] ${moodBucketTone(moodBucket(p.mood))}`}>
                     {moodBucket(p.mood).replace('_', ' ')}{' '}
                     <span className="font-mono text-zinc-500">({Math.round(p.mood)})</span>
+                    <span
+                      className={`ml-1 rounded border px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider ${moodArchetypeChipClass(p.moodProfile.archetype)}`}
+                      title={`Personality: ${p.moodProfile.archetype} · setPoint ${p.moodProfile.setPoint} · volatility ${p.moodProfile.volatility} · resilience ${p.moodProfile.resilience}. Mood drifts toward setPoint; volatility scales weekly noise + incident odds.`}
+                    >
+                      {moodArchetypeLabel(p.moodProfile.archetype)}
+                    </span>
                     {p.tradeRequestedOnTick !== null && (
                       <span
                         className="ml-1 rounded border border-fuchsia-500/40 bg-fuchsia-500/10 px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider text-fuchsia-300"

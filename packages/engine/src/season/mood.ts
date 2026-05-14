@@ -1,10 +1,16 @@
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
-import type { HeadCoach } from '../types/personnel.js';
+import type { HeadCoach, Owner } from '../types/personnel.js';
 import type { ScheduledGame } from '../types/game.js';
-import type { Transaction, MoodBucket } from '../types/transaction.js';
+import type { TeamState } from '../types/team.js';
+import type {
+  Transaction,
+  MoodBucket,
+  LockerRoomIncidentFlavor,
+} from '../types/transaction.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
-import { Position } from '../types/enums.js';
+import { Position, MarketSize } from '../types/enums.js';
+import type { Prng } from '../prng/index.js';
 
 export type { MoodBucket } from '../types/transaction.js';
 
@@ -37,7 +43,12 @@ export function moodBucket(mood: number): MoodBucket {
   return 'happy';
 }
 
-/** Baseline mood newly generated players start at; also the regression target. */
+/**
+ * League-level baseline retained for bucket math and for downstream
+ * systems that need a fixed reference (e.g., `moodMultiplier`). The
+ * per-player target is `Player.moodProfile.setPoint`, which varies by
+ * personality archetype — see `MoodArchetype` in types/player.ts.
+ */
 export const MOOD_BASELINE = 75;
 
 /** Mood at-or-below which a STAR / STARTER demands a trade out. */
@@ -126,12 +137,49 @@ interface WeeklyMoodInput {
   playedWeeks: readonly (readonly ScheduledGame[])[];
   /** Sim tick the just-finished week occurred on. Used for transaction stamps. */
   tick: number;
+  /**
+   * Fork PRNG dedicated to mood noise + incident rolls. Required since
+   * v0.18.0 — without it the noise pass is deterministically zero and
+   * locker-room incidents never fire. Callers in the season runner
+   * supply a fork; tests can pass a fixed-seed PRNG for determinism.
+   */
+  prng: Prng;
 }
 
 export interface WeeklyMoodResult {
   players: Record<PlayerId, Player>;
   transactionLog: readonly Transaction[];
 }
+
+/**
+ * Per-week noise envelope at the high end of volatility (vol 10).
+ * Most weekly nudges fall well below this — gaussian draws are clamped
+ * to ±NOISE_CAP × volatility / 10 to keep things bounded.
+ */
+const NOISE_CAP = 6;
+
+/**
+ * Soft ceiling positive contagion respects, expressed as a delta above
+ * the recipient's personal setPoint. This is the key fix for v0.18.0's
+ * predecessor saturation bug — vet leaders can lift teammates within
+ * a normal high-end mood band, but cannot push a "distraction" with
+ * setPoint 45 up to a Manning-level 95 just by being in the room.
+ */
+const POSITIVE_LIFT_CEILING_OFFSET = 15;
+
+/**
+ * Distribution of incident flavors when a volatility roll fires.
+ * Mostly negative beats (media blowups, social posts, disputes); a
+ * minority positive (team-bonding) so it's not pure misery noise.
+ */
+const INCIDENT_FLAVOR_WEIGHTS: readonly { value: LockerRoomIncidentFlavor; weight: number }[] = [
+  { value: 'media_blowup', weight: 25 },
+  { value: 'social_media_post', weight: 22 },
+  { value: 'practice_conflict', weight: 15 },
+  { value: 'coach_dispute', weight: 15 },
+  { value: 'off_field_issue', weight: 13 },
+  { value: 'positive_moment', weight: 10 },
+];
 
 /**
  * Apply one week's worth of mood drift to every rostered player
@@ -153,7 +201,7 @@ export interface WeeklyMoodResult {
  * its inputs — no PRNG dependence.
  */
 export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
-  const { league, playedWeeks, tick } = input;
+  const { league, playedWeeks, tick, prng } = input;
   if (playedWeeks.length === 0) {
     return { players: { ...league.players }, transactionLog: league.transactionLog };
   }
@@ -209,7 +257,12 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
         ? 0
         : depthChartDelta(player, byPosition.get(player.position) ?? []);
       const irD = onIr ? irPenalty(player) : 0;
-      const drift = (MOOD_BASELINE - player.mood) * 0.02;
+      // Drift pulls toward the player's personal setPoint, not a
+      // league-flat baseline. Stabilizers (high resilience) snap back
+      // hard; distractions (low resilience) drift loosely so noise
+      // dominates their week-to-week behavior.
+      const { setPoint, resilience } = player.moodProfile;
+      const drift = (setPoint - player.mood) * resilience * 0.05;
 
       const positiveSum = Math.max(0, teamDelta) + Math.max(0, hcDelta)
         + Math.max(0, depthD);
@@ -267,20 +320,86 @@ export function weeklyMoodUpdate(input: WeeklyMoodInput): WeeklyMoodResult {
       if (!player) continue;
       const susceptibility = 1.0 - (player.current.composure / 100) * 0.7; // 0.3..1.0
       const receptivity = 0.3 + (player.current.coachability / 100) * 0.7; // 0.3..1.0
-      const delta = posPerTeammate * receptivity - negPerTeammate * susceptibility;
-      if (delta === 0) continue;
+      const positivePart = posPerTeammate * receptivity;
+      const negativePart = negPerTeammate * susceptibility;
+      if (positivePart === 0 && negativePart === 0) continue;
       const staged = stagedMoods.get(playerId) ?? player.mood;
+
+      // Positive contagion respects a personal ceiling: vet leaders
+      // can lift a teammate inside a normal high-end band, but cannot
+      // push a setPoint-45 distraction up to a Manning-tier 95 just by
+      // being in the locker room. Negative drag is uncapped — bad
+      // chemistry can pull anyone down regardless of setPoint.
+      const personalCeiling = Math.min(100, player.moodProfile.setPoint + POSITIVE_LIFT_CEILING_OFFSET);
+      const headroom = Math.max(0, personalCeiling - staged);
+      const cappedPositive = Math.min(positivePart, headroom);
+      const delta = cappedPositive - negativePart;
+      if (delta === 0) continue;
       stagedMoods.set(playerId, clamp(staged + delta, 0, 100));
     }
   }
 
-  // Pass 3 — emit transactions + finalize player updates based on the
-  // post-contagion mood. Trade-request transitions intentionally fire
-  // against the final mood so a player dragged into the wants-out band
-  // by locker-room contagion (not just their own drivers) still
-  // generates the demand.
-  const updatedPlayers: Record<PlayerId, Player> = {};
+  // Pass 3 — weekly noise + locker-room incidents. Per Doc 7 and the
+  // user's note on v0.17.0: real NFL rooms are intense and dynamic
+  // even on winning teams. Random per-player noise scaled by personal
+  // volatility produces normal week-to-week churn; with a small
+  // volatility-scaled probability the noise escalates into a logged
+  // `locker-room-incident` transaction tagged with a flavor and a
+  // media-leak flag so future news / media surfaces (Doc 12) can pick
+  // up on it. Players with `MoodArchetype.distraction` see this fire
+  // far more often than stabilizers.
   const newTransactions: Transaction[] = [];
+  for (const team of Object.values(league.teams)) {
+    const owner = league.owners[team.ownerId];
+    const hc = league.coaches[team.headCoachId];
+    if (!owner || !hc) continue;
+    for (const playerId of [...team.rosterIds, ...team.injuredReserveIds]) {
+      const player = league.players[playerId];
+      if (!player) continue;
+      const vol = player.moodProfile.volatility;
+
+      // Standard weekly noise — small for stabilizers, big for
+      // distractions. Gaussian draw clamped so a 4-sigma tail doesn't
+      // single-handedly flip a player's mood bucket on a quiet week.
+      const noise = clamp(
+        prng.gaussian() * (vol * 0.3),
+        -NOISE_CAP * (vol / 10),
+        NOISE_CAP * (vol / 10),
+      );
+      const stagedMood = stagedMoods.get(playerId) ?? player.mood;
+      let next = clamp(stagedMood + noise, 0, 100);
+
+      // Incident roll. Probability scales non-linearly with volatility
+      // so the gap between an "anchor" and a "distraction" is wide.
+      const incidentProb = Math.pow(vol / 10, 1.5) * 0.04;
+      if (prng.next() < incidentProb) {
+        const flavor = prng.weighted(INCIDENT_FLAVOR_WEIGHTS);
+        const isPositive = flavor === 'positive_moment';
+        const magnitude = Math.abs(prng.gaussian()) * (vol * 0.5) + 2;
+        const signedDelta = isPositive ? magnitude : -magnitude;
+        next = clamp(next + signedDelta, 0, 100);
+        const mediaLeak = rollMediaLeak(prng, flavor, team, owner, hc);
+        newTransactions.push({
+          kind: 'locker-room-incident',
+          tick,
+          seasonNumber: league.seasonNumber,
+          teamId: team.identity.id,
+          playerId,
+          flavor,
+          mediaLeak,
+          moodDelta: Math.round(signedDelta * 10) / 10,
+        });
+      }
+      stagedMoods.set(playerId, next);
+    }
+  }
+
+  // Pass 4 — emit transactions + finalize player updates based on the
+  // post-contagion, post-noise mood. Trade-request transitions
+  // intentionally fire against the final mood so a player dragged into
+  // the wants-out band by locker-room contagion or an incident (not
+  // just their own drivers) still generates the demand.
+  const updatedPlayers: Record<PlayerId, Player> = {};
   for (const team of Object.values(league.teams)) {
     for (const playerId of [...team.rosterIds, ...team.injuredReserveIds]) {
       const player = league.players[playerId];
@@ -490,4 +609,90 @@ function composureModifier(player: Player): number {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
+}
+
+/**
+ * Probability that a locker-room incident leaks to media. Built from
+ * factors the design highlighted as future hooks: market size, owner
+ * involvement / quirks, HC press dynamics. Positive moments leak
+ * easily (good news always travels); negative ones depend on team
+ * context. Returns a boolean by rolling the PRNG against the computed
+ * probability.
+ */
+function rollMediaLeak(
+  prng: Prng,
+  flavor: LockerRoomIncidentFlavor,
+  team: TeamState,
+  owner: Owner,
+  hc: HeadCoach,
+): boolean {
+  if (flavor === 'positive_moment') {
+    return prng.next() < 0.7;
+  }
+  let p = 0.15;
+  switch (team.identity.marketSize) {
+    case MarketSize.LARGE:
+      p += 0.30;
+      break;
+    case MarketSize.MEDIUM:
+      p += 0.15;
+      break;
+    case MarketSize.SMALL:
+      p += 0.05;
+      break;
+  }
+  p += (owner.spectrums.involvement - 5.5) * 0.03;
+  if (owner.quirks.includes('PR_OBSESSED')) p += 0.20;
+  if (owner.quirks.includes('HEADLINE_HUNGRY')) p += 0.15;
+  if (hc.quirks.includes('PRESS_CONFERENCE_DISASTER')) p += 0.20;
+  // Coach-dispute and off-field issues are harder to keep quiet;
+  // social media posts already self-leak.
+  if (flavor === 'social_media_post') p += 0.40;
+  if (flavor === 'coach_dispute') p += 0.10;
+  if (flavor === 'off_field_issue') p += 0.15;
+  p = clamp(p, 0.05, 0.95);
+  return prng.next() < p;
+}
+
+/**
+ * Offseason mood adjustment. Called from `advanceSeason` after roster
+ * churn so retired players are gone and fresh rookies are in.
+ *
+ * Pulls every remaining player's mood ~70% of the way back to their
+ * personal setPoint — the months away from the locker room reset
+ * accumulated frustration / euphoria toward each player's baseline
+ * personality. Trade requests that no longer reflect the player's
+ * current mood (after the regression) clear silently.
+ *
+ * Pure of any PRNG — same league in → same league out.
+ */
+export function offseasonMoodDrift(league: LeagueState): LeagueState {
+  const updated: Record<PlayerId, Player> = {};
+  for (const [id, player] of Object.entries(league.players)) {
+    if (!player.moodProfile) continue;
+    const { setPoint } = player.moodProfile;
+    const newMood = clamp(
+      player.mood + (setPoint - player.mood) * 0.7,
+      0,
+      100,
+    );
+    let next: Player = player;
+    if (newMood !== player.mood) {
+      next = { ...next, mood: newMood };
+    }
+    if (
+      next.tradeRequestedOnTick !== null &&
+      newMood >= TRADE_REQUEST_RESOLVE_THRESHOLD
+    ) {
+      next = { ...next, tradeRequestedOnTick: null };
+    }
+    if (next !== player) {
+      updated[id as PlayerId] = next;
+    }
+  }
+  if (Object.keys(updated).length === 0) return league;
+  return {
+    ...league,
+    players: { ...league.players, ...updated },
+  };
 }

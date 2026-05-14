@@ -20,6 +20,8 @@ import {
   refillRosters,
 } from '../transactions/offseason.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
+import { migrateLeagueForward } from './migrations.js';
+import { offseasonMoodDrift } from './mood.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR; // re-exported as ticks
 
@@ -45,11 +47,12 @@ const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR; // re-exported as ticks
  * Caller is expected to have run simulateSeason on the input league
  * first — `league.schedule` should be fully played.
  */
-export function advanceSeason(league: LeagueState): LeagueState {
-  if (!league.schedule) {
+export function advanceSeason(leagueIn: LeagueState): LeagueState {
+  if (!leagueIn.schedule) {
     throw new Error('advanceSeason requires a played schedule on the league');
   }
 
+  const league = migrateLeagueForward(leagueIn);
   const advancePrng = new PrngClass(`${league.seed}::advance-${league.seasonNumber}`);
   const records = computeRecords(league);
   const standings = divisionStandings(league, records);
@@ -223,6 +226,11 @@ export function advanceSeason(league: LeagueState): LeagueState {
     nextTick,
     nextSeasonNumber,
   );
+  // Offseason mood reset — pull every surviving player ~70% back
+  // toward their setPoint. Months out of the locker room dissipate
+  // both euphoria and frustration. Without this, season-long mood
+  // drift compounds across years and saturates everyone at extremes.
+  offseason = offseasonMoodDrift(offseason);
   return offseason;
 }
 

@@ -1,4 +1,4 @@
-import type { PlayerId, TeamId, ContractId } from './ids.js';
+import type { PlayerId, TeamId, ContractId, CoachId, OwnerId } from './ids.js';
 import type { TalentTier } from './player.js';
 
 /**
@@ -22,7 +22,8 @@ export type Transaction =
   | TransactionContractExpiration
   | TransactionCapCut
   | TransactionMoodShift
-  | TransactionTradeRequest;
+  | TransactionTradeRequest
+  | TransactionLockerRoomIncident;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -155,3 +156,41 @@ export interface TransactionTradeRequest extends TransactionBase {
   mood: number;
   tier: TalentTier;
 }
+
+/**
+ * A locker-room incident — emergent narrative beat triggered when a
+ * player's volatility produces a large enough mood swing in a week.
+ * The flavor field labels the *kind* of thing that happened so
+ * downstream media / news systems (Doc 12) can pick a tone. Most
+ * fields are intentionally optional so the same kind can stretch to
+ * include coach feuds, owner blow-ups, or teammate disputes without
+ * the schema changing.
+ *
+ * `mediaLeak: true` marks the incident as having reached the press —
+ * leak probability scales with market size, owner involvement, and
+ * coach PR-stability. Leaked incidents will feed the media surface
+ * once Doc 12 is built; internally they're identical in mechanism.
+ */
+export interface TransactionLockerRoomIncident extends TransactionBase {
+  kind: 'locker-room-incident';
+  teamId: TeamId;
+  playerId: PlayerId;
+  flavor: LockerRoomIncidentFlavor;
+  mediaLeak: boolean;
+  /** Mood change applied to the primary player (signed; usually negative). */
+  moodDelta: number;
+  /** Optional secondary subject for incidents involving another teammate. */
+  involvedPlayerId?: PlayerId;
+  /** Optional coach when the dispute is between player + coaching staff. */
+  involvedCoachId?: CoachId;
+  /** Optional owner when an ownership decision triggered the incident. */
+  involvedOwnerId?: OwnerId;
+}
+
+export type LockerRoomIncidentFlavor =
+  | 'media_blowup'        // Went off in a presser, hot mic, sideline rant.
+  | 'practice_conflict'   // Dust-up / fight at practice.
+  | 'social_media_post'   // Tweeted something dumb.
+  | 'coach_dispute'       // Open disagreement with coaching staff.
+  | 'off_field_issue'     // Skipped OTAs, legal trouble, conditioning concerns.
+  | 'positive_moment';    // Team bonding / leadership moment — rare uplift.

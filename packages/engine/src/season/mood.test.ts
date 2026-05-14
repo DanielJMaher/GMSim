@@ -3,6 +3,7 @@ import { createLeague } from '../league/generate.js';
 import { simulateSeason } from './runner.js';
 import {
   weeklyMoodUpdate,
+  offseasonMoodDrift,
   moodBucket,
   moodMultiplier,
   MOOD_BASELINE,
@@ -10,7 +11,9 @@ import {
   TRADE_REQUEST_THRESHOLD,
   TRADE_REQUEST_RESOLVE_THRESHOLD,
 } from './mood.js';
+import { advanceSeason } from './advance.js';
 import { teamStrength } from '../games/strength.js';
+import { Prng } from '../prng/index.js';
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { HeadCoach } from '../types/personnel.js';
@@ -89,11 +92,36 @@ describe('teamStrength × mood', () => {
 });
 
 describe('player mood initialization', () => {
-  it('every generated player starts at the baseline mood', () => {
+  it('every generated player starts at their setPoint', () => {
     const league = createLeague({ seed: 'mood-init' });
     for (const player of Object.values(league.players)) {
-      expect(player.mood).toBe(MOOD_BASELINE);
+      expect(player.mood).toBe(player.moodProfile.setPoint);
     }
+  });
+
+  it('league-wide setPoints span a realistic personality range', () => {
+    const league = createLeague({ seed: 'mood-init-range' });
+    const setPoints = Object.values(league.players).map((p) => p.moodProfile.setPoint);
+    const min = Math.min(...setPoints);
+    const max = Math.max(...setPoints);
+    // Distractions floor 35; stabilizers ceiling 90 — we expect at
+    // least one of each in a 32-team league worth of players.
+    expect(min).toBeLessThan(60);
+    expect(max).toBeGreaterThan(80);
+  });
+
+  it('every generated player has a moodProfile archetype label', () => {
+    const league = createLeague({ seed: 'mood-init-archetype' });
+    const archetypes = new Set<string>();
+    for (const player of Object.values(league.players)) {
+      archetypes.add(player.moodProfile.archetype);
+    }
+    // All five archetypes should appear across ~1700 players.
+    expect(archetypes.has('stabilizer')).toBe(true);
+    expect(archetypes.has('anchor')).toBe(true);
+    expect(archetypes.has('normal')).toBe(true);
+    expect(archetypes.has('moody')).toBe(true);
+    expect(archetypes.has('distraction')).toBe(true);
   });
 });
 
@@ -104,6 +132,7 @@ describe('weeklyMoodUpdate', () => {
       league,
       playedWeeks: [],
       tick: league.tick,
+      prng: new Prng('mood-test'),
     });
     expect(result.players).toEqual(league.players);
     expect(result.transactionLog).toBe(league.transactionLog);
@@ -164,6 +193,7 @@ describe('weeklyMoodUpdate', () => {
       league,
       playedWeeks: [[makeFakeGame(team.identity.id, other.identity.id, 27, 10)]],
       tick: league.tick,
+      prng: new Prng('mood-test'),
     });
     const after = players[pid]!.mood;
     expect(after).toBeGreaterThan(before);
@@ -185,6 +215,7 @@ describe('weeklyMoodUpdate', () => {
       league,
       playedWeeks: losses,
       tick: league.tick,
+      prng: new Prng('mood-test'),
     });
     const after = players[pid]!.mood;
     // Loss (-0.6) + 5-game losing streak amplifier (-1.0) net to -1.6
@@ -239,6 +270,7 @@ describe('weeklyMoodUpdate', () => {
       league,
       playedWeeks: losses,
       tick: league.tick,
+      prng: new Prng('mood-test'),
     });
     const highDrop = high.mood - players[high.id]!.mood;
     const lowDrop = low.mood - players[low.id]!.mood;
@@ -273,8 +305,8 @@ describe('locker-room contagion', () => {
     const leagueB: LeagueState = base;
 
     const wins = [[makeFakeGame(team.identity.id, other.identity.id, 17, 14)]];
-    const a = weeklyMoodUpdate({ league: leagueA, playedWeeks: wins, tick: base.tick });
-    const b = weeklyMoodUpdate({ league: leagueB, playedWeeks: wins, tick: base.tick });
+    const a = weeklyMoodUpdate({ league: leagueA, playedWeeks: wins, tick: base.tick, prng: new Prng('mood-test') });
+    const b = weeklyMoodUpdate({ league: leagueB, playedWeeks: wins, tick: base.tick, prng: new Prng('mood-test') });
 
     const avgCleanMood = (state: typeof a.players) =>
       cleanIds.reduce((s, id) => s + state[id]!.mood, 0) / cleanIds.length;
@@ -289,17 +321,28 @@ describe('locker-room contagion', () => {
     )!;
 
     // Pick two unaffected roster slots and fix their composure to
-    // opposite extremes; force the rest of the team into deep
-    // frustration to generate pressure.
+    // opposite extremes. Equalize their mood profiles (same setPoint,
+    // same volatility) so the noise pass produces matching draws and
+    // the comparison isolates composure-driven negative-drag resistance.
     const players: typeof base.players = { ...base.players };
     const stoicId = team.rosterIds[0]!;
     const volatileId = team.rosterIds[1]!;
+    const sharedProfile = {
+      archetype: 'normal' as const,
+      setPoint: 70,
+      volatility: 1,
+      resilience: 0.5,
+    };
     players[stoicId] = {
       ...players[stoicId]!,
+      mood: 70,
+      moodProfile: sharedProfile,
       current: { ...players[stoicId]!.current, composure: 95 },
     };
     players[volatileId] = {
       ...players[volatileId]!,
+      mood: 70,
+      moodProfile: sharedProfile,
       current: { ...players[volatileId]!.current, composure: 20 },
     };
     for (const id of team.rosterIds.slice(2, 2 + 10)) {
@@ -315,6 +358,7 @@ describe('locker-room contagion', () => {
       league,
       playedWeeks: wins,
       tick: base.tick,
+      prng: new Prng('mood-test'),
     });
     const stoicDrop = league.players[stoicId]!.mood - after[stoicId]!.mood;
     const volatileDrop = league.players[volatileId]!.mood - after[volatileId]!.mood;
@@ -353,8 +397,8 @@ describe('locker-room contagion', () => {
     const leagueA: LeagueState = { ...base, players: makePlayers(100) };
     const leagueB: LeagueState = { ...base, players: makePlayers(75) };
     const wins = [[makeFakeGame(team.identity.id, other.identity.id, 24, 14)]];
-    const a = weeklyMoodUpdate({ league: leagueA, playedWeeks: wins, tick: base.tick });
-    const b = weeklyMoodUpdate({ league: leagueB, playedWeeks: wins, tick: base.tick });
+    const a = weeklyMoodUpdate({ league: leagueA, playedWeeks: wins, tick: base.tick, prng: new Prng('mood-test') });
+    const b = weeklyMoodUpdate({ league: leagueB, playedWeeks: wins, tick: base.tick, prng: new Prng('mood-test') });
 
     const avgObserver = (state: typeof a.players) =>
       observerIds.reduce((s, id) => s + state[id]!.mood, 0) / observerIds.length;
@@ -394,11 +438,13 @@ describe('locker-room contagion', () => {
       league: rookieLeague,
       playedWeeks: wins,
       tick: base.tick,
+      prng: new Prng('mood-test'),
     });
     const vetAfter = weeklyMoodUpdate({
       league: vetLeague,
       playedWeeks: wins,
       tick: base.tick,
+      prng: new Prng('mood-test'),
     });
 
     const avgObserver = (state: typeof rookieAfter.players) =>
@@ -443,26 +489,31 @@ describe('locker-room contagion', () => {
     const wins = [[makeFakeGame(team.identity.id, other.identity.id, 17, 13)]];
     const high = buildLeague(95);
     const low = buildLeague(25);
-    const afterHigh = weeklyMoodUpdate({ league: high, playedWeeks: wins, tick: base.tick });
-    const afterLow = weeklyMoodUpdate({ league: low, playedWeeks: wins, tick: base.tick });
+    const afterHigh = weeklyMoodUpdate({ league: high, playedWeeks: wins, tick: base.tick, prng: new Prng('mood-test-high') });
+    const afterLow = weeklyMoodUpdate({ league: low, playedWeeks: wins, tick: base.tick, prng: new Prng('mood-test-high') });
     const highDelta = afterHigh.players[observerId]!.mood - high.players[observerId]!.mood;
     const lowDelta = afterLow.players[observerId]!.mood - low.players[observerId]!.mood;
     expect(highDelta).toBeGreaterThan(lowDelta);
   });
 
-  it('a calm roster of content players generates no contagion drag', () => {
-    // If no player is below LOCKER_ROOM_DRAG_CEILING (50), pressure is
-    // zero. Verify the contagion pass leaves moods identical to what
-    // the primary drift would produce on its own.
+  it('a calm roster with no frustrated players generates no negative contagion drag', () => {
+    // Suppress noise by setting volatility = 0 on every roster member.
+    // Force everyone above the drag ceiling. Verify the negative
+    // contagion pass produces no drag — every player's mood should
+    // remain at or above their setPoint after a single winning week.
     const base = createLeague({ seed: 'contagion-quiet' });
     const team = Object.values(base.teams)[0]!;
     const other = Object.values(base.teams).find(
       (t) => t.identity.id !== team.identity.id,
     )!;
-    // Force everyone above the drag ceiling.
     const players: typeof base.players = { ...base.players };
     for (const id of [...team.rosterIds, ...team.injuredReserveIds]) {
-      players[id] = { ...players[id]!, mood: 75 };
+      const p = players[id]!;
+      players[id] = {
+        ...p,
+        mood: 75,
+        moodProfile: { ...p.moodProfile, setPoint: 75, volatility: 0 },
+      };
     }
     const league: LeagueState = { ...base, players };
     const wins = [[makeFakeGame(team.identity.id, other.identity.id, 24, 7)]];
@@ -470,13 +521,110 @@ describe('locker-room contagion', () => {
       league,
       playedWeeks: wins,
       tick: base.tick,
+      prng: new Prng('mood-test'),
     });
-    // Every teammate should have mood >= the pre-contagion value
-    // (winning + content baseline). If contagion were leaking through,
-    // some would dip below 75.
+    // With volatility=0 the noise pass is silent. With everyone at the
+    // setPoint there's no negative contagion. The only non-zero
+    // contributors are the team-win bonus + (possibly) HC fit. So
+    // every teammate should end at >= 75.
     for (const id of team.rosterIds) {
       expect(after[id]!.mood).toBeGreaterThanOrEqual(75);
     }
+  });
+});
+
+describe('long-horizon stability (v0.18.0 saturation regression)', () => {
+  it('mood does not saturate at 100 across many simmed seasons', () => {
+    // v0.17.0 bug: after a handful of seasons every team converged to
+    // "locked in" with players at mood 100. With personal setPoints,
+    // stronger drift, capped lift, weekly noise, and offseason drift,
+    // mood should stay distributed near setPoints — NOT collapse to
+    // 100 across the league.
+    let league = createLeague({ seed: 'v018-saturation' });
+    for (let i = 0; i < 6; i++) {
+      league = simulateSeason(league);
+      league = advanceSeason(league);
+    }
+    const moods = Object.values(league.players)
+      .filter((p) => p.teamId !== null)
+      .map((p) => p.mood);
+    const at100 = moods.filter((m) => m >= 99).length;
+    const at0 = moods.filter((m) => m <= 1).length;
+    expect(at100 / moods.length).toBeLessThan(0.02);
+    expect(at0 / moods.length).toBeLessThan(0.02);
+    // League-wide mean should be in the personality range, not saturated.
+    const mean = moods.reduce((s, m) => s + m, 0) / moods.length;
+    expect(mean).toBeGreaterThan(55);
+    expect(mean).toBeLessThan(80);
+  });
+
+  it('distractions track lower than stabilizers over a simmed season', () => {
+    const league = simulateSeason(createLeague({ seed: 'v018-archetypes' }));
+    const byArchetype = new Map<string, number[]>();
+    for (const p of Object.values(league.players)) {
+      if (p.teamId === null) continue;
+      const list = byArchetype.get(p.moodProfile.archetype) ?? [];
+      list.push(p.mood);
+      byArchetype.set(p.moodProfile.archetype, list);
+    }
+    const avg = (a: number[]) => a.reduce((s, x) => s + x, 0) / a.length;
+    const distractionMean = avg(byArchetype.get('distraction') ?? []);
+    const stabilizerMean = avg(byArchetype.get('stabilizer') ?? []);
+    expect(distractionMean).toBeLessThan(stabilizerMean);
+    // And the gap should be meaningful — at least ~15 mood points apart.
+    expect(stabilizerMean - distractionMean).toBeGreaterThan(15);
+  });
+
+  it('emits locker-room-incident transactions across a season', () => {
+    const after = simulateSeason(createLeague({ seed: 'v018-incidents' }));
+    const incidents = after.transactionLog.filter(
+      (t) => t.kind === 'locker-room-incident',
+    );
+    // 32 teams × 17 weeks × ~50 players × ~1% avg incident rate = a few
+    // hundred. The exact count varies by seed but should be solidly
+    // non-zero and not absurdly large.
+    expect(incidents.length).toBeGreaterThan(20);
+    expect(incidents.length).toBeLessThan(3000);
+  });
+});
+
+describe('offseasonMoodDrift', () => {
+  it('pulls mood ~70% back toward setPoint', () => {
+    const league = createLeague({ seed: 'offseason-drift' });
+    const player = Object.values(league.players)[0]!;
+    const setPoint = player.moodProfile.setPoint;
+    // Force player to a known mood far from setPoint.
+    const startMood = 10;
+    const expected = startMood + (setPoint - startMood) * 0.7;
+    const withMood: LeagueState = {
+      ...league,
+      players: { ...league.players, [player.id]: { ...player, mood: startMood } },
+    };
+    const after = offseasonMoodDrift(withMood);
+    expect(after.players[player.id]!.mood).toBeCloseTo(expected, 1);
+  });
+
+  it('clears an outstanding trade request when offseason mood recovers', () => {
+    const league = createLeague({ seed: 'offseason-clear' });
+    const player = Object.values(league.players)[0]!;
+    // Force a high setPoint, low current mood, with an open trade request.
+    const profile = { ...player.moodProfile, setPoint: 80 };
+    const withRequest: LeagueState = {
+      ...league,
+      players: {
+        ...league.players,
+        [player.id]: {
+          ...player,
+          mood: 20,
+          moodProfile: profile,
+          tradeRequestedOnTick: league.tick - 1,
+        },
+      },
+    };
+    const after = offseasonMoodDrift(withRequest);
+    // Mood drifts from 20 toward 80: 20 + (80-20)*0.7 = 62. Above resolve threshold (40).
+    expect(after.players[player.id]!.mood).toBeGreaterThan(40);
+    expect(after.players[player.id]!.tradeRequestedOnTick).toBeNull();
   });
 });
 
@@ -514,6 +662,7 @@ describe('trade requests', () => {
       league,
       playedWeeks: losses,
       tick: league.tick + 5,
+      prng: new Prng('mood-test'),
     });
     expect(players[pid]!.mood).toBeLessThanOrEqual(TRADE_REQUEST_THRESHOLD);
     expect(players[pid]!.tradeRequestedOnTick).toBe(league.tick + 5);
@@ -548,6 +697,7 @@ describe('trade requests', () => {
       league,
       playedWeeks: losses,
       tick: league.tick + 3,
+      prng: new Prng('mood-test'),
     });
     const requests = result.transactionLog.filter((t) => t.kind === 'trade-request');
     expect(requests).toHaveLength(0);
@@ -590,6 +740,7 @@ describe('trade requests', () => {
       league,
       playedWeeks: wins,
       tick: league.tick + 5,
+      prng: new Prng('mood-test'),
     });
     expect(players[pid]!.mood).toBeGreaterThanOrEqual(TRADE_REQUEST_RESOLVE_THRESHOLD);
     expect(players[pid]!.tradeRequestedOnTick).toBeNull();
@@ -625,6 +776,7 @@ describe('trade requests', () => {
       league,
       playedWeeks: losses,
       tick: league.tick + 1,
+      prng: new Prng('mood-test'),
     });
     const requests = result.transactionLog.filter((t) => t.kind === 'trade-request');
     expect(requests).toHaveLength(0);

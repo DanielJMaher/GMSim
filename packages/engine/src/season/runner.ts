@@ -13,6 +13,7 @@ import { runWeeklyPoaching } from '../transactions/poach.js';
 import { runWeeklyFreeAgentSignings } from '../transactions/midseason-fa.js';
 import { runWeeklyNpcTrades } from '../transactions/npc-trade.js';
 import { weeklyMoodUpdate } from './mood.js';
+import { migrateLeagueForward } from './migrations.js';
 
 export interface SimulateSeasonOptions {
   /** Override the regular-season PRNG seed. Defaults to league.seed + season number. */
@@ -27,9 +28,10 @@ export interface SimulateSeasonOptions {
  * Determinism: same input league + same options → identical output.
  */
 export function simulateSeason(
-  league: LeagueState,
+  leagueIn: LeagueState,
   options: SimulateSeasonOptions = {},
 ): LeagueState {
+  const league = migrateLeagueForward(leagueIn);
   const seed = options.seed ?? `${league.seed}::season-${league.seasonNumber}`;
   const seasonPrng = new PrngClass(seed);
 
@@ -186,6 +188,7 @@ export function simulateSeason(
       league: moodLeague,
       playedWeeks: playedWeeks,
       tick: currentTick,
+      prng: seasonPrng.fork(`mood-${weekIdx + 1}`),
     });
     playersDuringSeason = moodResult.players as Record<string, Player>;
     logDuringSeason = moodResult.transactionLog;

@@ -16,6 +16,83 @@ _Nothing yet._
 
 ---
 
+## [0.18.0] — 2026-05-13
+
+### Changed — Mood rework: personality-driven, no more "everyone locked in"
+
+After fast-forwarding several seasons on a v0.17.0 save every locker
+room collapsed into a single "locked in" puddle with players pegged at
+mood 100. NFL rooms don't work that way — even Manning had bad days
+and Tyreek Hill is never truly content. v0.18.0 replaces the single
+shared baseline with per-player personality and reins in the dynamics
+that produced the saturation bug.
+
+**New on `Player`**: `moodProfile: { archetype, setPoint, volatility,
+resilience }` — rolled at generation, stable for life. Five archetypes
+with NFL-faithful weights: **stabilizer** (5%, setPoint 80–90, low
+volatility — Manning/Lewis-tier room anchors), **anchor** (20%, 70–80),
+**normal** (50%, 60–75), **moody** (20%, 50–65), **distraction** (5%,
+35–55, high volatility — the Hill/Ruggs/AJ Brown archetype). Initial
+mood snaps to the player's setPoint, so generation-time distribution
+is varied out of the box.
+
+**Drift now targets setPoint, not a global baseline**. Weekly drift
+applied per-player is `(setPoint - mood) * resilience * 0.05` — up
+from the flat 0.02 coefficient that was being overwhelmed by positive
+contagion. Positive contagion lift is capped at `setPoint + 15` per
+recipient so a strong locker room can't push a moody player past where
+their personality naturally sits.
+
+**Weekly noise + locker-room incidents** (new pass 3 in
+`weeklyMoodUpdate`). Each player rolls a small gaussian noise delta
+scaled by volatility, and high-volatility players occasionally roll
+into a `locker-room-incident` transaction — flavors are `media_blowup`,
+`practice_conflict`, `social_media_post`, `coach_dispute`,
+`off_field_issue`, or rare `positive_moment`. Each incident has a
+`mediaLeak` flag; leak probability scales with market size, owner
+involvement, owner quirks (`PR_OBSESSED`, `HEADLINE_HUNGRY`), and HC
+quirk `PRESS_CONFERENCE_DISASTER`. The transaction carries optional
+`involvedPlayerId` / `involvedCoachId` / `involvedOwnerId` slots so the
+same schema stretches to teammate disputes, coach feuds, and owner
+blowups for the future news / media surface (Doc 12).
+
+**Offseason mood drift**. `offseasonMoodDrift(league)` pulls every
+player ~70% back toward their setPoint between seasons and clears
+stale trade requests. Wired into `advanceSeason` after roster refill.
+Mood no longer compounds across seasons forever.
+
+**Backfill migration**. `migrateLeagueForward(league)` rolls v0.17.0
+saves up to v0.18.0 by backfilling `moodProfile` on every player
+missing it (deterministic from `playerId`). Called at the top of both
+`simulateSeason` and `advanceSeason`, so loading an old save is a
+no-op for the user.
+
+### Added — Inspector surface
+
+Player mood column now shows a personality archetype chip alongside
+the bucket label and raw value, with setPoint / volatility / resilience
+in the hover. Stabilizers render emerald, distractions render rose, so
+the rare high-impact personalities pop visually. Transaction log gains
+a `locker-room-incident` counter; media-leaked entries are prefixed
+with 📰 so they stand out from purely internal beef.
+
+**New transaction kind**: `locker-room-incident` (engine + inspector).
+
+### Files
+
+`packages/engine/src/types/player.ts`, `players/generate.ts`,
+`players/mood-profile.ts` (new), `season/migrations.ts` (new),
+`season/mood.ts`, `season/mood.test.ts`, `season/chemistry.test.ts`,
+`season/runner.ts`, `season/advance.ts`, `season/index.ts`,
+`types/transaction.ts`, `apps/web/src/App.tsx`.
+
+**344 tests passing** (1 skipped harness). Regression coverage:
+6-season saturation check (league mean stays in 55–80, <2% pinned at
+extremes), distraction-vs-stabilizer mean gap >15 points,
+offseason-drift unit test, incident-fires-at-all test.
+
+---
+
 ## [0.17.0] — 2026-05-13
 
 ### Added — Team Chemistry MVP (7 slices through NPC trade-finder)

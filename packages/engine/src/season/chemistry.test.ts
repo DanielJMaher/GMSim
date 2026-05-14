@@ -31,14 +31,16 @@ describe('chemistryBucket', () => {
 });
 
 describe('teamChemistry', () => {
-  it('is cohesive at league creation when every player is at mood baseline', () => {
+  it('starts at a personality-driven score with no trade requests', () => {
+    // v0.18.0: each player starts at their moodProfile.setPoint, so
+    // team scores reflect the personality mix of the roster — usually
+    // in the 60-80 band (normal/anchor heavy with a few outliers).
+    // No team should start with open trade requests.
     const league = createLeague({ seed: 'chem-init' });
     for (const team of Object.values(league.teams)) {
       const tc = teamChemistry(team, league);
-      // Baseline mood 75 → score 75 → cohesive bucket.
-      expect(tc.score).toBe(75);
-      expect(tc.bucket).toBe('cohesive');
-      expect(tc.unhappyCount).toBe(0);
+      expect(tc.score).toBeGreaterThan(55);
+      expect(tc.score).toBeLessThan(85);
       expect(tc.tradeRequestCount).toBe(0);
     }
   });
