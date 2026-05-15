@@ -39,6 +39,7 @@ import type {
   TeamSeasonRecord,
   Player,
   PlayerId,
+  PlayerSkills,
   PlayerSeasonStats,
   CareerAward,
   TeamId,
@@ -2419,6 +2420,333 @@ function formatChampionshipResult(r: NonNullable<TeamSeasonRecord['championshipR
   }
 }
 
+const SKILL_GROUPS: ReadonlyArray<{ label: string; skills: ReadonlyArray<keyof PlayerSkills> }> = [
+  {
+    label: 'Physical',
+    skills: ['speed', 'acceleration', 'agility', 'strength', 'durability'],
+  },
+  {
+    label: 'Position skill',
+    skills: [
+      'technicalSkill',
+      'footballIq',
+      'decisionMaking',
+      'handsBallSkills',
+      'blockingTechnique',
+      'passRushTechnique',
+      'coverageTechnique',
+      'tacklingTechnique',
+    ],
+  },
+  {
+    label: 'Mental',
+    skills: ['leadership', 'competitiveness', 'workEthic', 'coachability', 'composure'],
+  },
+];
+
+const SKILL_LABELS: Record<keyof PlayerSkills, string> = {
+  speed: 'Speed',
+  acceleration: 'Acceleration',
+  agility: 'Agility',
+  strength: 'Strength',
+  durability: 'Durability',
+  technicalSkill: 'Technical skill',
+  footballIq: 'Football IQ',
+  decisionMaking: 'Decision making',
+  handsBallSkills: 'Hands / ball skills',
+  blockingTechnique: 'Blocking technique',
+  passRushTechnique: 'Pass-rush technique',
+  coverageTechnique: 'Coverage technique',
+  tacklingTechnique: 'Tackling technique',
+  leadership: 'Leadership',
+  competitiveness: 'Competitiveness',
+  workEthic: 'Work ethic',
+  coachability: 'Coachability',
+  composure: 'Composure',
+};
+
+const DEV_ARCHETYPE_LABELS: Record<Player['developmentArchetype'], string> = {
+  FAST_LEARNER: 'Fast learner',
+  SLOW_STEADY: 'Slow & steady',
+  ADVERSITY_DRIVEN: 'Adversity-driven',
+  EARLY_BLOOMER: 'Early bloomer',
+  LATE_DEVELOPER: 'Late developer',
+  CONFIDENCE_DEPENDENT: 'Confidence-dependent',
+};
+
+function skillTone(value: number): string {
+  if (value >= 85) return 'text-emerald-400';
+  if (value >= 70) return 'text-zinc-200';
+  if (value >= 55) return 'text-zinc-400';
+  return 'text-zinc-600';
+}
+
+function skillWeightChip(weight: number): { className: string; label: string } | null {
+  if (weight >= 1.4) return { className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300', label: 'key' };
+  if (weight >= 1.2) return { className: 'border-zinc-600 bg-zinc-800/60 text-zinc-300', label: 'core' };
+  if (weight < 0.85) return { className: 'border-zinc-800 bg-zinc-900 text-zinc-600', label: 'minor' };
+  return null;
+}
+
+type StatColumn = { key: keyof PlayerSeasonStats; label: string };
+
+function careerStatColumns(position: Position): readonly StatColumn[] {
+  switch (position) {
+    case Position.QB:
+      return [
+        { key: 'passAttempts', label: 'att' },
+        { key: 'passCompletions', label: 'cmp' },
+        { key: 'passingYards', label: 'yds' },
+        { key: 'passingTds', label: 'TD' },
+        { key: 'interceptionsThrown', label: 'INT' },
+      ];
+    case Position.RB:
+    case Position.FB:
+      return [
+        { key: 'rushingAttempts', label: 'att' },
+        { key: 'rushingYards', label: 'yds' },
+        { key: 'rushingTds', label: 'TD' },
+        { key: 'receptions', label: 'rec' },
+        { key: 'receivingYards', label: 'recYds' },
+      ];
+    case Position.WR:
+    case Position.TE:
+      return [
+        { key: 'targets', label: 'tgt' },
+        { key: 'receptions', label: 'rec' },
+        { key: 'receivingYards', label: 'yds' },
+        { key: 'receivingTds', label: 'TD' },
+      ];
+    case Position.EDGE:
+    case Position.DT:
+    case Position.NT:
+      return [
+        { key: 'tackles', label: 'tkl' },
+        { key: 'sacks', label: 'sk' },
+      ];
+    case Position.ILB:
+    case Position.OLB:
+      return [
+        { key: 'tackles', label: 'tkl' },
+        { key: 'sacks', label: 'sk' },
+        { key: 'interceptions', label: 'INT' },
+      ];
+    case Position.CB:
+    case Position.S:
+    case Position.NICKEL:
+      return [
+        { key: 'tackles', label: 'tkl' },
+        { key: 'interceptions', label: 'INT' },
+      ];
+    default:
+      return [];
+  }
+}
+
+function PlayerDetail({ player, league }: { player: Player; league: LeagueState }) {
+  const archetype = getArchetypeById(player.archetype);
+  const team = player.teamId ? league.teams[player.teamId] : null;
+  const hc = team ? league.coaches[team.headCoachId] : null;
+  const contract = player.contractId ? league.contracts[player.contractId] : null;
+  const fit = hc
+    ? schemeFitForPlayer(player, {
+        offensiveScheme: hc.offensiveScheme as never,
+        defensiveScheme: hc.defensiveScheme as never,
+      })
+    : null;
+  const age = ageOfPlayer(player, league.seasonNumber);
+  const bucket = moodBucket(player.mood);
+  const statCols = careerStatColumns(player.position);
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <div className="font-semibold text-zinc-200">
+          {player.firstName} {player.lastName}
+        </div>
+        <div className="text-zinc-500">
+          {player.tier.toLowerCase()} · {player.position} ·{' '}
+          {archetype?.label ?? player.archetype}
+        </div>
+        <div className="text-zinc-600">
+          age {age} · {player.experienceYears}yr exp · born {player.birthDate}
+        </div>
+        {fit !== null && hc && (
+          <div
+            title={`Scheme fit in ${hc.offensiveScheme} / ${hc.defensiveScheme}`}
+            className={`rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] ${
+              fit >= 1.4 ? 'text-emerald-400' : fit <= 0.85 ? 'text-rose-400' : 'text-zinc-400'
+            }`}
+          >
+            fit {fit.toFixed(2)}
+          </div>
+        )}
+      </div>
+      {archetype?.description && (
+        <div className="text-zinc-500">{archetype.description}</div>
+      )}
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {SKILL_GROUPS.map((groupDef) => (
+          <div key={groupDef.label} className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+              {groupDef.label}
+            </div>
+            <table className="w-full">
+              <tbody>
+                {groupDef.skills.map((skill) => {
+                  const cur = player.current[skill];
+                  const ceil = player.ceiling[skill];
+                  const weight = archetype?.skillWeights[skill] ?? 1.0;
+                  const chip = skillWeightChip(weight);
+                  return (
+                    <tr key={skill}>
+                      <td className="py-0.5 pr-2 text-zinc-400">{SKILL_LABELS[skill]}</td>
+                      <td className={`py-0.5 pr-1 text-right font-mono ${skillTone(cur)}`}>
+                        {cur}
+                      </td>
+                      <td
+                        className="py-0.5 pr-2 text-right font-mono text-zinc-600"
+                        title="Hidden ceiling — never shown to player"
+                      >
+                        /{ceil}
+                      </td>
+                      <td className="py-0.5 text-right">
+                        {chip && (
+                          <span
+                            title={`Archetype skill weight: ${weight.toFixed(2)}`}
+                            className={`rounded border px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider ${chip.className}`}
+                          >
+                            {chip.label}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">Development</div>
+          <div className="text-zinc-300">
+            {DEV_ARCHETYPE_LABELS[player.developmentArchetype]}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">Mood</div>
+          <div className={moodBucketTone(bucket)}>
+            {bucket.replace('_', ' ')}{' '}
+            <span className="font-mono text-zinc-500">({Math.round(player.mood)})</span>
+          </div>
+          <div className="mt-0.5 text-[10px] text-zinc-500">
+            {moodArchetypeLabel(player.moodProfile.archetype)} · setPoint{' '}
+            {player.moodProfile.setPoint} · vol {player.moodProfile.volatility} · res{' '}
+            {player.moodProfile.resilience.toFixed(1)}
+          </div>
+          {player.tradeRequestedOnTick !== null && (
+            <div className="mt-0.5 text-fuchsia-300">
+              Requested trade on tick {player.tradeRequestedOnTick}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">Conditioning</div>
+          <div className="font-mono text-zinc-300">{Math.round(player.conditioning)} / 100</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-zinc-500">Injury</div>
+          <InjuryCell player={player} league={league} />
+        </div>
+      </div>
+
+      {contract ? (
+        <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Contract — current-year cap hit {formatMoney(currentCapHit(contract))}
+          </div>
+          <ContractTermsTable contract={contract} />
+        </div>
+      ) : (
+        <div className="text-zinc-600">No contract on file — free agent.</div>
+      )}
+
+      {player.careerStats.length > 0 && statCols.length > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Career stats — {player.careerStats.length} season
+            {player.careerStats.length === 1 ? '' : 's'}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-[11px]">
+              <thead className="text-zinc-500">
+                <tr>
+                  <th className="px-1 py-0.5 text-left font-medium">season</th>
+                  <th className="px-1 py-0.5 text-right font-medium">G</th>
+                  {statCols.map((c) => (
+                    <th key={c.key} className="px-1 py-0.5 text-right font-medium">
+                      {c.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...player.careerStats]
+                  .sort((a, b) => a.seasonNumber - b.seasonNumber)
+                  .map((row) => (
+                    <tr key={row.seasonNumber} className="border-t border-zinc-900">
+                      <td className="px-1 py-0.5 font-mono text-zinc-500">
+                        s{row.seasonNumber}
+                      </td>
+                      <td className="px-1 py-0.5 text-right font-mono text-zinc-400">
+                        {row.gamesPlayed}
+                      </td>
+                      {statCols.map((c) => {
+                        const v = row[c.key];
+                        return (
+                          <td
+                            key={c.key}
+                            className="px-1 py-0.5 text-right font-mono text-zinc-300"
+                          >
+                            {v === 0 ? '·' : v.toLocaleString()}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {player.careerAwards.length > 0 && (
+        <div>
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Career awards
+          </div>
+          <div className="flex flex-wrap gap-1 font-mono">
+            {[...player.careerAwards]
+              .sort((a, b) => a.seasonNumber - b.seasonNumber)
+              .map((a, i) => (
+                <span
+                  key={i}
+                  className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-amber-300"
+                >
+                  s{a.seasonNumber} {a.kind}
+                </span>
+              ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PositionGroupTable({
   group,
   hc,
@@ -2433,6 +2761,8 @@ function PositionGroupTable({
   onLeagueChange: (l: LeagueState) => void;
 }) {
   const [pendingReleaseId, setPendingReleaseId] = useState<PlayerId | null>(null);
+  const [expandedPlayerId, setExpandedPlayerId] = useState<PlayerId | null>(null);
+  const colCount = seasonStats ? 15 : 14;
   return (
     <div>
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -2505,9 +2835,19 @@ function PositionGroupTable({
                       ? 'text-zinc-500'
                       : 'text-zinc-600';
               const awardBadge = formatAwardBadge(p.careerAwards);
+              const isOpen = expandedPlayerId === p.id;
               return (
-                <tr key={p.id} className="border-t border-zinc-800/60">
-                  <td className="px-2 py-1 font-mono text-zinc-400">{p.position}</td>
+                <React.Fragment key={p.id}>
+                <tr
+                  className={`cursor-pointer border-t border-zinc-800/60 hover:bg-zinc-900/60 ${
+                    isOpen ? 'bg-zinc-900/40' : ''
+                  }`}
+                  onClick={() => setExpandedPlayerId(isOpen ? null : p.id)}
+                >
+                  <td className="px-2 py-1 font-mono text-zinc-400">
+                    <span className="mr-1 text-zinc-600">{isOpen ? '▼' : '▶'}</span>
+                    {p.position}
+                  </td>
                   <td className="px-2 py-1">
                     {p.firstName} {p.lastName}
                     {awardBadge && (
@@ -2560,7 +2900,7 @@ function PositionGroupTable({
                   <td className="px-2 py-1 text-zinc-400">
                     {formatCareerStat(p)}
                   </td>
-                  <td className="px-2 py-1">
+                  <td className="px-2 py-1" onClick={(e) => e.stopPropagation()}>
                     <ReleaseActionCell
                       player={p}
                       contract={contract}
@@ -2575,6 +2915,14 @@ function PositionGroupTable({
                     />
                   </td>
                 </tr>
+                {isOpen && (
+                  <tr className="border-t border-zinc-800/60 bg-zinc-950/60">
+                    <td colSpan={colCount} className="px-3 py-3">
+                      <PlayerDetail player={p} league={league} />
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
               );
             })}
           </tbody>

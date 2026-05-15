@@ -16,6 +16,42 @@ _Nothing yet._
 
 ---
 
+## [0.27.0] — 2026-05-15
+
+### Added — Click-to-expand player detail panel (web)
+
+Every player row in the team-detail roster table is now click-to-expand
+(matches the existing transaction-log expand pattern). The overall key
++ ceiling averages in the row weren't enough signal — the expanded
+panel surfaces ground-truth detail the inspector previously hid behind
+aggregates:
+
+- **All 18 skill ratings**, grouped Physical / Position / Mental, each
+  with current value, hidden ceiling, and a `key` / `core` / `minor`
+  chip derived from the player's archetype `skillWeights`.
+- **Identity + archetype** — tier, position, archetype label and
+  description, age, experience, birthDate, scheme fit (when the
+  player's team's HC is known).
+- **Development archetype** (humanized: `Fast learner` etc.).
+- **Mood detail** — bucket + raw value + personality archetype +
+  setPoint / volatility / resilience + trade-request flag.
+- **Conditioning** (raw 0..100) and **injury** detail.
+- **Contract** terms (reuses `ContractTermsTable`), or "free agent" if
+  none.
+- **Per-season career stats** with position-relevant columns
+  (passYds / TD / INT for QB, rushYds / TD for RB, etc.).
+- **Career awards** as chips.
+
+The release button stops propagation so clicking it doesn't toggle the
+panel. Other player tables (free-agent pool, trade builder) are
+unchanged this slice — the component is structured so dropping it into
+those is a small follow-up.
+
+This is a dev-inspector surface, not a player-facing one — the North
+Star "no raw rating display" rule applies to the eventual game UI.
+
+---
+
 ## [0.26.1] — 2026-05-15
 
 ### Changed — Bump GitHub Actions to Node 24-compatible majors (repo)
