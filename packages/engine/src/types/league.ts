@@ -1,7 +1,7 @@
 import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
-import type { Scout, PlayerObservation } from './scout.js';
+import type { Scout, PlayerObservation, WatchListEntry } from './scout.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
@@ -60,6 +60,15 @@ export interface LeagueState {
    * a per-viewer filter; the dev inspector reads it unfiltered.
    */
   observations: readonly PlayerObservation[];
+
+  /**
+   * Per-team watch lists — each team's internal target list of players
+   * they're tracking for potential acquisition. Built from a team's own
+   * observations + scheme + needs. Overlapping interest across teams
+   * is expected (Doc 4: "competitive intelligence"); slice 3 will use
+   * these lists to drive availability-signal competition.
+   */
+  watchLists: Readonly<Record<TeamId, readonly WatchListEntry[]>>;
 }
 
 export type LeaguePhase =

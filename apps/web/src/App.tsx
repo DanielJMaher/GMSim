@@ -48,6 +48,8 @@ import type {
   Scout,
   ScoutQuirk,
   PlayerObservation,
+  WatchListEntry,
+  WatchListReason,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 
@@ -2126,6 +2128,8 @@ function TeamDetail({
 
       <ScoutingStaffPanel team={team} league={league} />
 
+      <WatchListPanel team={team} league={league} />
+
       <div className="space-y-4">
         {groups
           .filter((g) => g.players.length > 0)
@@ -2536,6 +2540,29 @@ const QUIRK_LABELS: Record<ScoutQuirk, { label: string; description: string }> =
   },
 };
 
+const WATCH_LIST_REASON: Record<WatchListReason, { label: string; description: string; className: string }> = {
+  SCHEME_FIT: {
+    label: 'scheme fit',
+    description: 'Strong archetype match for the team\'s scheme — high projected upside in this system.',
+    className: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+  },
+  POSITIONAL_NEED: {
+    label: 'positional need',
+    description: 'Team is thin at this position group — talent matters more than fit at this slot.',
+    className: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+  },
+  MISCAST_ELEVATION: {
+    label: 'miscast elevation',
+    description: 'Talented player on a team whose scheme poorly suits them — they\'d elevate in ours. Highest-value target type per Doc 4.',
+    className: 'border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300',
+  },
+  ROLE_PLAYER: {
+    label: 'role player',
+    description: 'Observed skill is high relative to tier — could fill a targeted role.',
+    className: 'border-zinc-700 bg-zinc-900 text-zinc-300',
+  },
+};
+
 const POSITION_GROUPS_ORDERED: readonly PositionGroup[] = [
   PositionGroup.QB,
   PositionGroup.SKILL,
@@ -2717,6 +2744,165 @@ function ScoutCard({ scout }: { scout: Scout }) {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function WatchListPanel({
+  team,
+  league,
+}: {
+  team: TeamState;
+  league: LeagueState;
+}) {
+  const list = league.watchLists[team.identity.id] ?? [];
+  if (list.length === 0) return null;
+  const hc = league.coaches[team.headCoachId];
+  return (
+    <section className="mb-4 rounded border border-zinc-800 bg-zinc-950/40 p-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Watch list ({list.length})
+        </h3>
+        <span className="text-[10px] text-zinc-600" title="Built from this team's own scouts' observations + scheme + needs. Inspector exposes every team's list; the eventual game UI shows only the viewer's team's list.">
+          inspector view — all teams visible elsewhere
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded border border-zinc-800">
+        <table className="min-w-full text-xs">
+          <thead className="bg-zinc-900/60 text-left text-zinc-500">
+            <tr>
+              <th className="px-2 py-1 font-medium" title="Composite priority — observedSkill × schemeFit × meanConfidence × need.">
+                pri
+              </th>
+              <th className="px-2 py-1 font-medium">player</th>
+              <th className="px-2 py-1 font-medium">current</th>
+              <th className="px-2 py-1 font-medium">reason</th>
+              <th className="px-2 py-1 font-medium" title="Confidence-weighted aggregate of this player's archetype-relevant skills from our observations.">
+                obs skill
+              </th>
+              <th className="px-2 py-1 font-medium" title="Scheme-fit multiplier for this player's archetype in our scheme.">
+                fit
+              </th>
+              <th className="px-2 py-1 font-medium" title="Mean per-skill confidence across our observations of this player.">
+                conf
+              </th>
+              <th className="px-2 py-1 font-medium" title="Number of independent observations our scouts have on this player.">
+                #obs
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((entry) => (
+              <WatchListRow key={entry.playerId} entry={entry} league={league} hcScheme={hc?.offensiveScheme ?? null} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function WatchListRow({
+  entry,
+  league,
+  hcScheme,
+}: {
+  entry: WatchListEntry;
+  league: LeagueState;
+  hcScheme: string | null;
+}) {
+  const player = league.players[entry.playerId];
+  const currentTeamId = player?.teamId ?? null;
+  const currentTeam = currentTeamId ? league.teams[currentTeamId] : null;
+  const reason = WATCH_LIST_REASON[entry.reason];
+  const fitTone =
+    entry.schemeFit >= 1.4
+      ? 'text-emerald-400'
+      : entry.schemeFit <= 0.85
+        ? 'text-rose-400'
+        : 'text-zinc-400';
+  void hcScheme;
+  return (
+    <tr className="border-t border-zinc-800/60">
+      <td className="px-2 py-1 font-mono text-zinc-300">{entry.priority.toFixed(1)}</td>
+      <td className="px-2 py-1">
+        {player ? (
+          <>
+            <span className="text-zinc-200">
+              {player.firstName} {player.lastName}
+            </span>
+            <span className="ml-1 font-mono text-[10px] text-zinc-500">
+              {player.tier.toLowerCase()} {player.position}
+            </span>
+          </>
+        ) : (
+          <span className="font-mono text-zinc-600">{entry.playerId}</span>
+        )}
+      </td>
+      <td className="px-2 py-1 font-mono text-[10px] text-zinc-400">
+        {currentTeam?.identity.abbreviation ?? 'FA'}
+      </td>
+      <td className="px-2 py-1">
+        <span
+          title={reason.description}
+          className={`rounded border px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider ${reason.className}`}
+        >
+          {reason.label}
+        </span>
+      </td>
+      <td className="px-2 py-1 font-mono">{entry.observedSkillScore.toFixed(1)}</td>
+      <td className={`px-2 py-1 font-mono ${fitTone}`}>{entry.schemeFit.toFixed(2)}</td>
+      <td className={`px-2 py-1 font-mono ${accuracyTone(entry.meanConfidence)}`}>
+        {entry.meanConfidence.toFixed(2)}
+      </td>
+      <td className="px-2 py-1 font-mono text-zinc-500">{entry.observationCount}</td>
+    </tr>
+  );
+}
+
+function TrackedByPanel({
+  player,
+  league,
+}: {
+  player: Player;
+  league: LeagueState;
+}) {
+  const trackers = useMemo(() => {
+    const out: { teamAbbr: string; reason: WatchListReason; priority: number }[] = [];
+    for (const [teamId, list] of Object.entries(league.watchLists)) {
+      const entry = list.find((e) => e.playerId === player.id);
+      if (!entry) continue;
+      const team = league.teams[teamId as TeamId];
+      out.push({
+        teamAbbr: team?.identity.abbreviation ?? teamId,
+        reason: entry.reason,
+        priority: entry.priority,
+      });
+    }
+    return out.sort((a, b) => b.priority - a.priority);
+  }, [league.watchLists, league.teams, player.id]);
+
+  if (trackers.length === 0) return null;
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+        Tracked by {trackers.length} team{trackers.length === 1 ? '' : 's'}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {trackers.map((t) => {
+          const reason = WATCH_LIST_REASON[t.reason];
+          return (
+            <span
+              key={t.teamAbbr}
+              title={`${reason.label} · priority ${t.priority.toFixed(1)}`}
+              className={`rounded border px-1.5 py-0.5 text-[10px] font-mono ${reason.className}`}
+            >
+              {t.teamAbbr}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3036,6 +3222,8 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
           </div>
         </div>
       )}
+
+      <TrackedByPanel player={player} league={league} />
 
       <ScoutObservationsPanel player={player} league={league} />
     </div>

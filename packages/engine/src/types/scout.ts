@@ -3,6 +3,57 @@ import type { PositionGroup } from './enums.js';
 import type { PlayerSkills } from './player.js';
 
 /**
+ * Why a player is on a team's watch list. Derived heuristically from
+ * the scoring breakdown at generation time. Per Doc 4, miscast
+ * elevation candidates and role-player IDs are the highest-value
+ * targets. See `engine/src/scouting/watch-list.ts` for derivation.
+ *
+ *   SCHEME_FIT          — strong archetype match for our scheme.
+ *   POSITIONAL_NEED     — we're thin at this group; talent matters more
+ *                          than fit at this position group.
+ *   MISCAST_ELEVATION   — talented player on a team whose scheme
+ *                          poorly suits them; would elevate in ours.
+ *   ROLE_PLAYER         — observed skill is high relative to tier;
+ *                          they'd fill a targeted role.
+ */
+export type WatchListReason =
+  | 'SCHEME_FIT'
+  | 'POSITIONAL_NEED'
+  | 'MISCAST_ELEVATION'
+  | 'ROLE_PLAYER';
+
+/**
+ * One target on a team's internal watch list. Built from the team's
+ * own scouts' observations + scheme + positional needs. The same
+ * player can appear on many teams' lists — Doc 4 calls out the
+ * "competitive intelligence" that emerges from overlapping interest.
+ *
+ * Per North Star, watch lists are organizational state — not displayed
+ * to other teams in the eventual game UI. The dev inspector shows
+ * every team's list for tuning.
+ */
+export interface WatchListEntry {
+  playerId: PlayerId;
+  /** Composite priority, 0..100 — higher = stronger interest. */
+  priority: number;
+  reason: WatchListReason;
+  /**
+   * Confidence-weighted aggregate of this player's key skills from the
+   * team's own observations. The team's *belief* about how good the
+   * player is — not the truth.
+   */
+  observedSkillScore: number;
+  /** Scheme-fit multiplier in the team's scheme (uses true archetype). */
+  schemeFit: number;
+  /** Mean per-skill confidence across the team's observations. */
+  meanConfidence: number;
+  /** How many independent scouts on this team have observed this player. */
+  observationCount: number;
+  /** Sim tick when this entry was added to the list. */
+  addedOnTick: number;
+}
+
+/**
  * Personality quirk affecting a scout's evaluation pattern. Each scout
  * carries 1–2 from this pool. Quirks bias observation noise and confidence
  * in specific contexts. Hidden — surfaces only through observed patterns.

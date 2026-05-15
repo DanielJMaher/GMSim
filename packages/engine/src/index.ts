@@ -182,6 +182,7 @@ export {
   scoutStaffSize,
   teamScoutAccuracyMean,
   generateInitialObservations,
+  generateInitialWatchLists,
   SCOUT_QUIRK_POOL,
   quirkEffect,
   composedQuirkEffect,

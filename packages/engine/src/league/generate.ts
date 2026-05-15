@@ -27,7 +27,7 @@ import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
-import { generateTeamScouts, generateInitialObservations } from '../scouting/index.js';
+import { generateTeamScouts, generateInitialObservations, generateInitialWatchLists } from '../scouting/index.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -144,6 +144,17 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     initialTick,
   );
 
+  // Each team builds its initial watch list from its own observations.
+  // Deterministic — no PRNG needed; pure scoring + sort.
+  const watchLists = generateInitialWatchLists(
+    teams as Readonly<Record<TeamId, TeamState>>,
+    scouts as Readonly<Record<ScoutId, Scout>>,
+    coaches,
+    players,
+    observations,
+    initialTick,
+  );
+
   const baseLeague: LeagueState = {
     seed,
     tick: initialTick,
@@ -161,6 +172,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     schedule: null, // populated when simulateSeason runs
     transactionLog: [],
     observations,
+    watchLists,
   };
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.

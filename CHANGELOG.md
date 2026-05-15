@@ -16,6 +16,75 @@ _Nothing yet._
 
 ---
 
+## [0.29.0] — 2026-05-15
+
+### Added — Watch Lists: each team's curated target list (Doc 4)
+
+Second slice of the Roster & Free Agent Scouting module. Every team
+now builds a top-15 watch list from its own scouts' observations,
+scored by `observedSkillScore × schemeFit × meanConfidence ×
+positionalNeed`. The conceptual distinction this lands:
+
+- **Scouted** = at least one of the team's scouts has made an
+  attributed observation on the player (raw data, ~24–40 players per
+  team after the initial sweep).
+- **Tracked** = the team has filtered their observations into a top-15
+  priority list — players they actually intend to pursue. Strict
+  subset of scouted players; sets up slice 3 (availability-signal
+  competition) cleanly.
+
+**Engine — new `engine/src/scouting/watch-list.ts`:**
+
+- `WatchListEntry` type: `priority` (0..100 composite), `reason`
+  (`SCHEME_FIT` | `POSITIONAL_NEED` | `MISCAST_ELEVATION` |
+  `ROLE_PLAYER`), `observedSkillScore` (confidence-weighted aggregate
+  of the team's observations of this player's archetype-key skills),
+  `schemeFit`, `meanConfidence`, `observationCount`, `addedOnTick`.
+- `LeagueState.watchLists: Readonly<Record<TeamId, readonly
+  WatchListEntry[]>>` — per-team directory.
+- `generateInitialWatchLists(...)`: deterministic build at league
+  creation. For each team: bucket the team's own observations by
+  player, confidence-weight per-skill values across observations,
+  score by composite formula, take top 15 sorted by priority.
+- Reason derivation prioritizes `MISCAST_ELEVATION` (player's current
+  team has poor scheme fit AND ours is strong — the highest-value
+  target type per Doc 4), then `SCHEME_FIT`, then `POSITIONAL_NEED`,
+  default `ROLE_PLAYER`.
+- Positional need is a soft `sqrt(target / roster_count)` curve
+  clamped to `[0.8, 1.3]` so the bonus doesn't dominate priority.
+
+**Inspector:**
+
+- TeamDetail gains a "Watch list (N)" panel between Scouting Staff and
+  rosters. Compact table: priority, player name + tier + position,
+  current team abbr (or `FA`), reason chip (color-coded by reason,
+  hover for description), observed skill score, scheme fit, mean
+  confidence, observation count.
+- PlayerDetail gains a "Tracked by N teams" chip strip near the
+  bottom (between Career Awards and Scout Observations). One chip per
+  watching team, color-coded by that team's reason, sorted by priority
+  descending. Surfaces the cross-team competition that the doc calls
+  out as a load-bearing dynamic.
+
+**Tests:** 8 new (determinism, structural shape, sort ordering,
+self-team exclusion, observation backing, allowed reasons,
+cross-team overlap regression, scheme-fit range). Full suite:
+431 passing.
+
+**Not in this slice (deferred):**
+
+- Bidding / availability-signal competition that *uses* the watch
+  lists — slice 3. The data structure is now in place; the action
+  hookup is the next step.
+- Periodic re-evaluation / list churn over time — current lists are
+  one-shot at league creation.
+- Watch-list signals tied to released / cap-cut / contract-expiring
+  players — slice 3 territory.
+- Knowledge-layer filter (eventual game UI shows only the viewer's
+  list, not all 32) — lands with the game UI.
+
+---
+
 ## [0.28.0] — 2026-05-15
 
 ### Added — NFL Scouting module foundation (Doc 4)
