@@ -2758,10 +2758,21 @@ function ScoutingStaffPanel({
   team: TeamState;
   league: LeagueState;
 }) {
-  if (team.scoutIds.length === 0) return null;
-  const scouts = team.scoutIds
-    .map((id) => league.scouts[id])
-    .filter((s): s is Scout => s !== undefined);
+  const scouts = useMemo(
+    () =>
+      team.scoutIds
+        .map((id) => league.scouts[id])
+        .filter((s): s is Scout => s !== undefined),
+    [team.scoutIds, league.scouts],
+  );
+  const obsCountByScout = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const obs of league.observations) {
+      counts.set(obs.scoutId, (counts.get(obs.scoutId) ?? 0) + 1);
+    }
+    return counts;
+  }, [league.observations]);
+  if (scouts.length === 0) return null;
   return (
     <section className="mb-4 rounded border border-zinc-800 bg-zinc-950/40 p-3">
       <div className="mb-2 flex items-baseline justify-between">
@@ -2774,14 +2785,24 @@ function ScoutingStaffPanel({
       </div>
       <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
         {scouts.map((scout) => (
-          <ScoutCard key={scout.id} scout={scout} />
+          <ScoutCard
+            key={scout.id}
+            scout={scout}
+            observationCount={obsCountByScout.get(scout.id) ?? 0}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function ScoutCard({ scout }: { scout: Scout }) {
+function ScoutCard({
+  scout,
+  observationCount,
+}: {
+  scout: Scout;
+  observationCount: number;
+}) {
   return (
     <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2 text-xs">
       <div className="mb-1 flex items-baseline justify-between gap-2">
@@ -2790,10 +2811,18 @@ function ScoutCard({ scout }: { scout: Scout }) {
           age {scout.age} · {scout.yearsExperience}y exp
         </div>
       </div>
-      <div className="mb-1 text-[10px] text-zinc-500">
-        known specialty:{' '}
-        <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-0.5 font-mono uppercase tracking-wider text-emerald-300">
-          {scout.knownSpecialty}
+      <div className="mb-1 flex items-baseline justify-between gap-2 text-[10px] text-zinc-500">
+        <span>
+          known specialty:{' '}
+          <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-0.5 font-mono uppercase tracking-wider text-emerald-300">
+            {scout.knownSpecialty}
+          </span>
+        </span>
+        <span
+          className="font-mono text-zinc-600"
+          title="Total observations this scout has produced across all cycles. Grows by ~8 each season-advance."
+        >
+          {observationCount} report{observationCount === 1 ? '' : 's'}
         </span>
       </div>
       <div className="mb-1 flex flex-wrap gap-1">
@@ -3103,6 +3132,14 @@ function groupObservationsByTeam(
     }
     entry.observations.push(obs);
     entry.scoutNames.push(league.scouts[obs.scoutId]?.name ?? 'Unknown');
+  }
+  // Within each team, sort observations newest-first so the most recent
+  // report bubbles up. Keep `scoutNames` aligned with the sort.
+  for (const entry of byTeam.values()) {
+    const pairs = entry.observations.map((o, i) => ({ o, name: entry.scoutNames[i] ?? 'Unknown' }));
+    pairs.sort((a, b) => b.o.observedOnTick - a.o.observedOnTick);
+    entry.observations = pairs.map((p) => p.o);
+    entry.scoutNames = pairs.map((p) => p.name);
   }
   return Array.from(byTeam.values()).sort((a, b) => a.teamAbbr.localeCompare(b.teamAbbr));
 }

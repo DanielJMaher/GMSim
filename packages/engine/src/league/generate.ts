@@ -27,7 +27,7 @@ import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
-import { generateTeamScouts, generateInitialObservations, generateInitialWatchLists } from '../scouting/index.js';
+import { generateTeamScouts, generateInitialObservations, regenerateWatchLists } from '../scouting/index.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -146,7 +146,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
 
   // Each team builds its initial watch list from its own observations.
   // Deterministic — no PRNG needed; pure scoring + sort.
-  const watchLists = generateInitialWatchLists(
+  const watchLists = regenerateWatchLists(
     teams as Readonly<Record<TeamId, TeamState>>,
     scouts as Readonly<Record<ScoutId, Scout>>,
     coaches,

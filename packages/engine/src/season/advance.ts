@@ -21,6 +21,7 @@ import {
 } from '../transactions/offseason.js';
 import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
+import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
 
@@ -229,6 +230,14 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     offseason,
     nextTick,
   );
+  // Scouting cycle — every scout re-evaluates the league with
+  // post-development player skills, watch lists re-derive. Lands
+  // before refillRosters so the FA auction reads current intelligence.
+  offseason = advanceScoutingCycle(
+    advancePrng.fork('scouting-cycle'),
+    offseason,
+    nextTick,
+  );
   offseason = refillRosters(offseason, nextTick);
   offseason = refillPracticeSquad(
     advancePrng.fork('practice-squad'),
@@ -241,6 +250,20 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
   // both euphoria and frustration. Without this, season-long mood
   // drift compounds across years and saturates everyone at extremes.
   offseason = offseasonMoodDrift(offseason);
+  // Final watch-list refresh: refillRosters + refillPracticeSquad may
+  // have moved watch-listed players onto teams that were watching them.
+  // Strip those stale entries — no new observations, just re-filter.
+  offseason = {
+    ...offseason,
+    watchLists: regenerateWatchLists(
+      offseason.teams,
+      offseason.scouts,
+      offseason.coaches,
+      offseason.players,
+      offseason.observations,
+      nextTick,
+    ),
+  };
   return offseason;
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createLeague } from '../league/generate.js';
 
-describe('generateInitialWatchLists', () => {
+describe('regenerateWatchLists (initial pass at league creation)', () => {
   it('produces deterministic per-team watch lists from the same seed', () => {
     const a = createLeague({ seed: 'wl-determinism' });
     const b = createLeague({ seed: 'wl-determinism' });

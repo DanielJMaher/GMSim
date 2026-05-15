@@ -21,8 +21,9 @@ const POSITION_GROUP_TARGETS: Record<PositionGroup, number> = {
 };
 
 /**
- * Build each team's initial watch list from the observations their own
- * scouts produced at league creation. One pass per team:
+ * Build each team's watch list from the observations their own scouts
+ * have produced so far. Idempotent — called at league creation and
+ * again after every scouting cycle. One pass per team:
  *
  *   1. Group team's observations by playerId.
  *   2. Confidence-weight observed skill values into a single aggregate.
@@ -33,7 +34,7 @@ const POSITION_GROUP_TARGETS: Record<PositionGroup, number> = {
  * Per Doc 4: "All 32 teams maintain internal watch lists." Same player
  * appearing on multiple lists is expected, not deduped.
  */
-export function generateInitialWatchLists(
+export function regenerateWatchLists(
   teams: Readonly<Record<TeamId, TeamState>>,
   scouts: Readonly<Record<ScoutId, Scout>>,
   coaches: Readonly<Record<string, HeadCoach>>,
@@ -68,6 +69,7 @@ export function generateInitialWatchLists(
     const teamObs = obsByTeam.get(teamId) ?? [];
     const needScores = computeNeedScores(team, players);
     out[teamId] = buildWatchListForTeam(
+      teamId,
       teamObs,
       players,
       teams,
@@ -81,6 +83,7 @@ export function generateInitialWatchLists(
 }
 
 function buildWatchListForTeam(
+  teamId: TeamId,
   teamObservations: readonly PlayerObservation[],
   players: Readonly<Record<string, Player>>,
   teams: Readonly<Record<TeamId, TeamState>>,
@@ -103,16 +106,24 @@ function buildWatchListForTeam(
   for (const [playerId, obsList] of byPlayer) {
     const player = players[playerId];
     if (!player) continue;
+    // After a season cycle a previously-observed player may have been
+    // signed/traded to the watching team. Their old observations stay
+    // valid as history, but they're not a watch target anymore — drop
+    // them from the list.
+    if (player.teamId === teamId) continue;
     const aggregated = aggregateObservations(obsList, player);
     const schemeFit = schemeFitForPlayer(player, {
       offensiveScheme: hc.offensiveScheme,
       defensiveScheme: hc.defensiveScheme,
     });
     const need = needScores[player.positionGroup] ?? 1.0;
-    const priority = clamp(
-      aggregated.observedSkillScore * schemeFit * aggregated.meanConfidence * need,
+    // No upper clamp — top targets legitimately score 100+. Clipping
+    // at 100 collapsed star-tier resolution; lots of distinct targets
+    // showed as priority 100.0 and were indistinguishable in the
+    // inspector. Lower bound at 0 stays (composite is always ≥ 0).
+    const priority = Math.max(
       0,
-      100,
+      aggregated.observedSkillScore * schemeFit * aggregated.meanConfidence * need,
     );
     const reason = deriveReason(player, schemeFit, need, teams, coaches);
 

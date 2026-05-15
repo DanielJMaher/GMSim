@@ -16,6 +16,78 @@ _Nothing yet._
 
 ---
 
+## [0.31.0] — 2026-05-15
+
+### Added — Periodic scouting cycle (Doc 4 slice 4)
+
+Scouts now re-evaluate the league every season instead of producing a
+single observation set at league creation. Watch lists regenerate from
+the full observation history, so the FA market reads current
+intelligence rather than year-one snapshots. Lays the substrate the
+Draft Module's college-scouting cycle will inherit.
+
+**Engine:**
+
+- New `advanceScoutingCycle(prng, league, observedOnTick)` in
+  `engine/src/scouting/cycle.ts`. Each scout produces a fresh round
+  of ~8 attributed observations on other-team players in their known
+  specialty group (same logic as the initial sweep, stamped with the
+  current tick). Observations are append-only — historic reports stay
+  as a track record.
+- Wired into `advanceSeason` between `runProactiveTrades` and
+  `refillRosters` so the FA auction reads post-development player
+  skills.
+- `generateInitialWatchLists` → `regenerateWatchLists`. Same function,
+  now idempotent and called every cycle.
+
+**Fixed — watch-list cleanup post-cycle:**
+
+- A previously-observed player who got signed/traded to the watching
+  team was leaving stale entries on that team's list (initial
+  generation excluded own-team via the observation filter, but the
+  cycle path didn't). `regenerateWatchLists` now drops entries where
+  `player.teamId === teamId`, catching active-roster, IR, and
+  practice-squad assignments.
+- A second `regenerateWatchLists` call runs at the *end* of
+  `advanceSeason`, after `refillRosters` + `refillPracticeSquad`, so
+  FA signings + PS poaches don't leave stale entries on the watch list
+  of the team that just acquired the player. Purely a filter pass — no
+  new observations.
+
+**Fixed — priority no longer clamped at 100:**
+
+- Priority composite (`observedSkillScore × schemeFit × meanConfidence
+  × need`) regularly exceeded 100 for top targets, collapsing every
+  star-tier entry to "priority 100.0" in the inspector. Removed the
+  upper clamp so the top of each list visibly differentiates. Lower
+  bound at 0 stays. FA-bidding boost formula still caps at +25%
+  regardless of priority, so no gameplay effect — purely restores
+  inspector resolution.
+
+**Inspector:**
+
+- ScoutCard now shows a `N reports` counter so cycle accumulation is
+  visible at a glance (grows by ~8 each season-advance).
+- Scout Observations panel sorts observations within each team
+  newest-first by `observedOnTick`, so the most recent report
+  bubbles to the top when a player has been observed across multiple
+  cycles.
+
+**Tests:** 7 new (`cycle.test.ts`) — append-only invariant, prior
+observations preserved, watch-list regeneration, determinism,
+integration with `advanceSeason`, multi-season accumulation, and the
+post-cycle own-team-exclusion invariant. Full suite: 447 passing.
+
+**Not in this slice (deferred):**
+
+- Recency-weighted aggregation (old observations weight less). Watch
+  for this when the Draft Module lands and prospects develop visibly
+  across college years.
+- Mid-season observation cycles (waiver-wire reactivity).
+- Knowledge-layer read interface for the eventual game UI.
+
+---
+
 ## [0.30.0] — 2026-05-15
 
 ### Added — Watch lists drive FA bidding (Doc 4 slice 3)
