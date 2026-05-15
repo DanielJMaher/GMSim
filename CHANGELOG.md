@@ -16,6 +16,76 @@ _Nothing yet._
 
 ---
 
+## [0.30.0] — 2026-05-15
+
+### Added — Watch lists drive FA bidding (Doc 4 slice 3)
+
+The scouting pipeline now moves the market. When a player hits the
+auction, each bidder's cash valuation is multiplied by their
+watch-list status — coveted players cost more, instead of the
+winner getting a free sort-order kick at the runner-up's price.
+
+**Bid model:**
+
+- New `watchListMultiplier` per bidder, derived from the team's
+  watch-list entry for the player. Formula:
+  `1 + min(0.25, priority / 100 * 0.3)` — 1.0 for unlisted players,
+  up to ~1.25 for top-priority entries.
+- Multiplier is applied to the **cash** valuation (after the existing
+  fit × need × cap clamp, before the cap-room cap). Cap room remains
+  the natural ceiling — teams still can't bid more than they can pay.
+- `perceivedBid = cashValuation × preferenceMultiplier` — clean
+  two-factor sort. Watch-list conviction lives entirely inside cash.
+- New `FaBidderDetail.cashValuationBaseline` captures the pre-boost
+  cash so the inspector can show "elevated $4.2M → $4.9M (+$0.7M)"
+  without back-deriving the math.
+
+**Why on cash, not on the sort key:**
+
+The original prototype only multiplied watch into `perceivedBid`,
+which meant watch-listed teams won more often but paid the
+runner-up's price — the player was effectively getting a discount
+because the team was determined. Moving the boost into cash means
+high-conviction teams actually bid more dollars, and when two teams
+both covet a player, the final second-price reflects it.
+
+**Inspector — FA-sign detail panel:**
+
+- BiddersTable drops the explicit `×watch` column. Cash bid now shows
+  the boost inline: e.g. `$4.85M (+15%)` in emerald with a tooltip
+  surfacing the baseline and dollar delta.
+- `watch` column shows the reason chip (color-coded by `WatchListReason`)
+  with hover for priority + description.
+- WinnerExplanation calls out the cash elevation explicitly:
+  "Watch-list boost: cash elevated $4.20M → $4.85M (+$0.65M, ×1.155)"
+  with the reason chip and priority. The "without watch boost the
+  runner-up would have outbid X" flip line still fires when the
+  boost was the deciding factor — comparison now uses the winner's
+  baseline cash vs the runner-up's actual cash.
+
+**Tests:** 9 new in `fa-bidding-watch-list.test.ts` (bid formula,
+boost ceiling, `cashValuation ≥ cashValuationBaseline` invariant,
+determinism, monotonic priority→multiplier mapping, fa-sign
+transaction persists fields, aggregate market impact). All 16
+existing FA bidding tests still pass — total FA bidding coverage
+25/25.
+
+**Cap-band note:** allowing cash to exceed the previous [0.7, 1.2] ×
+tier-standard band for watch-listed players is intentional — Doc 4
+calls this out as the realistic price-discovery dynamic. Cap-band
+inflation is bounded by each team's cap-room gate (which still
+filters on `standardY1 + fillUpReserve`), so cap-tight teams stop
+bidding before the fill-up backstop breaks.
+
+**Not in this slice (deferred):**
+
+- Periodic re-observation / list churn over time.
+- Availability signals beyond FA auction (released-player priority,
+  cap-cut signals, depth-chart shifts).
+- Knowledge-layer read interface for the eventual game UI.
+
+---
+
 ## [0.29.0] — 2026-05-15
 
 ### Added — Watch Lists: each team's curated target list (Doc 4)

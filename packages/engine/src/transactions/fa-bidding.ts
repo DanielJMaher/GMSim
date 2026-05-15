@@ -1,9 +1,10 @@
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
-import type { TeamId } from '../types/ids.js';
+import type { TeamId, PlayerId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
 import { MarketSize } from '../types/enums.js';
+import type { WatchListReason } from '../types/scout.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
@@ -65,12 +66,38 @@ export interface FaBidderDetail {
   cashValuation: number;
   /** Player preference for this team, clamped [0.85, 1.15]. */
   preferenceMultiplier: number;
-  /** `cashValuation × preferenceMultiplier` — the auction sort key. */
+  /**
+   * `cashValuation × preferenceMultiplier` — the auction sort key.
+   * Watch-list conviction is folded into `cashValuation` directly
+   * (coveted players cost more), so it does NOT appear as a separate
+   * factor here.
+   */
   perceivedBid: number;
   /** Cap room available to this team at the moment of the auction. */
   capRoomAtTime: number;
   /** Labeled component breakdown of how `preferenceMultiplier` was built. */
   preferenceFactors: PreferenceFactors;
+  /**
+   * Decisiveness multiplier from this team's watch list, applied to
+   * `cashValuation`. 1.0 if the player isn't on the team's list; up to
+   * 1.25 when they're top priority. Per Doc 4 "first-mover advantage" —
+   * teams that scout effectively bid more aggressively on their targets,
+   * so the boost shows up as a higher dollar bid (and a higher final
+   * price when there's competition), not just as a sort-order tiebreaker.
+   */
+  watchListMultiplier: number;
+  /**
+   * Cash bid before the watch-list boost was applied (post-clamp,
+   * pre-capRoom cap). Lets the inspector show how many dollars the
+   * boost added without needing to invert the math. Equal to
+   * `cashValuation / watchListMultiplier` when cap room wasn't the
+   * binding constraint.
+   */
+  cashValuationBaseline: number;
+  /** Watch-list priority for this player on this team, or null. */
+  watchListPriority: number | null;
+  /** Why this player is on the team's watch list, or null. */
+  watchListReason: WatchListReason | null;
 }
 
 /**
@@ -173,10 +200,14 @@ export function auctionFreeAgent(
   const bidders: FaBidderDetail[] = bids.map((b) => ({
     teamId: b.teamId,
     cashValuation: b.cash,
+    cashValuationBaseline: b.cashBaseline,
     preferenceMultiplier: b.preference,
     perceivedBid: b.perceived,
     capRoomAtTime: b.capRoom,
     preferenceFactors: b.preferenceFactors,
+    watchListMultiplier: b.watchListMultiplier,
+    watchListPriority: b.watchListPriority,
+    watchListReason: b.watchListReason,
   }));
 
   return {
@@ -191,10 +222,37 @@ export function auctionFreeAgent(
 interface Bid {
   teamId: TeamId;
   cash: number;
+  cashBaseline: number;
   preference: number;
   perceived: number;
   capRoom: number;
   preferenceFactors: PreferenceFactors;
+  watchListMultiplier: number;
+  watchListPriority: number | null;
+  watchListReason: WatchListReason | null;
+}
+
+/**
+ * Look up this team's watch-list entry for `playerId`, if any, and
+ * convert priority into a bid multiplier in [1.0, 1.25]. Curve scaled
+ * so a top-priority entry (priority ≈ 100) lands near the +25% ceiling
+ * and middling entries (priority ≈ 50) sit around +15%.
+ */
+function watchListBoost(
+  league: LeagueState,
+  teamId: TeamId,
+  playerId: PlayerId,
+): { multiplier: number; priority: number | null; reason: WatchListReason | null } {
+  const list = league.watchLists[teamId];
+  if (!list) return { multiplier: 1, priority: null, reason: null };
+  const entry = list.find((e) => e.playerId === playerId);
+  if (!entry) return { multiplier: 1, priority: null, reason: null };
+  const boost = Math.min(0.25, (entry.priority / 100) * 0.3);
+  return {
+    multiplier: 1 + boost,
+    priority: entry.priority,
+    reason: entry.reason,
+  };
 }
 
 function collectBids(
@@ -231,18 +289,28 @@ function collectBids(
 
     // Effective cash is the team's desired valuation capped at their
     // cap room — they can't bid more than they can pay, but they can
-    // bid less than their full enthusiasm.
-    const desiredCash = computeTeamCashBid(team, player, league, blueprintByPos);
-    const cash = Math.min(desiredCash, capRoom);
+    // bid less than their full enthusiasm. The watch-list boost is
+    // applied AFTER the standard fit/need/cap clamp: a coveted player
+    // legitimately costs more, and that conviction shows up as real
+    // dollars (and a higher second-price for the winner) rather than
+    // a free sort-order kick. Cap room remains the natural ceiling.
+    const baselineCash = computeTeamCashBid(team, player, league, blueprintByPos);
+    const watch = watchListBoost(league, team.identity.id, player.id);
+    const boostedCash = baselineCash * watch.multiplier;
+    const cash = Math.min(boostedCash, capRoom);
 
     const preferenceFactors = computePlayerPreferenceBreakdown(team, player, league);
     bids.push({
       teamId: team.identity.id,
       cash,
+      cashBaseline: baselineCash,
       preference: preferenceFactors.total,
       perceived: cash * preferenceFactors.total,
       capRoom,
       preferenceFactors,
+      watchListMultiplier: watch.multiplier,
+      watchListPriority: watch.priority,
+      watchListReason: watch.reason,
     });
   }
   return bids;

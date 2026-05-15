@@ -1,6 +1,7 @@
 import type { PlayerId, TeamId, ContractId, CoachId, OwnerId } from './ids.js';
 import type { TalentTier } from './player.js';
 import type { LeaguePhase } from './league.js';
+import type { WatchListReason } from './scout.js';
 
 /**
  * Per-bidder detail persisted on `fa-sign` transactions so the
@@ -12,10 +13,22 @@ import type { LeaguePhase } from './league.js';
 export interface FaSignBidder {
   teamId: TeamId;
   cashValuation: number;
+  /** Cash bid before the watch-list boost was applied. */
+  cashValuationBaseline: number;
   preferenceMultiplier: number;
   perceivedBid: number;
   capRoomAtTime: number;
   preferenceFactors: FaSignPreferenceFactors;
+  /**
+   * Watch-list bid multiplier applied to cash (1.0 = not on team's
+   * list). The boost shows up in `cashValuation` directly — coveted
+   * players cost more — not as a separate sort-order kick.
+   */
+  watchListMultiplier: number;
+  /** Watch-list priority on this team's list, or null. */
+  watchListPriority: number | null;
+  /** Reason on this team's watch list, or null. */
+  watchListReason: WatchListReason | null;
 }
 
 /** Labeled breakdown of how `preferenceMultiplier` was constructed. */

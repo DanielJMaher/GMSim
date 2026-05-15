@@ -370,10 +370,14 @@ function signAuctionWinner(
   const txnBidders: FaSignBidder[] = bidders.map((b) => ({
     teamId: b.teamId,
     cashValuation: b.cashValuation,
+    cashValuationBaseline: b.cashValuationBaseline,
     preferenceMultiplier: b.preferenceMultiplier,
     perceivedBid: b.perceivedBid,
     capRoomAtTime: b.capRoomAtTime,
     preferenceFactors: { ...b.preferenceFactors },
+    watchListMultiplier: b.watchListMultiplier,
+    watchListPriority: b.watchListPriority,
+    watchListReason: b.watchListReason,
   }));
   return mergeSigning(league, team, player, contract, runnersUp, txnBidders);
 }

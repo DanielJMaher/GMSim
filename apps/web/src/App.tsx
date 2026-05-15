@@ -1537,9 +1537,25 @@ function BiddersTable({
       <thead className="text-zinc-500">
         <tr>
           <th className="px-1 py-0.5 text-left font-medium">team</th>
-          <th className="px-1 py-0.5 text-right font-medium">cash bid</th>
-          <th className="px-1 py-0.5 text-right font-medium">×preference</th>
-          <th className="px-1 py-0.5 text-right font-medium">=perceived</th>
+          <th
+            className="px-1 py-0.5 text-right font-medium"
+            title="Final dollar bid. Includes any watch-list boost — coveted players cost more."
+          >
+            cash bid
+          </th>
+          <th className="px-1 py-0.5 text-right font-medium">×pref</th>
+          <th
+            className="px-1 py-0.5 text-right font-medium"
+            title="cash × preference. Watch-list boost lives inside cash, not as a separate factor."
+          >
+            =perceived
+          </th>
+          <th
+            className="px-1 py-0.5 text-left font-medium"
+            title="Watch-list status: how aggressively this team's scouting pipeline elevated its bid. Empty = player not on this team's list."
+          >
+            watch
+          </th>
           <th className="px-1 py-0.5 text-right font-medium">cap room</th>
         </tr>
       </thead>
@@ -1547,6 +1563,13 @@ function BiddersTable({
         {bidders.map((b) => {
           const team = league.teams[b.teamId];
           const isWinner = b.teamId === winnerTeamId;
+          const reasonDef = b.watchListReason ? WATCH_LIST_REASON[b.watchListReason] : null;
+          const watchBoostDollars =
+            b.watchListMultiplier > 1 ? b.cashValuation - b.cashValuationBaseline : 0;
+          const cashBoostTitle =
+            b.watchListMultiplier > 1
+              ? `Includes ×${b.watchListMultiplier.toFixed(3)} watch-list boost (+$${(watchBoostDollars / 1e6).toFixed(2)}M over baseline $${(b.cashValuationBaseline / 1e6).toFixed(2)}M)`
+              : `Cash bid (no watch-list boost)`;
           return (
             <tr
               key={b.teamId}
@@ -1558,14 +1581,36 @@ function BiddersTable({
                 {isWinner && <span className="mr-1 text-emerald-400">★</span>}
                 {team?.identity.abbreviation ?? b.teamId}
               </td>
-              <td className="px-1 py-0.5 text-right font-mono">
+              <td
+                className={`px-1 py-0.5 text-right font-mono ${
+                  b.watchListMultiplier > 1 ? 'text-emerald-300' : ''
+                }`}
+                title={cashBoostTitle}
+              >
                 ${(b.cashValuation / 1e6).toFixed(2)}M
+                {b.watchListMultiplier > 1 && (
+                  <span className="ml-1 text-[9px] text-emerald-400/70">
+                    (+{((b.watchListMultiplier - 1) * 100).toFixed(0)}%)
+                  </span>
+                )}
               </td>
               <td className="px-1 py-0.5 text-right font-mono">
                 ×{b.preferenceMultiplier.toFixed(3)}
               </td>
               <td className="px-1 py-0.5 text-right font-mono text-zinc-300">
                 ${(b.perceivedBid / 1e6).toFixed(2)}M
+              </td>
+              <td className="px-1 py-0.5">
+                {reasonDef && b.watchListPriority !== null ? (
+                  <span
+                    title={`${reasonDef.description} · priority ${b.watchListPriority.toFixed(1)}`}
+                    className={`rounded border px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider ${reasonDef.className}`}
+                  >
+                    {reasonDef.label}
+                  </span>
+                ) : (
+                  <span className="text-zinc-700">—</span>
+                )}
               </td>
               <td className="px-1 py-0.5 text-right font-mono text-zinc-500">
                 ${(b.capRoomAtTime / 1e6).toFixed(1)}M
@@ -1614,6 +1659,21 @@ function WinnerExplanation({
   const prefEdge = runnerUp
     ? winner.preferenceMultiplier - runnerUp.preferenceMultiplier
     : 0;
+  const watchBoostDollars =
+    winner.watchListMultiplier > 1 ? winner.cashValuation - winner.cashValuationBaseline : 0;
+
+  const watchReasonDef = winner.watchListReason
+    ? WATCH_LIST_REASON[winner.watchListReason]
+    : null;
+
+  // Hypothetical: strip the winner's watch boost (reduce their cash to
+  // baseline) — would they still beat the runner-up's perceivedBid? If
+  // not, watch boost materially changed the outcome.
+  const watchListFlipped =
+    runnerUp !== undefined &&
+    winner.watchListMultiplier > 1 &&
+    winner.cashValuationBaseline * winner.preferenceMultiplier <
+      runnerUp.cashValuation * runnerUp.preferenceMultiplier;
 
   return (
     <div className="rounded border border-emerald-500/30 bg-emerald-500/5 p-2">
@@ -1632,6 +1692,31 @@ function WinnerExplanation({
             ' (neutral — no specific factors fired)'
           )}
         </div>
+        {winner.watchListPriority !== null && watchReasonDef && (
+          <div>
+            Watch-list boost: cash elevated{' '}
+            <span className="font-mono text-zinc-200">
+              ${(winner.cashValuationBaseline / 1e6).toFixed(2)}M → $
+              {(winner.cashValuation / 1e6).toFixed(2)}M
+            </span>{' '}
+            (+${(watchBoostDollars / 1e6).toFixed(2)}M,{' '}
+            ×{winner.watchListMultiplier.toFixed(3)}){' '}
+            <span
+              title={watchReasonDef.description}
+              className={`rounded border px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider ${watchReasonDef.className}`}
+            >
+              {watchReasonDef.label}
+            </span>
+            <span className="ml-1 text-zinc-500">
+              priority {winner.watchListPriority.toFixed(1)}
+            </span>
+          </div>
+        )}
+        {watchListFlipped && (
+          <div className="text-emerald-300/80">
+            ⤷ Without the watch-list boost the runner-up would have outbid {winnerAbbr}.
+          </div>
+        )}
         {runnerUp && (
           <div className="text-zinc-500">
             vs runner-up {league.teams[runnerUp.teamId]?.identity.abbreviation ?? runnerUp.teamId}:{' '}
