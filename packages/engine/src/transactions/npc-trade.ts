@@ -11,6 +11,9 @@ import {
   evaluateTradePackage,
   type TradePackageEvaluation,
 } from '../trade/value.js';
+import type { AlternativeTradeCandidate } from '../types/transaction.js';
+
+const MAX_ALTERNATIVES_PER_TRADE = 5;
 
 /**
  * Run one weekly pass of NPC-driven trades for players who have an
@@ -105,6 +108,7 @@ export function runWeeklyNpcTrades(
           // teamA = seller in this orientation.
           teamAValue: match.sellerEval,
           teamBValue: match.buyerEval,
+          alternativeCandidates: match.alternatives,
         },
       });
     } catch {
@@ -139,6 +143,13 @@ interface BuyerMatch {
   buyerEval: TradePackageEvaluation;
   /** Seller's perceived value of the swap (acquire return piece, ship requester). */
   sellerEval: TradePackageEvaluation;
+  /**
+   * Other qualified buyers that also passed positional-need + cap +
+   * positive-buyer-net filters but weren't picked. Persisted on the
+   * resulting `fa-sign`'s alternativeCandidates surface so the
+   * inspector can show market interest.
+   */
+  alternatives: readonly AlternativeTradeCandidate[];
 }
 
 /**
@@ -161,6 +172,11 @@ function findBuyer(
   );
 
   let best: BuyerMatch | null = null;
+  // Track every buyer that passed all filters (positional need, cap,
+  // return piece, positive 5-factor net). The best becomes `best`;
+  // the rest are persisted as alternativeCandidates so the inspector
+  // can show "X teams also bid for this player."
+  const qualified: Omit<BuyerMatch, 'alternatives'>[] = [];
   const teamIds = (Object.keys(league.teams) as TeamId[]).sort();
   for (const buyerId of teamIds) {
     if (buyerId === sellerId) continue;
@@ -211,15 +227,38 @@ function findBuyer(
     // Buyer must perceive a positive net — otherwise no one accepts.
     if (buyerEval.netValue <= 0) continue;
 
+    const candidate = {
+      buyerId,
+      returnPieceId: returnPiece.id,
+      need,
+      buyerEval,
+      sellerEval,
+    };
+    qualified.push(candidate);
     if (!best || need > best.need || (need === best.need && buyerId < best.buyerId)) {
-      best = {
-        buyerId,
-        returnPieceId: returnPiece.id,
-        need,
-        buyerEval,
-        sellerEval,
-      };
+      best = { ...candidate, alternatives: [] };
     }
   }
-  return best;
+  if (!best) return null;
+
+  // Build alternatives: every qualified buyer except the winner.
+  // Sorted by buyer netValue descending so the strongest bidders
+  // appear first.
+  const alternatives: AlternativeTradeCandidate[] = qualified
+    .filter((q) => q.buyerId !== best!.buyerId)
+    .sort((a, b) => b.buyerEval.netValue - a.buyerEval.netValue)
+    .slice(0, MAX_ALTERNATIVES_PER_TRADE)
+    .map((q) => ({
+      buyerId: q.buyerId,
+      sellerId,
+      acquireId: requester.id,
+      returnId: q.returnPieceId,
+      buyerNetValue: q.buyerEval.netValue,
+      sellerNetValue: q.sellerEval.netValue,
+      // In the request-driven flow there's only one seller; alternative
+      // buyers lost because we picked someone with deeper need or
+      // earlier-sorted TeamId tiebreak. Always 'lower-priority' here.
+      reason: 'lower-priority' as const,
+    }));
+  return { ...best, alternatives };
 }

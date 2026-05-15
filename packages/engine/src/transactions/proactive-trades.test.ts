@@ -300,6 +300,36 @@ describe('runProactiveTrades', () => {
     expect(trades.length).toBeGreaterThan(0);
   });
 
+  it('end-to-end: at least one trade carries alternativeCandidates after a multi-season run', () => {
+    let league = createLeague({ seed: 'proactive-alt-candidates' });
+    for (let i = 0; i < 3; i++) {
+      league = simulateSeason(league);
+      league = advanceSeason(league);
+    }
+    const tradesWithAlts = league.transactionLog.filter(
+      (t) =>
+        t.kind === 'trade' &&
+        t.alternativeCandidates &&
+        t.alternativeCandidates.length > 0,
+    );
+    expect(tradesWithAlts.length).toBeGreaterThan(0);
+    // Cap is 5 alternatives per trade.
+    for (const t of tradesWithAlts) {
+      if (t.kind !== 'trade') continue;
+      expect(t.alternativeCandidates!.length).toBeLessThanOrEqual(5);
+      // Each alternative carries valid teams + players + a reason.
+      for (const alt of t.alternativeCandidates!) {
+        expect(alt.buyerId).toBeTruthy();
+        expect(alt.sellerId).toBeTruthy();
+        expect(alt.acquireId).toBeTruthy();
+        expect(alt.returnId).toBeTruthy();
+        expect(['buyer-used', 'seller-used', 'lower-priority', 'failed-gate']).toContain(
+          alt.reason,
+        );
+      }
+    }
+  });
+
   it('end-to-end: advanceSeason preserves cap + 53-man roster invariants', () => {
     let league = createLeague({ seed: 'proactive-e2e-advance' });
     league = simulateSeason(league);

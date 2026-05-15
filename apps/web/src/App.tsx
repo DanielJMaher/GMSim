@@ -1204,8 +1204,106 @@ function TradeDetail({
           league={league}
         />
       </div>
+
+      {entry.alternativeCandidates && entry.alternativeCandidates.length > 0 && (
+        <AlternativeCandidatesTable
+          alternatives={entry.alternativeCandidates}
+          league={league}
+        />
+      )}
     </div>
   );
+}
+
+function AlternativeCandidatesTable({
+  alternatives,
+  league,
+}: {
+  alternatives: NonNullable<
+    Extract<Transaction, { kind: 'trade' }>['alternativeCandidates']
+  >;
+  league: LeagueState;
+}) {
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+        {alternatives.length} other trade{alternatives.length === 1 ? '' : 's'} considered
+      </div>
+      <table className="w-full text-[10px]">
+        <thead className="text-zinc-500">
+          <tr>
+            <th className="px-1 py-0.5 text-left font-medium">buyer</th>
+            <th className="px-1 py-0.5 text-left font-medium">seller</th>
+            <th className="px-1 py-0.5 text-left font-medium">acquires</th>
+            <th className="px-1 py-0.5 text-left font-medium">return</th>
+            <th className="px-1 py-0.5 text-right font-medium">buyer net</th>
+            <th className="px-1 py-0.5 text-right font-medium">seller net</th>
+            <th className="px-1 py-0.5 text-left font-medium">why</th>
+          </tr>
+        </thead>
+        <tbody>
+          {alternatives.map((alt, i) => {
+            const buyer = league.teams[alt.buyerId];
+            const seller = league.teams[alt.sellerId];
+            const acquire = league.players[alt.acquireId as PlayerId];
+            const ret = league.players[alt.returnId as PlayerId];
+            return (
+              <tr key={i} className="border-t border-zinc-800/50">
+                <td className="px-1 py-0.5 font-mono text-zinc-300">
+                  {buyer?.identity.abbreviation ?? alt.buyerId}
+                </td>
+                <td className="px-1 py-0.5 font-mono text-zinc-300">
+                  {seller?.identity.abbreviation ?? alt.sellerId}
+                </td>
+                <td className="px-1 py-0.5">
+                  {acquire
+                    ? `${acquire.firstName.charAt(0)}. ${acquire.lastName} (${acquire.tier} ${acquire.position})`
+                    : alt.acquireId}
+                </td>
+                <td className="px-1 py-0.5 text-zinc-500">
+                  {ret
+                    ? `${ret.firstName.charAt(0)}. ${ret.lastName} (${ret.tier} ${ret.position})`
+                    : alt.returnId}
+                </td>
+                <td
+                  className={`px-1 py-0.5 text-right font-mono ${
+                    alt.buyerNetValue >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {alt.buyerNetValue >= 0 ? '+' : ''}${alt.buyerNetValue.toFixed(1)}M
+                </td>
+                <td
+                  className={`px-1 py-0.5 text-right font-mono ${
+                    alt.sellerNetValue >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                  }`}
+                >
+                  {alt.sellerNetValue >= 0 ? '+' : ''}${alt.sellerNetValue.toFixed(1)}M
+                </td>
+                <td className="px-1 py-0.5 text-zinc-500">
+                  {formatAlternativeReason(alt.reason)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatAlternativeReason(reason: string): string {
+  switch (reason) {
+    case 'buyer-used':
+      return 'buyer in other deal';
+    case 'seller-used':
+      return 'seller in other deal';
+    case 'lower-priority':
+      return 'lost out';
+    case 'failed-gate':
+      return 'cap/state shift';
+    default:
+      return reason;
+  }
 }
 
 function formatTradeSourceLabel(source: string | undefined): string | null {

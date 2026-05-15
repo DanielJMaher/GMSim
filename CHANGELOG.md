@@ -16,6 +16,75 @@ _Nothing yet._
 
 ---
 
+## [0.25.0] — 2026-05-14
+
+Surfaces the alternative-candidates list deferred from v0.24. Every
+trade transaction now carries up to 5 alternative trades that were
+considered by the matchmaker but didn't fire, with the reason each
+dropped out. Inspector renders these as a compact table beneath the
+per-team perspective panels — "X teams also considered this trade."
+
+### Added — AlternativeTradeCandidate persistence (engine)
+
+`TransactionTrade` gained an optional `alternativeCandidates:
+readonly AlternativeTradeCandidate[]` field. Each entry carries:
+- `buyerId`, `sellerId`, `acquireId`, `returnId` — the players /
+  teams in the rejected trade
+- `buyerNetValue`, `sellerNetValue` — both teams' 5-factor nets in
+  $M (summary-only; full per-factor breakdowns omitted to keep
+  persistence light)
+- `reason`: one of `'lower-priority'`, `'buyer-used'`, `'seller-used'`,
+  `'failed-gate'` — why the candidate didn't fire
+
+`TradeMetadata.alternativeCandidates` mirrors the field; the trade
+primitive passes it verbatim onto the transaction (no behavioral
+side-effects).
+
+### Added — Alternative capture in `runProactiveTrades` (engine)
+
+The execution loop now tracks every candidate's outcome
+(fires / buyer-used / seller-used / failed-gate). When a trade fires,
+`buildAlternatives` walks both already-processed outcomes and
+yet-to-be-processed candidates to find those that share at least one
+player with the firing trade. Top 5 by combined net value persist on
+the executed transaction.
+
+The "reason" attribution:
+- Already-processed non-firing outcomes carry their actual reason.
+- Upcoming candidates inherit their *future* reason: if their buyer
+  or seller is the firing trade's buyer/seller, they'd be marked
+  buyer-used / seller-used; otherwise they're `lower-priority` —
+  the player they wanted is no longer available on that team.
+
+### Added — Alternative buyers in `runWeeklyNpcTrades` (engine)
+
+`findBuyer` previously picked the single best buyer and discarded the
+rest. Now collects every qualified buyer (positional need + cap room
++ positive 5-factor buyer net) and surfaces the top 5 runners-up as
+alternatives on the resulting transaction. All marked
+`'lower-priority'` since this pipeline picks one winner per request.
+
+### Added — Inspector alternatives section (web)
+
+`TradeDetail` gains a new compact table below the per-team breakdowns
+when `alternativeCandidates` is populated. Columns: buyer abbr,
+seller abbr, acquired player, return piece, buyer net (green/red),
+seller net (green/red), and a human-readable reason chip ("buyer in
+other deal", "seller in other deal", "lost out", "cap/state shift").
+
+Empty alternatives → section hidden. Pre-v0.25 trades have no
+alternatives field and continue to render the v0.24 detail panel
+unchanged.
+
+1 new end-to-end test in `proactive-trades.test.ts`:
+- multi-season run produces at least one trade with non-empty
+  alternativeCandidates; each alternative has valid IDs + a reason
+  in the expected union; alternatives capped at 5 per trade.
+
+406 tests passing (was 405 at v0.24.0).
+
+---
+
 ## [0.24.0] — 2026-05-14
 
 Ships Doc 14's 5-factor trade-value evaluator and the trade detail

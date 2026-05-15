@@ -152,6 +152,42 @@ export interface TransactionTrade extends TransactionBase {
   teamAValue?: TradeValueEvaluation;
   /** Doc 14 5-factor evaluation from team B's perspective. */
   teamBValue?: TradeValueEvaluation;
+  /**
+   * Other trades that the matchmaking pass considered involving the
+   * same primary players but didn't fire — typically because a higher-
+   * priority trade consumed the buyer/seller slot, the candidate
+   * failed the 5-factor gate, or league state shifted between
+   * scoring and execution. Top 5 by combined net value, omitted when
+   * empty. Lets the inspector surface "market context" alongside the
+   * trade that actually fired.
+   */
+  alternativeCandidates?: readonly AlternativeTradeCandidate[];
+}
+
+/**
+ * Compact summary of a trade that was considered but didn't fire.
+ * Mirrors the executed trade's shape but without the full 5-factor
+ * breakdowns — just per-team net values and the reason the
+ * candidate dropped out. Inspector renders these as a "X teams also
+ * considered this" list.
+ */
+export interface AlternativeTradeCandidate {
+  buyerId: TeamId;
+  sellerId: TeamId;
+  /** Player the buyer would have acquired (moves seller → buyer). */
+  acquireId: PlayerId;
+  /** Player the buyer would have sent back (moves buyer → seller). */
+  returnId: PlayerId;
+  /** Buyer's perceived net value in $M. Always > 0 for candidates that passed the gate. */
+  buyerNetValue: number;
+  /** Seller's perceived net value in $M. May be ≤ 0 for failed-gate alternatives. */
+  sellerNetValue: number;
+  /** Why this candidate didn't fire. */
+  reason:
+    | 'lower-priority'
+    | 'buyer-used'
+    | 'seller-used'
+    | 'failed-gate';
 }
 
 /**

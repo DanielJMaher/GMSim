@@ -55,6 +55,8 @@ export interface TradeMetadata {
   teamAValue?: import('../trade/value.js').TradePackageEvaluation;
   /** Doc 14 5-factor breakdown from team B's perspective. */
   teamBValue?: import('../trade/value.js').TradePackageEvaluation;
+  /** Other trades considered but not fired — see TransactionTrade docs. */
+  alternativeCandidates?: readonly import('../types/transaction.js').AlternativeTradeCandidate[];
 }
 
 /**
@@ -148,6 +150,9 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     ...(meta?.source ? { source: meta.source } : {}),
     ...(meta?.teamAValue ? { teamAValue: meta.teamAValue } : {}),
     ...(meta?.teamBValue ? { teamBValue: meta.teamBValue } : {}),
+    ...(meta?.alternativeCandidates && meta.alternativeCandidates.length > 0
+      ? { alternativeCandidates: meta.alternativeCandidates }
+      : {}),
   };
 
   return {

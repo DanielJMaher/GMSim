@@ -17,6 +17,10 @@ import {
   evaluateTradePackage,
   type TradePackageEvaluation,
 } from '../trade/value.js';
+import type { AlternativeTradeCandidate } from '../types/transaction.js';
+
+/** Max alternatives persisted on each fired trade transaction. */
+const MAX_ALTERNATIVES_PER_TRADE = 5;
 
 /**
  * Both sides of a proactive trade must retain at least this much cap
@@ -97,13 +101,30 @@ export function runProactiveTrades(
   const usedTeams = new Set<TeamId>();
   let working = league;
 
+  // Track each candidate's outcome as we walk the priority-sorted
+  // list. Used to populate `alternativeCandidates` on each fired
+  // trade with the trades that shared a player but didn't fire.
+  const outcomes: CandidateOutcome[] = [];
+
   for (const c of candidates) {
-    if (usedTeams.has(c.buyerId) || usedTeams.has(c.sellerId)) continue;
+    if (usedTeams.has(c.buyerId)) {
+      outcomes.push({ candidate: c, outcome: 'buyer-used' });
+      continue;
+    }
+    if (usedTeams.has(c.sellerId)) {
+      outcomes.push({ candidate: c, outcome: 'seller-used' });
+      continue;
+    }
 
     // Re-validate against the latest state — a prior trade may have
     // moved one of the players or shifted cap room. Skip silently on
     // any inconsistency rather than throwing.
-    if (!tradeStillValid(working, c)) continue;
+    if (!tradeStillValid(working, c)) {
+      outcomes.push({ candidate: c, outcome: 'failed-gate' });
+      continue;
+    }
+
+    const alternativeCandidates = buildAlternatives(c, outcomes, candidates);
 
     try {
       working = executeTrade(working, {
@@ -120,16 +141,92 @@ export function runProactiveTrades(
           // teamA = buyer in our orientation.
           teamAValue: c.buyerEval,
           teamBValue: c.sellerEval,
+          alternativeCandidates,
         },
       });
     } catch {
+      outcomes.push({ candidate: c, outcome: 'failed-gate' });
       continue;
     }
+    outcomes.push({ candidate: c, outcome: 'fires' });
     usedTeams.add(c.buyerId);
     usedTeams.add(c.sellerId);
   }
 
   return working;
+}
+
+interface CandidateOutcome {
+  candidate: TradeCandidate;
+  outcome: 'fires' | 'buyer-used' | 'seller-used' | 'failed-gate';
+}
+
+/**
+ * Surface the top {@link MAX_ALTERNATIVES_PER_TRADE} candidates that
+ * share at least one player with the firing trade and didn't fire.
+ * Drawn from both already-processed outcomes (visible reasons) and
+ * yet-to-be-processed candidates (they will become buyer-used or
+ * seller-used once `fired` executes).
+ */
+function buildAlternatives(
+  fired: TradeCandidate,
+  processedOutcomes: readonly CandidateOutcome[],
+  allCandidates: readonly TradeCandidate[],
+): AlternativeTradeCandidate[] {
+  const sharedPlayerIds = new Set<PlayerId>([fired.acquireId, fired.returnId]);
+  const results: AlternativeTradeCandidate[] = [];
+  const seen = new Set<TradeCandidate>();
+
+  for (const o of processedOutcomes) {
+    if (o.outcome === 'fires') continue;
+    if (!sharesPlayer(o.candidate, sharedPlayerIds)) continue;
+    results.push(toAlternative(o.candidate, o.outcome));
+    seen.add(o.candidate);
+  }
+
+  for (const u of allCandidates) {
+    if (u === fired) continue;
+    if (seen.has(u)) continue;
+    if (processedOutcomes.some((o) => o.candidate === u)) continue;
+    if (!sharesPlayer(u, sharedPlayerIds)) continue;
+    let reason: AlternativeTradeCandidate['reason'];
+    if (u.buyerId === fired.buyerId || u.buyerId === fired.sellerId) {
+      reason = 'buyer-used';
+    } else if (u.sellerId === fired.buyerId || u.sellerId === fired.sellerId) {
+      reason = 'seller-used';
+    } else {
+      reason = 'lower-priority';
+    }
+    results.push(toAlternative(u, reason));
+  }
+
+  results.sort(
+    (a, b) =>
+      b.buyerNetValue + b.sellerNetValue - (a.buyerNetValue + a.sellerNetValue),
+  );
+  return results.slice(0, MAX_ALTERNATIVES_PER_TRADE);
+}
+
+function sharesPlayer(
+  candidate: TradeCandidate,
+  ids: ReadonlySet<PlayerId>,
+): boolean {
+  return ids.has(candidate.acquireId) || ids.has(candidate.returnId);
+}
+
+function toAlternative(
+  c: TradeCandidate,
+  reason: AlternativeTradeCandidate['reason'],
+): AlternativeTradeCandidate {
+  return {
+    buyerId: c.buyerId,
+    sellerId: c.sellerId,
+    acquireId: c.acquireId,
+    returnId: c.returnId,
+    buyerNetValue: c.buyerEval.netValue,
+    sellerNetValue: c.sellerEval.netValue,
+    reason,
+  };
 }
 
 interface TradeCandidate {
