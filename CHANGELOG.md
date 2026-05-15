@@ -16,6 +16,28 @@ _Nothing yet._
 
 ---
 
+## [0.27.1] — 2026-05-15
+
+### Added — `PlayerDetail` expand in FA pool + trade builder (web)
+
+Extends the v0.27.0 click-to-expand surface to the other player tables
+so "click a player anywhere and see all their stats/ratings" is
+consistent across the inspector.
+
+- **Free Agent Pool** — row click toggles the expanded `PlayerDetail`
+  panel. Detail shows "free agent" in place of contract terms (the
+  panel already handled the null-contract case).
+- **Trade Builder roster columns** — row click still toggles selection
+  (unchanged, since that's the primary affordance for building a
+  trade). A new leading `▶` cell expands the detail panel; its
+  `onClick` stops propagation so selection and expand are independent.
+  Selection highlight (amber) and expand highlight (zinc) layer
+  cleanly.
+
+No engine changes.
+
+---
+
 ## [0.27.0] — 2026-05-15
 
 ### Added — Click-to-expand player detail panel (web)

@@ -297,6 +297,7 @@ function LeagueOverview({ league }: { league: LeagueState }) {
 
 function FreeAgentPoolPanel({ league }: { league: LeagueState }) {
   const [expanded, setExpanded] = useState(false);
+  const [expandedPlayerId, setExpandedPlayerId] = useState<PlayerId | null>(null);
   const fas = useMemo(() => freeAgents(league), [league]);
   const tierCounts = useMemo(() => {
     const counts = { STAR: 0, STARTER: 0, BACKUP: 0, FRINGE: 0 };
@@ -368,24 +369,42 @@ function FreeAgentPoolPanel({ league }: { league: LeagueState }) {
               </tr>
             </thead>
             <tbody>
-              {topFAs.map((player) => (
-                <tr key={player.id} className="border-t border-zinc-800/60">
-                  <td className="px-2 py-1">
-                    {player.firstName} {player.lastName}
-                  </td>
-                  <td className="px-2 py-1 font-mono text-zinc-400">{player.position}</td>
-                  <td className="px-2 py-1 text-zinc-400">{player.tier.toLowerCase()}</td>
-                  <td className="px-2 py-1 text-zinc-500">
-                    {player.archetype.toLowerCase().replace(/_/g, ' ')}
-                  </td>
-                  <td className="px-2 py-1 text-right font-mono text-zinc-400">
-                    {ageOfPlayer(player, league.seasonNumber)}
-                  </td>
-                  <td className="px-2 py-1 text-right font-mono text-zinc-300">
-                    {avgKeySkill(player).toFixed(0)}
-                  </td>
-                </tr>
-              ))}
+              {topFAs.map((player) => {
+                const isOpen = expandedPlayerId === player.id;
+                return (
+                  <React.Fragment key={player.id}>
+                    <tr
+                      className={`cursor-pointer border-t border-zinc-800/60 hover:bg-zinc-900/60 ${
+                        isOpen ? 'bg-zinc-900/40' : ''
+                      }`}
+                      onClick={() => setExpandedPlayerId(isOpen ? null : player.id)}
+                    >
+                      <td className="px-2 py-1">
+                        <span className="mr-1 text-zinc-600">{isOpen ? '▼' : '▶'}</span>
+                        {player.firstName} {player.lastName}
+                      </td>
+                      <td className="px-2 py-1 font-mono text-zinc-400">{player.position}</td>
+                      <td className="px-2 py-1 text-zinc-400">{player.tier.toLowerCase()}</td>
+                      <td className="px-2 py-1 text-zinc-500">
+                        {player.archetype.toLowerCase().replace(/_/g, ' ')}
+                      </td>
+                      <td className="px-2 py-1 text-right font-mono text-zinc-400">
+                        {ageOfPlayer(player, league.seasonNumber)}
+                      </td>
+                      <td className="px-2 py-1 text-right font-mono text-zinc-300">
+                        {avgKeySkill(player).toFixed(0)}
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="border-t border-zinc-800/60 bg-zinc-950/60">
+                        <td colSpan={6} className="px-3 py-3">
+                          <PlayerDetail player={player} league={league} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
               {fas.length > topFAs.length && (
                 <tr className="border-t border-zinc-800/60 text-center text-zinc-600">
                   <td colSpan={6} className="py-2">
@@ -2290,6 +2309,7 @@ function TradeRosterColumn({
   onToggle: (id: PlayerId) => void;
   deadMoney: number;
 }) {
+  const [expandedPlayerId, setExpandedPlayerId] = useState<PlayerId | null>(null);
   const players = team.rosterIds
     .map((id) => league.players[id]!)
     .sort((a, b) => avgKeySkill(b) - avgKeySkill(a));
@@ -2307,26 +2327,45 @@ function TradeRosterColumn({
             {players.map((p) => {
               const c = p.contractId ? league.contracts[p.contractId] : null;
               const cap = c ? currentCapHit(c) : 0;
+              const isOpen = expandedPlayerId === p.id;
               return (
-                <tr
-                  key={p.id}
-                  className={`cursor-pointer border-t border-zinc-800/60 hover:bg-amber-500/5 ${selected.has(p.id) ? 'bg-amber-500/15' : ''}`}
-                  onClick={() => onToggle(p.id)}
-                >
-                  <td className="px-1 py-0.5 font-mono text-zinc-500">{p.position}</td>
-                  <td className="px-1 py-0.5">
-                    {p.firstName.charAt(0)}. {p.lastName}
-                  </td>
-                  <td className={`px-1 py-0.5 text-[10px] font-mono ${tierToneFor(p.tier)}`}>
-                    {p.tier.toLowerCase()}
-                  </td>
-                  <td className="px-1 py-0.5 text-right font-mono text-zinc-400">
-                    {formatMoney(cap)}
-                  </td>
-                  <td className="px-1 py-0.5 text-right text-zinc-500">
-                    {c?.yearsRemaining ?? '-'}y
-                  </td>
-                </tr>
+                <React.Fragment key={p.id}>
+                  <tr
+                    className={`cursor-pointer border-t border-zinc-800/60 hover:bg-amber-500/5 ${selected.has(p.id) ? 'bg-amber-500/15' : ''}`}
+                    onClick={() => onToggle(p.id)}
+                  >
+                    <td
+                      className="px-1 py-0.5 text-zinc-600 hover:text-zinc-300"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedPlayerId(isOpen ? null : p.id);
+                      }}
+                      title="Show detail"
+                    >
+                      {isOpen ? '▼' : '▶'}
+                    </td>
+                    <td className="px-1 py-0.5 font-mono text-zinc-500">{p.position}</td>
+                    <td className="px-1 py-0.5">
+                      {p.firstName.charAt(0)}. {p.lastName}
+                    </td>
+                    <td className={`px-1 py-0.5 text-[10px] font-mono ${tierToneFor(p.tier)}`}>
+                      {p.tier.toLowerCase()}
+                    </td>
+                    <td className="px-1 py-0.5 text-right font-mono text-zinc-400">
+                      {formatMoney(cap)}
+                    </td>
+                    <td className="px-1 py-0.5 text-right text-zinc-500">
+                      {c?.yearsRemaining ?? '-'}y
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="border-t border-zinc-800/60 bg-zinc-950/80">
+                      <td colSpan={6} className="px-3 py-3">
+                        <PlayerDetail player={p} league={league} />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>
