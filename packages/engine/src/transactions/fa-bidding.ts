@@ -7,6 +7,7 @@ import { MarketSize } from '../types/enums.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
+import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 /**
  * Free-agent bidding auction — v0.20.0 Doc 7 follow-up.
  *
@@ -214,13 +215,19 @@ function collectBids(
     if (blueprintCount > 0 && have >= blueprintCount) continue;
 
     // Cap-room filter: team must be able to clear the tier's *standard*
-    // Y1 hit. Filtering on the team's full computed cash bid was too
-    // strict — it rejected scheme-perfect teams whose elevated cash bid
-    // exceeded their cap room, even when they could still afford the
-    // standard deal. Pre-v0.20 used this same floor, so existing
-    // roster + cap-band tests rely on it.
+    // Y1 hit AND retain enough cap room to fill the remaining roster
+    // slots at league minimum. Without the fill-up reserve, a favored
+    // team (good HC + favorable preference) can win 4-6 auctions in
+    // sequence, each individually passing this gate, and end the
+    // offseason with $0.4M cap room — below `LEAGUE_MINIMUM_SALARY`
+    // so the fill-up backstop can't reach them, leaving the team at
+    // 45-50/53 instead of 53/53. The reservation forces teams to
+    // stop bidding earlier and lets fill-up complete the roster.
+    // Resolves the v0.20.0 long-horizon roster-shortfall residual.
     const capRoom = league.salaryCap - teamCapUsage(team, league);
-    if (capRoom < standardY1) continue;
+    const remainingSlotsAfterSigning = Math.max(0, 53 - team.rosterIds.length - 1);
+    const fillUpReserve = remainingSlotsAfterSigning * LEAGUE_MINIMUM_SALARY;
+    if (capRoom < standardY1 + fillUpReserve) continue;
 
     // Effective cash is the team's desired valuation capped at their
     // cap room — they can't bid more than they can pay, but they can

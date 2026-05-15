@@ -16,6 +16,70 @@ _Nothing yet._
 
 ---
 
+## [0.26.0] — 2026-05-14
+
+Closes the long-horizon roster-shortfall residual that's been carried
+as a known limitation since v0.20.0. The mechanism: a favored team
+could win 4-6 auctions in sequence (each passing the cap-room filter
+individually), then end the offseason at $254M cap / $0.4M room —
+below `LEAGUE_MINIMUM_SALARY` ($900k) — leaving the fill-up backstop
+unable to reach them. Result: teams stuck at 45-50/53 instead of 53.
+
+### Fixed — Reserve fill-up cap room in the auction filter (engine)
+
+`fa-bidding.ts` cap-room gate changed from:
+
+```ts
+if (capRoom < standardY1) continue;
+```
+
+to:
+
+```ts
+const remainingSlotsAfterSigning = Math.max(0, 53 - team.rosterIds.length - 1);
+const fillUpReserve = remainingSlotsAfterSigning * LEAGUE_MINIMUM_SALARY;
+if (capRoom < standardY1 + fillUpReserve) continue;
+```
+
+A team can no longer bid on an FA unless they retain enough cap room
+to fill every remaining roster slot at league minimum. Cap-rich
+teams keep winning; cap-pinched teams correctly drop out of bidding
+earlier and let the fill-up pass complete their roster.
+
+### Diagnosis
+
+Approach mirrored the v0.20 diagnostic: instrument-then-fix instead
+of guess-and-tweak. Wrote a one-off diagnostic that traced per-team
+roster count + cap usage across every season for 10 seasons on the
+`validate-1` seed. Every offending season fingerprinted the same:
+`cap ≥ $254M, room ≤ $1M`. That's below the `LEAGUE_MINIMUM_SALARY`
+fill-up threshold, so fill-up couldn't bring the team back to 53.
+
+Pre-fix: 5 teams hit non-53 at least once across 10 seasons of
+`validate-1`, with some seasons as bad as 42/53. Post-fix: 1
+transient team-season (LV s1 at 51/53, recovers by s2) — a residual
+fresh-league quirk where the initial cap-cuts state was already so
+tight no reserve could help.
+
+### Verified
+
+- All 3 validate-progression seeds end at 53/53 across every team
+  after 10 seasons (was 3+1 teams off-53 pre-fix).
+- Roster-shortfall diagnostic across all 3 seeds: 0/0/0 violations
+  at s10. Across ~960 team-seasons of testing: 1 transient s1
+  off-by-2 case.
+- Full engine suite: 407 tests passing (was 406).
+
+### Known leftover
+
+LV s1 in seed `validate-1` ends at 51/53 — fresh-league initial
+state was too cap-pinched for even the new reserve to help. Self-
+corrects by s2. Not pursuing further; the cost of fixing the
+initial-generation cap pressure exceeds the value of catching one
+team-season out of 960.
+
+---
+
 ## [0.25.0] — 2026-05-14
 
 Surfaces the alternative-candidates list deferred from v0.24. Every
