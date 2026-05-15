@@ -130,6 +130,58 @@ export interface TransactionTrade extends TransactionBase {
   deadMoneyTeamA: number;
   /** Dead money accrued to team B from accelerated proration on traded-away players. */
   deadMoneyTeamB: number;
+  /**
+   * Team that initiated the trade conversation. Optional — manual /
+   * pre-v0.24 trades omit it. For proactive trades the initiator is
+   * the buyer (team identifying the need); for request-driven trades
+   * it's the team that found a buyer for an open trade request.
+   */
+  initiatorTeamId?: TeamId;
+  /**
+   * Which trade pipeline produced this transaction. Optional —
+   * pre-v0.24 saves omit it. `manual` covers direct calls to
+   * `executeTrade` from outside the automated pipelines (e.g. test
+   * scenarios, inspector trade builder).
+   */
+  source?:
+    | 'proactive-need'
+    | 'proactive-fit-swap'
+    | 'request-driven'
+    | 'manual';
+  /** Doc 14 5-factor evaluation from team A's perspective. */
+  teamAValue?: TradeValueEvaluation;
+  /** Doc 14 5-factor evaluation from team B's perspective. */
+  teamBValue?: TradeValueEvaluation;
+}
+
+/**
+ * One team's perceived value of a trade. Mirrors
+ * `TradePackageEvaluation` from `trade/value.ts`, redeclared here to
+ * keep the types layer free of an inbound dependency on a transaction-
+ * adjacent module.
+ */
+export interface TradeValueEvaluation {
+  received: readonly { playerId: string; breakdown: TradeValueBreakdown }[];
+  given: readonly { playerId: string; breakdown: TradeValueBreakdown }[];
+  netValue: number;
+}
+
+/** Doc 14 5-factor breakdown — all values in $M. */
+export interface TradeValueBreakdown {
+  total: number;
+  totalDollars: number;
+  factors: {
+    ability: TradeValueFactor;
+    schemeFit: TradeValueFactor;
+    ageContract: TradeValueFactor;
+    positional: TradeValueFactor;
+    timing: TradeValueFactor;
+  };
+}
+
+export interface TradeValueFactor {
+  multiplier: number;
+  rationale: string;
 }
 
 export interface TransactionIrMove extends TransactionBase {

@@ -28,6 +28,33 @@ export interface TradePayload {
    * Defaults to false — the clause blocks the trade.
    */
   overrideNoTrade?: boolean;
+  /**
+   * Optional metadata propagated to the `trade` transaction. Pure
+   * pass-through — `executeTrade` doesn't read these for any decision,
+   * they exist so the transaction log can carry the *why* alongside
+   * the *what*. Inspector reads these to render the trade-detail panel.
+   */
+  metadata?: TradeMetadata;
+}
+
+/**
+ * Provenance + valuation metadata that an automated trade pipeline
+ * (proactive trades, NPC trade-request matcher) attaches to the
+ * resulting transaction. Manual / hand-constructed trades omit this.
+ */
+export interface TradeMetadata {
+  /** Team that initiated the conversation. */
+  initiatorTeamId?: TeamId;
+  /** What pipeline produced the trade. */
+  source?:
+    | 'proactive-need'
+    | 'proactive-fit-swap'
+    | 'request-driven'
+    | 'manual';
+  /** Doc 14 5-factor breakdown from team A's perspective. */
+  teamAValue?: import('../trade/value.js').TradePackageEvaluation;
+  /** Doc 14 5-factor breakdown from team B's perspective. */
+  teamBValue?: import('../trade/value.js').TradePackageEvaluation;
 }
 
 /**
@@ -106,6 +133,7 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     deadMoneyByYear: addToYear(teamB.deadMoneyByYear, 0, deadB),
   };
 
+  const meta = payload.metadata;
   const entry: Transaction = {
     kind: 'trade',
     tick: league.tick,
@@ -116,6 +144,10 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     playersBToA: [...payload.playersBToA],
     deadMoneyTeamA: deadA,
     deadMoneyTeamB: deadB,
+    ...(meta?.initiatorTeamId ? { initiatorTeamId: meta.initiatorTeamId } : {}),
+    ...(meta?.source ? { source: meta.source } : {}),
+    ...(meta?.teamAValue ? { teamAValue: meta.teamAValue } : {}),
+    ...(meta?.teamBValue ? { teamBValue: meta.teamBValue } : {}),
   };
 
   return {

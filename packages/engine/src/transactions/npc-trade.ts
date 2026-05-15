@@ -7,6 +7,10 @@ import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
 import { executeTrade } from './trade.js';
 import { MOOD_BASELINE } from '../season/mood.js';
+import {
+  evaluateTradePackage,
+  type TradePackageEvaluation,
+} from '../trade/value.js';
 
 /**
  * Run one weekly pass of NPC-driven trades for players who have an
@@ -92,6 +96,16 @@ export function runWeeklyNpcTrades(
         playersAToB: [playerId],
         playersBToA: [match.returnPieceId],
         overrideNoTrade: true,
+        metadata: {
+          // Initiator is the buyer — they're the one filling a hole;
+          // the seller is essentially in fire-sale mode honoring an
+          // open trade request.
+          initiatorTeamId: match.buyerId,
+          source: 'request-driven',
+          // teamA = seller in this orientation.
+          teamAValue: match.sellerEval,
+          teamBValue: match.buyerEval,
+        },
       });
     } catch {
       // executeTrade enforces invariants; if our chosen match falls foul
@@ -121,6 +135,10 @@ interface BuyerMatch {
   buyerId: TeamId;
   returnPieceId: PlayerId;
   need: number;
+  /** Buyer's perceived value of the swap (acquire requester, ship return piece). */
+  buyerEval: TradePackageEvaluation;
+  /** Seller's perceived value of the swap (acquire return piece, ship requester). */
+  sellerEval: TradePackageEvaluation;
 }
 
 /**
@@ -182,8 +200,25 @@ function findBuyer(
     const returnPiece = returnCandidates[0];
     if (!returnPiece) continue;
 
+    // 5-factor evaluation from both sides. The seller has an open
+    // trade request (player is wants_out) so they're motivated to
+    // move regardless of pure value math — `runWeeklyNpcTrades` is
+    // wish-granting, not value-optimizing. We still record the
+    // seller's evaluation so the inspector can show the asymmetry.
+    const seller = league.teams[sellerId]!;
+    const buyerEval = evaluateTradePackage(buyer, [requester], [returnPiece], league);
+    const sellerEval = evaluateTradePackage(seller, [returnPiece], [requester], league);
+    // Buyer must perceive a positive net — otherwise no one accepts.
+    if (buyerEval.netValue <= 0) continue;
+
     if (!best || need > best.need || (need === best.need && buyerId < best.buyerId)) {
-      best = { buyerId, returnPieceId: returnPiece.id, need };
+      best = {
+        buyerId,
+        returnPieceId: returnPiece.id,
+        need,
+        buyerEval,
+        sellerEval,
+      };
     }
   }
   return best;

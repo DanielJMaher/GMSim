@@ -158,10 +158,22 @@ export {
 export type {
   SignFreeAgentOptions,
   TradePayload,
+  TradeMetadata,
   FaAuctionResult,
   FaBidderDetail,
   PreferenceFactors,
 } from './transactions/index.js';
+
+// Trade-value evaluator (Doc 14 5-factor)
+export {
+  evaluatePlayerValue,
+  evaluateTradePackage,
+} from './trade/value.js';
+export type {
+  PlayerValueBreakdown,
+  TradePackageEvaluation,
+  ValueFactor,
+} from './trade/value.js';
 
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';

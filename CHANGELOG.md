@@ -16,6 +16,127 @@ _Nothing yet._
 
 ---
 
+## [0.24.0] — 2026-05-14
+
+Ships Doc 14's 5-factor trade-value evaluator and the trade detail
+panel that closes the second half of the user's transaction-detail
+ask from v0.22. Every trade transaction now carries both teams'
+labeled 5-factor breakdowns, and the inspector renders them inline
+on a clickable row.
+
+### Added — Doc 14 five-factor trade-value evaluator (engine)
+
+New `packages/engine/src/trade/value.ts`:
+- `evaluatePlayerValue(team, player, league) → PlayerValueBreakdown` —
+  per-team perceived value of a single player, in $M of cap-equivalent
+  dollars. Each factor returns a labeled `multiplier` + `rationale`
+  string the inspector renders verbatim.
+- `evaluateTradePackage(team, incoming, outgoing, league) → TradePackageEvaluation` —
+  multi-player package eval; returns per-asset breakdowns + `netValue`
+  (positive = team perceives a gain).
+
+The five factors (Doc 14 §Player Evaluation Framework):
+1. **Ability** — skill summary vs tier baseline + career-award bumps
+   (+5%/award capped at +25%). Pro Bowl + scout-report consensus
+   slots deferred until those features land (Phase 4).
+2. **Scheme fit** — `schemeFitForPlayer` mapped from raw [0.5, 1.7]
+   to a [0.7, 1.4] multiplier. "Perfect fit" / "good fit" /
+   "neutral" / "poor fit" labels.
+3. **Age & contract** — age-curve multiplier (rookie upside ×1.10;
+   prime 25-29 ×1.0; declining ×0.9; veteran ×0.75; aging ×0.55)
+   combined with contract-structure multiplier (rental discount,
+   multi-year cost-certainty premium, expensive-contract penalty
+   step of 5% per $5M over tier-expected Y1 hit, capped at -25%).
+4. **Positional** — Doc 14 hierarchy. QB ×2.0, EDGE ×1.6, LT ×1.4,
+   CB/WR ×1.3, S/RT ×1.1, C/DT/LB/G ×1.0, RB/TE ×0.9, NT ×0.85,
+   FB/K/P ×0.55-0.6, LS ×0.4.
+5. **Timing** — buyer's `competitiveWindow` × player tier × age.
+   CHAMPIONSHIP/CONTENDER pay win-now premium for veteran
+   STAR/STARTERs (×1.15/1.10). REBUILDING pays a premium for young
+   STAR/STARTERs (×1.15) and a discount for veterans (×0.80).
+   STAGNANT/RETOOLING posture cautiously (×0.95).
+
+`value = tierBase × ability × schemeFit × ageContract × positional × timing`,
+all in $M. Tier bases: STAR $28M, STARTER $10M, BACKUP $3M, FRINGE
+$0.9M.
+
+### Changed — Trade pipelines gate on mutual perceived value (engine)
+
+Both the v0.17 trade-request matcher (`runWeeklyNpcTrades`) and the
+v0.21 proactive trades (`runProactiveTrades`) now compute each side's
+5-factor `netValue` and gate trade execution on it:
+
+- **Proactive trades**: a candidate fires only when **both** the
+  buyer's and seller's `netValue > 0`. Priority is the sum of mutual
+  gain in $M, so trades that improve both rosters the most rank
+  first. The existing willing-seller heuristics (surplus / rebuilder
+  / STAR-only-from-rebuilders) remain as candidate-search-space
+  filters but the 5-factor gate is the principled accept/reject.
+- **Request-driven trades**: the buyer's `netValue` must be positive
+  (buyer won't accept a player they don't value). The seller's
+  evaluation is recorded for the inspector but doesn't gate — the
+  player has demanded a move, so the seller is in fire-sale mode
+  honoring the request.
+
+**Behavioral shift worth noting**: under the v0.21 heuristic, a
+rebuilder seller would accept any "STARTER for BACKUP" trade. Under
+the 5-factor gate, they correctly reject lopsided deals — a rebuilder
+giving up a $12M-value STARTER for a $3M-value BACKUP perceives a
+$9M loss. Until Doc 3 (draft picks) ships, Pass 1 positional-need
+trades will be rare; Pass 2 scheme-fit swaps (same-tier same-position
+swaps where both teams improve fit) carry the bulk of trade volume.
+This more closely matches real NFL trade patterns.
+
+### Added — Trade metadata on `TradePayload` + `TransactionTrade` (engine)
+
+`TradePayload` gained an optional `metadata: TradeMetadata` field
+that `executeTrade` propagates verbatim onto the resulting
+transaction. Manual / pre-v0.24 trades omit it. `TradeMetadata`
+carries:
+- `initiatorTeamId?: TeamId` — which team kicked off the conversation
+- `source?: 'proactive-need' | 'proactive-fit-swap' | 'request-driven' | 'manual'`
+- `teamAValue?: TradePackageEvaluation`
+- `teamBValue?: TradePackageEvaluation`
+
+`TransactionTrade` mirrors these as optional fields so the
+transaction log preserves the full reasoning. Pre-v0.24 saves load
+unchanged.
+
+### Added — Inspector trade detail panel (web)
+
+`trade` rows in the transaction log are now clickable when the
+v0.24 metadata is present (back-compat: pre-v0.24 trades stay flat).
+Expanding shows:
+- Header: both team abbreviations, source label (e.g. "Proactive —
+  scheme-fit swap"), initiator team chip
+- Two side-by-side perspective panels, one per team:
+  - Net value chip (`net +$4.2M` in emerald / `net -$1.1M` in rose)
+  - "Receiving" + "Giving up" asset lists, each with per-player
+    total $M and a 5-factor breakdown line (`Ability ×0.97 skills 68
+    vs STARTER baseline 70 ×0.98, …`)
+  - Dead-money charge for that side
+
+`hasTransactionDetail` now returns `true` for both `fa-sign` and
+metadata-bearing `trade` rows.
+
+### Plan note — alternative-candidates list deferred to v0.25
+
+The original v0.24 plan included an `alternativeCandidates` field
+showing "X teams considered this trade but didn't fire" alongside
+each trade. Deferred to v0.25 — useful surface, but it adds
+plumbing (persist rejected candidates across both pipelines) on top
+of an already-substantial slice. The 5-factor evaluator + detail
+panel ship first so we can see the value numbers in motion.
+
+405 tests passing (was 396 at v0.23.0). 9 new tests in
+`trade/value.test.ts` covering positional hierarchy, window premiums
+(contender vs rebuilder), age curves, package netting, and
+determinism. Proactive-trades unit test for the contrived
+"STARTER-for-BACKUP" scenario now correctly expects **zero** trades
+(the 5-factor gate rejects the lopsided deal) — documented inline.
+
+---
+
 ## [0.23.0] — 2026-05-14
 
 Adds multi-dimensional filtering to the transaction log. The existing

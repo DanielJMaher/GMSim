@@ -13,6 +13,10 @@ import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { executeTrade } from './trade.js';
+import {
+  evaluateTradePackage,
+  type TradePackageEvaluation,
+} from '../trade/value.js';
 
 /**
  * Both sides of a proactive trade must retain at least this much cap
@@ -107,6 +111,16 @@ export function runProactiveTrades(
         teamBId: c.sellerId,
         playersAToB: [c.returnId],
         playersBToA: [c.acquireId],
+        metadata: {
+          initiatorTeamId: c.buyerId,
+          source:
+            c.kind === 'scheme-fit-swap'
+              ? 'proactive-fit-swap'
+              : 'proactive-need',
+          // teamA = buyer in our orientation.
+          teamAValue: c.buyerEval,
+          teamBValue: c.sellerEval,
+        },
       });
     } catch {
       continue;
@@ -128,6 +142,10 @@ interface TradeCandidate {
   /** Higher = preferred. Used to order the execution queue. */
   priority: number;
   kind: 'positional-need' | 'scheme-fit-swap';
+  /** Doc 14 5-factor evaluation from the buyer's perspective. */
+  buyerEval: TradePackageEvaluation;
+  /** Doc 14 5-factor evaluation from the seller's perspective. */
+  sellerEval: TradePackageEvaluation;
 }
 
 const BUYER_WINDOWS: ReadonlySet<CompetitiveWindow> = new Set([
@@ -170,7 +188,7 @@ function collectPositionalNeedCandidates(
     const buyerNeeds = positionDeficits(buyer, league, blueprintByPos);
     if (buyerNeeds.size === 0) continue;
 
-    for (const [needPos, deficit] of buyerNeeds) {
+    for (const [needPos] of buyerNeeds) {
       for (const sellerId of teamIds) {
         if (sellerId === buyerId) continue;
         const seller = league.teams[sellerId]!;
@@ -219,10 +237,15 @@ function collectPositionalNeedCandidates(
         const returnPiece = pickReturnPiece(buyer, seller, league, blueprintByPos);
         if (!returnPiece) continue;
 
-        // Priority: need depth + tier-of-acquisition bias toward
-        // STARs/STARTERs. Multiplied so it sorts above shallow needs.
-        const priority =
-          deficit * 100 + (acquire.tier === 'STAR' ? 50 : 25);
+        // 5-factor gate: both teams must perceive a positive net.
+        const buyerEval = evaluateTradePackage(buyer, [acquire], [returnPiece], league);
+        if (buyerEval.netValue <= 0) continue;
+        const sellerEval = evaluateTradePackage(seller, [returnPiece], [acquire], league);
+        if (sellerEval.netValue <= 0) continue;
+
+        // Priority: sum of mutual gain in $M. Bigger total win for
+        // both sides ranks higher.
+        const priority = (buyerEval.netValue + sellerEval.netValue) * 10;
 
         out.push({
           buyerId,
@@ -231,6 +254,8 @@ function collectPositionalNeedCandidates(
           returnId: returnPiece.id,
           priority,
           kind: 'positional-need',
+          buyerEval,
+          sellerEval,
         });
       }
     }
@@ -316,12 +341,19 @@ function collectSchemeFitSwapCandidates(league: LeagueState): TradeCandidate[] {
       if (buyerRoom < PROACTIVE_TRADE_CAP_SAFETY) continue;
       if (sellerRoom < PROACTIVE_TRADE_CAP_SAFETY) continue;
 
-      // Priority: aggregate fit improvement across both teams.
-      const improvement = (aOnB - a.fitOnSelf) + (bOnA - b.fitOnSelf);
-      // Multiply by 1000 so even a small mutual-fit improvement
-      // outranks positional-need trades, which top out around
-      // 200-300 priority.
-      const priority = 1000 + improvement * 1000;
+      // 5-factor gate: both teams must perceive a positive net even
+      // for the scheme-fit swap. Usually they will (each gets a player
+      // they value highly + ships out one they value less). Reuse the
+      // buyerTeam/sellerTeam locals declared above for cap-safety.
+      const buyerEval = evaluateTradePackage(buyerTeam, [acquire], [returnPlayer], league);
+      if (buyerEval.netValue <= 0) continue;
+      const sellerEval = evaluateTradePackage(sellerTeam, [returnPlayer], [acquire], league);
+      if (sellerEval.netValue <= 0) continue;
+
+      // Priority: sum of mutual gain. Add a fixed bonus so scheme-fit
+      // swaps slightly outrank positional-need trades at equivalent
+      // gain — they're the more interesting narrative beat.
+      const priority = 200 + (buyerEval.netValue + sellerEval.netValue) * 10;
 
       out.push({
         buyerId,
@@ -330,6 +362,8 @@ function collectSchemeFitSwapCandidates(league: LeagueState): TradeCandidate[] {
         returnId: returnPlayer.id,
         priority,
         kind: 'scheme-fit-swap',
+        buyerEval,
+        sellerEval,
       });
     }
   }

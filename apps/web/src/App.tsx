@@ -1063,9 +1063,13 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
 }
 
 function hasTransactionDetail(entry: Transaction): boolean {
-  // For v0.22 only fa-sign has a rich detail panel. More kinds will
-  // graduate as we extend the underlying transaction state.
-  return entry.kind === 'fa-sign';
+  if (entry.kind === 'fa-sign') return true;
+  // Trades only expand if the v0.24 metadata was persisted — pre-v0.24
+  // trade transactions still render as a flat row.
+  if (entry.kind === 'trade') {
+    return entry.teamAValue !== undefined || entry.teamBValue !== undefined;
+  }
+  return false;
 }
 
 function TransactionDetail({
@@ -1077,6 +1081,9 @@ function TransactionDetail({
 }) {
   if (entry.kind === 'fa-sign') {
     return <FaSignDetail entry={entry} league={league} />;
+  }
+  if (entry.kind === 'trade') {
+    return <TradeDetail entry={entry} league={league} />;
   }
   return null;
 }
@@ -1146,6 +1153,195 @@ function FaSignDetail({
           league={league}
         />
       )}
+    </div>
+  );
+}
+
+function TradeDetail({
+  entry,
+  league,
+}: {
+  entry: Extract<Transaction, { kind: 'trade' }>;
+  league: LeagueState;
+}) {
+  const teamA = league.teams[entry.teamAId];
+  const teamB = league.teams[entry.teamBId];
+  const initiator = entry.initiatorTeamId ? league.teams[entry.initiatorTeamId] : null;
+  const sourceLabel = formatTradeSourceLabel(entry.source);
+
+  return (
+    <div className="space-y-3 text-xs">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <div className="font-semibold text-zinc-200">
+          {teamA?.identity.abbreviation ?? entry.teamAId} ↔{' '}
+          {teamB?.identity.abbreviation ?? entry.teamBId}
+        </div>
+        {sourceLabel && (
+          <div className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">
+            {sourceLabel}
+          </div>
+        )}
+        {initiator && (
+          <div className="text-zinc-500">
+            initiated by <span className="font-mono text-zinc-300">{initiator.identity.abbreviation}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        <TradeSideBreakdown
+          team={teamA}
+          fallbackId={entry.teamAId}
+          deadMoney={entry.deadMoneyTeamA}
+          evaluation={entry.teamAValue}
+          league={league}
+        />
+        <TradeSideBreakdown
+          team={teamB}
+          fallbackId={entry.teamBId}
+          deadMoney={entry.deadMoneyTeamB}
+          evaluation={entry.teamBValue}
+          league={league}
+        />
+      </div>
+    </div>
+  );
+}
+
+function formatTradeSourceLabel(source: string | undefined): string | null {
+  switch (source) {
+    case 'proactive-need':
+      return 'Proactive — positional need';
+    case 'proactive-fit-swap':
+      return 'Proactive — scheme-fit swap';
+    case 'request-driven':
+      return 'Player trade request';
+    case 'manual':
+      return 'Manual';
+    default:
+      return null;
+  }
+}
+
+type TradeValueEvaluation = NonNullable<
+  Extract<Transaction, { kind: 'trade' }>['teamAValue']
+>;
+
+function TradeSideBreakdown({
+  team,
+  fallbackId,
+  deadMoney,
+  evaluation,
+  league,
+}: {
+  team: TeamState | undefined;
+  fallbackId: TeamId;
+  deadMoney: number;
+  evaluation: TradeValueEvaluation | undefined;
+  league: LeagueState;
+}) {
+  const abbr = team?.identity.abbreviation ?? fallbackId;
+  const net = evaluation?.netValue ?? 0;
+  const netClass =
+    net > 0 ? 'text-emerald-300' : net < 0 ? 'text-rose-300' : 'text-zinc-400';
+
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+      <div className="mb-1 flex items-baseline justify-between">
+        <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+          {abbr} perspective
+        </div>
+        {evaluation && (
+          <div className={`font-mono text-xs ${netClass}`}>
+            net {net >= 0 ? '+' : ''}${net.toFixed(1)}M
+          </div>
+        )}
+      </div>
+
+      {evaluation ? (
+        <>
+          <TradeAssetList
+            label="Receiving"
+            assets={evaluation.received}
+            league={league}
+          />
+          <TradeAssetList
+            label="Giving up"
+            assets={evaluation.given}
+            league={league}
+          />
+        </>
+      ) : (
+        <div className="text-zinc-600">
+          No 5-factor evaluation recorded (pre-v0.24 trade).
+        </div>
+      )}
+
+      <div className="mt-1 text-[10px] text-zinc-500">
+        Dead-money charge: ${(deadMoney / 1e6).toFixed(2)}M
+      </div>
+    </div>
+  );
+}
+
+function TradeAssetList({
+  label,
+  assets,
+  league,
+}: {
+  label: string;
+  assets: readonly { playerId: string; breakdown: NonNullable<TradeValueEvaluation>['received'][number]['breakdown'] }[];
+  league: LeagueState;
+}) {
+  if (assets.length === 0) return null;
+  return (
+    <div className="mt-1">
+      <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+        {label}
+      </div>
+      <div className="mt-0.5 space-y-1">
+        {assets.map((a) => {
+          const player = league.players[a.playerId as PlayerId];
+          const f = a.breakdown.factors;
+          return (
+            <div key={a.playerId} className="rounded border border-zinc-800/60 bg-zinc-900/30 p-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="font-medium text-zinc-200">
+                  {player
+                    ? `${player.firstName.charAt(0)}. ${player.lastName} (${player.tier} ${player.position})`
+                    : a.playerId}
+                </div>
+                <div className="font-mono text-xs text-zinc-300">
+                  ${a.breakdown.total.toFixed(1)}M
+                </div>
+              </div>
+              <div className="mt-1 grid grid-cols-1 gap-x-3 gap-y-0.5 text-[10px] text-zinc-500 sm:grid-cols-2">
+                <FactorLine factor={f.ability} label="Ability" />
+                <FactorLine factor={f.schemeFit} label="Scheme fit" />
+                <FactorLine factor={f.ageContract} label="Age/contract" />
+                <FactorLine factor={f.positional} label="Positional" />
+                <FactorLine factor={f.timing} label="Timing" />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function FactorLine({
+  factor,
+  label,
+}: {
+  factor: { multiplier: number; rationale: string };
+  label: string;
+}) {
+  return (
+    <div className="flex items-baseline gap-1 truncate">
+      <span className="text-zinc-600">{label}</span>
+      <span className="font-mono text-zinc-400">×{factor.multiplier.toFixed(2)}</span>
+      <span className="truncate text-zinc-500">{factor.rationale}</span>
     </div>
   );
 }

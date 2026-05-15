@@ -92,11 +92,15 @@ describe('runProactiveTrades', () => {
     const newTrades = after.transactionLog
       .slice(league.transactionLog.length)
       .filter((t) => t.kind === 'trade');
-    // At least one proactive trade fires given the contrived scenario.
-    // We don't assert which trade (Pass 2 scheme-fit swaps may run
-    // first and consume the seller/buyer slots), only that the system
-    // is producing trades when conditions favor them.
-    expect(newTrades.length).toBeGreaterThan(0);
+    // Under the v0.24 5-factor model, a "STARTER for BACKUP return"
+    // trade is correctly *rejected* — the rebuilder seller wouldn't
+    // accept that deal in real NFL terms (the BACKUP they receive is
+    // worth ~$3M vs the $10-15M STARTER they're giving up). They want
+    // draft picks or comparable assets back. Once Doc 3 ships draft
+    // picks, this scenario should fire again. Until then, Pass 1
+    // positional-need trades are rare; Pass 2 scheme-fit swaps
+    // (same-tier same-position) carry most of the volume.
+    expect(newTrades.length).toBe(0);
   });
 
   it('surplus seller (good-window team with extra depth) parts with a STARTER but not a STAR', () => {

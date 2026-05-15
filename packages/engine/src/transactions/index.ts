@@ -33,6 +33,6 @@ export {
 } from './poach.js';
 export { runWeeklyFreeAgentSignings } from './midseason-fa.js';
 export { executeTrade } from './trade.js';
-export type { TradePayload } from './trade.js';
+export type { TradePayload, TradeMetadata } from './trade.js';
 export { runWeeklyNpcTrades } from './npc-trade.js';
 export { runProactiveTrades } from './proactive-trades.js';
