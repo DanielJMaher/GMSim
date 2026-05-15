@@ -3,6 +3,7 @@ export * from './enums.js';
 export * from './team.js';
 export * from './personnel.js';
 export * from './player.js';
+export * from './scout.js';
 export * from './contract.js';
 export * from './game.js';
 export * from './stats.js';

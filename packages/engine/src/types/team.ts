@@ -1,4 +1,4 @@
-import type { TeamId, OwnerId, GmId, CoachId, PlayerId } from './ids.js';
+import type { TeamId, OwnerId, GmId, CoachId, ScoutId, PlayerId } from './ids.js';
 import type { Conference, Division, MarketSize, FranchiseHistory, CompetitiveWindow } from './enums.js';
 import type { FanBaseProfile } from './personnel.js';
 
@@ -39,6 +39,13 @@ export interface TeamState {
   ownerId: OwnerId;
   gmId: GmId;
   headCoachId: CoachId;
+  /**
+   * NFL player scouts on staff. 3–5 per team; count + accuracy mean
+   * tied to Owner `financialCommitment` + GM `talentEvaluationAccuracy`
+   * at league creation. Distinct from college scouts (which arrive
+   * with the Draft Module). See `docs/design-docs` Doc 4.
+   */
+  scoutIds: readonly ScoutId[];
   /** Current 53-man active roster. Practice squad and reserve lists tracked separately. */
   rosterIds: readonly PlayerId[];
   /**

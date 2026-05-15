@@ -16,6 +16,79 @@ _Nothing yet._
 
 ---
 
+## [0.28.0] — 2026-05-15
+
+### Added — NFL Scouting module foundation (Doc 4)
+
+First slice of the Roster & Free Agent Scouting module. Lands the
+scout entity, observation primitive, and inspector surfaces. No
+NPC behavior change yet (watch lists, bidding, signal competition
+come in later slices).
+
+**Engine — new module `engine/src/scouting/`:**
+
+- `Scout` type: identity (name, age, yearsExperience), `knownSpecialty`
+  (PositionGroup the GM officially understands), hidden per-group
+  `trueAccuracy` (0..1 per PositionGroup), 1–2 quirks from
+  `ScoutQuirk` (`OVERVALUES_NAME_RECOGNITION`, `SHARP_ON_ROLE_PLAYERS`,
+  `MISSES_SCHEME_FIT`, `PRACTICE_SQUAD_GEM_HUNTER`, `YOUNG_PLAYER_BIAS`,
+  `VETERAN_LOYALIST`). Per North Star, `trueAccuracy` and `quirks` are
+  ground-truth only — the dev inspector exposes them; the eventual game
+  UI surfaces only `knownSpecialty` and discovers true accuracy through
+  track-record.
+- `PlayerObservation` type: one attributed (scout, player) report with
+  partial `skills` + per-skill `confidence` maps. Stored as a flat
+  `LeagueState.observations` array; future knowledge-layer filters will
+  read through this with a per-viewer filter.
+- `generateTeamScouts(prng, idSeed, owner, gm)`: per-team 3–5 scouts.
+  Count tiered by Owner `financialCommitment` (1–3 → 3 scouts, 4–7 → 4,
+  8–10 → 5). Mean per-group accuracy blends Owner `financialCommitment`
+  with GM `talentEvaluationAccuracy`, scaled to 0.4..0.85. Specialty
+  group gets a +0.02..+0.20 bonus; 30% chance of a "hidden depths"
+  bonus on a non-specialty group (per Doc 4: scouts may be unknowingly
+  elite at a different group than their official focus).
+- `generateInitialObservations(...)`: at league creation, every scout
+  produces observations on ~8 players in their `knownSpecialty` group
+  across other teams (not own roster — NFL scouts evaluate opposing
+  organizations; own-roster eval is what coaches and practice are for).
+  Per-skill observed value = true + N(0, BASE_NOISE * (1 − accuracy) *
+  quirk-noise-multiplier) + quirk-bias, clamped 0..100. Per-skill
+  confidence = accuracy + quirk-confidence-delta.
+- Quirk biases are testable in isolation via `composedQuirkEffect`.
+- `TeamState.scoutIds` and `LeagueState.scouts` directory wired into
+  `createLeague`. Save format breaks but pre-1.0 so MINOR is fine.
+
+**Inspector:**
+
+- TeamDetail gains a "Scouting staff" section between Trade Builder and
+  rosters: each scout shown as a card with name, age, experience, known
+  specialty chip, full per-PositionGroup accuracy strip (ground-truth
+  value, color-coded; specialty marked with an emerald ring), and quirk
+  chips (hover for the quirk's bias description).
+- PlayerDetail gains a "Scout observations" section at the bottom,
+  grouped by source team. Each observation row shows scout name, mean
+  confidence, observation tick, and a wrap of 18 skill chips with
+  `obs Δ` deltas color-coded (zinc within ±3, rose for high overshoots,
+  emerald for low undershoots).
+
+**Tests:** 17 new (scout generation determinism, accuracy floor and
+ceiling, specialty bonus distribution, staff size tiering by financial
+commitment, observation determinism, noise scales with `1 − accuracy`,
+own-roster exclusion, quirk-bias directional effects, `createLeague`
+smoke integration). Full suite: 423 passing.
+
+**Not in this slice (deferred):**
+
+- Watch lists, availability signal tracking — slice 2.
+- Bidding / competition logic integrated into FA auction — slice 3.
+- Periodic re-observation (current observations are one-shot at league
+  creation) — slice 2 or 3.
+- Knowledge-layer read interface for the future game UI — lands when
+  the game UI does.
+- College scouts — arrive with the Draft Module.
+
+---
+
 ## [0.27.1] — 2026-05-15
 
 ### Added — `PlayerDetail` expand in FA pool + trade builder (web)

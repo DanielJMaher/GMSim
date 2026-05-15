@@ -7,6 +7,7 @@ import type {
   OwnerId,
   GmId,
   CoachId,
+  ScoutId,
 } from '../types/ids.js';
 import type { TeamState } from '../types/team.js';
 import type {
@@ -15,6 +16,7 @@ import type {
   HeadCoach,
   TeamPersonality,
 } from '../types/personnel.js';
+import type { Scout } from '../types/scout.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { LeagueState } from '../types/league.js';
@@ -25,6 +27,7 @@ import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
+import { generateTeamScouts, generateInitialObservations } from '../scouting/index.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -54,9 +57,15 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   const owners: Record<string, Owner> = {};
   const gms: Record<string, Gm> = {};
   const coaches: Record<string, HeadCoach> = {};
+  const scouts: Record<string, Scout> = {};
   const teamPersonalities: Record<string, TeamPersonality> = {};
   const players: Record<string, Player> = {};
   const contracts: Record<string, Contract> = {};
+
+  // Scout staffs per team, kept alongside `scouts` directory so the
+  // observation sweep below can look up each team's scouts without
+  // re-bucketing the flat map.
+  const scoutsByTeam: Record<string, readonly Scout[]> = {};
 
   const initialTick = 0;
 
@@ -87,11 +96,25 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
       rosterIds.push(player.id);
     }
 
+    const teamScouts = generateTeamScouts(
+      teamPrng.fork('scouts'),
+      identity.abbreviation,
+      bundle.owner,
+      bundle.gm,
+    );
+    const scoutIds: ScoutId[] = [];
+    for (const scout of teamScouts) {
+      scouts[scout.id] = scout;
+      scoutIds.push(scout.id);
+    }
+    scoutsByTeam[identity.id] = teamScouts;
+
     const team: TeamState = {
       identity,
       ownerId: bundle.owner.id,
       gmId: bundle.gm.id,
       headCoachId: bundle.headCoach.id,
+      scoutIds,
       rosterIds,
       injuredReserveIds: [],
       practiceSquadIds: [],
@@ -109,6 +132,18 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     teamPersonalities[identity.id] = bundle.teamPersonality;
   }
 
+  // Initial scouting sweep — every scout produces observations on
+  // ~8 players in their known-specialty group across other teams.
+  // Forked from the root so future tweaks to per-team generation
+  // don't shift the seed-dependent observation outputs.
+  const observations = generateInitialObservations(
+    rootPrng.fork('initial-observations'),
+    teams as Readonly<Record<TeamId, TeamState>>,
+    scoutsByTeam as Readonly<Record<TeamId, readonly Scout[]>>,
+    players,
+    initialTick,
+  );
+
   const baseLeague: LeagueState = {
     seed,
     tick: initialTick,
@@ -120,10 +155,12 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     owners: owners as Readonly<Record<OwnerId, Owner>>,
     gms: gms as Readonly<Record<GmId, Gm>>,
     coaches: coaches as Readonly<Record<CoachId, HeadCoach>>,
+    scouts: scouts as Readonly<Record<ScoutId, Scout>>,
     contracts: contracts as Readonly<Record<ContractIdType, Contract>>,
     teamPersonalities: teamPersonalities as Readonly<Record<TeamId, TeamPersonality>>,
     schedule: null, // populated when simulateSeason runs
     transactionLog: [],
+    observations,
   };
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.

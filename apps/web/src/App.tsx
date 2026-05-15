@@ -45,6 +45,9 @@ import type {
   TeamId,
   Contract,
   Transaction,
+  Scout,
+  ScoutQuirk,
+  PlayerObservation,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 
@@ -2121,6 +2124,8 @@ function TeamDetail({
 
       <TradeBuilderPanel team={team} league={league} onLeagueChange={onLeagueChange} />
 
+      <ScoutingStaffPanel team={team} league={league} />
+
       <div className="space-y-4">
         {groups
           .filter((g) => g.players.length > 0)
@@ -2504,6 +2509,58 @@ const SKILL_LABELS: Record<keyof PlayerSkills, string> = {
   composure: 'Composure',
 };
 
+const QUIRK_LABELS: Record<ScoutQuirk, { label: string; description: string }> = {
+  OVERVALUES_NAME_RECOGNITION: {
+    label: 'name recognition',
+    description: 'Pushes estimates upward for award-winners and stars.',
+  },
+  SHARP_ON_ROLE_PLAYERS: {
+    label: 'role-player eye',
+    description: 'Sharper on BACKUP / FRINGE tier; less reliable on stars.',
+  },
+  MISSES_SCHEME_FIT: {
+    label: 'misses scheme fit',
+    description: 'Higher noise on technique skills (blocking, pass-rush, coverage, tackling, technical).',
+  },
+  PRACTICE_SQUAD_GEM_HUNTER: {
+    label: 'PS gem hunter',
+    description: 'Very sharp on FRINGE tier — finds undervalued practice-squad talent.',
+  },
+  YOUNG_PLAYER_BIAS: {
+    label: 'young-player bias',
+    description: 'Sharper on <3yr exp; downgrades 8+yr veterans.',
+  },
+  VETERAN_LOYALIST: {
+    label: 'veteran loyalist',
+    description: 'Sharper on 8+yr veterans (with a small upward bias); blurrier on rookies.',
+  },
+};
+
+const POSITION_GROUPS_ORDERED: readonly PositionGroup[] = [
+  PositionGroup.QB,
+  PositionGroup.SKILL,
+  PositionGroup.OL,
+  PositionGroup.DL,
+  PositionGroup.LB,
+  PositionGroup.DB,
+  PositionGroup.ST,
+];
+
+function accuracyTone(value: number): string {
+  if (value >= 0.8) return 'text-emerald-400';
+  if (value >= 0.65) return 'text-zinc-200';
+  if (value >= 0.5) return 'text-zinc-400';
+  return 'text-zinc-600';
+}
+
+function skillDeltaTone(delta: number): string {
+  const abs = Math.abs(delta);
+  if (abs <= 3) return 'text-zinc-600';
+  if (abs <= 8) return 'text-zinc-400';
+  if (delta > 0) return 'text-emerald-400';
+  return 'text-rose-400';
+}
+
 const DEV_ARCHETYPE_LABELS: Record<Player['developmentArchetype'], string> = {
   FAST_LEARNER: 'Fast learner',
   SLOW_STEADY: 'Slow & steady',
@@ -2580,6 +2637,203 @@ function careerStatColumns(position: Position): readonly StatColumn[] {
     default:
       return [];
   }
+}
+
+function ScoutingStaffPanel({
+  team,
+  league,
+}: {
+  team: TeamState;
+  league: LeagueState;
+}) {
+  if (team.scoutIds.length === 0) return null;
+  const scouts = team.scoutIds
+    .map((id) => league.scouts[id])
+    .filter((s): s is Scout => s !== undefined);
+  return (
+    <section className="mb-4 rounded border border-zinc-800 bg-zinc-950/40 p-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Scouting staff ({scouts.length})
+        </h3>
+        <span className="text-[10px] text-zinc-600" title="Per-group accuracy + quirks are HIDDEN from the GM. Inspector exposes them for tuning.">
+          inspector view — hidden state shown
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {scouts.map((scout) => (
+          <ScoutCard key={scout.id} scout={scout} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ScoutCard({ scout }: { scout: Scout }) {
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2 text-xs">
+      <div className="mb-1 flex items-baseline justify-between gap-2">
+        <div className="font-medium text-zinc-200">{scout.name}</div>
+        <div className="text-[10px] text-zinc-500">
+          age {scout.age} · {scout.yearsExperience}y exp
+        </div>
+      </div>
+      <div className="mb-1 text-[10px] text-zinc-500">
+        known specialty:{' '}
+        <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-0.5 font-mono uppercase tracking-wider text-emerald-300">
+          {scout.knownSpecialty}
+        </span>
+      </div>
+      <div className="mb-1 flex flex-wrap gap-1">
+        {POSITION_GROUPS_ORDERED.map((group) => {
+          const acc = scout.trueAccuracy[group];
+          const isSpecialty = group === scout.knownSpecialty;
+          return (
+            <span
+              key={group}
+              className={`rounded border border-zinc-800 bg-zinc-900 px-1 py-0.5 font-mono text-[10px] ${accuracyTone(acc)} ${
+                isSpecialty ? 'ring-1 ring-emerald-500/30' : ''
+              }`}
+              title={`Hidden true accuracy in ${group}: ${acc.toFixed(2)}`}
+            >
+              {group} {acc.toFixed(2)}
+            </span>
+          );
+        })}
+      </div>
+      {scout.quirks.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {scout.quirks.map((q) => {
+            const def = QUIRK_LABELS[q];
+            return (
+              <span
+                key={q}
+                title={def.description}
+                className="rounded border border-fuchsia-500/30 bg-fuchsia-500/10 px-1 py-0.5 text-[10px] uppercase tracking-wider text-fuchsia-300"
+              >
+                {def.label}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScoutObservationsPanel({
+  player,
+  league,
+}: {
+  player: Player;
+  league: LeagueState;
+}) {
+  const observations = useMemo(
+    () => league.observations.filter((o) => o.playerId === player.id),
+    [league.observations, player.id],
+  );
+  if (observations.length === 0) return null;
+  const grouped = groupObservationsByTeam(observations, league);
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+        Scout observations ({observations.length}) — inspector view, all teams
+      </div>
+      <div className="space-y-2">
+        {grouped.map((entry) => (
+          <div key={entry.teamId ?? 'unknown'} className="rounded border border-zinc-800/60 bg-zinc-950/40 p-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+              {entry.teamAbbr} ({entry.observations.length})
+            </div>
+            <div className="space-y-1">
+              {entry.observations.map((obs, i) => (
+                <ObservationRow key={i} player={player} observation={obs} scoutName={entry.scoutNames[i] ?? 'Unknown'} />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ObservationRow({
+  player,
+  observation,
+  scoutName,
+}: {
+  player: Player;
+  observation: PlayerObservation;
+  scoutName: string;
+}) {
+  const confidenceValues = Object.values(observation.confidence) as number[];
+  const meanConfidence =
+    confidenceValues.length === 0
+      ? 0
+      : confidenceValues.reduce((s, v) => s + v, 0) / confidenceValues.length;
+  return (
+    <div>
+      <div className="mb-0.5 flex items-baseline justify-between gap-2 text-[11px]">
+        <span className="text-zinc-300">{scoutName}</span>
+        <span className={`font-mono ${accuracyTone(meanConfidence)}`} title="Mean per-skill confidence">
+          conf {meanConfidence.toFixed(2)} · tick {observation.observedOnTick}
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+        {(Object.entries(observation.skills) as [keyof PlayerSkills, number][])
+          .map(([skill, observed]) => {
+            const truth = player.current[skill];
+            const delta = observed - truth;
+            return (
+              <span
+                key={skill}
+                title={`${SKILL_LABELS[skill]}: observed ${observed}, truth ${truth}, Δ ${delta >= 0 ? '+' : ''}${delta}`}
+                className="rounded border border-zinc-800 bg-zinc-900 px-1 py-0.5"
+              >
+                <span className="text-zinc-500">{skill.slice(0, 4)}</span>{' '}
+                <span className="text-zinc-300">{observed}</span>
+                <span className={`ml-0.5 ${skillDeltaTone(delta)}`}>
+                  {delta >= 0 ? '+' : ''}
+                  {delta}
+                </span>
+              </span>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
+function groupObservationsByTeam(
+  observations: readonly PlayerObservation[],
+  league: LeagueState,
+): ReadonlyArray<{
+  teamId: TeamId | null;
+  teamAbbr: string;
+  observations: readonly PlayerObservation[];
+  scoutNames: readonly string[];
+}> {
+  const scoutTeam = new Map<string, TeamId>();
+  for (const team of Object.values(league.teams)) {
+    for (const sid of team.scoutIds) scoutTeam.set(sid, team.identity.id);
+  }
+  const byTeam = new Map<
+    string,
+    { teamId: TeamId | null; teamAbbr: string; observations: PlayerObservation[]; scoutNames: string[] }
+  >();
+  for (const obs of observations) {
+    const teamId = scoutTeam.get(obs.scoutId) ?? null;
+    const key = teamId ?? '__unknown__';
+    let entry = byTeam.get(key);
+    if (!entry) {
+      const abbr = teamId ? league.teams[teamId]?.identity.abbreviation ?? '???' : '???';
+      entry = { teamId, teamAbbr: abbr, observations: [], scoutNames: [] };
+      byTeam.set(key, entry);
+    }
+    entry.observations.push(obs);
+    entry.scoutNames.push(league.scouts[obs.scoutId]?.name ?? 'Unknown');
+  }
+  return Array.from(byTeam.values()).sort((a, b) => a.teamAbbr.localeCompare(b.teamAbbr));
 }
 
 function PlayerDetail({ player, league }: { player: Player; league: LeagueState }) {
@@ -2782,6 +3036,8 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
           </div>
         </div>
       )}
+
+      <ScoutObservationsPanel player={player} league={league} />
     </div>
   );
 }

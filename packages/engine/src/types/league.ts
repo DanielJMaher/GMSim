@@ -1,10 +1,11 @@
 import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
+import type { Scout, PlayerObservation } from './scout.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
-import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ContractId } from './ids.js';
+import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ScoutId, ContractId } from './ids.js';
 
 /**
  * Top-level engine state. The entire simulation lives behind this single
@@ -34,6 +35,7 @@ export interface LeagueState {
   owners: Readonly<Record<OwnerId, Owner>>;
   gms: Readonly<Record<GmId, Gm>>;
   coaches: Readonly<Record<CoachId, HeadCoach>>;
+  scouts: Readonly<Record<ScoutId, Scout>>;
   contracts: Readonly<Record<ContractId, Contract>>;
 
   /** Per-team computed Team Personality. Re-derived when components change. */
@@ -49,6 +51,15 @@ export interface LeagueState {
    * Capped behavior is the caller's concern — engine never trims.
    */
   transactionLog: readonly Transaction[];
+
+  /**
+   * Attributed scouting observations. Each entry is one scout's
+   * assessment of one player, with per-skill observed values and
+   * confidence. Flat array — filter by `scoutId` or `playerId` in
+   * lookups. The eventual knowledge layer will read through this with
+   * a per-viewer filter; the dev inspector reads it unfiltered.
+   */
+  observations: readonly PlayerObservation[];
 }
 
 export type LeaguePhase =

@@ -175,6 +175,19 @@ export type {
   ValueFactor,
 } from './trade/value.js';
 
+// Scouting — Doc 4
+export {
+  generateScout,
+  generateTeamScouts,
+  scoutStaffSize,
+  teamScoutAccuracyMean,
+  generateInitialObservations,
+  SCOUT_QUIRK_POOL,
+  quirkEffect,
+  composedQuirkEffect,
+} from './scouting/index.js';
+export type { QuirkEffect } from './scouting/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';
