@@ -16,6 +16,26 @@ _Nothing yet._
 
 ---
 
+## [0.26.1] — 2026-05-15
+
+### Changed — Bump GitHub Actions to Node 24-compatible majors (repo)
+
+GitHub forces Node 24 as the default in Actions runners on 2026-06-02
+and removes Node 20 from runners on 2026-09-16. The Pages deploy is
+how each release is verified eyes-on, so losing it would disrupt the
+ship cadence. Bumped each action in `.github/workflows/deploy.yml` to
+its current major (all Node 24-capable):
+
+- `actions/checkout` v4 → v6
+- `pnpm/action-setup` v3 → v6 (pnpm version pin unchanged at 9.0.0)
+- `actions/setup-node` v4 → v6 (`node-version: 20` retained — runner
+  Node version is independent of the action's internal runtime)
+- `actions/configure-pages` v5 → v6
+- `actions/upload-pages-artifact` v3 → v5
+- `actions/deploy-pages` v4 → v5
+
+---
+
 ## [0.26.0] — 2026-05-14
 
 Closes the long-horizon roster-shortfall residual that's been carried
