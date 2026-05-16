@@ -1,4 +1,4 @@
-import type { PlayerId, ScoutId, TeamId, ContractId } from './ids.js';
+import type { PlayerId, ScoutId, TeamId, ContractId, CoachId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
 import type {
   PlayerSkills,
@@ -682,6 +682,42 @@ export interface ProDayAttendanceRecord {
   reason: 'AUTO' | 'INTERESTED' | 'FLYER' | 'SKIP';
   /** Number of prospects from this school on team's top-30 board. */
   boardCount: number;
+}
+
+// ─── Coach visits (Doc 3 — slice 6) ─────────────────────────────────────
+
+/**
+ * One head-coach observation of a college prospect, filed during an
+ * NFL bye week when the coach attended a college game. Coaches grade
+ * a FOCUSED SUBSET of player dimensions — the ones you can read live
+ * from the sideline / press box:
+ *
+ *   - Mental / intangible — leadership, competitiveness, workEthic,
+ *     coachability, composure, footballIq, decisionMaking
+ *   - Scheme proxy — technicalSkill (how well the prospect operates
+ *     a system)
+ *
+ * Coaches do NOT report physical measurables (speed, strength,
+ * vertical, etc.) — those come from scouts + combine. The narrowness
+ * is the point: coach visits are a quality-over-quantity intel
+ * stream. Per Doc 3, coach visits are "primary strength" on these
+ * dimensions and significantly more accurate than scout reports.
+ *
+ * Attributed to the specific coach (and via team lookup, to the
+ * specific team). Same per-skill / per-confidence shape as
+ * `CollegePlayerObservation` so the eventual knowledge-layer reads
+ * both streams through one filter.
+ */
+export interface CoachVisitObservation {
+  coachId: CoachId;
+  /** ID of the observed `CollegePlayer`. */
+  collegePlayerId: PlayerId;
+  /** Sim tick when the visit happened. */
+  observedOnTick: number;
+  /** Observed values for the dimensions this coach graded, 0..100. */
+  skills: Readonly<Partial<Record<keyof PlayerSkills, number>>>;
+  /** Per-skill confidence, 0..1. Mirrors keys of `skills`. */
+  confidence: Readonly<Partial<Record<keyof PlayerSkills, number>>>;
 }
 
 // ─── Draft event (Doc 3 — slice 5a) ─────────────────────────────────────

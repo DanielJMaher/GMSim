@@ -34,6 +34,7 @@ import { generateInitialCollegeObservations } from '../draft/college-observation
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
 import { runCombine } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
+import { runCoachVisits } from '../draft/coach-visits.js';
 import type {
   CollegeScout,
   CollegePlayerObservation,
@@ -231,6 +232,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     combineResults: {} as Readonly<Record<PlayerId, CombineMeasurables>>,
     proDayAttendance: {} as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
     draftHistory: [],
+    coachVisitObservations: [],
   };
 
   // Initial boards first (we need them so pro-day attendance can
@@ -263,6 +265,18 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     draftBoards: initialBoards as Readonly<Record<TeamId, readonly DraftBoardEntry[]>>,
     combineResults: initialCombine as Readonly<Record<PlayerId, CombineMeasurables>>,
     proDayAttendance: initialProDays as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
+  });
+
+  // Initial coach visits — head coaches file observations on the top
+  // 3 prospects from each team's draft board. Boards must exist
+  // first (done above) so visit targeting works.
+  const initialCoachVisits = runCoachVisits(
+    rootPrng.fork('initial-coach-visits'),
+    baseLeague,
+    { observedOnTick: initialTick },
+  );
+  Object.assign(baseLeague, {
+    coachVisitObservations: initialCoachVisits,
   });
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.

@@ -16,6 +16,89 @@ _Nothing yet._
 
 ---
 
+## [0.39.0] — 2026-05-16
+
+### Added — Head-coach visits (Doc 3 — Draft Module slice 6)
+
+Coach evaluation lane. Every team's head coach now files focused
+observations on top draft-board prospects each cycle — narrower
+than scout reports but significantly more accurate on the
+dimensions coaches can read live.
+
+Per Doc 3: coach visits are "primary strength on intangibles"
+and scheme-fit projection. The narrowness is the point — coaches
+grade what they see from the sideline / film room, not measurables.
+
+**Engine — types in `engine/src/types/college.ts`:**
+
+- `CoachVisitObservation` — `coachId` + `collegePlayerId` + `observedOnTick`
+  + per-skill values + per-skill confidence. Same shape as
+  `CollegePlayerObservation` (scout reports) so a future knowledge-
+  layer reads both streams through one filter.
+
+**Engine — `engine/src/draft/coach-visits.ts`:**
+
+- `coachVisitAccuracy(coach)` derives accuracy from HC spectrums:
+  staffDevelopment (45%) + experience (30%) + adaptability (25%),
+  scaled into [0.50, 0.95] — distinctly higher than the scout
+  floor of 0.35.
+- `runCoachVisits` — per team, walks the team's draft board top→
+  bottom, picks 3 eligible prospects, files one observation per.
+  Board-driven targeting mirrors how real coaches focus their
+  limited bye-week slots on prospects their org cares about.
+- `applyCoachVisits(league, newVisits)` — append-only fold.
+- Observed dimensions: leadership, competitiveness, workEthic,
+  coachability, composure, footballIq, decisionMaking,
+  technicalSkill (scheme-fit proxy). Physical measurables (speed,
+  strength, vertical, etc.) NOT observed by coaches.
+- Coach base noise: 9 stdev (half the scout noise of 18) scaled
+  by `(1 - accuracy)`. Even a floor-quality coach is tighter on
+  intangibles than a typical scout.
+
+**Wiring:**
+
+- `LeagueState.coachVisitObservations: readonly CoachVisitObservation[]`
+  — new field, append-only.
+- `createLeague` runs initial coach visits after boards exist
+  (3 visits per team = up to 96 initial observations).
+- `advanceSeason` runs coach visits after the board refresh in
+  the offseason cycle. Each cycle adds ~96 more visits.
+- `migrateLeagueForward` backfills empty array for pre-v0.39
+  saves — accumulate from next advance onward.
+
+**Inspector:**
+
+- New `Coach visits (N)` section in the prospect detail panel,
+  above the scout reports table. Shows coach name + team +
+  confidence + key observed dimensions (leadership / iq /
+  coachability / scheme). When empty: "No coach has filed a
+  visit on this prospect yet" — surfaces the coverage gap
+  realistically (most prospects DON'T get coach visits since
+  the budget is only 3 per team per cycle).
+
+**Public surface:** new exports `runCoachVisits`, `applyCoachVisits`,
+`coachVisitAccuracy`, type `RunCoachVisitsOptions`.
+
+**Tests:** 11 new in `coach-visits.test.ts` — accuracy math
+(range, monotonicity vs scouts), observation shape (subset of
+dimensions, no physical), determinism, integration with
+createLeague + advanceSeason, migration backfill, multi-year
+accumulation, board-driven targeting.
+
+**Not in this slice (deferred):**
+
+- Coverage-competition signal — when 8+ teams attend the same
+  marquee game, their coaches observe each other's attendance.
+  Needs game scheduling to model attendance per game.
+- Recency-weighted observation aggregation (older visits decay).
+- Coach quirks — bias certain coaches toward specific archetypes
+  or scheme-fit profiles (parallels the scout quirk pool).
+- Multi-coach visits — Doc 3 says position coaches + coordinators
+  attend too, not just the HC. Slice 6 ships HC-only; adding
+  coordinator-level visits is a depth slice.
+
+---
+
 ## [0.38.0] — 2026-05-16
 
 ### Added — UDFA pipeline (Doc 3 — Draft Module slice 5c)

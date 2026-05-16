@@ -98,3 +98,11 @@ export type { RunDraftOptions, DraftRunResult } from './event.js';
 // Slice 5c (UDFA): undrafted-rookie-FA pipeline
 export { runUdfaPromotion, applyUdfaResult } from './udfa.js';
 export type { RunUdfaPromotionOptions, UdfaPromotionResult } from './udfa.js';
+
+// Slice 6: head-coach visits during NFL bye weeks
+export {
+  runCoachVisits,
+  applyCoachVisits,
+  coachVisitAccuracy,
+} from './coach-visits.js';
+export type { RunCoachVisitsOptions } from './coach-visits.js';

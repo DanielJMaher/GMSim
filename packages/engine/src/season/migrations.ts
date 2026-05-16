@@ -53,6 +53,10 @@ import type { DraftBoardEntry, CombineMeasurables, ProDayAttendanceRecord } from
  * with an empty array — no historical reconstruction possible without
  * full record of every prior draft, and the cost of starting fresh is
  * minimal (only the upcoming draft's records matter for downstream).
+ *
+ * v0.39.0: `LeagueState.coachVisitObservations` exists. Pre-v0.39
+ * saves backfill with an empty array — coach visits accumulate from
+ * the next advance onwards.
  */
 export function migrateLeagueForward(league: LeagueState): LeagueState {
   const updates: Record<PlayerId, Player> = {};
@@ -185,6 +189,11 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
   // v0.36.0 draft history. No reconstruction — start empty.
   if (!next.draftHistory) {
     next = { ...next, draftHistory: [] };
+  }
+
+  // v0.39.0 coach visit observations. Empty array — accumulate forward.
+  if (!next.coachVisitObservations) {
+    next = { ...next, coachVisitObservations: [] };
   }
 
   return next;

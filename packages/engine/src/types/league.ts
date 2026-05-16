@@ -10,6 +10,7 @@ import type {
   CombineMeasurables,
   ProDayAttendanceRecord,
   DraftPickRecord,
+  CoachVisitObservation,
 } from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
@@ -157,6 +158,16 @@ export interface LeagueState {
    * Slice 5a only fires round 1 — rounds 2–7 land in slice 5b.
    */
   draftHistory: readonly DraftPickRecord[];
+
+  /**
+   * Append-only stream of head-coach visit observations on college
+   * prospects. Parallel to `collegeObservations` (scouts) but
+   * narrower: coaches grade mental + scheme-fit dimensions only and
+   * with significantly higher accuracy. Slice 6 (v0.39.0) ships the
+   * primitive; recency-weighting + cross-attendance signal land in
+   * future polish slices.
+   */
+  coachVisitObservations: readonly CoachVisitObservation[];
 }
 
 export type LeaguePhase =

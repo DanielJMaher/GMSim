@@ -243,6 +243,10 @@ export {
   // slice 5c — UDFA pipeline
   runUdfaPromotion,
   applyUdfaResult,
+  // slice 6 — head-coach visits
+  runCoachVisits,
+  applyCoachVisits,
+  coachVisitAccuracy,
 } from './draft/index.js';
 export type {
   PromoteOptions,
@@ -251,6 +255,7 @@ export type {
   DraftRunResult,
   RunUdfaPromotionOptions,
   UdfaPromotionResult,
+  RunCoachVisitsOptions,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,

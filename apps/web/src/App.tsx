@@ -921,6 +921,9 @@ function CollegeProspectDetail({
         </div>
       )}
 
+      {/* Coach visits cross-team */}
+      <CoachVisitsSection prospect={prospect} league={league} />
+
       {/* Scout observations cross-team */}
       <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
         <div className="mb-1 flex items-baseline justify-between text-[10px] uppercase tracking-wider text-zinc-500">
@@ -1026,6 +1029,79 @@ function MeasureCell({
           <span className="ml-1 italic text-zinc-600" title="Drill skipped at combine">[DNP]</span>
         ) : null}
       </span>
+    </div>
+  );
+}
+
+function CoachVisitsSection({
+  prospect,
+  league,
+}: {
+  prospect: CollegePlayer;
+  league: LeagueState;
+}) {
+  // Map coach id → owning team for attribution.
+  const coachToTeam = useMemo(() => {
+    const m = new Map<string, TeamState>();
+    for (const team of Object.values(league.teams)) {
+      m.set(team.headCoachId, team);
+    }
+    return m;
+  }, [league.teams]);
+
+  const visits = useMemo(
+    () =>
+      league.coachVisitObservations
+        .filter((v) => v.collegePlayerId === prospect.id)
+        .sort((a, b) => b.observedOnTick - a.observedOnTick),
+    [league.coachVisitObservations, prospect.id],
+  );
+
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+      <div className="mb-1 flex items-baseline justify-between text-[10px] uppercase tracking-wider text-zinc-500">
+        <span>Coach visits ({visits.length})</span>
+        <span className="normal-case text-zinc-600">
+          intangibles + scheme fit only · higher accuracy than scouts
+        </span>
+      </div>
+      {visits.length === 0 ? (
+        <div className="text-zinc-600">No coach has filed a visit on this prospect yet.</div>
+      ) : (
+        <table className="w-full text-[10px]">
+          <thead className="text-zinc-500">
+            <tr>
+              <th className="text-left font-normal">Coach</th>
+              <th className="text-left font-normal">Team</th>
+              <th className="text-right font-normal">Conf</th>
+              <th className="text-right font-normal" title="Observed leadership">lead</th>
+              <th className="text-right font-normal" title="Observed football IQ">iq</th>
+              <th className="text-right font-normal" title="Observed coachability">coach</th>
+              <th className="text-right font-normal" title="Observed technical skill (scheme fit proxy)">scheme</th>
+              <th className="text-right font-normal" title="Sim tick observed">tick</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visits.map((v, idx) => {
+              const coach = league.coaches[v.coachId];
+              const team = coachToTeam.get(v.coachId);
+              const conf = v.confidence.leadership ?? v.confidence.footballIq ?? 0;
+              return (
+                <tr key={`${v.coachId}-${idx}`} className="text-zinc-300">
+                  <td>{coach?.name ?? v.coachId}</td>
+                  <td className="text-zinc-400">{team?.identity.abbreviation ?? '?'}</td>
+                  <td className="text-right font-mono text-emerald-300">{conf.toFixed(2)}</td>
+                  <td className="text-right font-mono text-zinc-300">{v.skills.leadership ?? '—'}</td>
+                  <td className="text-right font-mono text-zinc-300">{v.skills.footballIq ?? '—'}</td>
+                  <td className="text-right font-mono text-zinc-300">{v.skills.coachability ?? '—'}</td>
+                  <td className="text-right font-mono text-zinc-300">{v.skills.technicalSkill ?? '—'}</td>
+                  <td className="text-right font-mono text-zinc-600">{v.observedOnTick}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

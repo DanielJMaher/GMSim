@@ -31,6 +31,7 @@ import { rollJuniorDeclarations } from '../draft/declaration.js';
 import { runDraft, applyDraftResult } from '../draft/event.js';
 import { computeDraftOrder } from '../draft/draft-order.js';
 import { runUdfaPromotion, applyUdfaResult } from '../draft/udfa.js';
+import { runCoachVisits, applyCoachVisits } from '../draft/coach-visits.js';
 import { preseasonCuts } from '../transactions/preseason-cuts.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
@@ -397,6 +398,15 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     combineResults,
     proDayAttendance,
   };
+
+  // Coach visits — head coaches grade the top 3 prospects from each
+  // team's refreshed draft board (intangibles + scheme fit). Higher
+  // accuracy than scouts on those dimensions; ignores physical
+  // measurables entirely. Append-only.
+  const coachVisits = runCoachVisits(advancePrng.fork('coach-visits'), offseason, {
+    observedOnTick: nextTick,
+  });
+  offseason = applyCoachVisits(offseason, coachVisits);
 
   return offseason;
 }
