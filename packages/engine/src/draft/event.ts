@@ -109,6 +109,7 @@ export function runDraft(
       prospect: chosen,
       teamId,
       signedOnTick: options.pickedOnTick,
+      overallPick,
     });
     newPlayers.push(promoted.player);
     newContracts.push(promoted.contract);

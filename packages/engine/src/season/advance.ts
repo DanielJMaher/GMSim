@@ -162,9 +162,11 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     };
   }
 
-  // ─── Retirement + rookie replacement ───────────────────────────────
-  // Phase 2 placeholder: age-based retirement, slot-for-slot rookie
-  // backfill. Real retirement + draft replenishment lands in Phase 3.
+  // ─── Retirement ─────────────────────────────────────────────────────
+  // Age-based retirement opens roster slots; the draft + refillRosters
+  // fill them later in this pipeline. Pre-v0.37 retirement also injected
+  // replacement rookies in-place; that was removed when the multi-round
+  // draft (slice 5b) took over rookie supply.
   const retirement = processRetirements(
     advancePrng.fork('retirement'),
     league,
@@ -178,7 +180,6 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     if (retiredSet.has(id as PlayerId)) continue;
     playersNext[id] = player;
   }
-  Object.assign(playersNext, retirement.newPlayers);
 
   const contractsNext: Record<string, Contract> = {};
   const droppedSet = new Set<ContractIdType>(retirement.dropContractIds);
@@ -186,9 +187,8 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     if (droppedSet.has(id as ContractIdType)) continue;
     contractsNext[id] = contract;
   }
-  Object.assign(contractsNext, retirement.newContracts);
 
-  // Splice updated rosterIds (with retiree → rookie swaps) into teams,
+  // Splice updated rosterIds (retirees removed) into teams,
   // then activate IR — players on injuredReserveIds rejoin the roster
   // for the upcoming season (the offseason heal earlier cleared their
   // Player.injury). Practice-squad players who retired (off-roster
@@ -285,20 +285,33 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     ),
   };
 
-  // Draft event — round 1, 32 picks via BPA-from-board. Draft order is
-  // inverse of prior season's standings. Drafted prospects are
-  // promoted to NFL Player records (with rookie contracts) and
-  // appended to their team's roster; the prospects exit the college
-  // pool. Slice 5a fires round 1 only.
+  // Draft event — 7 rounds, 32 picks each (224 total) via BPA-from-
+  // board. Draft order is inverse of prior season's standings; same
+  // order is reused for each round (trade-ups will land in slice 5c
+  // and reorder per-round). Drafted prospects are promoted to NFL
+  // Player records (with rookie contracts) and appended to their
+  // team's roster; the prospects exit the college pool.
   const draftOrder = computeDraftOrder(records);
-  const draftResult = runDraft(advancePrng.fork('draft'), offseason, {
-    draftOrder,
-    pickedOnTick: nextTick,
-    seasonNumber: nextSeasonNumber,
-    round: 1,
-    startingOverallPick: 1,
-  });
-  offseason = applyDraftResult(offseason, draftResult);
+  const DRAFT_ROUNDS = 7;
+  const PICKS_PER_ROUND = draftOrder.length; // 32 for a healthy league
+  const allDraftedRookieIds = new Set<PlayerId>();
+  for (let round = 1; round <= DRAFT_ROUNDS; round++) {
+    const startingOverallPick = (round - 1) * PICKS_PER_ROUND + 1;
+    const roundResult = runDraft(advancePrng.fork(`draft-round-${round}`), offseason, {
+      draftOrder,
+      pickedOnTick: nextTick,
+      seasonNumber: nextSeasonNumber,
+      round,
+      startingOverallPick,
+    });
+    offseason = applyDraftResult(offseason, roundResult);
+    for (const pick of roundResult.picks) allDraftedRookieIds.add(pick.promotedPlayerId);
+    if (roundResult.picks.length < draftOrder.length) {
+      // College pool exhausted of declared prospects — extremely rare.
+      // Cut the draft short rather than infinite-loop on empty rounds.
+      break;
+    }
+  }
 
   // Preseason cuts — NFL teams briefly carry 90+ during training camp
   // then trim to 53 before Week 1. Slice 5a models the simpler "anyone
@@ -306,8 +319,7 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
   // drafted rookies are protected (real NFL almost never cuts a draft
   // pick in their first preseason). The full 90 → 85 → 53 lifecycle
   // can be exposed as distinct phases in a later slice.
-  const draftedRookieIds = new Set(draftResult.picks.map((p) => p.promotedPlayerId));
-  offseason = preseasonCuts(offseason, { protectedPlayerIds: draftedRookieIds });
+  offseason = preseasonCuts(offseason, { protectedPlayerIds: allDraftedRookieIds });
 
   // College pool advance — age every prospect, expire SR/RS_SR (those
   // not drafted), inject a fresh TRUE_FR class. Drafted prospects

@@ -16,6 +16,93 @@ _Nothing yet._
 
 ---
 
+## [0.37.0] — 2026-05-16
+
+### Changed — Full 7-round draft + retirement refactor (Doc 3 — Draft Module slice 5b)
+
+The Draft Module completes its core loop. `processRetirements` no
+longer injects replacement rookies — retirees just open roster
+slots, and the draft (now 7 rounds = 224 picks) fills most of them.
+Remaining gaps backfill from FA via the existing `refillRosters`
+step. `preseasonCuts` trims the natural overflow back to 53.
+
+**Engine — `engine/src/season/retirement.ts`:**
+
+- `processRetirements` shrunk: removed `newPlayers`, `newContracts`
+  from `RetirementOutcome`. The function now only computes who
+  retired and removes them from rosters. The retirement-replacement
+  `generateReplacement` helper + `sideForGroup` mapper are gone —
+  the draft owns rookie supply now.
+- File is ~110 LOC lighter as a result.
+
+**Engine — `engine/src/season/advance.ts`:**
+
+- Splice loop simplified: retirement-shaped rosters are just the
+  surviving-player list; no `Object.assign(playersNext, newPlayers)`
+  / `Object.assign(contractsNext, newContracts)` calls.
+- Draft loop expands to 7 rounds (was 1). Each round forks the prng
+  with a round-scoped label and gets its own `startingOverallPick`
+  so pick numbers across the draft go 1..224 in order. If a round
+  runs short (declared-prospect pool exhausted — rare; depends on
+  this year's junior declaration distribution), the loop breaks
+  cleanly rather than firing empty rounds.
+- All 224 drafted rookies are protected from the preseason cut
+  pool (single union set passed in).
+
+**Engine — `engine/src/contracts/rookie-scale.ts`:**
+
+- New `generateRookieContract` function — required because drafted
+  rookies were previously getting veteran-tier contracts via
+  `generateContract`, which works for one rookie per team (slice 5a)
+  but blows the cap when 7 picks per team each get a tier-scaled
+  deal. Rookie contracts now follow a rough NFL CBA scale: 4-year
+  fixed length, total value decays exponentially from ~$40M at pick
+  #1 to ~$4M at pick #200+, signing-bonus share scales from 60%
+  (top picks) down to 10% (late picks). Year-1 fully guaranteed
+  for all picks; year-2 fully guaranteed for round 1, injury-only
+  for rounds 2–3, none after. `promoteProspectToPlayer` now takes
+  `overallPick` so the contract math has what it needs.
+- A future slice can layer in the full per-slot CBA table + the
+  round-1 fifth-year option mechanic.
+
+**Pipeline interaction:**
+
+- Retirement: ~30–60 retirees league-wide → rosters drop to ~50/team
+- `refillRosters`: backfills from FA → rosters back to ~53/team
+- Draft (7 rounds): adds 7 per team → rosters at ~60/team
+- `preseasonCuts`: trims overflow back to 53 (lowest-skill first,
+  drafted rookies protected)
+- End state: 53 active per team, draft picks on roster, low-skill
+  FAs and replacement-grade vets released to the pool
+
+The "wasted FA signings then cut" is realistic — real NFL teams
+sign vet-min depth in March that gets cut in August when draft
+picks show up.
+
+**Tests:** event tests updated to expect 200–224 picks per year
+(was exactly 32). All other tests (retirement, advance, transactions)
+still pass with the refactor — the roster invariants hold because
+`preseasonCuts` returns the world to 53.
+
+**Public surface:** `RetirementOutcome` shape changed (breaking for
+direct callers of `processRetirements`). No external callers outside
+`advanceSeason`.
+
+**Not in this slice (deferred):**
+
+- Trade-ups / trade-downs between picks (slice 5c — needs Doc 5
+  trade-value chart integration).
+- Compensatory picks (slice 5c).
+- UDFA pipeline — undrafted declared juniors / seniors currently
+  expire when the pool advances. Real flow: they go to a rookie FA
+  pool teams sign from. Future slice.
+- NFL real-life draft-order tiebreakers (strength of schedule,
+  playoff round of elimination).
+- Multi-stage NFL preseason (90 → 85 → 53 with preseason exposed
+  as an interactive phase).
+
+---
+
 ## [0.36.0] — 2026-05-16
 
 ### Added — Junior declaration + single-round draft (Doc 3 — Draft Module slice 5a)

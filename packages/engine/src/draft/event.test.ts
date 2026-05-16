@@ -177,27 +177,37 @@ describe('applyDraftResult', () => {
 });
 
 describe('draft integration in advanceSeason', () => {
-  it('advanceSeason fires a draft each year', () => {
+  it('advanceSeason fires a 7-round draft each year (up to 224 picks)', () => {
     const league = createLeague({ seed: 'adv-draft' });
     const played = simulateSeason(league);
     const after = advanceSeason(played);
-    // 32 picks in round 1 — appended to draftHistory.
-    expect(after.draftHistory.length).toBe(32);
+    // 7 rounds × 32 picks = 224 maximum. Late rounds can run short
+    // when declared-prospect supply runs out (rare; depends on
+    // junior declaration rate this year), so allow [200, 224].
+    expect(after.draftHistory.length).toBeGreaterThanOrEqual(200);
+    expect(after.draftHistory.length).toBeLessThanOrEqual(224);
     expect(after.draftHistory[0]!.round).toBe(1);
     expect(after.draftHistory[0]!.overallPick).toBe(1);
     expect(after.draftHistory[31]!.overallPick).toBe(32);
+    expect(after.draftHistory[31]!.round).toBe(1);
+    // Last pick should be in round 7 (or last round actually fired).
+    const lastPick = after.draftHistory[after.draftHistory.length - 1]!;
+    expect(lastPick.round).toBeGreaterThanOrEqual(6);
+    expect(lastPick.round).toBeLessThanOrEqual(7);
   });
 
   it('multi-year drafts accumulate in draftHistory', () => {
     let league = createLeague({ seed: 'adv-multi' });
     league = simulateSeason(league);
     league = advanceSeason(league);
+    const firstYearCount = league.draftHistory.length;
     league = simulateSeason(league);
     league = advanceSeason(league);
-    expect(league.draftHistory.length).toBe(64);
-    // First 32 belong to season 2, next 32 to season 3.
+    // Two years of drafts, each 200-224 picks.
+    expect(league.draftHistory.length).toBeGreaterThanOrEqual(firstYearCount + 200);
+    expect(league.draftHistory.length).toBeLessThanOrEqual(firstYearCount + 224);
     expect(league.draftHistory[0]!.seasonNumber).toBe(2);
-    expect(league.draftHistory[63]!.seasonNumber).toBe(3);
+    expect(league.draftHistory[league.draftHistory.length - 1]!.seasonNumber).toBe(3);
   });
 
   it('draft order matches inverse standings (worst team picks first)', () => {

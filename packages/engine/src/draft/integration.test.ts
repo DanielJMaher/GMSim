@@ -50,8 +50,11 @@ describe('Draft slice 1 — league integration', () => {
     const newFreshmen = after.collegePool.filter((cp) => cp.classYear === 'TRUE_FR');
     expect(newFreshmen.length).toBeGreaterThanOrEqual(190);
 
-    // Pool size still in the ~1000 band.
-    expect(after.collegePool.length).toBeGreaterThanOrEqual(950);
+    // Pool size in the ~900 band post-draft. The 7-round draft (slice 5b)
+    // removes up to 224 declared prospects per cycle; the freshman class
+    // injection (~210) doesn't fully replace them, so the pool steady-
+    // states slightly smaller than the slice-1 ~1000 baseline.
+    expect(after.collegePool.length).toBeGreaterThanOrEqual(850);
     expect(after.collegePool.length).toBeLessThanOrEqual(1100);
   });
 
@@ -62,6 +65,6 @@ describe('Draft slice 1 — league integration', () => {
     const oldShape = { ...played } as typeof played & { collegePool?: typeof played.collegePool };
     delete oldShape.collegePool;
     const after = advanceSeason(oldShape as typeof played);
-    expect(after.collegePool.length).toBeGreaterThanOrEqual(950);
+    expect(after.collegePool.length).toBeGreaterThanOrEqual(850);
   });
 });

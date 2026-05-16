@@ -3,7 +3,7 @@ import type { CollegePlayer } from '../types/college.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamId, ContractId } from '../types/ids.js';
-import { generateContract } from '../contracts/generate.js';
+import { generateRookieContract } from '../contracts/rookie-scale.js';
 import { rollMoodProfile } from '../players/mood-profile.js';
 import { positionGroupFor } from '../players/position-group.js';
 
@@ -12,6 +12,13 @@ export interface PromoteOptions {
   teamId: TeamId;
   /** Tick at which the rookie contract signs. */
   signedOnTick: number;
+  /**
+   * Overall draft pick (1..224 across 7 rounds). Drives rookie-scale
+   * contract value — top picks get bigger deals, late picks land near
+   * league minimum. Defaults to 32 (end-of-round-1) for callers that
+   * don't have a real pick number (e.g. tests).
+   */
+  overallPick?: number;
 }
 
 export interface PromoteResult {
@@ -44,7 +51,7 @@ export function promoteProspectToPlayer(
   prng: Prng,
   options: PromoteOptions,
 ): PromoteResult {
-  const { prospect, teamId, signedOnTick } = options;
+  const { prospect, teamId, signedOnTick, overallPick = 32 } = options;
   const position = prospect.nflProjectedPosition;
   const positionGroup = positionGroupFor(position);
   const moodProfile = rollMoodProfile(prng.fork('mood'));
@@ -72,11 +79,11 @@ export function promoteProspectToPlayer(
     careerStats: [],
     careerAwards: [],
   };
-  const contract = generateContract(prng.fork('contract'), {
+  const contract = generateRookieContract({
     player,
     idSuffix: String(player.id),
     currentTick: signedOnTick,
-    fresh: true,
+    overallPick,
   });
   const contractId: ContractId = contract.id;
   return {
