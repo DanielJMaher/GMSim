@@ -90,7 +90,11 @@ export { runProDays } from './pro-days.js';
 // Slice 5a: junior declaration + single-round draft
 export { rollJuniorDeclarations } from './declaration.js';
 export { computeDraftOrder } from './draft-order.js';
-export { promoteProspectToPlayer } from './promote.js';
+export { promoteProspectToPlayer, promoteProspectToFreeAgent } from './promote.js';
 export type { PromoteOptions, PromoteResult } from './promote.js';
 export { runDraft, applyDraftResult } from './event.js';
 export type { RunDraftOptions, DraftRunResult } from './event.js';
+
+// Slice 5c (UDFA): undrafted-rookie-FA pipeline
+export { runUdfaPromotion, applyUdfaResult } from './udfa.js';
+export type { RunUdfaPromotionOptions, UdfaPromotionResult } from './udfa.js';

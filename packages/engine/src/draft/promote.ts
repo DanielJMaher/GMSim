@@ -52,11 +52,65 @@ export function promoteProspectToPlayer(
   options: PromoteOptions,
 ): PromoteResult {
   const { prospect, teamId, signedOnTick, overallPick = 32 } = options;
+  const player = buildBaseRookiePlayer(prng, prospect, teamId);
+  const contract = generateRookieContract({
+    player,
+    idSuffix: String(player.id),
+    currentTick: signedOnTick,
+    overallPick,
+  });
+  const contractId: ContractId = contract.id;
+  return {
+    player: { ...player, contractId },
+    contract,
+  };
+}
+
+/**
+ * Promote a `CollegePlayer` directly to the free-agent pool. Same
+ * conversion as `promoteProspectToPlayer` but with:
+ *   - teamId: null (FA)
+ *   - contractId: null (no current deal)
+ *
+ * Used for UDFAs — declared prospects who went undrafted across all
+ * 7 rounds. They sit in the FA pool until a team signs them via
+ * `refillRosters` next offseason (or via midseason FA signings if
+ * those run on them). Same shape as any other unsigned NFL player.
+ */
+export function promoteProspectToFreeAgent(
+  prng: Prng,
+  prospect: CollegePlayer,
+): Player {
+  return buildBaseRookiePlayer(prng, prospect, null);
+}
+
+/**
+ * Shared player-record construction for both drafted-prospect and
+ * UDFA promotion. Mapping (identical for both paths):
+ *   - position: prospect's `nflProjectedPosition` (conversion candidates
+ *     land at their projected NFL spot, not their college position)
+ *   - skills (current + ceiling): carry through verbatim — the engine's
+ *     truth doesn't change because the player crossed into the NFL
+ *   - archetype: true archetype (the assumedArchetype reflects college
+ *     coaching's read; once an NFL player, the misread layer is moot for
+ *     game-sim purposes)
+ *   - tier + developmentArchetype: carry through
+ *   - moodProfile: rolled fresh — college prospects don't have one
+ *     (intangibles cover a different facet)
+ *   - mood: starts at moodProfile.setPoint
+ *   - experienceYears: 0 (rookie)
+ *   - injury, conditioning, careerStats, careerAwards, tradeRequestedOnTick:
+ *     defaults
+ */
+function buildBaseRookiePlayer(
+  prng: Prng,
+  prospect: CollegePlayer,
+  teamId: TeamId | null,
+): Player {
   const position = prospect.nflProjectedPosition;
   const positionGroup = positionGroupFor(position);
   const moodProfile = rollMoodProfile(prng.fork('mood'));
-
-  const player: Player = {
+  return {
     id: prospect.id,
     firstName: prospect.firstName,
     lastName: prospect.lastName,
@@ -78,16 +132,5 @@ export function promoteProspectToPlayer(
     mood: moodProfile.setPoint,
     careerStats: [],
     careerAwards: [],
-  };
-  const contract = generateRookieContract({
-    player,
-    idSuffix: String(player.id),
-    currentTick: signedOnTick,
-    overallPick,
-  });
-  const contractId: ContractId = contract.id;
-  return {
-    player: { ...player, contractId },
-    contract,
   };
 }

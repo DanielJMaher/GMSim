@@ -237,14 +237,20 @@ export {
   rollJuniorDeclarations,
   computeDraftOrder,
   promoteProspectToPlayer,
+  promoteProspectToFreeAgent,
   runDraft,
   applyDraftResult,
+  // slice 5c — UDFA pipeline
+  runUdfaPromotion,
+  applyUdfaResult,
 } from './draft/index.js';
 export type {
   PromoteOptions,
   PromoteResult,
   RunDraftOptions,
   DraftRunResult,
+  RunUdfaPromotionOptions,
+  UdfaPromotionResult,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,

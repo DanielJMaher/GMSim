@@ -150,48 +150,44 @@ describe('advanceSeason — retirement integration', () => {
     }
   });
 
-  it('every replacement rookie is age 21-22 with experienceYears 0', () => {
+  it('processRetirements no longer auto-generates replacement rookies on active rosters', () => {
+    // Slice 5b removed the in-place rookie injection from
+    // processRetirements. New active-roster players post-advance are
+    // all drafted prospects (CP_-prefixed). No retirement-replacement
+    // rookies should appear on any team's active roster.
+    //
+    // (Practice-squad refill still generates fresh non-CP_ rookies;
+    // those are on practiceSquadIds, not rosterIds — excluded by the
+    // active-roster filter below.)
     const played = simulateSeason(createLeague({ seed: 'retire-rookies' }));
     const beforeIds = new Set(Object.keys(played.players));
     const after = advanceSeason(played);
-    // Filter out draft picks — `advanceSeason` now also promotes
-    // college prospects to NFL players via the draft event. Drafted
-    // rookies are JR/SR/RS_SR (age 20-24), distinct from the
-    // retirement-replacement rookies this test covers.
-    const draftedIds = new Set(after.draftHistory.map((p) => p.promotedPlayerId));
-    const newIds = Object.keys(after.players)
-      .filter((id) => !beforeIds.has(id))
-      .filter((id) => !draftedIds.has(id as never));
-    expect(newIds.length).toBeGreaterThan(0);
-
-    for (const newId of newIds) {
-      const rookie = after.players[newId]!;
-      expect(rookie.experienceYears).toBe(0);
-      const age = ageOfPlayer(rookie, after.seasonNumber);
-      expect(age).toBeGreaterThanOrEqual(21);
-      expect(age).toBeLessThanOrEqual(22);
+    const activeRosterIds = new Set<string>();
+    for (const team of Object.values(after.teams)) {
+      for (const pid of team.rosterIds) activeRosterIds.add(pid);
     }
+    const newActiveNonDraft = Object.keys(after.players)
+      .filter((id) => !beforeIds.has(id))
+      .filter((id) => activeRosterIds.has(id))
+      .filter((id) => !id.startsWith('CP_'));
+    expect(newActiveNonDraft.length).toBe(0);
   });
 
-  it('every replacement rookie has a fresh contract (yearsRemaining = realYears)', () => {
+  it('every new on-roster player from advanceSeason has a fresh contract', () => {
+    // Post-slice-5b: retirement no longer creates rookies. New on-
+    // roster players post-advance are all drafted prospects (CP_-
+    // prefixed ids). Each should land with a fresh rookie-scale
+    // contract (yearsRemaining === realYears). UDFAs are excluded
+    // because they're FAs with no contract.
     const played = simulateSeason(createLeague({ seed: 'retire-fresh-contracts' }));
     const beforeIds = new Set(Object.keys(played.players));
     const after = advanceSeason(played);
-    // Exclude drafted prospects — they're a different code path (the
-    // draft event) and a fraction of them get released by the
-    // preseason-cuts step with a null contractId. This test covers
-    // retirement-replacement rookies only.
-    const draftedIds = new Set(after.draftHistory.map((p) => p.promotedPlayerId));
-    const newIds = Object.keys(after.players)
+    const newOnRosterIds = Object.keys(after.players)
       .filter((id) => !beforeIds.has(id))
-      .filter((id) => !draftedIds.has(id as never))
-      // Also exclude players cut in preseason — preseasonCuts can
-      // release low-skill retirement-replacement rookies to the FA
-      // pool (null contract). The test's intent is "rookies that
-      // made an active roster have a fresh contract."
       .filter((id) => after.players[id]!.teamId !== null);
-    for (const newId of newIds) {
-      const rookie = after.players[newId]!;
+    expect(newOnRosterIds.length).toBeGreaterThan(0);
+    for (const id of newOnRosterIds) {
+      const rookie = after.players[id]!;
       expect(rookie.contractId).not.toBeNull();
       const contract = after.contracts[rookie.contractId!]!;
       expect(contract.yearsRemaining).toBe(contract.realYears);

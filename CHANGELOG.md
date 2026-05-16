@@ -16,6 +16,68 @@ _Nothing yet._
 
 ---
 
+## [0.38.0] — 2026-05-16
+
+### Added — UDFA pipeline (Doc 3 — Draft Module slice 5c)
+
+Undrafted declared prospects no longer silently expire when the
+college pool advances. After all 7 rounds fire, every prospect that
+was eligible-and-declared-but-not-drafted promotes to an NFL
+`Player` record as a free agent (`teamId: null`, `contractId: null`)
+and joins `LeagueState.players`. They sit in the FA pool unsigned;
+next offseason's `refillRosters` pass picks the best of them up.
+
+This is the late-round / UDFA talent layer Doc 3 explicitly calls
+out — Kurt Warner / Antonio Gates / Tony Romo archetypes who
+declared, went undrafted, and broke into the league via FA.
+
+**Engine — `engine/src/draft/`:**
+
+- `promote.ts` — new `promoteProspectToFreeAgent(prng, prospect)`.
+  Reuses the same base-rookie construction as `promoteProspectToPlayer`
+  (skills + ceiling + archetype + tier + mood roll) but produces
+  `teamId: null` and skips contract generation. The shared
+  `buildBaseRookiePlayer` helper means both promotion paths stay
+  consistent — only the team/contract layer differs.
+- `udfa.ts` — new `runUdfaPromotion(prng, league, { draftedIds })`
+  + `applyUdfaResult(league, result)`. Pure functions: result
+  carries `newPlayers` + `removedFromCollegePool`; apply folds them
+  into a new `LeagueState`.
+
+**Wiring (`engine/src/season/advance.ts`):**
+
+- UDFA promotion runs immediately after `preseasonCuts`, before
+  `advanceCollegePool`. Order: declarations → 7-round draft →
+  preseason cuts → UDFA → pool advance → next year's scouting.
+
+**Pool cleanliness:** every declared SR/RS_SR now exits the college
+pool the same year they declare — either via the draft or via UDFA.
+Previously the college pool advance silently dropped undrafted
+declared seniors; now they're tracked as NFL FAs. Pool size in the
+post-advance steady state still hovers ~850–950 (the FA pool grows
+instead of leaking talent into the void).
+
+**Public surface:** new exports `promoteProspectToFreeAgent`,
+`runUdfaPromotion`, `applyUdfaResult`, types
+`RunUdfaPromotionOptions`, `UdfaPromotionResult`.
+
+**Tests:** +10 in `udfa.test.ts` — pure-function behavior
+(declared/eligible/not-drafted gating, FA shape, determinism),
+`applyUdfaResult` integration, full advanceSeason flow (UDFAs
+land in pool, every declared SR/RS_SR exits the pool, multi-year
+FA pool growth).
+
+**Not in this slice (still deferred to a future 5d):**
+
+- Trade-ups / trade-downs between picks (needs Doc 5 trade-value
+  chart integration).
+- Compensatory picks.
+- NFL real-life draft-order tiebreakers (strength of schedule,
+  playoff round of elimination).
+- Multi-stage NFL preseason (90 → 85 → 53).
+
+---
+
 ## [0.37.0] — 2026-05-16
 
 ### Changed — Full 7-round draft + retirement refactor (Doc 3 — Draft Module slice 5b)

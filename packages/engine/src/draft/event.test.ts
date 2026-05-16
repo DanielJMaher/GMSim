@@ -203,8 +203,12 @@ describe('draft integration in advanceSeason', () => {
     const firstYearCount = league.draftHistory.length;
     league = simulateSeason(league);
     league = advanceSeason(league);
-    // Two years of drafts, each 200-224 picks.
-    expect(league.draftHistory.length).toBeGreaterThanOrEqual(firstYearCount + 200);
+    // Year 2 draft cohort is smaller than year 1 because the UDFA
+    // pipeline (slice 5c) routes year 1's undrafted-declared seniors
+    // to the FA pool instead of carrying them forward, so year 2's
+    // declared count is just the new SR class (advanced from JR) +
+    // current-year JR declarations. Allow [180, 224] for year 2.
+    expect(league.draftHistory.length).toBeGreaterThanOrEqual(firstYearCount + 180);
     expect(league.draftHistory.length).toBeLessThanOrEqual(firstYearCount + 224);
     expect(league.draftHistory[0]!.seasonNumber).toBe(2);
     expect(league.draftHistory[league.draftHistory.length - 1]!.seasonNumber).toBe(3);

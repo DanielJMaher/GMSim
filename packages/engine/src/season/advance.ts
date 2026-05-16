@@ -30,6 +30,7 @@ import { runProDays } from '../draft/pro-days.js';
 import { rollJuniorDeclarations } from '../draft/declaration.js';
 import { runDraft, applyDraftResult } from '../draft/event.js';
 import { computeDraftOrder } from '../draft/draft-order.js';
+import { runUdfaPromotion, applyUdfaResult } from '../draft/udfa.js';
 import { preseasonCuts } from '../transactions/preseason-cuts.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
@@ -320,6 +321,17 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
   // pick in their first preseason). The full 90 → 85 → 53 lifecycle
   // can be exposed as distinct phases in a later slice.
   offseason = preseasonCuts(offseason, { protectedPlayerIds: allDraftedRookieIds });
+
+  // UDFA pipeline — promote every undrafted-declared prospect to an
+  // NFL Player record and drop them into the FA pool. They sit
+  // unsigned until next offseason's refillRosters picks the best
+  // ones up. This is the late-round/UDFA talent layer Doc 3 calls
+  // out (Kurt Warner / Antonio Gates / Tony Romo archetypes —
+  // declared, undrafted, broke into the league via FA).
+  const udfaResult = runUdfaPromotion(advancePrng.fork('udfa'), offseason, {
+    draftedIds: allDraftedRookieIds,
+  });
+  offseason = applyUdfaResult(offseason, udfaResult);
 
   // College pool advance — age every prospect, expire SR/RS_SR (those
   // not drafted), inject a fresh TRUE_FR class. Drafted prospects
