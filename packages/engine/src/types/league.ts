@@ -2,7 +2,7 @@ import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
 import type { Scout, PlayerObservation, WatchListEntry } from './scout.js';
-import type { CollegePlayer } from './college.js';
+import type { CollegePlayer, CollegeScout, CollegePlayerObservation } from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
@@ -81,6 +81,30 @@ export interface LeagueState {
    * scouts (slice 2) and per-team draft boards (slice 3) layer on top.
    */
   collegePool: readonly CollegePlayer[];
+
+  /**
+   * College scouts — the league's full college-scouting staff across
+   * all 32 teams. Each team carries 10–15 (per Doc 3, ownership-
+   * financial-commitment driven). Resolved from `TeamState.collegeScoutIds`.
+   *
+   * NFL pro-personnel scouts live separately on `scouts` — different
+   * staffs, different cadences, different specialties (regional
+   * coverage matters for college).
+   */
+  collegeScouts: Readonly<Record<ScoutId, CollegeScout>>;
+
+  /**
+   * Attributed observations of college prospects produced by college
+   * scouts. Append-only history; the eventual draft-board UI reads
+   * through a knowledge-layer filter that limits to "what THIS team's
+   * scouts have observed" and reconciles conflicting reports by
+   * confidence. The dev inspector reads it unfiltered.
+   *
+   * Mirrors `LeagueState.observations` shape; Doc 3 explicitly calls
+   * for the same per-skill confidence structure to enable reuse of
+   * the watch-list-style aggregation in slice 3 (draft boards).
+   */
+  collegeObservations: readonly CollegePlayerObservation[];
 }
 
 export type LeaguePhase =

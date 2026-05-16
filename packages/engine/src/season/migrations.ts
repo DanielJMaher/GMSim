@@ -1,9 +1,13 @@
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
-import type { PlayerId } from '../types/ids.js';
+import type { TeamState } from '../types/team.js';
+import type { CollegeScout, CollegePlayerObservation } from '../types/college.js';
+import type { PlayerId, ScoutId, TeamId } from '../types/ids.js';
 import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
+import { generateTeamCollegeScouts } from '../draft/college-scout.js';
+import { generateInitialCollegeObservations } from '../draft/college-observation.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -23,6 +27,11 @@ import { generateInitialCollegePool } from '../draft/pool.js';
  * from the league's seed. Anchors birthdates to the current sim year
  * so the prospects are correctly aged for the league they're being
  * loaded into.
+ *
+ * v0.33.0: `LeagueState.collegeScouts`, `LeagueState.collegeObservations`,
+ * and `TeamState.collegeScoutIds` exist. Pre-v0.33 saves get a
+ * deterministic backfill seeded from `${seed}::college-scouts::backfill`
+ * so reload-then-save reproduces a stable league.
  */
 export function migrateLeagueForward(league: LeagueState): LeagueState {
   const updates: Record<PlayerId, Player> = {};
@@ -51,6 +60,64 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       { simYear, idPrefix: `B${next.seasonNumber}` },
     );
     next = { ...next, collegePool: pool };
+  }
+
+  // v0.33.0 college scouts + observations + per-team collegeScoutIds.
+  // Detect missing-field state via collegeScouts (the league-level
+  // map). If absent, generate scouts for every team deterministically.
+  if (!next.collegeScouts) {
+    const cscoutsPrng = new Prng(`${next.seed}::college-scouts::backfill`);
+    const collegeScouts: Record<string, CollegeScout> = {};
+    const collegeScoutsByTeam: Record<string, readonly CollegeScout[]> = {};
+    const teamUpdates: Record<string, TeamState> = {};
+    for (const team of Object.values(next.teams)) {
+      const owner = next.owners[team.ownerId];
+      const gm = next.gms[team.gmId];
+      if (!owner || !gm) continue;
+      const teamScouts = generateTeamCollegeScouts(
+        cscoutsPrng.fork(`team:${team.identity.abbreviation}`),
+        team.identity.abbreviation,
+        owner,
+        gm,
+      );
+      const collegeScoutIds: ScoutId[] = [];
+      for (const cs of teamScouts) {
+        collegeScouts[cs.id] = cs;
+        collegeScoutIds.push(cs.id);
+      }
+      collegeScoutsByTeam[team.identity.id] = teamScouts;
+      teamUpdates[team.identity.id] = { ...team, collegeScoutIds };
+    }
+    const observations: CollegePlayerObservation[] = generateInitialCollegeObservations(
+      cscoutsPrng.fork('initial-obs'),
+      collegeScoutsByTeam as Readonly<Record<TeamId, readonly CollegeScout[]>>,
+      next.collegePool,
+      next.tick,
+    );
+    next = {
+      ...next,
+      teams: { ...next.teams, ...teamUpdates } as typeof next.teams,
+      collegeScouts: collegeScouts as Readonly<Record<ScoutId, CollegeScout>>,
+      collegeObservations: observations,
+    };
+  } else {
+    // collegeScouts exists but a team may still be missing collegeScoutIds
+    // (defensive — handles hand-edited save files). No new scouts
+    // generated; just back-fill empty arrays.
+    let teamsTouched = false;
+    const teamUpdates: Record<string, TeamState> = {};
+    for (const team of Object.values(next.teams)) {
+      if (!team.collegeScoutIds) {
+        teamUpdates[team.identity.id] = { ...team, collegeScoutIds: [] };
+        teamsTouched = true;
+      }
+    }
+    if (teamsTouched) {
+      next = { ...next, teams: { ...next.teams, ...teamUpdates } as typeof next.teams };
+    }
+    if (!next.collegeObservations) {
+      next = { ...next, collegeObservations: [] };
+    }
   }
 
   return next;

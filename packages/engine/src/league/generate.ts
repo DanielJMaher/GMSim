@@ -29,6 +29,9 @@ import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { generateTeamScouts, generateInitialObservations, regenerateWatchLists } from '../scouting/index.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
+import { generateTeamCollegeScouts } from '../draft/college-scout.js';
+import { generateInitialCollegeObservations } from '../draft/college-observation.js';
+import type { CollegeScout, CollegePlayerObservation } from '../types/college.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -67,6 +70,8 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   // observation sweep below can look up each team's scouts without
   // re-bucketing the flat map.
   const scoutsByTeam: Record<string, readonly Scout[]> = {};
+  const collegeScouts: Record<string, CollegeScout> = {};
+  const collegeScoutsByTeam: Record<string, readonly CollegeScout[]> = {};
 
   const initialTick = 0;
 
@@ -110,12 +115,26 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     }
     scoutsByTeam[identity.id] = teamScouts;
 
+    const teamCollegeScouts = generateTeamCollegeScouts(
+      teamPrng.fork('college-scouts'),
+      identity.abbreviation,
+      bundle.owner,
+      bundle.gm,
+    );
+    const collegeScoutIds: ScoutId[] = [];
+    for (const cs of teamCollegeScouts) {
+      collegeScouts[cs.id] = cs;
+      collegeScoutIds.push(cs.id);
+    }
+    collegeScoutsByTeam[identity.id] = teamCollegeScouts;
+
     const team: TeamState = {
       identity,
       ownerId: bundle.owner.id,
       gmId: bundle.gm.id,
       headCoachId: bundle.headCoach.id,
       scoutIds,
+      collegeScoutIds,
       rosterIds,
       injuredReserveIds: [],
       practiceSquadIds: [],
@@ -164,6 +183,16 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     idPrefix: 'C0',
   });
 
+  // Initial college-scouting sweep — every college scout files
+  // observations on prospects in their specialty group with a
+  // regional bias toward their preferred region.
+  const collegeObservations: CollegePlayerObservation[] = generateInitialCollegeObservations(
+    rootPrng.fork('initial-college-observations'),
+    collegeScoutsByTeam as Readonly<Record<TeamId, readonly CollegeScout[]>>,
+    collegePool,
+    initialTick,
+  );
+
   const baseLeague: LeagueState = {
     seed,
     tick: initialTick,
@@ -183,6 +212,8 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     observations,
     watchLists,
     collegePool,
+    collegeScouts: collegeScouts as Readonly<Record<ScoutId, CollegeScout>>,
+    collegeObservations,
   };
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.

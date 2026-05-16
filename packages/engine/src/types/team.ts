@@ -46,6 +46,15 @@ export interface TeamState {
    * with the Draft Module). See `docs/design-docs` Doc 4.
    */
   scoutIds: readonly ScoutId[];
+  /**
+   * College scouts on staff — Doc 3 says 10–15 per team. Count +
+   * accuracy mean track Owner `financialCommitment` + GM
+   * `talentEvaluationAccuracy`, same dials as the NFL scout staff.
+   * Stored as `ScoutId` (the brand) but resolved via
+   * `LeagueState.collegeScouts` (NFL scouts go through `LeagueState.scouts`).
+   * Empty array on pre-Draft-module saves; backfilled by migrations.
+   */
+  collegeScoutIds: readonly ScoutId[];
   /** Current 53-man active roster. Practice squad and reserve lists tracked separately. */
   rosterIds: readonly PlayerId[];
   /**

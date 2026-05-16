@@ -64,3 +64,18 @@ export {
   getSchoolById,
   getSchoolsByTier,
 } from '../data/colleges/index.js';
+
+// Slice 2: College scouts + observations
+export {
+  generateCollegeScout,
+  generateTeamCollegeScouts,
+  collegeScoutStaffSize,
+  teamCollegeScoutAccuracyMean,
+} from './college-scout.js';
+
+export {
+  generateInitialCollegeObservations,
+  generateCollegeObservation,
+} from './college-observation.js';
+
+export { advanceCollegeScoutingCycle } from './college-cycle.js';

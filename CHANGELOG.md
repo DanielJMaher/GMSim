@@ -16,6 +16,117 @@ _Nothing yet._
 
 ---
 
+## [0.33.0] — 2026-05-15
+
+### Added — College scouts + observations (Doc 3 — Draft Module slice 2)
+
+The Draft Module's evaluation layer. Every team now fields **10–15
+college scouts** (per Doc 3, vs. NFL's 3–5 pro-personnel scouts) who
+file attributed, per-skill-confidence-weighted observations on the
+college pool. Mirrors the NFL scouting framework but with college-
+specific shape: bigger staffs, regional preference, an extra
+~20% noise on top of the NFL noise floor (college tape is
+harder to evaluate than NFL film).
+
+**Engine — new types in `engine/src/types/college.ts`:**
+
+- `ScoutRegion` — five US-region tags + `NATIONAL` + `STATE_TO_REGION`
+  lookup table covering all 50 states.
+- `CollegeScout` — id, name, age, yearsExperience, knownSpecialty
+  (PositionGroup), preferredRegion, hidden per-PositionGroup
+  trueAccuracy, 1–2 quirks (reuses NFL `ScoutQuirk` pool).
+- `CollegePlayerObservation` — same shape as NFL `PlayerObservation`
+  (per-skill values + confidence) but keyed off `CollegePlayer.id`
+  via `collegePlayerId` so slice 3 (draft boards) can use the same
+  confidence-weighted aggregation as the NFL watch-list code.
+
+**Engine — `engine/src/draft/`:**
+
+- `college-scout.ts` — `generateCollegeScout`,
+  `generateTeamCollegeScouts`, `collegeScoutStaffSize` (10/12/14/15
+  by Owner financial commitment), `teamCollegeScoutAccuracyMean`
+  (0.35..0.80, capped slightly lower than NFL's 0.40..0.85).
+- `college-observation.ts` — `generateCollegeObservation` with base
+  noise of 18 (vs NFL's 15), regional accuracy bonus (+0.06 when a
+  scout's preferred region matches the prospect's hometown OR
+  school state), and a 70/30 region-biased sampling for the
+  league-wide sweep. Scouts evaluate prospects whose **projected
+  NFL position group** matches their specialty — the conversion-
+  candidate axis means a college DE who projects as a 3-4 OLB
+  is observed by LB scouts, not DL scouts.
+- `college-cycle.ts` — `advanceCollegeScoutingCycle` primitive,
+  parallel to `advanceScoutingCycle` for NFL.
+
+**Engine — wiring:**
+
+- `TeamState.collegeScoutIds: readonly ScoutId[]` — new field.
+- `LeagueState.collegeScouts: Record<ScoutId, CollegeScout>` and
+  `LeagueState.collegeObservations: readonly CollegePlayerObservation[]`
+  — new fields.
+- `createLeague` generates 10–15 college scouts per team and runs
+  the initial league-wide observation sweep (~1900–2900 reports
+  depending on staff sizes).
+- `advanceSeason` runs `advanceCollegeScoutingCycle` after the
+  college-pool advance — every season adds a fresh round of
+  observations on the new prospect pool. Append-only.
+- `migrateLeagueForward` backfills `collegeScouts`,
+  `collegeObservations`, and per-team `collegeScoutIds` for
+  pre-v0.33 saves with a deterministic seed.
+
+**Inspector:**
+
+- College Pool panel header now reports total college scouts +
+  total reports filed.
+- New per-prospect "Reports" column in the prospect table —
+  shows how many cross-team observations exist on each
+  draft-eligible prospect. Highlighted violet when a prospect
+  has 8+ reports (well-scouted); dimmed when 0 (coverage gap,
+  realistic for off-region small-school types).
+
+**Quirk pool reuse:**
+
+- `composedQuirkEffect` reads `tier`, `experienceYears`, and
+  `careerAwards` off the player. College observation projects
+  `CollegePlayer` into that subset (treating prospects as
+  `experienceYears = 0` rookies with no career awards).
+  YOUNG_PLAYER_BIAS fires uniformly on prospects;
+  SHARP_ON_ROLE_PLAYERS / PRACTICE_SQUAD_GEM_HUNTER respond to
+  prospect tier; OVERVALUES_NAME_RECOGNITION effectively no-ops
+  (no NFL accolades yet — the eventual media-darling integration
+  in a later slice will give that quirk something to bite on for
+  prospects).
+
+**Public surface:**
+
+- New top-level exports: `generateCollegeScout`,
+  `generateTeamCollegeScouts`, `collegeScoutStaffSize`,
+  `teamCollegeScoutAccuracyMean`,
+  `generateInitialCollegeObservations`,
+  `generateCollegeObservation`, `advanceCollegeScoutingCycle`.
+
+**Tests:** 22 new across `college-scout.test.ts` (11) and
+`college-observation.test.ts` (11) — staff sizing, accuracy mean
+floor, deterministic generation, regional preference distribution,
+quirk-bias sanity, deterministic observation, attribution invariant,
+high-vs-low-accuracy noise comparison, position-group routing,
+regional-bias sampling, league integration, migration backfill,
+ID namespace separation. Full engine suite still green.
+
+**Not in this slice (deferred):**
+
+- Per-team draft boards (slice 3 — coming next).
+- Active deployment scheduling (which scouts attend which college
+  games each week — depends on a college-football schedule sim
+  that doesn't exist yet).
+- Coverage-competition penalties (when 15+ teams scout the same
+  marquee program, intelligence gets noisier — needs deployment
+  data first).
+- Coach visits during NFL bye weeks (Doc 3's coaching-evaluation
+  lane — separate slice).
+- Recency-weighted aggregation (older reports decay).
+
+---
+
 ## [0.32.0] — 2026-05-15
 
 ### Added — College Player substrate (Doc 3 — Draft Module slice 1)

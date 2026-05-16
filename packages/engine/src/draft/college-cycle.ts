@@ -1,0 +1,46 @@
+import type { Prng } from '../prng/index.js';
+import type { LeagueState } from '../types/league.js';
+import type { CollegeScout } from '../types/college.js';
+import type { TeamId } from '../types/ids.js';
+import { generateInitialCollegeObservations } from './college-observation.js';
+
+/**
+ * Run one college-scouting cycle: every college scout produces a
+ * fresh round of attributed observations on prospects in their
+ * specialty group, with regional bias. Existing observations remain
+ * — they're append-only — so multi-year evaluation arcs build up
+ * organically across seasons. (A future "recency-weighted aggregation"
+ * slice can let older reports decay; slice 2 just retains them all.)
+ *
+ * Called from `advanceSeason` after the NFL scouting cycle so the
+ * new sim year's college pool (with seniors expired and freshmen
+ * arrived) gets a fresh look. Same shape and intent as
+ * `advanceScoutingCycle` for NFL scouts.
+ */
+export function advanceCollegeScoutingCycle(
+  prng: Prng,
+  league: LeagueState,
+  observedOnTick: number,
+): LeagueState {
+  const scoutsByTeam: Record<string, CollegeScout[]> = {};
+  for (const team of Object.values(league.teams)) {
+    const teamScouts: CollegeScout[] = [];
+    for (const sid of team.collegeScoutIds) {
+      const scout = league.collegeScouts[sid];
+      if (scout) teamScouts.push(scout);
+    }
+    scoutsByTeam[team.identity.id] = teamScouts;
+  }
+
+  const newObservations = generateInitialCollegeObservations(
+    prng.fork('cycle-cobs'),
+    scoutsByTeam as Readonly<Record<TeamId, readonly CollegeScout[]>>,
+    league.collegePool,
+    observedOnTick,
+  );
+
+  return {
+    ...league,
+    collegeObservations: [...league.collegeObservations, ...newObservations],
+  };
+}

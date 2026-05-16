@@ -349,12 +349,22 @@ const FLAG_LABELS: Record<CharacterFlag, string> = {
 function CollegePoolPanel({ league }: { league: LeagueState }) {
   const [expanded, setExpanded] = useState(false);
   const pool = league.collegePool;
+  const observations = league.collegeObservations;
+  const collegeScouts = league.collegeScouts;
 
   const classCounts = useMemo(() => {
     const counts = new Map<ClassYear, number>();
     for (const cp of pool) counts.set(cp.classYear, (counts.get(cp.classYear) ?? 0) + 1);
     return counts;
   }, [pool]);
+
+  const observationsByProspect = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of observations) m.set(o.collegePlayerId, (m.get(o.collegePlayerId) ?? 0) + 1);
+    return m;
+  }, [observations]);
+
+  const collegeScoutCount = Object.keys(collegeScouts).length;
 
   const summary = useMemo(() => {
     let conversionCandidates = 0;
@@ -416,6 +426,10 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
         </h2>
         <span className="text-xs text-zinc-500">
           {pool.length} prospects · {draftEligible.length} draft-eligible
+          {' · '}
+          <span className="text-violet-400">{collegeScoutCount} college scouts</span>
+          {' · '}
+          <span className="text-violet-400">{observations.length} reports</span>
         </span>
       </div>
 
@@ -463,20 +477,26 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-left">Voice</th>
               <th className="px-2 py-1 text-center">★</th>
               <th className="px-2 py-1 text-center">Tier</th>
+              <th className="px-2 py-1 text-center" title="Reports filed by college scouts on this prospect">Reports</th>
               <th className="px-2 py-1 text-left">Flags</th>
             </tr>
           </thead>
           <tbody>
             {featured.map((cp) => (
-              <CollegeProspectRow key={cp.id} prospect={cp} />
+              <CollegeProspectRow
+                key={cp.id}
+                prospect={cp}
+                reportCount={observationsByProspect.get(cp.id) ?? 0}
+              />
             ))}
           </tbody>
         </table>
       </div>
 
       <p className="mt-2 text-[10px] text-zinc-600">
-        Slice 1 ground-truth view. Slice 2 will route this through college scouts (per-skill confidence).
-        Slice 3 will replace the league-wide list with each team's own scheme-fit-aware draft board.
+        Reports column = number of college-scout observations across all 32 teams.
+        Slice 3 (draft boards) will replace this league-wide list with each team's
+        own scheme-fit-aware draft board derived from their own scouts' reports.
       </p>
     </section>
   );
@@ -491,7 +511,13 @@ function CollegePoolStat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function CollegeProspectRow({ prospect }: { prospect: CollegePlayer }) {
+function CollegeProspectRow({
+  prospect,
+  reportCount,
+}: {
+  prospect: CollegePlayer;
+  reportCount: number;
+}) {
   const school = getSchoolById(prospect.schoolId);
   const tierColor =
     prospect.tier === 'STAR' ? 'text-amber-300'
@@ -548,6 +574,9 @@ function CollegeProspectRow({ prospect }: { prospect: CollegePlayer }) {
       <td className="px-2 py-1 text-zinc-400">{VOICE_LABELS[prospect.personalityVoice]}</td>
       <td className="px-2 py-1 text-center font-mono text-zinc-300">{prospect.recruiting.starRating}</td>
       <td className={`px-2 py-1 text-center font-mono ${tierColor}`}>{prospect.tier}</td>
+      <td className={`px-2 py-1 text-center font-mono ${reportCount === 0 ? 'text-zinc-700' : reportCount >= 8 ? 'text-violet-300' : 'text-zinc-400'}`}>
+        {reportCount}
+      </td>
       <td className="px-2 py-1 text-[10px] text-zinc-400">{flagSummary || <span className="text-zinc-600">—</span>}</td>
     </tr>
   );

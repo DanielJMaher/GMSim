@@ -1,11 +1,12 @@
-import type { PlayerId } from './ids.js';
-import type { Position } from './enums.js';
+import type { PlayerId, ScoutId } from './ids.js';
+import type { Position, PositionGroup } from './enums.js';
 import type {
   PlayerSkills,
   PlayerDevelopmentArchetype,
   TalentTier,
   ArchetypeId,
 } from './player.js';
+import type { ScoutQuirk } from './scout.js';
 
 /**
  * College class year. Drives draft eligibility and skill maturity:
@@ -437,4 +438,115 @@ export interface CollegePlayer {
    * year they remain in the pool.
    */
   collegeStats: readonly CollegeSeasonStats[];
+}
+
+// ─── College Scout (Doc 3) ──────────────────────────────────────────────
+
+/**
+ * Regional preference for a college scout. Doc 3:
+ *
+ *   "All 32 teams deploy scouts to regions and schools based on the
+ *    college football schedule simultaneously. Coverage competition —
+ *    when multiple teams deploy scouts to the same region or school,
+ *    the quality of intelligence gathered is affected."
+ *
+ * Slice 2 ships `preferredRegion` as a soft attribute that affects
+ * accuracy bonus when evaluating prospects from that region. Active
+ * deployment (where the scout actually traveled this week) is a
+ * later slice — depends on a college-football schedule simulation.
+ *
+ *   NATIONAL — no preferred region; uniform accuracy across all states.
+ *   <region> — bonus when evaluating prospects whose hometown OR
+ *              school state falls in this region.
+ */
+export type ScoutRegion =
+  | 'NATIONAL'
+  | 'NORTHEAST'    // CT, MA, ME, NH, NJ, NY, PA, RI, VT
+  | 'SOUTHEAST'    // AL, FL, GA, MS, NC, SC, TN, VA, WV
+  | 'MIDWEST'      // IA, IL, IN, KS, KY, MI, MN, MO, ND, NE, OH, SD, WI
+  | 'SOUTHWEST'    // AR, LA, NM, OK, TX
+  | 'WEST';        // AK, AZ, CA, CO, HI, ID, MT, NV, OR, UT, WA, WY
+
+/**
+ * Map US 2-letter state codes to scout regions. Used by the college
+ * observation generator to apply a regional accuracy bonus when a
+ * scout's `preferredRegion` matches a prospect's hometown/school.
+ */
+export const STATE_TO_REGION: Readonly<Record<string, ScoutRegion>> = {
+  AL: 'SOUTHEAST', AK: 'WEST', AZ: 'WEST', AR: 'SOUTHWEST', CA: 'WEST',
+  CO: 'WEST', CT: 'NORTHEAST', DE: 'NORTHEAST', FL: 'SOUTHEAST', GA: 'SOUTHEAST',
+  HI: 'WEST', ID: 'WEST', IL: 'MIDWEST', IN: 'MIDWEST', IA: 'MIDWEST',
+  KS: 'MIDWEST', KY: 'MIDWEST', LA: 'SOUTHWEST', ME: 'NORTHEAST', MD: 'NORTHEAST',
+  MA: 'NORTHEAST', MI: 'MIDWEST', MN: 'MIDWEST', MS: 'SOUTHEAST', MO: 'MIDWEST',
+  MT: 'WEST', NE: 'MIDWEST', NV: 'WEST', NH: 'NORTHEAST', NJ: 'NORTHEAST',
+  NM: 'SOUTHWEST', NY: 'NORTHEAST', NC: 'SOUTHEAST', ND: 'MIDWEST', OH: 'MIDWEST',
+  OK: 'SOUTHWEST', OR: 'WEST', PA: 'NORTHEAST', RI: 'NORTHEAST', SC: 'SOUTHEAST',
+  SD: 'MIDWEST', TN: 'SOUTHEAST', TX: 'SOUTHWEST', UT: 'WEST', VT: 'NORTHEAST',
+  VA: 'SOUTHEAST', WA: 'WEST', WV: 'SOUTHEAST', WI: 'MIDWEST', WY: 'WEST',
+};
+
+/**
+ * College scout — separate from the NFL `Scout` (which evaluates
+ * existing pros). Per Doc 3, every team fields **10–15 college scouts**
+ * — significantly larger than NFL pro-personnel staffs. Each scout
+ * carries:
+ *
+ *   `knownSpecialty`      — PositionGroup the GM understands them to
+ *                            focus on. Drives which prospects they
+ *                            most often evaluate.
+ *   `preferredRegion`     — geographic affinity. Bonus accuracy when
+ *                            evaluating prospects from this region.
+ *                            'NATIONAL' for pure cross-country scouts.
+ *   `trueAccuracy`        — hidden per-PositionGroup accuracy 0..1.
+ *                            Often (not always) higher in known
+ *                            specialty.
+ *   `quirks`              — 1–2 personality quirks that bias
+ *                            evaluation noise + confidence in
+ *                            specific contexts. Reuses NFL `ScoutQuirk`
+ *                            pool — quirks transfer cleanly.
+ *
+ * Per North Star, `trueAccuracy` and `quirks` are NEVER displayed
+ * numerically. The dev inspector exposes them; the eventual draft-
+ * board UI will surface only `knownSpecialty` + `preferredRegion`
+ * + identity, with track-record-based trust building over time.
+ */
+export interface CollegeScout {
+  id: ScoutId;
+  name: string;
+  age: number;
+  yearsExperience: number;
+  knownSpecialty: PositionGroup;
+  preferredRegion: ScoutRegion;
+  /** Hidden per-PositionGroup accuracy, 0..1. */
+  trueAccuracy: Readonly<Record<PositionGroup, number>>;
+  /** 1–2 quirks from the shared NFL/college quirk pool. */
+  quirks: readonly ScoutQuirk[];
+}
+
+/**
+ * One attributed observation made by a college scout about a college
+ * prospect. The set of all observations is the engine's college-
+ * scouting intelligence store; the eventual draft-board UI will read
+ * through a knowledge-layer filter that limits to "what the viewer's
+ * scouts have observed" and reconciles conflicting reports by
+ * confidence.
+ *
+ * Mirrors `PlayerObservation` shape so slice 3 (draft boards) can use
+ * the same confidence-weighted aggregation as the NFL watch-list code.
+ */
+export interface CollegePlayerObservation {
+  scoutId: ScoutId;
+  /** ID of the observed `CollegePlayer`. */
+  collegePlayerId: PlayerId;
+  /** Sim tick when this observation was recorded. */
+  observedOnTick: number;
+  /** Observed values for the skills this scout assessed, 0..100. */
+  skills: Readonly<Partial<Record<keyof PlayerSkills, number>>>;
+  /**
+   * Per-skill confidence, 0..1. Mirrors keys of `skills`. Lower
+   * confidence = noisier estimate; the knowledge layer should
+   * weight accordingly when reconciling reports from multiple
+   * sources.
+   */
+  confidence: Readonly<Partial<Record<keyof PlayerSkills, number>>>;
 }

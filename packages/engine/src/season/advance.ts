@@ -23,6 +23,7 @@ import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
 import { advanceCollegePool } from '../draft/pool.js';
+import { advanceCollegeScoutingCycle } from '../draft/college-cycle.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
 
@@ -282,6 +283,16 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     ...offseason,
     collegePool: collegeAdvance.nextPool,
   };
+
+  // College scouting cycle — every college scout files fresh
+  // observations on the new sim year's prospect pool (with seniors
+  // expired and freshmen arrived). Append-only; multi-year arcs build
+  // up across seasons.
+  offseason = advanceCollegeScoutingCycle(
+    advancePrng.fork('college-scouting-cycle'),
+    offseason,
+    nextTick,
+  );
 
   return offseason;
 }

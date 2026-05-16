@@ -190,7 +190,9 @@ export {
 } from './scouting/index.js';
 export type { QuirkEffect } from './scouting/index.js';
 
-// Draft — Doc 3 (slice 1: college player substrate)
+// Draft — Doc 3
+//   slice 1: college player substrate (v0.32.0)
+//   slice 2: college scouts + observations (v0.33.0)
 export {
   generateCollegePlayer,
   pickCollegePosition,
@@ -216,6 +218,14 @@ export {
   CONFERENCES,
   getSchoolById,
   getSchoolsByTier,
+  // slice 2 — college scouts
+  generateCollegeScout,
+  generateTeamCollegeScouts,
+  collegeScoutStaffSize,
+  teamCollegeScoutAccuracyMean,
+  generateInitialCollegeObservations,
+  generateCollegeObservation,
+  advanceCollegeScoutingCycle,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,
