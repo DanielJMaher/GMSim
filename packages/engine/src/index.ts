@@ -247,6 +247,13 @@ export {
   runCoachVisits,
   applyCoachVisits,
   coachVisitAccuracy,
+  // Doc 5 — pick value chart (base)
+  BASE_PICK_VALUES,
+  FUTURE_YEAR_DISCOUNTS,
+  pickValue,
+  valueOfPicks,
+  comparePickPackages,
+  roundForOverallPick,
 } from './draft/index.js';
 export type {
   PromoteOptions,
@@ -256,6 +263,8 @@ export type {
   RunUdfaPromotionOptions,
   UdfaPromotionResult,
   RunCoachVisitsOptions,
+  PickReference,
+  PickTradeEvaluation,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,

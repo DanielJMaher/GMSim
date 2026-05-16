@@ -106,3 +106,14 @@ export {
   coachVisitAccuracy,
 } from './coach-visits.js';
 export type { RunCoachVisitsOptions } from './coach-visits.js';
+
+// Slice (Doc 5): pick value chart — base
+export {
+  BASE_PICK_VALUES,
+  FUTURE_YEAR_DISCOUNTS,
+  pickValue,
+  valueOfPicks,
+  comparePickPackages,
+  roundForOverallPick,
+} from './pick-value.js';
+export type { PickReference, PickTradeEvaluation } from './pick-value.js';

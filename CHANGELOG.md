@@ -16,6 +16,70 @@ _Nothing yet._
 
 ---
 
+## [0.40.0] — 2026-05-16
+
+### Added — Draft pick value chart (Doc 5 base)
+
+Per Doc 5: modified Jimmy Johnson chart recalibrated against
+Fitzgerald-Spielberger performance methodology and real NFL trade
+data 2015–2024. Pick 1 = 10,000 points; exponential decay in
+round 1, deliberately flatter middle rounds, near-linear rounds
+5–7. Plus future-year discount modifiers (next year 75%, two out
+58%, three out 44%, capped beyond).
+
+This is the **base chart only** — Doc 5's dynamic situational
+modifiers (coaching-pressure / GM-desperation / ownership-philosophy
+/ roster-state / competitive-window) need NPC-behavior wiring and
+ship as a separate slice. Same for the QB-premium override.
+
+**Engine — `engine/src/draft/pick-value.ts`:**
+
+- `BASE_PICK_VALUES: readonly number[]` — 257-entry table (rounds
+  1–7 + comp-pick capacity), exact Doc 5 values for picks 1–128,
+  linear interpolation 129–257 to the doc's range anchors.
+- `FUTURE_YEAR_DISCOUNTS` — `[1.0, 0.75, 0.58, 0.44]`.
+- `pickValue(overallPick, yearsOut = 0)` — chart value with
+  optional future-year discount. Caps `yearsOut` beyond 3 at the
+  3-years-out discount.
+- `valueOfPicks(picks)` — sum a package's chart value.
+- `comparePickPackages(giving, receiving)` — full evaluation:
+  `givingValue`, `receivingValue`, `netValue`, `ratio`,
+  `isChartFair` (within ±10% of even).
+- `roundForOverallPick(overallPick)` — pick number → round id.
+- `PickReference`, `PickTradeEvaluation` types.
+
+Per North Star: chart values exist for NPC trade logic; the
+eventual game UI surfaces them indirectly through observed NPC
+offer behavior, never as a numerical "fair value" label to the
+player.
+
+**Public surface:** new top-level exports `BASE_PICK_VALUES`,
+`FUTURE_YEAR_DISCOUNTS`, `pickValue`, `valueOfPicks`,
+`comparePickPackages`, `roundForOverallPick`, plus types.
+
+**Tests:** 21 new in `pick-value.test.ts` — table size and exact
+Doc 5 anchors, intra-round monotonicity, round-1→round-2 inflection
+point (modern chart's deliberate middle-round lift), future-year
+discount math, valid/invalid pick handling, package summation,
+trade-comparison ratios + fairness band, round mapping.
+
+**Not in this slice (deferred):**
+
+- Dynamic situational modifiers (coaching hot-seat, GM desperation,
+  ownership philosophy, roster state, competitive window). Each
+  reads from existing organizational state and applies a per-team
+  multiplier on top of the base chart. Substantial slice on its
+  own — needs careful integration with Living League state.
+- QB-premium override (25–50% multiplier when QB is the target).
+- `DraftPickAsset` on `LeagueState` — tradeable pick objects with
+  ownership tracking. Required before trade-ups in the draft event
+  become actual pick-moving operations.
+- Trade-module integration — Doc 14 evaluator currently can't
+  include picks in trade packages. Adding picks as a trade asset
+  type is the natural next step.
+
+---
+
 ## [0.39.0] — 2026-05-16
 
 ### Added — Head-coach visits (Doc 3 — Draft Module slice 6)
