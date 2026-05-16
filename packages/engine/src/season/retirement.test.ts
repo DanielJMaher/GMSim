@@ -154,7 +154,14 @@ describe('advanceSeason — retirement integration', () => {
     const played = simulateSeason(createLeague({ seed: 'retire-rookies' }));
     const beforeIds = new Set(Object.keys(played.players));
     const after = advanceSeason(played);
-    const newIds = Object.keys(after.players).filter((id) => !beforeIds.has(id));
+    // Filter out draft picks — `advanceSeason` now also promotes
+    // college prospects to NFL players via the draft event. Drafted
+    // rookies are JR/SR/RS_SR (age 20-24), distinct from the
+    // retirement-replacement rookies this test covers.
+    const draftedIds = new Set(after.draftHistory.map((p) => p.promotedPlayerId));
+    const newIds = Object.keys(after.players)
+      .filter((id) => !beforeIds.has(id))
+      .filter((id) => !draftedIds.has(id as never));
     expect(newIds.length).toBeGreaterThan(0);
 
     for (const newId of newIds) {
@@ -170,7 +177,19 @@ describe('advanceSeason — retirement integration', () => {
     const played = simulateSeason(createLeague({ seed: 'retire-fresh-contracts' }));
     const beforeIds = new Set(Object.keys(played.players));
     const after = advanceSeason(played);
-    const newIds = Object.keys(after.players).filter((id) => !beforeIds.has(id));
+    // Exclude drafted prospects — they're a different code path (the
+    // draft event) and a fraction of them get released by the
+    // preseason-cuts step with a null contractId. This test covers
+    // retirement-replacement rookies only.
+    const draftedIds = new Set(after.draftHistory.map((p) => p.promotedPlayerId));
+    const newIds = Object.keys(after.players)
+      .filter((id) => !beforeIds.has(id))
+      .filter((id) => !draftedIds.has(id as never))
+      // Also exclude players cut in preseason — preseasonCuts can
+      // release low-skill retirement-replacement rookies to the FA
+      // pool (null contract). The test's intent is "rookies that
+      // made an active roster have a fresh contract."
+      .filter((id) => after.players[id]!.teamId !== null);
     for (const newId of newIds) {
       const rookie = after.players[newId]!;
       expect(rookie.contractId).not.toBeNull();

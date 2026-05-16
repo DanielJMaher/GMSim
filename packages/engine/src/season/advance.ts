@@ -27,6 +27,10 @@ import { advanceCollegeScoutingCycle } from '../draft/college-cycle.js';
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
 import { runCombine } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
+import { rollJuniorDeclarations } from '../draft/declaration.js';
+import { runDraft, applyDraftResult } from '../draft/event.js';
+import { computeDraftOrder } from '../draft/draft-order.js';
+import { preseasonCuts } from '../transactions/preseason-cuts.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
 
@@ -270,10 +274,45 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     ),
   };
 
-  // College pool advance — age every prospect, expire SR/RS_SR, inject
-  // a fresh TRUE_FR class. Slice 1 has no draft event yet, so SR
-  // prospects all expire (they don't get promoted to NFL). The future
-  // draft-event slice will replace this expiration path.
+  // Junior declarations — roll declaration flags on this season's
+  // JR-eligible cohort. Seniors auto-declare. Runs BEFORE the draft so
+  // declared juniors are eligible to be picked this year.
+  offseason = {
+    ...offseason,
+    collegePool: rollJuniorDeclarations(
+      advancePrng.fork('jr-declarations'),
+      offseason.collegePool,
+    ),
+  };
+
+  // Draft event — round 1, 32 picks via BPA-from-board. Draft order is
+  // inverse of prior season's standings. Drafted prospects are
+  // promoted to NFL Player records (with rookie contracts) and
+  // appended to their team's roster; the prospects exit the college
+  // pool. Slice 5a fires round 1 only.
+  const draftOrder = computeDraftOrder(records);
+  const draftResult = runDraft(advancePrng.fork('draft'), offseason, {
+    draftOrder,
+    pickedOnTick: nextTick,
+    seasonNumber: nextSeasonNumber,
+    round: 1,
+    startingOverallPick: 1,
+  });
+  offseason = applyDraftResult(offseason, draftResult);
+
+  // Preseason cuts — NFL teams briefly carry 90+ during training camp
+  // then trim to 53 before Week 1. Slice 5a models the simpler "anyone
+  // over 53 gets released to the FA pool by lowest skill" form. Just-
+  // drafted rookies are protected (real NFL almost never cuts a draft
+  // pick in their first preseason). The full 90 → 85 → 53 lifecycle
+  // can be exposed as distinct phases in a later slice.
+  const draftedRookieIds = new Set(draftResult.picks.map((p) => p.promotedPlayerId));
+  offseason = preseasonCuts(offseason, { protectedPlayerIds: draftedRookieIds });
+
+  // College pool advance — age every prospect, expire SR/RS_SR (those
+  // not drafted), inject a fresh TRUE_FR class. Drafted prospects
+  // already left the pool via applyDraftResult above, so this won't
+  // double-touch them.
   const collegeAdvance = advanceCollegePool(
     advancePrng.fork('college-pool'),
     offseason.collegePool,

@@ -48,6 +48,11 @@ import type { DraftBoardEntry, CombineMeasurables, ProDayAttendanceRecord } from
  * `${seed}::combine::backfill` and `${seed}::pro-days::backfill`. Pro
  * days uses the just-backfilled boards as input so attendance is
  * stable across reload.
+ *
+ * v0.36.0: `LeagueState.draftHistory` exists. Pre-v0.36 saves backfill
+ * with an empty array — no historical reconstruction possible without
+ * full record of every prior draft, and the cost of starting fresh is
+ * minimal (only the upcoming draft's records matter for downstream).
  */
 export function migrateLeagueForward(league: LeagueState): LeagueState {
   const updates: Record<PlayerId, Player> = {};
@@ -175,6 +180,11 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       ...next,
       proDayAttendance: proDays as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
     };
+  }
+
+  // v0.36.0 draft history. No reconstruction — start empty.
+  if (!next.draftHistory) {
+    next = { ...next, draftHistory: [] };
   }
 
   return next;

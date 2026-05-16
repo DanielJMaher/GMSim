@@ -9,6 +9,7 @@ import type {
   DraftBoardEntry,
   CombineMeasurables,
   ProDayAttendanceRecord,
+  DraftPickRecord,
 } from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
@@ -146,6 +147,16 @@ export interface LeagueState {
    * later refactor of the scouting pipeline.
    */
   proDayAttendance: Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>;
+
+  /**
+   * Append-only history of every draft pick ever made in this league.
+   * Inspector reads the tail by `seasonNumber` to show "this year's
+   * draft." The eventual draft-board UI will replay these to surface
+   * each rookie's pick details on their player card.
+   *
+   * Slice 5a only fires round 1 — rounds 2–7 land in slice 5b.
+   */
+  draftHistory: readonly DraftPickRecord[];
 }
 
 export type LeaguePhase =

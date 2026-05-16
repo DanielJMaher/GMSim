@@ -230,6 +230,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     draftBoards: {} as Readonly<Record<TeamId, readonly DraftBoardEntry[]>>,
     combineResults: {} as Readonly<Record<PlayerId, CombineMeasurables>>,
     proDayAttendance: {} as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
+    draftHistory: [],
   };
 
   // Initial boards first (we need them so pro-day attendance can

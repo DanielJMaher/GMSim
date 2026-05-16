@@ -1,4 +1,4 @@
-import type { PlayerId, ScoutId } from './ids.js';
+import type { PlayerId, ScoutId, TeamId, ContractId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
 import type {
   PlayerSkills,
@@ -682,4 +682,41 @@ export interface ProDayAttendanceRecord {
   reason: 'AUTO' | 'INTERESTED' | 'FLYER' | 'SKIP';
   /** Number of prospects from this school on team's top-30 board. */
   boardCount: number;
+}
+
+// ─── Draft event (Doc 3 — slice 5a) ─────────────────────────────────────
+
+/**
+ * One pick from a completed draft. Appended to `LeagueState.draftHistory`
+ * as picks fire; the array is the durable record of every pick across
+ * every draft the league has run.
+ *
+ * Shares `PlayerId` namespace: `collegePlayerId === promotedPlayerId`
+ * since promotion preserves the id. The two fields exist as separate
+ * names so consumers reading just the record don't have to know that
+ * detail.
+ */
+export interface DraftPickRecord {
+  /** Sim season this draft kicked off the season for. */
+  seasonNumber: number;
+  /** Round number (1 for slice 5a). */
+  round: number;
+  /** Overall pick number across the entire draft (1-indexed). */
+  overallPick: number;
+  /** Team making the pick. */
+  teamId: TeamId;
+  collegePlayerId: PlayerId;
+  promotedPlayerId: PlayerId;
+  contractId: ContractId;
+  pickedOnTick: number;
+  /**
+   * Prospect's rank on the picking team's draft board at pick time.
+   * null if the prospect wasn't on the board (BPA fallback). Lets the
+   * inspector show whether each team "got their guy" or "took a flyer".
+   */
+  boardRankAtPick: number | null;
+  /** Prospect's priority on the picking team's board, or null. */
+  boardPriorityAtPick: number | null;
+  /** Reason badge from the picking team's board, or null. */
+  boardReasonAtPick: DraftBoardReason | null;
 }

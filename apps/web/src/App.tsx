@@ -58,6 +58,7 @@ import type {
   CombineMeasurables,
   CollegeScout,
   ScoutRegion,
+  DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 import { getSchoolById } from '@gmsim/engine';
@@ -204,6 +205,8 @@ export function App() {
       <CollegePoolPanel league={league} />
 
       <DraftBoardsPanel league={league} />
+
+      <DraftResultsPanel league={league} />
 
       <FreeAgentPoolPanel league={league} />
 
@@ -1214,6 +1217,134 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
         Each team's board is derived from their own college scouts' reports + scheme + roster need —
         no global "consensus" board. Same prospect appears at different priorities + reasons across
         teams. CONVERSION projections are unique to the teams whose schemes value the conversion.
+      </p>
+    </section>
+  );
+}
+
+// ─── DRAFT RESULTS PANEL (Doc 3 — Draft Module slice 5a) ───────────────────
+
+function DraftResultsPanel({ league }: { league: LeagueState }) {
+  // Group draftHistory by seasonNumber so the user can flip back through years.
+  const seasons = useMemo(() => {
+    const m = new Map<number, DraftPickRecord[]>();
+    for (const p of league.draftHistory) {
+      const arr = m.get(p.seasonNumber);
+      if (arr) arr.push(p);
+      else m.set(p.seasonNumber, [p]);
+    }
+    return [...m.entries()].sort((a, b) => b[0] - a[0]); // newest first
+  }, [league.draftHistory]);
+
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const effectiveSeason = selectedSeason ?? (seasons[0]?.[0] ?? null);
+
+  if (seasons.length === 0) {
+    return (
+      <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-zinc-300">
+          Draft results
+        </h2>
+        <p className="text-xs text-zinc-500">
+          No draft has been run yet. Drafts fire each offseason during <code>advanceSeason</code>;
+          simulate + advance the league to see picks here.
+        </p>
+      </section>
+    );
+  }
+
+  const picks = effectiveSeason !== null ? seasons.find(([s]) => s === effectiveSeason)?.[1] ?? [] : [];
+
+  return (
+    <section className="mb-8 rounded border border-amber-500/40 bg-amber-500/10 p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-200">
+          Draft results — Season {effectiveSeason} ({picks.length} picks)
+        </h2>
+        <div className="flex items-center gap-1 text-xs">
+          <span className="text-zinc-500 uppercase tracking-wide text-[10px]">season</span>
+          {seasons.map(([s]) => (
+            <button
+              key={s}
+              onClick={() => setSelectedSeason(s)}
+              className={`rounded border px-2 py-0.5 font-mono ${
+                s === effectiveSeason
+                  ? 'border-amber-400 bg-amber-500/30 text-amber-100'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-amber-500/40 hover:text-amber-300'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
+            <tr className="border-b border-zinc-800">
+              <th className="px-2 py-1 text-right">#</th>
+              <th className="px-2 py-1 text-left">Team</th>
+              <th className="px-2 py-1 text-left">Rookie</th>
+              <th className="px-2 py-1 text-left">Pos</th>
+              <th className="px-2 py-1 text-left">From</th>
+              <th className="px-2 py-1 text-center">Board rank</th>
+              <th className="px-2 py-1 text-left">Reason</th>
+              <th className="px-2 py-1 text-right">Priority</th>
+            </tr>
+          </thead>
+          <tbody>
+            {picks.map((pick) => {
+              const team = league.teams[pick.teamId];
+              const player = league.players[pick.promotedPlayerId];
+              const school = getSchoolById(
+                // CollegePlayer was removed from pool by promotion. We
+                // pull school via the rookie's id — fallback to '?'
+                // if the player record is missing for any reason.
+                (league.collegePool.find((cp) => cp.id === pick.collegePlayerId)?.schoolId)
+                  ?? '__missing',
+              );
+              return (
+                <tr key={`${pick.seasonNumber}-${pick.overallPick}`} className="border-b border-zinc-900 hover:bg-zinc-900/30">
+                  <td className="px-2 py-1 text-right font-mono text-zinc-400">{pick.overallPick}</td>
+                  <td className="px-2 py-1 font-mono text-zinc-200">{team?.identity.abbreviation ?? '?'}</td>
+                  <td className="px-2 py-1 text-zinc-100">
+                    {player ? `${player.firstName} ${player.lastName}` : '—'}
+                    {player && (
+                      <span className="ml-1 text-[10px] text-zinc-500">{player.tier.toLowerCase()}</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1 font-mono text-zinc-400">{player?.position ?? '?'}</td>
+                  <td className="px-2 py-1 text-[10px] text-zinc-500">
+                    {school?.name ?? '—'}
+                  </td>
+                  <td className="px-2 py-1 text-center font-mono">
+                    {pick.boardRankAtPick !== null ? (
+                      <span className={pick.boardRankAtPick <= 5 ? 'text-emerald-300' : pick.boardRankAtPick <= 15 ? 'text-zinc-300' : 'text-amber-300'}>
+                        #{pick.boardRankAtPick}
+                      </span>
+                    ) : (
+                      <span className="text-zinc-600" title="Off-board pick (BPA fallback)">off</span>
+                    )}
+                  </td>
+                  <td className={`px-2 py-1 text-[10px] uppercase tracking-wide ${
+                    pick.boardReasonAtPick ? REASON_COLORS[pick.boardReasonAtPick] : 'text-zinc-600'
+                  }`}>
+                    {pick.boardReasonAtPick ? REASON_LABELS[pick.boardReasonAtPick] : '—'}
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono text-amber-300">
+                    {pick.boardPriorityAtPick !== null ? pick.boardPriorityAtPick.toFixed(1) : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-2 text-[10px] text-zinc-600">
+        Draft order = inverse of prior season's standings. Each team picks BPA from their own
+        scheme-fit-aware board. Slice 5a fires round 1 only; rounds 2–7 + trade-ups land in 5b.
       </p>
     </section>
   );

@@ -233,6 +233,18 @@ export {
   runCombine,
   rollCombineResults,
   runProDays,
+  // slice 5a — junior declaration + single-round draft
+  rollJuniorDeclarations,
+  computeDraftOrder,
+  promoteProspectToPlayer,
+  runDraft,
+  applyDraftResult,
+} from './draft/index.js';
+export type {
+  PromoteOptions,
+  PromoteResult,
+  RunDraftOptions,
+  DraftRunResult,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,

@@ -16,6 +16,123 @@ _Nothing yet._
 
 ---
 
+## [0.36.0] — 2026-05-16
+
+### Added — Junior declaration + single-round draft (Doc 3 — Draft Module slice 5a)
+
+The Draft Module finally produces NFL players. Junior declarations
+roll each offseason; the draft event consumes the boards built in
+slice 3 and converts drafted prospects to NFL `Player` records with
+rookie contracts. Round 1 only — rounds 2–7 + trade-ups land in
+slice 5b alongside the `processRetirements` refactor that opens up
+real roster slots for the larger draft class.
+
+**Engine — types in `engine/src/types/college.ts`:**
+
+- `DraftPickRecord` — one row per pick. Tracks `seasonNumber` +
+  `round` + `overallPick` + `teamId` + `collegePlayerId` +
+  `promotedPlayerId` (same id, shared namespace) + `contractId` +
+  `pickedOnTick` + board attribution at pick time
+  (`boardRankAtPick`, `boardPriorityAtPick`, `boardReasonAtPick`,
+  all nullable for off-board fallback picks).
+
+**Engine — `engine/src/draft/`:**
+
+- `declaration.ts` — `rollJuniorDeclarations` tier-biased per junior:
+  STAR ~85%, STARTER ~55%, BACKUP ~25%, FRINGE ~5%. SR / RS_SR
+  auto-declare. Pre-JR classes never declare. Idempotent — doesn't
+  flip already-declared prospects back.
+- `draft-order.ts` — `computeDraftOrder` from prior season's
+  records. Worst win% picks first; ties broken by lower point
+  differential, then stable team-id order. NFL real-life tiebreakers
+  (strength of schedule, playoff finish) are slice 5b polish.
+- `promote.ts` — `promoteProspectToPlayer` converts a `CollegePlayer`
+  into an NFL `Player` + rookie contract. Position uses
+  `nflProjectedPosition` (so conversion candidates land at their
+  projected NFL spot, not college position). Skills + ceiling +
+  archetype + dev archetype carry through verbatim. Fresh
+  `moodProfile` rolled (college prospects don't have one — their
+  hidden intangibles cover a different facet).
+- `event.ts` — `runDraft` + `applyDraftResult`. Each team picks the
+  highest-priority available prospect from their own board; falls
+  back to BPA across the pool if their board is exhausted. Returns
+  a pure result (`picks`, `newPlayers`, `newContracts`, roster
+  additions, removed-from-pool set); `applyDraftResult` folds the
+  result into a new `LeagueState`.
+
+**Wiring (`engine/src/season/advance.ts`):**
+
+- Order in the offseason pipeline: `rollJuniorDeclarations` →
+  `runDraft` + `applyDraftResult` → `advanceCollegePool`. The
+  declaration runs on the current pool BEFORE the draft, so newly-
+  declared juniors are eligible to be picked the same year. Pool
+  advance runs AFTER the draft — drafted prospects already exited
+  the pool, so the senior cohort's auto-expire only catches
+  undrafted seniors.
+
+**`LeagueState.draftHistory`** — new field, append-only. Every pick
+across every draft accumulates here. Inspector reads the tail by
+`seasonNumber` to show "this year's draft."
+
+**Preseason cuts** (NFL-style roster trim): `processRetirements`
+still auto-injects rookies (refactor lives in slice 5b), so after
+the draft a team carries 54 players (53 + 1 draft pick). Real NFL
+teams briefly carry 90+ during training camp then trim to 53 before
+Week 1. New `preseasonCuts` step in `engine/src/transactions/preseason-cuts.ts`
+models the simpler "anyone over 53 gets released to the FA pool,
+lowest skill first" form — released players become FAs (null
+teamId + contractId), no dead money charged (real preseason cuts
+are mostly cost-free aside from rookie guarantees, which slice 5b
+will model). Just-drafted rookies are protected from the cut pool
+(real NFL almost never cuts a draft pick in their first preseason).
+Runs in `advanceSeason` immediately after the draft. End-state:
+53-man active roster, same as before — invariants preserved. The
+full 90 → 85 → 53 multi-stage trim with preseason as an interactive
+phase is a future slice.
+
+**Migrations:** pre-v0.36 saves backfill `draftHistory: []`. No
+historical reconstruction — the upcoming draft is what matters.
+
+**Inspector:**
+
+- New `Draft results` panel between `Draft Boards` and
+  `Free Agent Pool`. Season selector flips between drafted years.
+  Per-pick row shows # / team / rookie name + tier / NFL position /
+  school / board rank (emerald for top-5 picks, amber for off-board
+  fallbacks) / reason badge (colored per type) / priority.
+
+**Public surface:** new exports `rollJuniorDeclarations`,
+`computeDraftOrder`, `promoteProspectToPlayer`, `runDraft`,
+`applyDraftResult`, types `PromoteOptions`, `PromoteResult`,
+`RunDraftOptions`, `DraftRunResult`.
+
+**Tests:** 20 new across `declaration.test.ts` (5) and
+`event.test.ts` (15) — tier-weighted declaration distribution,
+auto-declare invariants, idempotent re-rolls, draft fires N picks
+in order, drafted prospects exit the pool exactly once, picks come
+from team boards 90%+ of the time, promoted player landing at NFL
+projected position with rookie contract, determinism,
+`applyDraftResult` roster + contract + history wiring, multi-year
+accumulation, draft-order matches inverse standings, drafted
+rookies show up on team rosters, migration backfill.
+
+**Not in this slice (slice 5b):**
+
+- Rounds 2–7 (just call `runDraft` repeatedly with re-ordered
+  draftOrder; the primitive supports it).
+- `processRetirements` refactor so retirements open slots instead
+  of in-place replacing — required for multi-round drafts without
+  inflating rosters to 60.
+- Trade-ups / trade-downs in the war room.
+- Compensatory picks.
+- UDFA pool from undrafted declared juniors (slice 5a expires them
+  with the senior cohort; the future UDFA pipeline can pick them
+  up before pool advance).
+- NFL real-life draft-order tiebreakers (strength of schedule,
+  playoff round of elimination).
+
+---
+
 ## [0.35.0] — 2026-05-16
 
 ### Added — Combine + Pro Days (Doc 3 — Draft Module slice 4)
