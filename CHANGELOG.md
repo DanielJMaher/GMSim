@@ -16,6 +16,152 @@ _Nothing yet._
 
 ---
 
+## [0.32.0] — 2026-05-15
+
+### Added — College Player substrate (Doc 3 — Draft Module slice 1)
+
+The Draft Module's foundation. `engine/src/draft/` materializes a deep,
+character-rich `CollegePlayer` entity and a league-shared pool that
+all 32 teams will eventually scout. Slice 1 ships the substrate;
+college scouts (slice 2) and per-team draft boards (slice 3) layer
+on top of it without changing this shape.
+
+**Why deep on slice 1:** the draft was the original driving vision for
+this project. A thin "id + name + skills" prospect would force every
+later slice (scouts, boards, combine, war room) to invent its own
+character data ad-hoc. Putting the richness in the substrate up front
+means scouts and media in slice 2+ have something distinctive to
+report on — a quiet 5-star pedigree at Alabama with a bloodline reads
+differently from a brash walk-on at Toledo with a coach-conflict flag,
+even before any scout lays eyes on either.
+
+**Engine — `engine/src/draft/`:**
+
+- `CollegePlayer` type carries identity (school, class year, draft
+  eligibility, hometown), full ground-truth skill ratings + ceiling
+  (mirrors `Player` shape so the future draft event can promote a
+  prospect to NFL with no remapping), recruiting profile (star
+  rating, national rank, hometown, background tag), bloodline,
+  combine-shape measurables (independent of skills — workout
+  warriors and tape stars are real), hidden intangibles
+  (leadership presence / interview skill / work ethic /
+  coachability / competitiveness / football character),
+  personality voice (6 distinct voices), character flags
+  (13 narrative flags), per-year college stats, and per-year
+  injury history.
+- **Conversion candidate axis** — ~14% of prospects project to a
+  different NFL position than they play in college (Doc 3:
+  "college DE who's actually a 3-4 OLB"). The engine carries true
+  NFL projection separately from college position; another ~25%
+  of non-converters carry a plausible alternate position the
+  creative evaluator might consider.
+- **Archetype misread axis** — `archetype` (true NFL archetype)
+  and `assumedArchetype` (what college coaching/media calls them)
+  diverge for all conversion candidates and ~12% of non-converters.
+  This is the gap scouts can either nail or miss.
+- **Measurables decoupled from skills** by design. ~30%
+  correlation between true speed skill and 40-time leaves room
+  for both `WORKOUT_WARRIOR` and `TAPE_STAR_POOR_TESTER` flags
+  to fire on real outliers.
+
+**Engine — supporting modules:**
+
+- `engine/src/data/colleges/index.ts` — 80+ schools across SEC,
+  Big Ten, Big 12, ACC, AAC, MWC, MAC, Sun Belt, C-USA, FCS, and
+  small-school umbrella. Each school carries conference id +
+  tier (POWER / GROUP_OF_5 / FCS / SMALL) + state.
+- `engine/src/data/colleges/hometowns.ts` — weighted hometown
+  pool across ~35 states, biased heavily toward TX / FL / CA / GA
+  (real recruiting hotbeds). Slice 2's regional scout coverage
+  will read this.
+- `measurables.ts` — position-keyed combine baselines (height,
+  weight, arm, hand, 40, bench, vertical, broad, 3-cone, shuttle).
+- `character.ts` — personality voice + hidden intangibles
+  + character flags. Voice nudges intangible dials so dimensions
+  cohere (ALPHA_LEADER bumps leadership presence; BRASH dampens
+  coachability and lifts off-field-incident odds).
+- `recruiting.ts` — star rating biased loosely by true NFL tier
+  (5-star busts and walk-on stars are real), national rank
+  gating, hometown roll, recruiting-background tag.
+- `college-stats.ts` — per-year season totals position-keyed.
+  QB stats include attempts/comp%/YPA biased by skill;
+  DL/LB carry tackles + sacks + forced fumbles; OL carries
+  games + starts only (tape is what's graded).
+- `conversion.ts` — position projection table + true-vs-assumed
+  archetype derivation.
+- `pool.ts` — `generateInitialCollegePool` (~1000 prospects
+  spread across 6 class years, school-tier-weighted) and
+  `advanceCollegePool` (age every prospect, expire SR/RS_SR,
+  inject fresh TRUE_FR class). Inflow ≈ outflow so pool size
+  is stable across multi-year runs.
+
+**Engine — wiring:**
+
+- `LeagueState.collegePool` — new field, populated by
+  `createLeague` from a `college-pool`-labeled root-PRNG fork.
+- `advanceSeason` runs `advanceCollegePool` after the watch-list
+  refresh — seniors expire (slice 1 has no draft event yet so
+  none get promoted to NFL; the draft-event slice will replace
+  this expiration), TRUE_FR class arrives, every retained
+  prospect gains one new season of stats and possibly one new
+  injury entry.
+- `migrateLeagueForward` backfills `collegePool` for pre-v0.32
+  saves with a deterministic generation seeded from
+  `${seed}::college-pool::backfill`.
+
+**Public surface:**
+
+- New top-level exports from `@gmsim/engine`:
+  `generateCollegePlayer`, `generateInitialCollegePool`,
+  `advanceCollegePool`, `rollMeasurables`, `rollCharacterFlags`,
+  `rollRecruitingProfile`, `rollCollegeStats`,
+  `rollPositionProjection`, `pickTrueArchetype`,
+  `pickAssumedArchetype`, `COLLEGE_SCHOOLS`, `CONFERENCES`,
+  `getSchoolById`, `getSchoolsByTier`, plus types.
+- New subpath export: `@gmsim/engine/draft`.
+
+**Inspector:**
+
+- New `College Pool` panel between `LeagueOverview` and
+  `FreeAgentPoolPanel`. Shows pool size + breakdown by class
+  year, summary stats (conversion candidates, archetype misreads,
+  character flags, NFL bloodlines, 4–5 star recruits, small-school
+  / walk-ons), and a top-15 (expandable to 60) draft-eligible
+  prospect table with name + hometown, school + tier badge,
+  college position, NFL projection (highlighted when conversion
+  + when archetype is being misread), personality voice, star
+  rating, tier, and top character flags.
+
+**Tests:** 30 new across `generate-college-player.test.ts` (16),
+`pool.test.ts` (10), and `integration.test.ts` (4) — determinism,
+class-year eligibility, conversion-candidate distribution,
+archetype-misread invariant, measurable plausibility at scale,
+position override, transfer flag, star-rating-by-tier bias,
+hometown sourcing, multi-year pool stability, freshman-class
+injection, `createLeague` integration, `advanceSeason`
+integration, migration backfill. Full suite still green.
+
+**Not in this slice (deferred to future Draft slices):**
+
+- College scouts + per-skill confidence-weighted observations
+  (slice 2).
+- Per-team draft boards with scheme-fit awareness (slice 3).
+- The draft event itself (rounds, picks, war rooms, trade-ups).
+- Combine + pro days (with team meeting allocation +
+  10-meetings-30-questions logic).
+- Post-season film study with Doc 19's 50%-of-coaching-visit cap.
+- Media outlets + media big boards.
+- Coach visits during NFL bye weeks.
+- Junior declaration logic (slice 1 leaves all eligible
+  prospects with `hasDeclared = false`).
+- Week-by-week college season simulation (significant scope of
+  its own).
+- Mid-cohort attrition (transfer-out, walk-out) — slice 1
+  balances inflow ≈ senior outflow rather than modeling
+  per-year attrition rolls.
+
+---
+
 ## [0.31.0] — 2026-05-15
 
 ### Added — Periodic scouting cycle (Doc 4 slice 4)

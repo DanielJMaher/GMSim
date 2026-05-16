@@ -2,6 +2,7 @@ import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
 import type { Scout, PlayerObservation, WatchListEntry } from './scout.js';
+import type { CollegePlayer } from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
@@ -69,6 +70,17 @@ export interface LeagueState {
    * these lists to drive availability-signal competition.
    */
   watchLists: Readonly<Record<TeamId, readonly WatchListEntry[]>>;
+
+  /**
+   * The league-wide pool of college prospects all 32 teams scout. Per
+   * Doc 3: a single shared talent universe that scouts evaluate
+   * through their organization-specific lens; the eventual draft event
+   * promotes drafted prospects to NFL `Player` records.
+   *
+   * Slice 1 (v0.32.0) ships the prospect data + advance-cycle. College
+   * scouts (slice 2) and per-team draft boards (slice 3) layer on top.
+   */
+  collegePool: readonly CollegePlayer[];
 }
 
 export type LeaguePhase =

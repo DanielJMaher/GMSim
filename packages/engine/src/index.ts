@@ -190,6 +190,44 @@ export {
 } from './scouting/index.js';
 export type { QuirkEffect } from './scouting/index.js';
 
+// Draft — Doc 3 (slice 1: college player substrate)
+export {
+  generateCollegePlayer,
+  pickCollegePosition,
+  generateInitialCollegePool,
+  advanceCollegePool,
+  collegePrngForLeague,
+  rollMeasurables,
+  rollPersonalityVoice,
+  rollHiddenIntangibles,
+  rollCharacterFlags,
+  rollBloodline,
+  rollInjuryHistory,
+  rollStarRating,
+  rollNationalRank,
+  rollHometown,
+  deriveBackground,
+  rollRecruitingProfile,
+  rollCollegeStats,
+  rollPositionProjection,
+  pickTrueArchetype,
+  pickAssumedArchetype,
+  COLLEGE_SCHOOLS,
+  CONFERENCES,
+  getSchoolById,
+  getSchoolsByTier,
+} from './draft/index.js';
+export type {
+  GenerateCollegePlayerOptions,
+  GenerateInitialCollegePoolOptions,
+  AdvanceCollegePoolOptions,
+  AdvanceCollegePoolResult,
+  RollMeasurablesOptions,
+  RollCharacterFlagsOptions,
+  RollRecruitingProfileOptions,
+  RollCollegeStatsOptions,
+} from './draft/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';

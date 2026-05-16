@@ -1,7 +1,9 @@
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { PlayerId } from '../types/ids.js';
+import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
+import { generateInitialCollegePool } from '../draft/pool.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -15,6 +17,12 @@ import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
  * stable profile from `${league.seed}::${playerId}` and snaps the
  * player's current mood to their new setPoint so the old saturation
  * pattern doesn't survive the upgrade.
+ *
+ * v0.32.0: `LeagueState.collegePool` exists. Pre-v0.32 saves had no
+ * field — backfill by deterministically generating an initial pool
+ * from the league's seed. Anchors birthdates to the current sim year
+ * so the prospects are correctly aged for the league they're being
+ * loaded into.
  */
 export function migrateLeagueForward(league: LeagueState): LeagueState {
   const updates: Record<PlayerId, Player> = {};
@@ -27,9 +35,23 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       mood: profile.setPoint,
     };
   }
-  if (Object.keys(updates).length === 0) return league;
-  return {
-    ...league,
-    players: { ...league.players, ...updates },
-  };
+
+  let next = league;
+  if (Object.keys(updates).length > 0) {
+    next = {
+      ...next,
+      players: { ...next.players, ...updates },
+    };
+  }
+
+  if (!next.collegePool) {
+    const simYear = 2026 + (next.seasonNumber - 1);
+    const pool = generateInitialCollegePool(
+      new Prng(`${next.seed}::college-pool::backfill`),
+      { simYear, idPrefix: `B${next.seasonNumber}` },
+    );
+    next = { ...next, collegePool: pool };
+  }
+
+  return next;
 }

@@ -22,6 +22,7 @@ import {
 import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
+import { advanceCollegePool } from '../draft/pool.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
 
@@ -264,6 +265,24 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
       nextTick,
     ),
   };
+
+  // College pool advance — age every prospect, expire SR/RS_SR, inject
+  // a fresh TRUE_FR class. Slice 1 has no draft event yet, so SR
+  // prospects all expire (they don't get promoted to NFL). The future
+  // draft-event slice will replace this expiration path.
+  const collegeAdvance = advanceCollegePool(
+    advancePrng.fork('college-pool'),
+    offseason.collegePool,
+    {
+      simYear: 2026 + (nextSeasonNumber - 1),
+      freshmanIdPrefix: `S${nextSeasonNumber}`,
+    },
+  );
+  offseason = {
+    ...offseason,
+    collegePool: collegeAdvance.nextPool,
+  };
+
   return offseason;
 }
 

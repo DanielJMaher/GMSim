@@ -50,8 +50,12 @@ import type {
   PlayerObservation,
   WatchListEntry,
   WatchListReason,
+  CollegePlayer,
+  ClassYear,
+  CharacterFlag,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
+import { getSchoolById } from '@gmsim/engine';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -192,6 +196,8 @@ export function App() {
 
       <LeagueOverview league={league} />
 
+      <CollegePoolPanel league={league} />
+
       <FreeAgentPoolPanel league={league} />
 
       <NewsFeedPanel league={league} />
@@ -297,6 +303,253 @@ function LeagueOverview({ league }: { league: LeagueState }) {
         roster.
       </p>
     </section>
+  );
+}
+
+// ─── COLLEGE POOL PANEL (Doc 3 — Draft Module slice 1) ─────────────────────
+
+const CLASS_YEAR_LABELS: Record<ClassYear, string> = {
+  TRUE_FR: 'True FR',
+  RS_FR: 'RS FR',
+  SO: 'SO',
+  JR: 'JR',
+  SR: 'SR',
+  RS_SR: 'RS SR',
+};
+
+const CLASS_YEAR_ORDER: readonly ClassYear[] = [
+  'TRUE_FR', 'RS_FR', 'SO', 'JR', 'SR', 'RS_SR',
+];
+
+const VOICE_LABELS: Record<CollegePlayer['personalityVoice'], string> = {
+  QUIET_WORKER: 'Quiet worker',
+  ALPHA_LEADER: 'Alpha leader',
+  BRASH: 'Brash',
+  ANALYTICAL: 'Analytical',
+  INSTINCTIVE: 'Instinctive',
+  CHARISMATIC: 'Charismatic',
+};
+
+const FLAG_LABELS: Record<CharacterFlag, string> = {
+  OFF_FIELD_INCIDENT: 'Off-field',
+  COACH_CONFLICT: 'Coach conflict',
+  INJURY_PRONE: 'Injury prone',
+  LATE_BLOOMER: 'Late bloomer',
+  TRANSFER_PORTAL: 'Transfer',
+  CAPTAIN: 'Captain',
+  ACADEMIC_HONORS: 'Academic',
+  MEDIA_DARLING: 'Media darling',
+  PRACTICE_LEGEND: 'Practice legend',
+  WORKOUT_WARRIOR: 'Workout warrior',
+  TAPE_STAR_POOR_TESTER: 'Tape star',
+  SYSTEM_PRODUCT: 'System product',
+  LEGACY: 'Legacy',
+};
+
+function CollegePoolPanel({ league }: { league: LeagueState }) {
+  const [expanded, setExpanded] = useState(false);
+  const pool = league.collegePool;
+
+  const classCounts = useMemo(() => {
+    const counts = new Map<ClassYear, number>();
+    for (const cp of pool) counts.set(cp.classYear, (counts.get(cp.classYear) ?? 0) + 1);
+    return counts;
+  }, [pool]);
+
+  const summary = useMemo(() => {
+    let conversionCandidates = 0;
+    let archetypeMisreads = 0;
+    let withCharacterFlags = 0;
+    let withBloodlines = 0;
+    let starRatingHigh = 0;
+    let smallSchoolGems = 0;
+    for (const cp of pool) {
+      if (cp.isConversionCandidate) conversionCandidates++;
+      if (cp.archetypeMisreadFlag) archetypeMisreads++;
+      if (cp.characterFlags.length > 0) withCharacterFlags++;
+      if (cp.bloodline.hasNflFamily) withBloodlines++;
+      if (cp.recruiting.starRating >= 4) starRatingHigh++;
+      if (cp.recruiting.background === 'SMALL_SCHOOL_GEM' || cp.recruiting.background === 'WALK_ON_STORY') {
+        smallSchoolGems++;
+      }
+    }
+    return {
+      conversionCandidates,
+      archetypeMisreads,
+      withCharacterFlags,
+      withBloodlines,
+      starRatingHigh,
+      smallSchoolGems,
+    };
+  }, [pool]);
+
+  const draftEligible = useMemo(
+    () => pool.filter((cp) => cp.isDraftEligible),
+    [pool],
+  );
+
+  // Sample for the prospect table — top 25 draft-eligible by tier+ceiling proxy.
+  // Slice 1 doesn't have observations yet, so we use ground-truth ceiling-mean
+  // as the order. Slice 3 (draft boards) will replace this with the team-board view.
+  const featured = useMemo(() => {
+    const tierRank: Record<CollegePlayer['tier'], number> = { STAR: 4, STARTER: 3, BACKUP: 2, FRINGE: 1 };
+    const ceilingMean = (cp: CollegePlayer) => {
+      const c = cp.ceiling;
+      return (
+        c.speed + c.acceleration + c.agility + c.strength + c.technicalSkill +
+        c.footballIq + c.decisionMaking + c.handsBallSkills
+      ) / 8;
+    };
+    const sorted = [...draftEligible].sort((a, b) => {
+      const t = tierRank[b.tier] - tierRank[a.tier];
+      if (t !== 0) return t;
+      return ceilingMean(b) - ceilingMean(a);
+    });
+    return sorted.slice(0, expanded ? 60 : 15);
+  }, [draftEligible, expanded]);
+
+  return (
+    <section className="mb-8 rounded border border-violet-500/30 bg-violet-500/5 p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-violet-300">
+          College Pool — Draft Module (Doc 3)
+        </h2>
+        <span className="text-xs text-zinc-500">
+          {pool.length} prospects · {draftEligible.length} draft-eligible
+        </span>
+      </div>
+
+      <div className="mb-3 grid grid-cols-3 gap-2 md:grid-cols-6">
+        {CLASS_YEAR_ORDER.map((year) => (
+          <div key={year} className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500">
+              {CLASS_YEAR_LABELS[year]}
+            </div>
+            <div className="font-mono text-sm text-zinc-200">{classCounts.get(year) ?? 0}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mb-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
+        <CollegePoolStat label="Conversion candidates" value={summary.conversionCandidates} />
+        <CollegePoolStat label="Archetype misreads" value={summary.archetypeMisreads} />
+        <CollegePoolStat label="With character flags" value={summary.withCharacterFlags} />
+        <CollegePoolStat label="NFL bloodlines" value={summary.withBloodlines} />
+        <CollegePoolStat label="4–5 star recruits" value={summary.starRatingHigh} />
+        <CollegePoolStat label="Small-school / walk-ons" value={summary.smallSchoolGems} />
+      </div>
+
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
+          Draft-eligible prospects · top {featured.length} by tier × ceiling
+        </h3>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="rounded border border-zinc-700 bg-zinc-900/40 px-2 py-0.5 text-[11px] text-zinc-300 hover:border-violet-500/40 hover:text-violet-300"
+        >
+          {expanded ? 'show fewer' : 'show more'}
+        </button>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
+            <tr className="border-b border-zinc-800">
+              <th className="px-2 py-1 text-left">Prospect</th>
+              <th className="px-2 py-1 text-left">Class</th>
+              <th className="px-2 py-1 text-left">School</th>
+              <th className="px-2 py-1 text-left">Pos</th>
+              <th className="px-2 py-1 text-left">NFL proj</th>
+              <th className="px-2 py-1 text-left">Voice</th>
+              <th className="px-2 py-1 text-center">★</th>
+              <th className="px-2 py-1 text-center">Tier</th>
+              <th className="px-2 py-1 text-left">Flags</th>
+            </tr>
+          </thead>
+          <tbody>
+            {featured.map((cp) => (
+              <CollegeProspectRow key={cp.id} prospect={cp} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-2 text-[10px] text-zinc-600">
+        Slice 1 ground-truth view. Slice 2 will route this through college scouts (per-skill confidence).
+        Slice 3 will replace the league-wide list with each team's own scheme-fit-aware draft board.
+      </p>
+    </section>
+  );
+}
+
+function CollegePoolStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/40 px-2 py-1">
+      <span className="text-zinc-500">{label}: </span>
+      <span className="font-mono text-zinc-200">{value}</span>
+    </div>
+  );
+}
+
+function CollegeProspectRow({ prospect }: { prospect: CollegePlayer }) {
+  const school = getSchoolById(prospect.schoolId);
+  const tierColor =
+    prospect.tier === 'STAR' ? 'text-amber-300'
+      : prospect.tier === 'STARTER' ? 'text-emerald-300'
+        : prospect.tier === 'BACKUP' ? 'text-zinc-300'
+          : 'text-zinc-500';
+  const conversionTag = prospect.isConversionCandidate ? (
+    <span className="ml-1 rounded bg-violet-500/20 px-1 text-[9px] font-mono text-violet-300" title="Conversion candidate">
+      conv
+    </span>
+  ) : null;
+  const misreadTag = prospect.archetypeMisreadFlag ? (
+    <span className="ml-1 rounded bg-amber-500/20 px-1 text-[9px] font-mono text-amber-300" title="Assumed archetype differs from true archetype">
+      misread
+    </span>
+  ) : null;
+  const tierBadge = school ? (
+    <span className={`ml-1 text-[9px] uppercase ${
+      school.tier === 'POWER' ? 'text-emerald-400'
+      : school.tier === 'GROUP_OF_5' ? 'text-sky-400'
+      : school.tier === 'FCS' ? 'text-zinc-400' : 'text-zinc-600'}`}>
+      {school.tier === 'GROUP_OF_5' ? 'G5' : school.tier === 'POWER' ? 'P5' : school.tier}
+    </span>
+  ) : null;
+  const flagSummary = prospect.characterFlags.slice(0, 3).map((f) => FLAG_LABELS[f]).join(', ');
+  return (
+    <tr className="border-b border-zinc-900 hover:bg-zinc-900/30">
+      <td className="px-2 py-1">
+        <div className="font-medium text-zinc-100">
+          {prospect.firstName} {prospect.lastName}
+        </div>
+        <div className="text-[10px] text-zinc-500">
+          {prospect.recruiting.hometown.city}, {prospect.recruiting.hometown.state}
+          {prospect.bloodline.hasNflFamily && (
+            <span className="ml-1 text-amber-400" title={`NFL ${prospect.bloodline.relation?.toLowerCase()}: ${prospect.bloodline.relativeName}`}>
+              ⚜
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-2 py-1 font-mono text-zinc-400">{CLASS_YEAR_LABELS[prospect.classYear]}</td>
+      <td className="px-2 py-1">
+        <span className="text-zinc-300">{school?.name ?? prospect.schoolId}</span>
+        {tierBadge}
+      </td>
+      <td className="px-2 py-1 font-mono text-zinc-300">{prospect.collegePosition}</td>
+      <td className="px-2 py-1 font-mono">
+        <span className={prospect.isConversionCandidate ? 'text-violet-300' : 'text-zinc-400'}>
+          {prospect.nflProjectedPosition}
+        </span>
+        {conversionTag}
+        {misreadTag}
+      </td>
+      <td className="px-2 py-1 text-zinc-400">{VOICE_LABELS[prospect.personalityVoice]}</td>
+      <td className="px-2 py-1 text-center font-mono text-zinc-300">{prospect.recruiting.starRating}</td>
+      <td className={`px-2 py-1 text-center font-mono ${tierColor}`}>{prospect.tier}</td>
+      <td className="px-2 py-1 text-[10px] text-zinc-400">{flagSummary || <span className="text-zinc-600">—</span>}</td>
+    </tr>
   );
 }
 

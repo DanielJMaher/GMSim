@@ -1,6 +1,6 @@
 {
   "name": "@gmsim/engine",
-  "version": "0.31.0",
+  "version": "0.32.0",
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
@@ -17,6 +17,7 @@
     "./contracts": "./src/contracts/index.ts",
     "./games": "./src/games/index.ts",
     "./season": "./src/season/index.ts",
+    "./draft": "./src/draft/index.ts",
     "./data": "./src/data/index.ts"
   },
   "scripts": {

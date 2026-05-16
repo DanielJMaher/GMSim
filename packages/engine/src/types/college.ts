@@ -1,0 +1,440 @@
+import type { PlayerId } from './ids.js';
+import type { Position } from './enums.js';
+import type {
+  PlayerSkills,
+  PlayerDevelopmentArchetype,
+  TalentTier,
+  ArchetypeId,
+} from './player.js';
+
+/**
+ * College class year. Drives draft eligibility and skill maturity:
+ *   TRUE_FR / RS_FR / SO  — not eligible
+ *   JR / SR / RS_SR       — eligible (juniors must declare to enter)
+ *
+ * Per the Draft Module design, college players are evaluated across
+ * multiple years. A junior with 2 college seasons of tape looks
+ * different to scouts than a one-year breakout senior.
+ */
+export type ClassYear = 'TRUE_FR' | 'RS_FR' | 'SO' | 'JR' | 'SR' | 'RS_SR';
+
+/**
+ * Conference tier — used by scouts/media to weight signal quality.
+ * SEC tape is graded harder than MAC tape; an SEC corner facing
+ * NFL-bound receivers every week reveals more than a MAC corner does.
+ *
+ *   POWER     — SEC, Big Ten, ACC, Big 12 (and recent merger oddities)
+ *   GROUP_OF_5 — AAC, Mountain West, MAC, Sun Belt, C-USA
+ *   FCS       — non-FBS Division I
+ *   SMALL     — DII / DIII / NAIA
+ *
+ * Slice 1 carries this as a tag; later slices use it to bias
+ * scout coverage decisions and observation noise.
+ */
+export type ConferenceTier = 'POWER' | 'GROUP_OF_5' | 'FCS' | 'SMALL';
+
+/**
+ * Recruiting star rating — 247Sports/Rivals composite shorthand.
+ * Distribution is heavily skewed: 5-stars are extremely rare, 1-2
+ * stars dominate the population. Correlates LOOSELY with NFL ceiling
+ * — high-star recruits hit at higher rates, but bust + small-school
+ * gem narratives are real and frequent enough to matter.
+ */
+export type StarRating = 1 | 2 | 3 | 4 | 5;
+
+/**
+ * Where a prospect comes from at a high level. Tags the narrative arc
+ * scouts/media tell about the player. Hidden facts about pedigree
+ * still exist in the underlying data; this is the genre tag.
+ *
+ *   PEDIGREE          — high-recruit, marquee program, expected NFL prospect
+ *   BIG_PROGRAM       — solid recruit, P5 program, on the radar
+ *   DEVELOPMENTAL     — mid-tier recruit who improved year-over-year at a big school
+ *   SMALL_SCHOOL_GEM  — high talent at a low-tier school; coverage gap risk
+ *   WALK_ON_STORY     — unrecruited, made his way; rare but powerful narrative
+ *   TRANSFER          — moved between schools; arc is broken across programs
+ */
+export type RecruitingBackground =
+  | 'PEDIGREE'
+  | 'BIG_PROGRAM'
+  | 'DEVELOPMENTAL'
+  | 'SMALL_SCHOOL_GEM'
+  | 'WALK_ON_STORY'
+  | 'TRANSFER';
+
+/**
+ * Personality "voice" — drives the eventual blurb-generator tone in
+ * later slices (scout reports, coach reports, media). Distinct from
+ * mental skills (which are the *content* of intangibles); voice is
+ * *how* the prospect comes across in interviews / locker rooms.
+ *
+ *   QUIET_WORKER  — heads-down grinder, lets tape talk
+ *   ALPHA_LEADER  — commands the room, vocal captain type
+ *   BRASH         — confident-bordering-on-arrogant; great or grating
+ *   ANALYTICAL    — film-junkie, articulate about scheme
+ *   INSTINCTIVE   — "just plays football", limited verbal articulation
+ *   CHARISMATIC   — media gold; magnetic personality
+ *
+ * Same skill profile + different voice = noticeably different
+ * scout-report flavor. Per North Star, voice is hidden ground truth;
+ * it surfaces only through observation language.
+ */
+export type PersonalityVoice =
+  | 'QUIET_WORKER'
+  | 'ALPHA_LEADER'
+  | 'BRASH'
+  | 'ANALYTICAL'
+  | 'INSTINCTIVE'
+  | 'CHARISMATIC';
+
+/**
+ * Discrete narrative flags attached to the prospect — observable
+ * facts that affect perception independent of the underlying skills.
+ * A prospect can carry multiple flags; some are mutually exclusive
+ * in practice (CAPTAIN + COACH_CONFLICT is implausible).
+ *
+ *   OFF_FIELD_INCIDENT    — arrest, suspension, public-record problem
+ *   COACH_CONFLICT        — open friction with college HC
+ *   INJURY_PRONE          — recurring injuries in college (count > 2)
+ *   LATE_BLOOMER          — didn't start until JR/SR; tape sample short
+ *   TRANSFER_PORTAL       — transferred mid-career; redundant with
+ *                           background=TRANSFER but kept for query clarity
+ *   CAPTAIN               — voted team captain — leadership signal
+ *   ACADEMIC_HONORS       — strong academic standing — football IQ proxy
+ *   MEDIA_DARLING         — beloved by college press; hype distorted upward
+ *   PRACTICE_LEGEND       — coaches rave about practice habits
+ *   WORKOUT_WARRIOR       — tests great but tape is meh
+ *   TAPE_STAR_POOR_TESTER — tape is a yes; combine numbers will hurt them
+ *   SYSTEM_PRODUCT        — production inflated by college scheme/scheme-mates
+ *   LEGACY                — NFL bloodline — see `bloodline` for the relation
+ */
+export type CharacterFlag =
+  | 'OFF_FIELD_INCIDENT'
+  | 'COACH_CONFLICT'
+  | 'INJURY_PRONE'
+  | 'LATE_BLOOMER'
+  | 'TRANSFER_PORTAL'
+  | 'CAPTAIN'
+  | 'ACADEMIC_HONORS'
+  | 'MEDIA_DARLING'
+  | 'PRACTICE_LEGEND'
+  | 'WORKOUT_WARRIOR'
+  | 'TAPE_STAR_POOR_TESTER'
+  | 'SYSTEM_PRODUCT'
+  | 'LEGACY';
+
+/**
+ * Bloodline relation if the prospect has NFL family. Affects how
+ * scouts/media frame the prospect — pedigree is a real factor in
+ * pre-draft narratives. Hidden in the engine sense that the
+ * eventual UI will surface "father played in the league" as a
+ * descriptive narrative tag, not as a numerical value.
+ */
+export type BloodlineRelation = 'FATHER' | 'BROTHER' | 'UNCLE' | 'COUSIN';
+
+export interface Bloodline {
+  hasNflFamily: boolean;
+  /** null when `hasNflFamily` is false. */
+  relation: BloodlineRelation | null;
+  /** null when `hasNflFamily` is false. Free-form name string. */
+  relativeName: string | null;
+  /** Whether the relative made a Pro Bowl / All-Pro tier. Pure narrative. */
+  relativeWasStar: boolean;
+}
+
+/**
+ * A college school. Real-ish names + conferences. Slice 1 ships a
+ * static catalog (see `engine/src/data/colleges`). Schools are
+ * referenced by id; the catalog provides display name + conference.
+ */
+export interface CollegeSchool {
+  /** Stable internal id, e.g. "ALABAMA". */
+  readonly id: string;
+  /** Display name, e.g. "Alabama". */
+  readonly name: string;
+  /** Conference id (e.g. "SEC"). */
+  readonly conferenceId: string;
+  /** Conference tier. Drives signal weight. */
+  readonly tier: ConferenceTier;
+  /** Two-letter US state code. Used for hometown cohesion + region. */
+  readonly state: string;
+}
+
+export interface CollegeConference {
+  readonly id: string;
+  readonly name: string;
+  readonly tier: ConferenceTier;
+}
+
+/**
+ * Hometown — city + US state. Drives regional scout coverage in
+ * later slices (a scout based in the Southeast covers SEC + ACC +
+ * regional small schools more efficiently). Slice 1 carries the
+ * data; coverage logic lands in slice 2.
+ */
+export interface Hometown {
+  city: string;
+  state: string;
+}
+
+/**
+ * Combine-shape physical measurables. Held as ground truth on the
+ * prospect. The eventual Combine slice produces *reported* values
+ * (with measurement noise). For slice 1, these are the underlying
+ * truth — scouts haven't measured the prospect yet, so nothing is
+ * exposed via the knowledge layer.
+ *
+ * Independent of `PlayerSkills.speed` etc. — a player can post a
+ * great 40 (raw measurable) and still play slow on tape (skill).
+ * That gap is the workout-warrior / tape-star tension the doc
+ * calls out repeatedly.
+ */
+export interface Measurables {
+  /** Height in inches. */
+  heightInches: number;
+  /** Weight in pounds. */
+  weightLbs: number;
+  /** Arm length in inches. Matters for OL/DB/DL evaluation. */
+  armLengthInches: number;
+  /** Hand size in inches. Matters for QB/WR/DB grip. */
+  handSizeInches: number;
+  /** 40-yard dash, seconds. */
+  fortyYardSeconds: number;
+  /** Bench press 225-lb reps. */
+  benchPress225Reps: number;
+  /** Vertical jump in inches. */
+  verticalInches: number;
+  /** Broad jump in inches. */
+  broadJumpInches: number;
+  /** 3-cone drill, seconds. */
+  threeConeSeconds: number;
+  /** 20-yard shuttle, seconds. */
+  shuttleSeconds: number;
+}
+
+/**
+ * One college season's statistical output. Slice 1 ships
+ * season-totals; week-by-week progression lands when the college
+ * season simulation does (deferred — significant scope of its own).
+ *
+ * Stats are position-correlated — a QB has passing/rushing fields
+ * filled, a DL has tackles/sacks, etc. Zero where not applicable;
+ * mirrors the NFL `PlayerSeasonStats` shape so the eventual
+ * scouting UI can render college years and pro years with the
+ * same components.
+ */
+export interface CollegeSeasonStats {
+  /** Class year the prospect held during this season. */
+  classYear: ClassYear;
+  /** School id during this season — captures transfers. */
+  schoolId: string;
+  /** Games played. */
+  games: number;
+  /** Games started. */
+  starts: number;
+
+  // Passing
+  passAttempts: number;
+  passCompletions: number;
+  passingYards: number;
+  passingTds: number;
+  interceptionsThrown: number;
+
+  // Rushing
+  rushingAttempts: number;
+  rushingYards: number;
+  rushingTds: number;
+
+  // Receiving
+  targets: number;
+  receptions: number;
+  receivingYards: number;
+  receivingTds: number;
+
+  // Defense
+  tackles: number;
+  sacks: number;
+  interceptions: number;
+  passesDefended: number;
+  forcedFumbles: number;
+}
+
+/**
+ * One past injury during the prospect's college career. Doctors and
+ * team medical staffs evaluate this in later slices. Slice 1 carries
+ * the data; medical-evaluation surface comes when combine + medical
+ * staff systems land.
+ */
+export interface CollegeInjury {
+  /** Description label, e.g. "ACL", "high ankle sprain", "concussion". */
+  label: string;
+  /** Class year the injury occurred. */
+  classYear: ClassYear;
+  /** Severity tier — affects medical-eval weight. */
+  severity: 'MINOR' | 'MODERATE' | 'MAJOR';
+  /** Games missed because of the injury. */
+  gamesMissed: number;
+}
+
+/**
+ * Recruiting profile — the story the prospect carried into college.
+ * Some 5-star recruits flame out, some walk-ons turn into stars.
+ * Star rating correlates with NFL ceiling but with significant
+ * noise; the engine respects this with a deliberate noise term.
+ */
+export interface RecruitingProfile {
+  starRating: StarRating;
+  /**
+   * National recruiting rank (top 300). Null if unranked / outside
+   * the top 300 — typical for 1–2 star recruits.
+   */
+  nationalRank: number | null;
+  /** Where the prospect grew up. */
+  hometown: Hometown;
+  /** Narrative arc tag. */
+  background: RecruitingBackground;
+}
+
+/**
+ * Hidden personality dials affecting perception independent of
+ * `PlayerSkills`. These are the things coach visits + interviews +
+ * locker-room observation reveal in later slices. Per North Star
+ * never displayed numerically; the eventual UI surfaces them through
+ * descriptive language only.
+ *
+ *   leadershipPresence — how the prospect carries themselves; coach-visit
+ *                        evaluation lane.
+ *   interviewSkill     — how well they present in formal interviews
+ *                        (combine meetings, team meetings).
+ *   workEthic          — observable through year-over-year improvement
+ *                        and practice-habit reports.
+ *   coachability       — how they respond to correction. Subtle.
+ *   competitiveness    — bring-it-every-snap factor.
+ *   footballCharacter  — distinct from off-field. Are they a film-room
+ *                        guy? Do they study? Different from raw IQ.
+ */
+export interface HiddenIntangibles {
+  leadershipPresence: number;
+  interviewSkill: number;
+  workEthic: number;
+  coachability: number;
+  competitiveness: number;
+  footballCharacter: number;
+}
+
+/**
+ * The full college prospect record. Lives on `LeagueState.collegePool`.
+ * Promoted to a `Player` when drafted (future slice owns the conversion).
+ *
+ * Hidden ground truth fields:
+ *   `current`, `ceiling`, `archetype`, `tier`, `developmentArchetype`,
+ *   `nflProjectedPosition`, `hiddenIntangibles`, `personalityVoice`,
+ *   `measurables` (until combined / scouted).
+ *
+ * Visible-ish (revealed through scouts / media / coaches in later slices):
+ *   `assumedArchetype` (what college coaching is calling them),
+ *   `recruiting` (public record), `school`, `classYear`, `bloodline`
+ *   (public knowledge), `characterFlags` (some public, some privileged),
+ *   `collegeStats`.
+ *
+ * Per North Star: a UI prop typed as `{ speed: 88 }` is a bug. The
+ * eventual draft-board UI must read through the knowledge layer with
+ * attribution + per-skill confidence. Slice 1 ships the engine-side
+ * truth; slice 2 ships the scouts who observe it.
+ */
+export interface CollegePlayer {
+  /**
+   * Player id — shared namespace with NFL `Player.id` so that the
+   * future draft-event slice can promote a prospect to a player
+   * without remapping references. Carries a `CP_` prefix so
+   * inspection can tell college-stage records apart at a glance.
+   */
+  id: PlayerId;
+  firstName: string;
+  lastName: string;
+
+  // ── Identity ────────────────────────────────────────────────────────
+  schoolId: string;
+  classYear: ClassYear;
+  /**
+   * True iff `classYear` ∈ {JR, SR, RS_SR}. Eligible-but-not-declared
+   * juniors are still in the pool; the draft event will gate on
+   * `hasDeclared`.
+   */
+  isDraftEligible: boolean;
+  /**
+   * True iff the prospect has declared for the upcoming draft.
+   * Seniors are auto-declared; juniors roll a declaration each
+   * offseason. False juniors stay in the pool another year.
+   */
+  hasDeclared: boolean;
+
+  /** Birthdate in ISO YYYY-MM-DD; age derived from sim clock. */
+  birthDate: string;
+
+  // ── Position + projection ────────────────────────────────────────────
+  /** Position they play in college. */
+  collegePosition: Position;
+  /**
+   * Position scouts/coaches who get them right project them to play
+   * in the NFL. Same as `collegePosition` for non-converters. The
+   * realistic conversion examples from Doc 3:
+   *   college DE → NFL OLB (3-4)
+   *   college S  → NFL CB
+   *   college TE → NFL OL
+   *   college RB → NFL WR
+   *   college WR → NFL S
+   *
+   * Hidden ground truth — only revealed through evaluation in later
+   * slices.
+   */
+  nflProjectedPosition: Position;
+  /** True iff `nflProjectedPosition !== collegePosition`. Convenience flag. */
+  isConversionCandidate: boolean;
+  /** Realistic alternate positions a creative team might consider. */
+  alternatePositions: readonly Position[];
+
+  // ── Hidden skill state (mirrors NFL Player exactly) ──────────────────
+  current: PlayerSkills;
+  ceiling: PlayerSkills;
+  developmentArchetype: PlayerDevelopmentArchetype;
+  /** NFL talent tier they project to. NOT what they look like in college. */
+  tier: TalentTier;
+
+  // ── Archetype tension ────────────────────────────────────────────────
+  /** True NFL archetype — ground truth. */
+  archetype: ArchetypeId;
+  /**
+   * What college coaching + media is currently calling them. Often
+   * matches `archetype`; for conversion candidates and miscast
+   * prospects, diverges. The gap between assumed and true is the
+   * "scout could miss this" axis from Doc 3.
+   */
+  assumedArchetype: ArchetypeId;
+  /** Convenience flag: archetype !== assumedArchetype. */
+  archetypeMisreadFlag: boolean;
+
+  // ── Physical ─────────────────────────────────────────────────────────
+  measurables: Measurables;
+
+  // ── Hidden personality ───────────────────────────────────────────────
+  hiddenIntangibles: HiddenIntangibles;
+  personalityVoice: PersonalityVoice;
+
+  // ── Public-facing pre-draft narrative ────────────────────────────────
+  recruiting: RecruitingProfile;
+  bloodline: Bloodline;
+  /** Narrative + descriptive flags attached to the prospect. */
+  characterFlags: readonly CharacterFlag[];
+  /** Past injuries through their college career. */
+  injuryHistory: readonly CollegeInjury[];
+
+  // ── Production ───────────────────────────────────────────────────────
+  /**
+   * Per-class-year stat snapshots. Always at least one entry (the
+   * year they're currently playing through). Empty for true freshmen
+   * who haven't finished their first season. Length grows with each
+   * year they remain in the pool.
+   */
+  collegeStats: readonly CollegeSeasonStats[];
+}

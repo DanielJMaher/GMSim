@@ -28,6 +28,7 @@ import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { generateTeamScouts, generateInitialObservations, regenerateWatchLists } from '../scouting/index.js';
+import { generateInitialCollegePool } from '../draft/pool.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -155,6 +156,14 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     initialTick,
   );
 
+  // Initial college pool — ~1100 prospects spread across TRUE_FR
+  // through RS_SR. Forked from the root with a stable label so future
+  // changes to NFL-side generation don't shift college-prospect rolls.
+  const collegePool = generateInitialCollegePool(rootPrng.fork('college-pool'), {
+    simYear: 2026,
+    idPrefix: 'C0',
+  });
+
   const baseLeague: LeagueState = {
     seed,
     tick: initialTick,
@@ -173,6 +182,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     transactionLog: [],
     observations,
     watchLists,
+    collegePool,
   };
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.
