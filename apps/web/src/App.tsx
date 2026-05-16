@@ -53,6 +53,8 @@ import type {
   CollegePlayer,
   ClassYear,
   CharacterFlag,
+  DraftBoardEntry,
+  DraftBoardReason,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 import { getSchoolById } from '@gmsim/engine';
@@ -197,6 +199,8 @@ export function App() {
       <LeagueOverview league={league} />
 
       <CollegePoolPanel league={league} />
+
+      <DraftBoardsPanel league={league} />
 
       <FreeAgentPoolPanel league={league} />
 
@@ -579,6 +583,169 @@ function CollegeProspectRow({
       </td>
       <td className="px-2 py-1 text-[10px] text-zinc-400">{flagSummary || <span className="text-zinc-600">—</span>}</td>
     </tr>
+  );
+}
+
+// ─── DRAFT BOARDS PANEL (Doc 3 — Draft Module slice 3) ─────────────────────
+
+const REASON_LABELS: Record<DraftBoardReason, string> = {
+  BLUE_CHIP: 'Blue chip',
+  SCHEME_FIT: 'Scheme fit',
+  POSITIONAL_NEED: 'Need',
+  CONVERSION_PROJECTION: 'Conversion',
+  DEVELOPMENTAL: 'Developmental',
+};
+
+const REASON_COLORS: Record<DraftBoardReason, string> = {
+  BLUE_CHIP: 'text-amber-300',
+  SCHEME_FIT: 'text-emerald-300',
+  POSITIONAL_NEED: 'text-sky-300',
+  CONVERSION_PROJECTION: 'text-violet-300',
+  DEVELOPMENTAL: 'text-zinc-300',
+};
+
+function DraftBoardsPanel({ league }: { league: LeagueState }) {
+  const teamsList = useMemo(() => Object.values(league.teams), [league.teams]);
+  const [selectedTeamId, setSelectedTeamId] = useState(teamsList[0]?.identity.id ?? null);
+  const [topN, setTopN] = useState(20);
+
+  const board: readonly DraftBoardEntry[] = selectedTeamId ? (league.draftBoards[selectedTeamId] ?? []) : [];
+  const prospectById = useMemo(() => {
+    const m = new Map(league.collegePool.map((cp) => [cp.id, cp] as const));
+    return m;
+  }, [league.collegePool]);
+
+  const reasonCounts = useMemo(() => {
+    const counts: Record<DraftBoardReason, number> = {
+      BLUE_CHIP: 0, SCHEME_FIT: 0, POSITIONAL_NEED: 0, CONVERSION_PROJECTION: 0, DEVELOPMENTAL: 0,
+    };
+    for (const e of board) counts[e.reason]++;
+    return counts;
+  }, [board]);
+
+  const selectedTeam = selectedTeamId ? league.teams[selectedTeamId] : null;
+  const selectedHc = selectedTeam ? league.coaches[selectedTeam.headCoachId] : null;
+
+  return (
+    <section className="mb-8 rounded border border-violet-500/40 bg-violet-500/10 p-4">
+      <div className="mb-3 flex items-baseline justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-violet-200">
+          Draft Boards — 32 internal boards (Doc 3 slice 3)
+        </h2>
+        <div className="flex items-center gap-3 text-xs">
+          <label className="flex items-center gap-1 text-zinc-400">
+            <span className="uppercase tracking-wide text-[10px]">Team</span>
+            <select
+              value={selectedTeamId ?? ''}
+              onChange={(e) => setSelectedTeamId(e.target.value as TeamId)}
+              className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 font-mono text-xs focus:border-violet-500 focus:outline-none"
+            >
+              {teamsList.map((t) => (
+                <option key={t.identity.id} value={t.identity.id}>
+                  {t.identity.abbreviation} — {t.identity.fullName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1 text-zinc-400">
+            <span className="uppercase tracking-wide text-[10px]">Top</span>
+            {[10, 20, 50].map((n) => (
+              <button
+                key={n}
+                onClick={() => setTopN(n)}
+                className={`rounded border px-2 py-0.5 font-mono ${
+                  topN === n
+                    ? 'border-violet-400 bg-violet-500/30 text-violet-100'
+                    : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-violet-500/40 hover:text-violet-300'
+                }`}
+              >
+                {n}
+              </button>
+            ))}
+          </label>
+        </div>
+      </div>
+
+      {selectedHc && (
+        <p className="mb-3 text-xs text-zinc-500">
+          Scheme: <span className="font-mono text-emerald-300">{selectedHc.offensiveScheme}</span>
+          {' / '}
+          <span className="font-mono text-emerald-300">{selectedHc.defensiveScheme}</span>
+          {' · '}
+          HC: <span className="text-zinc-300">{selectedHc.name}</span>
+        </p>
+      )}
+
+      <div className="mb-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
+        {(['BLUE_CHIP', 'SCHEME_FIT', 'POSITIONAL_NEED', 'CONVERSION_PROJECTION', 'DEVELOPMENTAL'] as DraftBoardReason[]).map((r) => (
+          <div key={r} className="rounded border border-zinc-800 bg-zinc-950/40 px-2 py-1">
+            <span className={REASON_COLORS[r]}>{REASON_LABELS[r]}</span>
+            <span className="ml-2 font-mono text-zinc-300">{reasonCounts[r]}</span>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
+            <tr className="border-b border-zinc-800">
+              <th className="px-2 py-1 text-right">#</th>
+              <th className="px-2 py-1 text-left">Prospect</th>
+              <th className="px-2 py-1 text-left">School</th>
+              <th className="px-2 py-1 text-left">NFL proj</th>
+              <th className="px-2 py-1 text-right">Priority</th>
+              <th className="px-2 py-1 text-right">Skill</th>
+              <th className="px-2 py-1 text-right">Fit</th>
+              <th className="px-2 py-1 text-right">Conf</th>
+              <th className="px-2 py-1 text-center">N</th>
+              <th className="px-2 py-1 text-left">Reason</th>
+            </tr>
+          </thead>
+          <tbody>
+            {board.slice(0, topN).map((entry, idx) => {
+              const cp = prospectById.get(entry.collegePlayerId);
+              if (!cp) return null;
+              return (
+                <tr key={entry.collegePlayerId} className="border-b border-zinc-900 hover:bg-zinc-900/30">
+                  <td className="px-2 py-1 text-right font-mono text-zinc-500">{idx + 1}</td>
+                  <td className="px-2 py-1">
+                    <div className="font-medium text-zinc-100">{cp.firstName} {cp.lastName}</div>
+                    <div className="text-[10px] text-zinc-500">
+                      {cp.classYear} · {cp.recruiting.starRating}★
+                      {cp.bloodline.hasNflFamily && <span className="ml-1 text-amber-400" title={`NFL legacy: ${cp.bloodline.relativeName}`}>⚜</span>}
+                    </div>
+                  </td>
+                  <td className="px-2 py-1 text-zinc-300">
+                    {getSchoolById(cp.schoolId)?.name ?? cp.schoolId}
+                  </td>
+                  <td className="px-2 py-1 font-mono">
+                    <span className={cp.isConversionCandidate ? 'text-violet-300' : 'text-zinc-400'}>
+                      {cp.collegePosition !== cp.nflProjectedPosition
+                        ? `${cp.collegePosition}→${cp.nflProjectedPosition}`
+                        : cp.nflProjectedPosition}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1 text-right font-mono text-amber-300">{entry.priority.toFixed(1)}</td>
+                  <td className="px-2 py-1 text-right font-mono text-zinc-300">{entry.observedSkillScore.toFixed(1)}</td>
+                  <td className="px-2 py-1 text-right font-mono text-zinc-300">{entry.schemeFit.toFixed(2)}</td>
+                  <td className="px-2 py-1 text-right font-mono text-zinc-300">{entry.meanConfidence.toFixed(2)}</td>
+                  <td className="px-2 py-1 text-center font-mono text-zinc-400">{entry.observationCount}</td>
+                  <td className={`px-2 py-1 text-[10px] uppercase tracking-wide ${REASON_COLORS[entry.reason]}`}>
+                    {REASON_LABELS[entry.reason]}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="mt-2 text-[10px] text-zinc-600">
+        Each team's board is derived from their own college scouts' reports + scheme + roster need —
+        no global "consensus" board. Same prospect appears at different priorities + reasons across
+        teams. CONVERSION projections are unique to the teams whose schemes value the conversion.
+      </p>
+    </section>
   );
 }
 

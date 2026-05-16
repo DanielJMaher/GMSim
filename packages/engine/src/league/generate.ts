@@ -31,7 +31,8 @@ import { generateTeamScouts, generateInitialObservations, regenerateWatchLists }
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
 import { generateInitialCollegeObservations } from '../draft/college-observation.js';
-import type { CollegeScout, CollegePlayerObservation } from '../types/college.js';
+import { regenerateDraftBoardsForLeague } from '../draft/board.js';
+import type { CollegeScout, CollegePlayerObservation, DraftBoardEntry } from '../types/college.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -214,6 +215,19 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     collegePool,
     collegeScouts: collegeScouts as Readonly<Record<ScoutId, CollegeScout>>,
     collegeObservations,
+    // Initial draft boards — pure derivation from teams + college
+    // scouts' observations + scheme + roster need. Built inline so
+    // the assembled league is self-consistent before
+    // refillPracticeSquad runs.
+    draftBoards: regenerateDraftBoardsForLeague({
+      teams: teams as Readonly<Record<TeamId, TeamState>>,
+      collegeScouts: collegeScouts as Readonly<Record<ScoutId, CollegeScout>>,
+      coaches,
+      players,
+      collegePool,
+      observations: collegeObservations,
+      addedOnTick: initialTick,
+    }) as Readonly<Record<TeamId, readonly DraftBoardEntry[]>>,
   };
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.

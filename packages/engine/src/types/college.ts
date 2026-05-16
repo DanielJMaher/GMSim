@@ -550,3 +550,70 @@ export interface CollegePlayerObservation {
    */
   confidence: Readonly<Partial<Record<keyof PlayerSkills, number>>>;
 }
+
+// ─── Draft Board (Doc 3 — slice 3) ──────────────────────────────────────
+
+/**
+ * Why a prospect appears high on a team's internal draft board. Per
+ * Doc 3's "32 unique boards" framing, the same prospect can hit
+ * different boards for different reasons — a CONVERSION_PROJECTION
+ * pick on a 3-4 team becomes a non-pick on a 4-3 team that doesn't
+ * see the OLB conversion. The reason is derived heuristically from
+ * which component of the priority composite dominated.
+ *
+ *   BLUE_CHIP             — high observed skill + high confidence
+ *                           (consensus top-tier pick on most boards)
+ *   SCHEME_FIT            — strong archetype match for the team's
+ *                           offensive/defensive scheme
+ *   POSITIONAL_NEED       — team is thin at the prospect's projected
+ *                           NFL position group; talent matters more
+ *                           at this group right now
+ *   CONVERSION_PROJECTION — the prospect is a position-conversion
+ *                           candidate AND this team's projected
+ *                           position is a strong fit for them
+ *   DEVELOPMENTAL         — high ceiling-vs-current gap; long-term
+ *                           value over short-term polish
+ */
+export type DraftBoardReason =
+  | 'BLUE_CHIP'
+  | 'SCHEME_FIT'
+  | 'POSITIONAL_NEED'
+  | 'CONVERSION_PROJECTION'
+  | 'DEVELOPMENTAL';
+
+/**
+ * One prospect on a team's internal draft board. Derived from the
+ * team's own scouts' observations, the team's scheme, and the team's
+ * positional needs. Per Doc 3:
+ *
+ *   "All 32 teams maintain their own internal big board throughout
+ *    the pre-draft process. No two teams have the same board —
+ *    scheme fit and organizational biases create meaningful
+ *    differences in prospect rankings across all 32 teams."
+ *
+ * The same prospect may appear on many teams' boards with different
+ * priorities + reasons. Slice 3 takes the top N (default 50) per
+ * team, sorted by priority. Future slices can add lookahead-based
+ * board adjustments (trade-up scenarios, runs at a position).
+ */
+export interface DraftBoardEntry {
+  /** ID of the `CollegePlayer` this entry tracks. */
+  collegePlayerId: PlayerId;
+  /** Composite priority — higher = stronger interest. Not capped. */
+  priority: number;
+  reason: DraftBoardReason;
+  /**
+   * Confidence-weighted aggregate of the prospect's key skills from
+   * the team's own scout reports. The team's *belief* about the
+   * prospect's skill level — not the truth.
+   */
+  observedSkillScore: number;
+  /** Scheme-fit multiplier in the team's scheme (uses true archetype). */
+  schemeFit: number;
+  /** Mean per-skill confidence across this team's reports. */
+  meanConfidence: number;
+  /** How many independent reports this team has on this prospect. */
+  observationCount: number;
+  /** Sim tick when this entry was added (= regeneration tick). */
+  addedOnTick: number;
+}

@@ -24,6 +24,7 @@ import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
 import { advanceCollegePool } from '../draft/pool.js';
 import { advanceCollegeScoutingCycle } from '../draft/college-cycle.js';
+import { regenerateDraftBoardsForLeague } from '../draft/board.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
 
@@ -293,6 +294,22 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     offseason,
     nextTick,
   );
+
+  // Draft boards refresh — pure scoring + sort, no PRNG. Reads the
+  // freshly-augmented college observations against the new roster
+  // shape so each team's board reflects current scheme + need.
+  offseason = {
+    ...offseason,
+    draftBoards: regenerateDraftBoardsForLeague({
+      teams: offseason.teams,
+      collegeScouts: offseason.collegeScouts,
+      coaches: offseason.coaches,
+      players: offseason.players,
+      collegePool: offseason.collegePool,
+      observations: offseason.collegeObservations,
+      addedOnTick: nextTick,
+    }),
+  };
 
   return offseason;
 }

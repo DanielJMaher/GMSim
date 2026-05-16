@@ -2,7 +2,7 @@ import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
 import type { Scout, PlayerObservation, WatchListEntry } from './scout.js';
-import type { CollegePlayer, CollegeScout, CollegePlayerObservation } from './college.js';
+import type { CollegePlayer, CollegeScout, CollegePlayerObservation, DraftBoardEntry } from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
@@ -105,6 +105,20 @@ export interface LeagueState {
    * the watch-list-style aggregation in slice 3 (draft boards).
    */
   collegeObservations: readonly CollegePlayerObservation[];
+
+  /**
+   * Per-team internal draft boards. Built from each team's own
+   * college-scout reports + their scheme + their positional needs.
+   * Per Doc 3 every team maintains a unique board — overlap is
+   * expected (BLUE_CHIP prospects sit near the top of most boards),
+   * but scheme-fit and conversion-projection differences create
+   * the variance that drives draft-day reaches and steals.
+   *
+   * Top N per team (default 50). Regenerated each season after the
+   * college scouting cycle; idempotent — pure scoring + sort, no
+   * PRNG involved.
+   */
+  draftBoards: Readonly<Record<TeamId, readonly DraftBoardEntry[]>>;
 }
 
 export type LeaguePhase =

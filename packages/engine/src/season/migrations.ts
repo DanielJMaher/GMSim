@@ -8,6 +8,8 @@ import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
 import { generateInitialCollegeObservations } from '../draft/college-observation.js';
+import { regenerateDraftBoardsForLeague } from '../draft/board.js';
+import type { DraftBoardEntry } from '../types/college.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -32,6 +34,12 @@ import { generateInitialCollegeObservations } from '../draft/college-observation
  * and `TeamState.collegeScoutIds` exist. Pre-v0.33 saves get a
  * deterministic backfill seeded from `${seed}::college-scouts::backfill`
  * so reload-then-save reproduces a stable league.
+ *
+ * v0.34.0: `LeagueState.draftBoards` exists. Pre-v0.34 saves get a
+ * fresh board derivation (pure function — no PRNG needed) from the
+ * other already-present state. If college scouts were also missing
+ * the v0.33 backfill runs first, so boards always have something to
+ * derive from.
  */
 export function migrateLeagueForward(league: LeagueState): LeagueState {
   const updates: Record<PlayerId, Player> = {};
@@ -118,6 +126,20 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     if (!next.collegeObservations) {
       next = { ...next, collegeObservations: [] };
     }
+  }
+
+  // v0.34.0 draft boards. Pure derivation from already-present state.
+  if (!next.draftBoards) {
+    const boards = regenerateDraftBoardsForLeague({
+      teams: next.teams,
+      collegeScouts: next.collegeScouts,
+      coaches: next.coaches,
+      players: next.players,
+      collegePool: next.collegePool,
+      observations: next.collegeObservations,
+      addedOnTick: next.tick,
+    });
+    next = { ...next, draftBoards: boards as Readonly<Record<TeamId, readonly DraftBoardEntry[]>> };
   }
 
   return next;

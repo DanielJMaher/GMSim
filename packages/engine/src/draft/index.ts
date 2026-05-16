@@ -79,3 +79,6 @@ export {
 } from './college-observation.js';
 
 export { advanceCollegeScoutingCycle } from './college-cycle.js';
+
+// Slice 3: per-team draft boards
+export { regenerateDraftBoards, regenerateDraftBoardsForLeague } from './board.js';

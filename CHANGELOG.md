@@ -16,6 +16,109 @@ _Nothing yet._
 
 ---
 
+## [0.34.0] — 2026-05-15
+
+### Added — 32 internal draft boards (Doc 3 — Draft Module slice 3)
+
+Every team now maintains a unique internal draft board derived from
+their own scouts' reports + their scheme + their roster need. Per
+Doc 3:
+
+> All 32 teams maintain their own internal big board. No two teams
+> have the same board — scheme fit and organizational biases create
+> meaningful differences in prospect rankings across all 32 teams.
+
+The same prospect can sit at #4 on one team's board with reason
+CONVERSION_PROJECTION and at #28 on another team's board with reason
+DEVELOPMENTAL — the variance is the substrate the eventual draft
+event will use to produce realistic reaches and steals.
+
+**Engine — types in `engine/src/types/college.ts`:**
+
+- `DraftBoardReason` — five derived reasons:
+  `BLUE_CHIP` (consensus top pick), `SCHEME_FIT` (strong archetype
+  match for this team's scheme), `POSITIONAL_NEED` (team thin at
+  prospect's projected NFL position group), `CONVERSION_PROJECTION`
+  (this team's scouts identified the prospect as a position-
+  conversion candidate AND the team's scheme fits the projection —
+  the "creative team identified him" narrative), `DEVELOPMENTAL`
+  (large ceiling-vs-current gap, long-term value).
+- `DraftBoardEntry` — `collegePlayerId` + `priority` + `reason` +
+  derived components (`observedSkillScore`, `schemeFit`,
+  `meanConfidence`, `observationCount`) + `addedOnTick`. Same
+  shape conventions as the FA `WatchListEntry` so future UI work
+  can render boards and watch lists with shared components.
+- `LeagueState.draftBoards: Record<TeamId, readonly DraftBoardEntry[]>`
+  — new field.
+
+**Engine — `engine/src/draft/board.ts`:**
+
+- `regenerateDraftBoardsForLeague` — pure function over teams +
+  collegeScouts + coaches + players + collegePool + observations.
+  No PRNG. Mirrors the NFL `regenerateWatchLists` algorithm:
+    1. Index observations by team-of-scout that filed them.
+    2. Group each team's observations by collegePlayerId.
+    3. Confidence-weight observed key-skills (archetype-weighted)
+       into one aggregate score.
+    4. priority = observedSkillScore × schemeFit × meanConfidence × need.
+    5. Sort desc, take top 50.
+    6. Derive a `DraftBoardReason` from which component dominated.
+- `regenerateDraftBoards` — lower-level shim that takes a pre-
+  computed need-score map (kept for testability + future callers
+  that want to override need scoring without rebuilding the
+  whole league).
+
+**Wiring:**
+
+- `createLeague` builds initial boards inline from the just-
+  generated college observations + rosters.
+- `advanceSeason` regenerates boards after the college scouting
+  cycle so each new season's boards reflect the freshly-observed
+  prospect pool + the new roster shape (post-development,
+  post-FA, post-draft-class arrivals).
+- `migrateLeagueForward` backfills `draftBoards` for pre-v0.34
+  saves — pure derivation, no PRNG seed needed (the v0.33
+  collegeScouts/observations backfill already provides the
+  inputs).
+
+**Inspector:**
+
+- New `Draft Boards — 32 internal boards` panel (between
+  CollegePool and FreeAgentPool) with team selector + top-N
+  toggle (10/20/50). Shows the chosen team's board ranked by
+  priority, with school + NFL projection (highlighted on
+  conversion candidates and showing `COL→NFL` arrow), priority,
+  observed skill score, scheme fit, mean confidence, observation
+  count, and reason badge color-coded per category. Above the
+  table: a quick rollup of how many entries fell into each reason
+  bucket — useful for spotting "this team has 6 conversion
+  candidates" (probably a 3-4 team spotting OLB tweener DEs) vs
+  "this team has zero" (4-3 team that doesn't see the conversion).
+
+**Public surface:**
+
+- New top-level exports: `regenerateDraftBoards`,
+  `regenerateDraftBoardsForLeague`.
+
+**Tests:** 9 new in `board.test.ts` — initial population, sort
+order invariant, every-field-populated, board variance across
+teams (Jaccard similarity bounded), CONVERSION_PROJECTION fires
+on real prospects, determinism, advanceSeason regeneration with
+new tick, migration backfill, pure-shim equivalence. Full engine
+suite green.
+
+**Not in this slice (deferred):**
+
+- War room / draft-day decisions (the actual draft event itself).
+- Trade-up / trade-down lookahead in board priority.
+- Run-on-position adjustments (when scouts notice their target
+  group thinning, board entries shift up).
+- Recency-weighted aggregation (older reports decay).
+- Coach-visit weight (Doc 3's coaching-evaluation lane lifts
+  certain prospects in the war-room phase).
+
+---
+
 ## [0.33.0] — 2026-05-15
 
 ### Added — College scouts + observations (Doc 3 — Draft Module slice 2)

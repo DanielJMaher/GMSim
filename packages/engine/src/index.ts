@@ -226,6 +226,9 @@ export {
   generateInitialCollegeObservations,
   generateCollegeObservation,
   advanceCollegeScoutingCycle,
+  // slice 3 — per-team draft boards
+  regenerateDraftBoards,
+  regenerateDraftBoardsForLeague,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,
