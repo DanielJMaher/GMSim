@@ -355,6 +355,7 @@ const FLAG_LABELS: Record<CharacterFlag, string> = {
 
 function CollegePoolPanel({ league }: { league: LeagueState }) {
   const [expanded, setExpanded] = useState(false);
+  const [expandedProspectId, setExpandedProspectId] = useState<PlayerId | null>(null);
   const pool = league.collegePool;
   const observations = league.collegeObservations;
   const collegeScouts = league.collegeScouts;
@@ -492,13 +493,26 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
           <tbody>
             {featured.map((cp) => {
               const combine = league.combineResults[cp.id];
+              const isOpen = expandedProspectId === cp.id;
               return (
-                <CollegeProspectRow
-                  key={cp.id}
-                  prospect={cp}
-                  reportCount={observationsByProspect.get(cp.id) ?? 0}
-                  {...(combine ? { combine } : {})}
-                />
+                <React.Fragment key={cp.id}>
+                  <CollegeProspectRow
+                    prospect={cp}
+                    reportCount={observationsByProspect.get(cp.id) ?? 0}
+                    isOpen={isOpen}
+                    onClick={() =>
+                      setExpandedProspectId(isOpen ? null : cp.id)
+                    }
+                    {...(combine ? { combine } : {})}
+                  />
+                  {isOpen && (
+                    <tr className="border-t border-zinc-800 bg-zinc-950/60">
+                      <td colSpan={11} className="px-3 py-3">
+                        <CollegeProspectDetail prospect={cp} league={league} />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -527,10 +541,14 @@ function CollegeProspectRow({
   prospect,
   reportCount,
   combine,
+  isOpen,
+  onClick,
 }: {
   prospect: CollegePlayer;
   reportCount: number;
   combine?: CombineMeasurables;
+  isOpen: boolean;
+  onClick: () => void;
 }) {
   const school = getSchoolById(prospect.schoolId);
   const tierColor =
@@ -558,9 +576,13 @@ function CollegeProspectRow({
   ) : null;
   const flagSummary = prospect.characterFlags.slice(0, 3).map((f) => FLAG_LABELS[f]).join(', ');
   return (
-    <tr className="border-b border-zinc-900 hover:bg-zinc-900/30">
+    <tr
+      className={`cursor-pointer border-b border-zinc-900 hover:bg-zinc-900/30 ${isOpen ? 'bg-zinc-900/40' : ''}`}
+      onClick={onClick}
+    >
       <td className="px-2 py-1">
         <div className="font-medium text-zinc-100">
+          <span className="mr-1 text-zinc-600">{isOpen ? '▼' : '▶'}</span>
           {prospect.firstName} {prospect.lastName}
         </div>
         <div className="text-[10px] text-zinc-500">
@@ -603,6 +625,435 @@ function CollegeProspectRow({
       <td className="px-2 py-1 text-[10px] text-zinc-400">{flagSummary || <span className="text-zinc-600">—</span>}</td>
     </tr>
   );
+}
+
+function CollegeProspectDetail({
+  prospect,
+  league,
+}: {
+  prospect: CollegePlayer;
+  league: LeagueState;
+}) {
+  const school = getSchoolById(prospect.schoolId);
+  const trueArchetype = getArchetypeById(prospect.archetype);
+  const assumedArchetype = getArchetypeById(prospect.assumedArchetype);
+  const combine = league.combineResults[prospect.id];
+
+  // Map of all college scouts → owning team for observation attribution.
+  const scoutToTeam = useMemo(() => {
+    const m = new Map<string, TeamState>();
+    for (const team of Object.values(league.teams)) {
+      for (const sid of team.collegeScoutIds) m.set(sid, team);
+    }
+    return m;
+  }, [league.teams]);
+
+  // All observations of this prospect, sorted by mean confidence desc.
+  const prospectObservations = useMemo(() => {
+    const obs = league.collegeObservations.filter((o) => o.collegePlayerId === prospect.id);
+    const withMean = obs.map((o) => {
+      const confs = Object.values(o.confidence).filter((c): c is number => typeof c === 'number');
+      const mean = confs.length === 0 ? 0 : confs.reduce((s, c) => s + c, 0) / confs.length;
+      return { obs: o, meanConf: mean };
+    });
+    withMean.sort((a, b) => b.meanConf - a.meanConf);
+    return withMean;
+  }, [league.collegeObservations, prospect.id]);
+
+  // Which teams have this prospect on their draft board, and at what rank/priority/reason.
+  const boardPlacements = useMemo(() => {
+    const out: Array<{ team: TeamState; rank: number; entry: DraftBoardEntry }> = [];
+    for (const team of Object.values(league.teams)) {
+      const board = league.draftBoards[team.identity.id] ?? [];
+      const idx = board.findIndex((e) => e.collegePlayerId === prospect.id);
+      if (idx >= 0) {
+        out.push({ team, rank: idx + 1, entry: board[idx]! });
+      }
+    }
+    out.sort((a, b) => b.entry.priority - a.entry.priority);
+    return out;
+  }, [league.teams, league.draftBoards, prospect.id]);
+
+  const m = prospect.measurables;
+  const intang = prospect.hiddenIntangibles;
+
+  return (
+    <div className="space-y-3 text-xs">
+      {/* Header strip */}
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-zinc-800 pb-2">
+        <div className="text-sm font-semibold text-zinc-100">
+          {prospect.firstName} {prospect.lastName}
+        </div>
+        <div className="text-zinc-400">
+          {school?.name ?? prospect.schoolId} ({school?.conferenceId ?? '?'},{' '}
+          {school?.tier === 'GROUP_OF_5' ? 'G5' : school?.tier ?? '?'})
+        </div>
+        <div className="text-zinc-500">
+          {CLASS_YEAR_LABELS[prospect.classYear]} · {prospect.tier.toLowerCase()} ·{' '}
+          {trueArchetype?.label ?? prospect.archetype}
+        </div>
+        <div className="text-zinc-600">
+          born {prospect.birthDate} ·{' '}
+          {prospect.recruiting.hometown.city}, {prospect.recruiting.hometown.state}
+        </div>
+        {prospect.bloodline.hasNflFamily && (
+          <div className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+            NFL legacy: {prospect.bloodline.relation?.toLowerCase()} {prospect.bloodline.relativeName}
+            {prospect.bloodline.relativeWasStar && ' ★'}
+          </div>
+        )}
+      </div>
+
+      {trueArchetype?.description && (
+        <div className="text-zinc-500">{trueArchetype.description}</div>
+      )}
+
+      {/* Recruiting / Personality / Archetype tension */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Recruiting</div>
+          <div className="font-mono text-amber-300">
+            {'★'.repeat(prospect.recruiting.starRating)}
+            <span className="text-zinc-700">{'★'.repeat(5 - prospect.recruiting.starRating)}</span>
+          </div>
+          <div className="text-zinc-400">
+            National rank: {prospect.recruiting.nationalRank ?? <span className="text-zinc-600">unranked</span>}
+          </div>
+          <div className="text-zinc-400">
+            Background:{' '}
+            <span className="font-mono uppercase tracking-wider text-zinc-300">
+              {prospect.recruiting.background}
+            </span>
+          </div>
+        </div>
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Personality (inspector view — hidden)
+          </div>
+          <div className="text-zinc-300">Voice: {VOICE_LABELS[prospect.personalityVoice]}</div>
+          <div className="mt-1 grid grid-cols-2 gap-x-2 gap-y-0.5 font-mono text-zinc-400">
+            <span>leader {intang.leadershipPresence}</span>
+            <span>interview {intang.interviewSkill}</span>
+            <span>work {intang.workEthic}</span>
+            <span>coach {intang.coachability}</span>
+            <span>compete {intang.competitiveness}</span>
+            <span>fb char {intang.footballCharacter}</span>
+          </div>
+        </div>
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Archetype</div>
+          <div className="text-zinc-300">
+            True: <span className="font-mono">{trueArchetype?.label ?? prospect.archetype}</span>
+          </div>
+          <div className="text-zinc-300">
+            Assumed:{' '}
+            <span className="font-mono">{assumedArchetype?.label ?? prospect.assumedArchetype}</span>
+          </div>
+          {prospect.archetypeMisreadFlag ? (
+            <div className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-300">
+              MISREAD — assumed differs from true
+            </div>
+          ) : (
+            <div className="mt-1 text-[10px] text-zinc-600">aligned</div>
+          )}
+        </div>
+      </div>
+
+      {/* Position projection */}
+      <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+          Position projection
+        </div>
+        <div className="flex flex-wrap items-baseline gap-x-3 text-zinc-300">
+          <span>
+            College:{' '}
+            <span className="font-mono text-zinc-200">{prospect.collegePosition}</span>
+          </span>
+          <span>
+            NFL projection:{' '}
+            <span
+              className={`font-mono ${prospect.isConversionCandidate ? 'text-violet-300' : 'text-zinc-200'}`}
+            >
+              {prospect.nflProjectedPosition}
+            </span>
+          </span>
+          {prospect.isConversionCandidate && (
+            <span className="rounded border border-violet-500/40 bg-violet-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-violet-300">
+              conversion candidate
+            </span>
+          )}
+          {prospect.alternatePositions.length > 0 && (
+            <span className="text-zinc-500">
+              alts:{' '}
+              <span className="font-mono text-zinc-400">
+                {prospect.alternatePositions.join(', ')}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Skills (current / ceiling) */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        {SKILL_GROUPS.map((groupDef) => (
+          <div key={groupDef.label} className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+              {groupDef.label}
+            </div>
+            <table className="w-full">
+              <tbody>
+                {groupDef.skills.map((skill) => {
+                  const cur = prospect.current[skill];
+                  const ceil = prospect.ceiling[skill];
+                  return (
+                    <tr key={skill}>
+                      <td className="py-0.5 pr-2 text-zinc-400">{SKILL_LABELS[skill]}</td>
+                      <td className={`py-0.5 pr-1 text-right font-mono ${skillTone(cur)}`}>{cur}</td>
+                      <td
+                        className="py-0.5 pr-2 text-right font-mono text-zinc-600"
+                        title="Hidden ceiling — never shown to player"
+                      >
+                        /{ceil}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
+
+      {/* Measurables + combine side by side */}
+      <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+        <div className="mb-1 flex items-baseline justify-between text-[10px] uppercase tracking-wider text-zinc-500">
+          <span>Measurables (truth vs combine)</span>
+          <span className="normal-case text-zinc-600">
+            italic = drill skipped; emerald = combine reported
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 sm:grid-cols-3 lg:grid-cols-5">
+          <MeasureCell label="Height" truth={`${m.heightInches}"`} combine={combine?.heightInches !== undefined ? `${combine.heightInches}"` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Weight" truth={`${m.weightLbs} lb`} combine={combine?.weightLbs !== undefined ? `${combine.weightLbs} lb` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Arm" truth={`${m.armLengthInches}"`} combine={combine?.armLengthInches !== undefined ? `${combine.armLengthInches}"` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Hand" truth={`${m.handSizeInches}"`} combine={combine?.handSizeInches !== undefined ? `${combine.handSizeInches}"` : undefined} attended={combine?.attended} />
+          <MeasureCell label="40-yd" truth={`${m.fortyYardSeconds.toFixed(2)}s`} combine={combine?.fortyYardSeconds !== undefined ? `${combine.fortyYardSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Bench" truth={`${m.benchPress225Reps}`} combine={combine?.benchPress225Reps !== undefined ? `${combine.benchPress225Reps}` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Vertical" truth={`${m.verticalInches}"`} combine={combine?.verticalInches !== undefined ? `${combine.verticalInches}"` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Broad" truth={`${m.broadJumpInches}"`} combine={combine?.broadJumpInches !== undefined ? `${combine.broadJumpInches}"` : undefined} attended={combine?.attended} />
+          <MeasureCell label="3-cone" truth={`${m.threeConeSeconds.toFixed(2)}s`} combine={combine?.threeConeSeconds !== undefined ? `${combine.threeConeSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Shuttle" truth={`${m.shuttleSeconds.toFixed(2)}s`} combine={combine?.shuttleSeconds !== undefined ? `${combine.shuttleSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
+        </div>
+      </div>
+
+      {/* Character flags */}
+      {prospect.characterFlags.length > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Character flags
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {prospect.characterFlags.map((f) => (
+              <span
+                key={f}
+                className="rounded border border-fuchsia-500/30 bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-fuchsia-300"
+              >
+                {FLAG_LABELS[f]}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* College stats per year */}
+      {prospect.collegeStats.length > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            College production (year-by-year)
+          </div>
+          <table className="w-full font-mono text-[10px]">
+            <thead className="text-zinc-500">
+              <tr>
+                <th className="text-left font-normal">Yr</th>
+                <th className="text-left font-normal">School</th>
+                <th className="text-right font-normal">G</th>
+                <th className="text-right font-normal">GS</th>
+                <th className="text-right font-normal" title="Position-specific headline stats">stats</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prospect.collegeStats.map((cs, idx) => (
+                <tr key={idx} className="text-zinc-300">
+                  <td>{CLASS_YEAR_LABELS[cs.classYear]}</td>
+                  <td className="text-zinc-400">{getSchoolById(cs.schoolId)?.name ?? cs.schoolId}</td>
+                  <td className="text-right">{cs.games}</td>
+                  <td className="text-right">{cs.starts}</td>
+                  <td className="text-right text-zinc-400">{collegeStatHeadline(prospect.collegePosition, cs)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Injury history */}
+      {prospect.injuryHistory.length > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Injury history
+          </div>
+          <ul className="space-y-0.5 text-[11px]">
+            {prospect.injuryHistory.map((inj, idx) => (
+              <li key={idx} className="flex justify-between gap-3 text-zinc-300">
+                <span>
+                  <span className="font-mono text-zinc-500">{CLASS_YEAR_LABELS[inj.classYear]}</span>{' '}
+                  {inj.label}
+                </span>
+                <span className="text-zinc-500">
+                  {inj.severity.toLowerCase()} · missed {inj.gamesMissed}g
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Scout observations cross-team */}
+      <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+        <div className="mb-1 flex items-baseline justify-between text-[10px] uppercase tracking-wider text-zinc-500">
+          <span>Scout reports ({prospectObservations.length})</span>
+          {prospectObservations.length > 10 && (
+            <span className="normal-case text-zinc-600">showing top 10 by confidence</span>
+          )}
+        </div>
+        {prospectObservations.length === 0 ? (
+          <div className="text-zinc-600">No scout reports filed — coverage gap.</div>
+        ) : (
+          <table className="w-full text-[10px]">
+            <thead className="text-zinc-500">
+              <tr>
+                <th className="text-left font-normal">Scout</th>
+                <th className="text-left font-normal">Team</th>
+                <th className="text-right font-normal">Conf</th>
+                <th className="text-right font-normal" title="Observed speed">spd</th>
+                <th className="text-right font-normal" title="Observed football IQ">iq</th>
+                <th className="text-right font-normal" title="Observed technical skill">tech</th>
+                <th className="text-right font-normal" title="Sim tick observed">tick</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prospectObservations.slice(0, 10).map(({ obs, meanConf }, idx) => {
+                const scout = league.collegeScouts[obs.scoutId];
+                const team = scoutToTeam.get(obs.scoutId);
+                return (
+                  <tr key={`${obs.scoutId}-${idx}`} className="text-zinc-300">
+                    <td>{scout?.name ?? obs.scoutId}</td>
+                    <td className="text-zinc-400">{team?.identity.abbreviation ?? '?'}</td>
+                    <td className="text-right font-mono text-zinc-300">{meanConf.toFixed(2)}</td>
+                    <td className="text-right font-mono text-zinc-400">{obs.skills.speed ?? '—'}</td>
+                    <td className="text-right font-mono text-zinc-400">{obs.skills.footballIq ?? '—'}</td>
+                    <td className="text-right font-mono text-zinc-400">{obs.skills.technicalSkill ?? '—'}</td>
+                    <td className="text-right font-mono text-zinc-600">{obs.observedOnTick}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Draft board placements across the league */}
+      <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+          On {boardPlacements.length}/32 team draft boards
+        </div>
+        {boardPlacements.length === 0 ? (
+          <div className="text-zinc-600">No team currently has this prospect on their top-50 board.</div>
+        ) : (
+          <table className="w-full text-[10px]">
+            <thead className="text-zinc-500">
+              <tr>
+                <th className="text-left font-normal">Team</th>
+                <th className="text-right font-normal">Rank</th>
+                <th className="text-right font-normal">Priority</th>
+                <th className="text-right font-normal">Fit</th>
+                <th className="text-left font-normal">Reason</th>
+              </tr>
+            </thead>
+            <tbody>
+              {boardPlacements.map(({ team, rank, entry }) => (
+                <tr key={team.identity.id} className="text-zinc-300">
+                  <td>{team.identity.abbreviation}</td>
+                  <td className="text-right font-mono">#{rank}</td>
+                  <td className="text-right font-mono text-amber-300">{entry.priority.toFixed(1)}</td>
+                  <td className="text-right font-mono text-zinc-400">{entry.schemeFit.toFixed(2)}</td>
+                  <td className={`text-[10px] uppercase ${REASON_COLORS[entry.reason]}`}>
+                    {REASON_LABELS[entry.reason]}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MeasureCell({
+  label,
+  truth,
+  combine,
+  attended,
+}: {
+  label: string;
+  truth: string;
+  combine: string | undefined;
+  attended: boolean | undefined;
+}) {
+  const skipped = attended === true && combine === undefined;
+  return (
+    <div className="flex items-baseline justify-between border-l border-zinc-800/60 pl-2">
+      <span className="text-[10px] text-zinc-500">{label}</span>
+      <span className="font-mono">
+        <span className="text-zinc-400">{truth}</span>
+        {combine !== undefined ? (
+          <span className="ml-1 text-emerald-400" title="Combine reported">[{combine}]</span>
+        ) : skipped ? (
+          <span className="ml-1 italic text-zinc-600" title="Drill skipped at combine">[DNP]</span>
+        ) : null}
+      </span>
+    </div>
+  );
+}
+
+function collegeStatHeadline(
+  position: Position,
+  s: CollegePlayer['collegeStats'][number],
+): string {
+  switch (position) {
+    case Position.QB:
+      return `${s.passCompletions}/${s.passAttempts}, ${s.passingYards} yd, ${s.passingTds} TD, ${s.interceptionsThrown} INT`;
+    case Position.RB:
+    case Position.FB:
+      return `${s.rushingAttempts} att, ${s.rushingYards} yd, ${s.rushingTds} TD`;
+    case Position.WR:
+    case Position.TE:
+      return `${s.receptions} rec, ${s.receivingYards} yd, ${s.receivingTds} TD`;
+    case Position.EDGE:
+    case Position.DT:
+    case Position.NT:
+    case Position.OLB:
+      return `${s.tackles} tkl, ${s.sacks} sk, ${s.forcedFumbles} FF`;
+    case Position.ILB:
+      return `${s.tackles} tkl, ${s.sacks} sk, ${s.interceptions} INT`;
+    case Position.CB:
+    case Position.NICKEL:
+    case Position.S:
+      return `${s.tackles} tkl, ${s.interceptions} INT, ${s.passesDefended} PD`;
+    default:
+      return `${s.games} g / ${s.starts} GS`;
+  }
 }
 
 // ─── DRAFT BOARDS PANEL (Doc 3 — Draft Module slice 3) ─────────────────────
