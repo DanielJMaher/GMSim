@@ -56,6 +56,8 @@ import type {
   DraftBoardEntry,
   DraftBoardReason,
   CombineMeasurables,
+  CollegeScout,
+  ScoutRegion,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 import { getSchoolById } from '@gmsim/engine';
@@ -2679,6 +2681,8 @@ function TeamDetail({
 
       <ScoutingStaffPanel team={team} league={league} />
 
+      <CollegeScoutingStaffPanel team={team} league={league} />
+
       <WatchListPanel team={team} league={league} />
 
       <div className="space-y-4">
@@ -3243,7 +3247,7 @@ function ScoutingStaffPanel({
     <section className="mb-4 rounded border border-zinc-800 bg-zinc-950/40 p-3">
       <div className="mb-2 flex items-baseline justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-          Scouting staff ({scouts.length})
+          Pro scouting staff ({scouts.length})
         </h3>
         <span className="text-[10px] text-zinc-600" title="Per-group accuracy + quirks are HIDDEN from the GM. Inspector exposes them for tuning.">
           inspector view — hidden state shown
@@ -3262,13 +3266,76 @@ function ScoutingStaffPanel({
   );
 }
 
+function CollegeScoutingStaffPanel({
+  team,
+  league,
+}: {
+  team: TeamState;
+  league: LeagueState;
+}) {
+  const scouts = useMemo(
+    () =>
+      team.collegeScoutIds
+        .map((id) => league.collegeScouts[id])
+        .filter((s): s is CollegeScout => s !== undefined),
+    [team.collegeScoutIds, league.collegeScouts],
+  );
+  const obsCountByScout = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const obs of league.collegeObservations) {
+      counts.set(obs.scoutId, (counts.get(obs.scoutId) ?? 0) + 1);
+    }
+    return counts;
+  }, [league.collegeObservations]);
+  if (scouts.length === 0) return null;
+  return (
+    <section className="mb-4 rounded border border-violet-500/30 bg-violet-500/5 p-3">
+      <div className="mb-2 flex items-baseline justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-violet-300">
+          College scouting staff ({scouts.length})
+        </h3>
+        <span className="text-[10px] text-zinc-600" title="Per-group accuracy + quirks are HIDDEN from the GM. Inspector exposes them for tuning.">
+          inspector view — hidden state shown
+        </span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {scouts.map((scout) => (
+          <ScoutCard
+            key={scout.id}
+            scout={scout}
+            observationCount={obsCountByScout.get(scout.id) ?? 0}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function regionBadgeTone(region: ScoutRegion): string {
+  switch (region) {
+    case 'NORTHEAST':
+      return 'border-sky-500/40 bg-sky-500/10 text-sky-300';
+    case 'SOUTHEAST':
+      return 'border-amber-500/40 bg-amber-500/10 text-amber-300';
+    case 'MIDWEST':
+      return 'border-orange-500/40 bg-orange-500/10 text-orange-300';
+    case 'SOUTHWEST':
+      return 'border-rose-500/40 bg-rose-500/10 text-rose-300';
+    case 'WEST':
+      return 'border-violet-500/40 bg-violet-500/10 text-violet-300';
+    case 'NATIONAL':
+      return 'border-zinc-500/40 bg-zinc-500/10 text-zinc-300';
+  }
+}
+
 function ScoutCard({
   scout,
   observationCount,
 }: {
-  scout: Scout;
+  scout: Scout | CollegeScout;
   observationCount: number;
 }) {
+  const preferredRegion = 'preferredRegion' in scout ? scout.preferredRegion : null;
   return (
     <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2 text-xs">
       <div className="mb-1 flex items-baseline justify-between gap-2">
@@ -3283,10 +3350,18 @@ function ScoutCard({
           <span className="rounded border border-emerald-500/40 bg-emerald-500/10 px-1 py-0.5 font-mono uppercase tracking-wider text-emerald-300">
             {scout.knownSpecialty}
           </span>
+          {preferredRegion && (
+            <span
+              className={`ml-1 rounded border px-1 py-0.5 font-mono uppercase tracking-wider ${regionBadgeTone(preferredRegion)}`}
+              title="College scouts carry a regional preference — bonus accuracy when evaluating prospects from this region."
+            >
+              {preferredRegion}
+            </span>
+          )}
         </span>
         <span
           className="font-mono text-zinc-600"
-          title="Total observations this scout has produced across all cycles. Grows by ~8 each season-advance."
+          title="Total observations this scout has produced across all cycles."
         >
           {observationCount} report{observationCount === 1 ? '' : 's'}
         </span>
