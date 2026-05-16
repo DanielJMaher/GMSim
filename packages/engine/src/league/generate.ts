@@ -32,7 +32,15 @@ import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
 import { generateInitialCollegeObservations } from '../draft/college-observation.js';
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
-import type { CollegeScout, CollegePlayerObservation, DraftBoardEntry } from '../types/college.js';
+import { runCombine } from '../draft/combine.js';
+import { runProDays } from '../draft/pro-days.js';
+import type {
+  CollegeScout,
+  CollegePlayerObservation,
+  DraftBoardEntry,
+  CombineMeasurables,
+  ProDayAttendanceRecord,
+} from '../types/college.js';
 
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
@@ -219,16 +227,42 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     // scouts' observations + scheme + roster need. Built inline so
     // the assembled league is self-consistent before
     // refillPracticeSquad runs.
-    draftBoards: regenerateDraftBoardsForLeague({
-      teams: teams as Readonly<Record<TeamId, TeamState>>,
-      collegeScouts: collegeScouts as Readonly<Record<ScoutId, CollegeScout>>,
-      coaches,
-      players,
-      collegePool,
-      observations: collegeObservations,
-      addedOnTick: initialTick,
-    }) as Readonly<Record<TeamId, readonly DraftBoardEntry[]>>,
+    draftBoards: {} as Readonly<Record<TeamId, readonly DraftBoardEntry[]>>,
+    combineResults: {} as Readonly<Record<PlayerId, CombineMeasurables>>,
+    proDayAttendance: {} as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
   };
+
+  // Initial boards first (we need them so pro-day attendance can
+  // score schools by board interest).
+  const initialBoards = regenerateDraftBoardsForLeague({
+    teams: baseLeague.teams,
+    collegeScouts: baseLeague.collegeScouts,
+    coaches: baseLeague.coaches,
+    players: baseLeague.players,
+    collegePool: baseLeague.collegePool,
+    observations: baseLeague.collegeObservations,
+    addedOnTick: initialTick,
+  });
+  // Combine — universal physical reveal.
+  const initialCombine = runCombine(
+    rootPrng.fork('initial-combine'),
+    collegePool,
+    initialTick,
+  );
+  // Pro days — per-team attendance scored by board interest.
+  const initialProDays = runProDays(
+    rootPrng.fork('initial-pro-days'),
+    baseLeague.teams,
+    collegePool,
+    initialBoards,
+  );
+  // Fold the three derived fields back into baseLeague. Object.assign
+  // is safe here because we control the original literal above.
+  Object.assign(baseLeague, {
+    draftBoards: initialBoards as Readonly<Record<TeamId, readonly DraftBoardEntry[]>>,
+    combineResults: initialCombine as Readonly<Record<PlayerId, CombineMeasurables>>,
+    proDayAttendance: initialProDays as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
+  });
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.
   return refillPracticeSquad(rootPrng.fork('ps-bootstrap'), baseLeague, initialTick, 1);

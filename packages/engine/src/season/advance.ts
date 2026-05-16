@@ -25,6 +25,8 @@ import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js
 import { advanceCollegePool } from '../draft/pool.js';
 import { advanceCollegeScoutingCycle } from '../draft/college-cycle.js';
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
+import { runCombine } from '../draft/combine.js';
+import { runProDays } from '../draft/pro-days.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
 
@@ -298,17 +300,39 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
   // Draft boards refresh — pure scoring + sort, no PRNG. Reads the
   // freshly-augmented college observations against the new roster
   // shape so each team's board reflects current scheme + need.
+  const refreshedBoards = regenerateDraftBoardsForLeague({
+    teams: offseason.teams,
+    collegeScouts: offseason.collegeScouts,
+    coaches: offseason.coaches,
+    players: offseason.players,
+    collegePool: offseason.collegePool,
+    observations: offseason.collegeObservations,
+    addedOnTick: nextTick,
+  });
+
+  // Combine — universal physical reveal for the new draft-eligible
+  // cohort. Runs deterministically off the season-scoped prng.
+  const combineResults = runCombine(
+    advancePrng.fork('combine'),
+    offseason.collegePool,
+    nextTick,
+  );
+
+  // Pro days — per-team attendance, scored against the refreshed
+  // boards. Runs after the boards land because attendance depends
+  // on board interest.
+  const proDayAttendance = runProDays(
+    advancePrng.fork('pro-days'),
+    offseason.teams,
+    offseason.collegePool,
+    refreshedBoards,
+  );
+
   offseason = {
     ...offseason,
-    draftBoards: regenerateDraftBoardsForLeague({
-      teams: offseason.teams,
-      collegeScouts: offseason.collegeScouts,
-      coaches: offseason.coaches,
-      players: offseason.players,
-      collegePool: offseason.collegePool,
-      observations: offseason.collegeObservations,
-      addedOnTick: nextTick,
-    }),
+    draftBoards: refreshedBoards,
+    combineResults,
+    proDayAttendance,
   };
 
   return offseason;

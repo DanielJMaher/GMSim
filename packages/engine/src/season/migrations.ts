@@ -9,7 +9,9 @@ import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
 import { generateInitialCollegeObservations } from '../draft/college-observation.js';
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
-import type { DraftBoardEntry } from '../types/college.js';
+import { runCombine } from '../draft/combine.js';
+import { runProDays } from '../draft/pro-days.js';
+import type { DraftBoardEntry, CombineMeasurables, ProDayAttendanceRecord } from '../types/college.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -40,6 +42,12 @@ import type { DraftBoardEntry } from '../types/college.js';
  * other already-present state. If college scouts were also missing
  * the v0.33 backfill runs first, so boards always have something to
  * derive from.
+ *
+ * v0.35.0: `LeagueState.combineResults` and `LeagueState.proDayAttendance`
+ * exist. Pre-v0.35 saves backfill from seeds
+ * `${seed}::combine::backfill` and `${seed}::pro-days::backfill`. Pro
+ * days uses the just-backfilled boards as input so attendance is
+ * stable across reload.
  */
 export function migrateLeagueForward(league: LeagueState): LeagueState {
   const updates: Record<PlayerId, Player> = {};
@@ -140,6 +148,33 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       addedOnTick: next.tick,
     });
     next = { ...next, draftBoards: boards as Readonly<Record<TeamId, readonly DraftBoardEntry[]>> };
+  }
+
+  // v0.35.0 combine results.
+  if (!next.combineResults) {
+    const combine = runCombine(
+      new Prng(`${next.seed}::combine::backfill`),
+      next.collegePool,
+      next.tick,
+    );
+    next = {
+      ...next,
+      combineResults: combine as Readonly<Record<import('../types/ids.js').PlayerId, CombineMeasurables>>,
+    };
+  }
+
+  // v0.35.0 pro-day attendance. Depends on draftBoards being present.
+  if (!next.proDayAttendance) {
+    const proDays = runProDays(
+      new Prng(`${next.seed}::pro-days::backfill`),
+      next.teams,
+      next.collegePool,
+      next.draftBoards,
+    );
+    next = {
+      ...next,
+      proDayAttendance: proDays as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
+    };
   }
 
   return next;

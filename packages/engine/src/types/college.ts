@@ -617,3 +617,69 @@ export interface DraftBoardEntry {
   /** Sim tick when this entry was added (= regeneration tick). */
   addedOnTick: number;
 }
+
+// ─── Combine + Pro Days (Doc 3 — slice 4) ───────────────────────────────
+
+/**
+ * Combine drill results for one prospect. All 32 teams observe these
+ * simultaneously when the event runs each offseason. Per-drill noise
+ * is small (combines are precisely measured), so combine numbers are
+ * a near-truth reveal of the prospect's `measurables` — but with a
+ * `participated` flag per drill because prospects often skip events
+ * (workout-warriors run everything; pedigree first-rounders may skip
+ * the riskier drills like 3-cone with nothing to gain).
+ *
+ * Stored on `LeagueState.combineResults` keyed by the prospect's
+ * `PlayerId`. The eventual draft-board UI shows combine numbers
+ * alongside scout-estimated skills so the user can spot
+ * workout-warrior gaps ("posts a 4.41 but tape says 4.6").
+ */
+export interface CombineMeasurables {
+  /** Whether the prospect attended at all. False = skipped entirely. */
+  attended: boolean;
+  /** Per-drill reported values (undefined when skipped). */
+  heightInches?: number;
+  weightLbs?: number;
+  armLengthInches?: number;
+  handSizeInches?: number;
+  fortyYardSeconds?: number;
+  benchPress225Reps?: number;
+  verticalInches?: number;
+  broadJumpInches?: number;
+  threeConeSeconds?: number;
+  shuttleSeconds?: number;
+  /** Sim tick when the combine ran. */
+  measuredOnTick: number;
+}
+
+/**
+ * One team's pro-day attendance record. The full pro-day schedule
+ * covers every school with ≥1 draft-eligible prospect; each team
+ * decides per school whether to send a scout/coach. Deterministic
+ * for a given league seed + season number.
+ *
+ * Per Doc 3:
+ *   "Popular pro days may have 20+ NFL teams in attendance while
+ *    smaller programs may host only 2-3 teams. Teams that deploy
+ *    to less popular programs may find overlooked value."
+ *
+ * Slice 4 records attendance. The eventual observation-pipeline
+ * refactor can apply a per-team accuracy bonus on subsequent reads
+ * of attended-school prospects.
+ */
+export interface ProDayAttendanceRecord {
+  /** Stable school id (see `engine/src/data/colleges`). */
+  schoolId: string;
+  attended: boolean;
+  /**
+   * Why the team attended (or didn't). Derived from how many of the
+   * school's prospects sit on the team's draft board top 30:
+   *   AUTO       — score ≥ 3 (multiple board prospects)
+   *   INTERESTED — score 1–2, hit the per-prospect attend roll
+   *   FLYER      — score 0, hit the small-school flyer roll
+   *   SKIP       — `attended` is false
+   */
+  reason: 'AUTO' | 'INTERESTED' | 'FLYER' | 'SKIP';
+  /** Number of prospects from this school on team's top-30 board. */
+  boardCount: number;
+}

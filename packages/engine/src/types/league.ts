@@ -2,7 +2,14 @@ import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
 import type { Scout, PlayerObservation, WatchListEntry } from './scout.js';
-import type { CollegePlayer, CollegeScout, CollegePlayerObservation, DraftBoardEntry } from './college.js';
+import type {
+  CollegePlayer,
+  CollegeScout,
+  CollegePlayerObservation,
+  DraftBoardEntry,
+  CombineMeasurables,
+  ProDayAttendanceRecord,
+} from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
@@ -119,6 +126,26 @@ export interface LeagueState {
    * PRNG involved.
    */
   draftBoards: Readonly<Record<TeamId, readonly DraftBoardEntry[]>>;
+
+  /**
+   * Combine drill results — one record per declared draft-eligible
+   * prospect who attended the combine. Keyed by `CollegePlayer.id`.
+   * Generated each offseason when the combine event runs. Per Doc 3:
+   * "All 32 teams attend and participate in the combine simultaneously"
+   * — these are universal numbers visible to every team.
+   */
+  combineResults: Readonly<Record<PlayerId, CombineMeasurables>>;
+
+  /**
+   * Pro-day attendance per team. Indexed by team id; value is the
+   * full schedule of (school, attended) records for the most recent
+   * pro-day cycle. Schools rotate based on which have ≥1 draft-eligible
+   * prospect. Per Doc 3: "All 32 teams must make deployment decisions
+   * across the same schedule." Slice 4 records the decisions;
+   * coverage-competition effects on observation quality land in a
+   * later refactor of the scouting pipeline.
+   */
+  proDayAttendance: Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>;
 }
 
 export type LeaguePhase =

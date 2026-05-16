@@ -55,6 +55,7 @@ import type {
   CharacterFlag,
   DraftBoardEntry,
   DraftBoardReason,
+  CombineMeasurables,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 import { getSchoolById } from '@gmsim/engine';
@@ -482,25 +483,30 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-center">★</th>
               <th className="px-2 py-1 text-center">Tier</th>
               <th className="px-2 py-1 text-center" title="Reports filed by college scouts on this prospect">Reports</th>
+              <th className="px-2 py-1 text-center" title="Combine 40-yard dash (italic = skipped)">40</th>
               <th className="px-2 py-1 text-left">Flags</th>
             </tr>
           </thead>
           <tbody>
-            {featured.map((cp) => (
-              <CollegeProspectRow
-                key={cp.id}
-                prospect={cp}
-                reportCount={observationsByProspect.get(cp.id) ?? 0}
-              />
-            ))}
+            {featured.map((cp) => {
+              const combine = league.combineResults[cp.id];
+              return (
+                <CollegeProspectRow
+                  key={cp.id}
+                  prospect={cp}
+                  reportCount={observationsByProspect.get(cp.id) ?? 0}
+                  {...(combine ? { combine } : {})}
+                />
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       <p className="mt-2 text-[10px] text-zinc-600">
         Reports column = number of college-scout observations across all 32 teams.
-        Slice 3 (draft boards) will replace this league-wide list with each team's
-        own scheme-fit-aware draft board derived from their own scouts' reports.
+        40 column shows combine-reported 40-yard time when available (italics = drill skipped).
+        The Draft Boards panel below shows each team's scheme-fit-aware ranking.
       </p>
     </section>
   );
@@ -518,9 +524,11 @@ function CollegePoolStat({ label, value }: { label: string; value: number }) {
 function CollegeProspectRow({
   prospect,
   reportCount,
+  combine,
 }: {
   prospect: CollegePlayer;
   reportCount: number;
+  combine?: CombineMeasurables;
 }) {
   const school = getSchoolById(prospect.schoolId);
   const tierColor =
@@ -580,6 +588,15 @@ function CollegeProspectRow({
       <td className={`px-2 py-1 text-center font-mono ${tierColor}`}>{prospect.tier}</td>
       <td className={`px-2 py-1 text-center font-mono ${reportCount === 0 ? 'text-zinc-700' : reportCount >= 8 ? 'text-violet-300' : 'text-zinc-400'}`}>
         {reportCount}
+      </td>
+      <td className="px-2 py-1 text-center font-mono text-xs">
+        {combine?.fortyYardSeconds !== undefined ? (
+          <span className="text-emerald-300">{combine.fortyYardSeconds.toFixed(2)}</span>
+        ) : combine ? (
+          <span className="italic text-zinc-600" title="Prospect skipped this drill">DNP</span>
+        ) : (
+          <span className="text-zinc-700">—</span>
+        )}
       </td>
       <td className="px-2 py-1 text-[10px] text-zinc-400">{flagSummary || <span className="text-zinc-600">—</span>}</td>
     </tr>

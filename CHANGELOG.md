@@ -16,6 +16,86 @@ _Nothing yet._
 
 ---
 
+## [0.35.0] — 2026-05-16
+
+### Added — Combine + Pro Days (Doc 3 — Draft Module slice 4)
+
+The Draft Module's measurement-reveal + intel-deployment layer.
+Combines produce universal physical measurements visible to every
+team; pro days surface per-school attendance decisions that scale
+with how many of that school's prospects sit on a team's board.
+
+**Engine — types in `engine/src/types/college.ts`:**
+
+- `CombineMeasurables` — reported drill values per prospect (height,
+  weight, arm length, hand size, 40, bench, vertical, broad, 3-cone,
+  shuttle) with per-drill `undefined` when the prospect opted out.
+  `attended` flag + `measuredOnTick`. Noise on each drill is tight
+  (40-yard σ=0.03s, vertical σ=0.5") — combines are precisely
+  measured.
+- `ProDayAttendanceRecord` — per-school decision with `schoolId`,
+  `attended`, `reason` (AUTO / INTERESTED / FLYER / SKIP), and
+  `boardCount` (number of that school's prospects on this team's
+  top-30 board).
+
+**Engine — `engine/src/draft/`:**
+
+- `combine.ts` — `runCombine` runs the event for every draft-eligible
+  prospect. `rollCombineResults` per-prospect with skip-rate model:
+  base 20% per drill, with character-flag modifiers
+  (WORKOUT_WARRIOR → 0%, TAPE_STAR_POOR_TESTER → 50% on speed
+  drills, INJURY_PRONE → +10% overall, 5-star + PEDIGREE → +10%
+  on every drill — top picks have little to gain).
+- `pro-days.ts` — `runProDays` per-team, per-school decision. Schools
+  with ≥3 board prospects → AUTO attend. Score 2 → 80% INTERESTED.
+  Score 1 → 65% INTERESTED. Score 0 → 5% FLYER (small-school random
+  look). Deterministic.
+
+**Wiring:**
+
+- `LeagueState.combineResults: Record<PlayerId, CombineMeasurables>`
+- `LeagueState.proDayAttendance: Record<TeamId, readonly ProDayAttendanceRecord[]>`
+- `createLeague` runs initial combine + pro days for the initial pool.
+- `advanceSeason` runs both after the college pool advance + board
+  refresh (so pro-day attendance is scored against the just-refreshed
+  boards).
+- `migrateLeagueForward` backfills both for pre-v0.35 saves
+  (`${seed}::combine::backfill` and `${seed}::pro-days::backfill`).
+
+**Inspector:**
+
+- New `40` column on the College Pool prospect table. Shows
+  combine-reported 40-yard time in emerald when available, `DNP`
+  in italics when the prospect skipped, and `—` when the prospect
+  isn't draft-eligible.
+
+**Public surface:** new top-level exports `runCombine`,
+`rollCombineResults`, `runProDays`.
+
+**Tests:** 16 new — combine determinism, noise band against truth,
+WORKOUT_WARRIOR never-skips invariant, drill-skip rate range,
+runCombine eligibility filter, advanceSeason refresh, migration
+backfill (combine); attendance scheduling, reason-matches-attended
+invariant, AUTO/0-score correlation, determinism, schedule
+covers only eligible schools, advanceSeason refresh, migration
+backfill (pro days).
+
+**Not in this slice (deferred to future slices):**
+
+- Combine interview meetings — 10 prospects per team, 30 questions
+  allocated across Scheme Fit / On-Field Intangibles / Off-Field
+  Intangibles. Significant scope; its own slice.
+- Coverage-competition penalty for popular pro days (needs a
+  refactor of the observation pipeline to apply per-school
+  accuracy bonuses).
+- Strategic full-combine-skips (slice 4 always sets `attended: true`
+  for declared draft-eligible prospects).
+- Junior declaration logic (still always-false in slice 4 — the
+  draft event slice will flip it).
+- The draft event itself (next natural slice).
+
+---
+
 ## [0.34.0] — 2026-05-15
 
 ### Added — 32 internal draft boards (Doc 3 — Draft Module slice 3)

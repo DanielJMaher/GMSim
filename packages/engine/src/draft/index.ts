@@ -82,3 +82,7 @@ export { advanceCollegeScoutingCycle } from './college-cycle.js';
 
 // Slice 3: per-team draft boards
 export { regenerateDraftBoards, regenerateDraftBoardsForLeague } from './board.js';
+
+// Slice 4: combine + pro days
+export { runCombine, rollCombineResults } from './combine.js';
+export { runProDays } from './pro-days.js';

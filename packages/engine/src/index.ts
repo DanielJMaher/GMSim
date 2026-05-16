@@ -229,6 +229,10 @@ export {
   // slice 3 — per-team draft boards
   regenerateDraftBoards,
   regenerateDraftBoardsForLeague,
+  // slice 4 — combine + pro days
+  runCombine,
+  rollCombineResults,
+  runProDays,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,
