@@ -35,6 +35,7 @@ import { regenerateDraftBoardsForLeague } from '../draft/board.js';
 import { runCombine } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
 import { runCoachVisits } from '../draft/coach-visits.js';
+import { generateInitialDraftPicks } from '../draft/picks.js';
 import type {
   CollegeScout,
   CollegePlayerObservation,
@@ -233,6 +234,14 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     proDayAttendance: {} as Readonly<Record<TeamId, readonly ProDayAttendanceRecord[]>>,
     draftHistory: [],
     coachVisitObservations: [],
+    // Initial draft picks — each team owns its own picks for the
+    // next 3 league years. League starts at season 1; the first draft
+    // fires for season 2 during advanceSeason. Generate picks for
+    // seasons 2..4.
+    draftPicks: generateInitialDraftPicks(
+      NFL_TEAMS.map((t) => t.id),
+      2,
+    ),
   };
 
   // Initial boards first (we need them so pro-day attendance can

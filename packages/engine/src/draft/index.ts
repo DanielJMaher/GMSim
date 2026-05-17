@@ -117,3 +117,15 @@ export {
   roundForOverallPick,
 } from './pick-value.js';
 export type { PickReference, PickTradeEvaluation } from './pick-value.js';
+
+// Slice (Doc 5 follow-on): DraftPickAsset infrastructure
+export {
+  generateInitialDraftPicks,
+  advancePickHorizon,
+  picksForRoundInSlotOrder,
+  consumePicks,
+  buildSlotMap,
+  pickOwnershipByTeam,
+  DRAFT_PICK_HORIZON_YEARS,
+  DRAFT_PICK_ROUNDS,
+} from './picks.js';

@@ -16,6 +16,109 @@ _Nothing yet._
 
 ---
 
+## [0.44.0] — 2026-05-16
+
+### Added — Draft pick assets as tradeable objects
+
+Draft picks are now first-class assets on `LeagueState`. Before this
+slice, picks were ephemeral — `runDraft` consumed `draftOrder:
+TeamId[]` synthesized fresh from current standings each year, with
+no representation of "team X owns team Y's 2028 R1." Now every team
+starts owning their own picks for a 3-year horizon, picks are
+consumed from the asset pool when the draft fires, and the
+infrastructure exists to swap ownership via future trade-up logic.
+
+This is the **asset infrastructure layer only** — trade-up firing
++ Doc 14 trade-evaluator pick integration are separate follow-on
+slices. The Doc 5 chart from v0.40 already provides the valuation;
+adding pick assets to trade packages is now an "extension to
+existing trade machinery" rather than a foundational change.
+
+**Engine — types in `engine/src/types/college.ts`:**
+
+- `DraftPickAsset` — `id` + `originalTeamId` + `currentTeamId` +
+  `seasonNumber` + `round`. The slot is NOT stored on the asset —
+  it's computed at draft time from `originalTeamId`'s standings,
+  because a future-year pick's slot can swing wildly with that
+  team's eventual finish.
+- `DraftPickRecord` gained optional `pickAssetId` +
+  `originalTeamId` fields. Asset-system bookkeeping; back-compat
+  for pre-v0.44 saves + direct `runDraft` callers that bypass the
+  asset path.
+
+**Engine — `engine/src/draft/picks.ts`:**
+
+- `generateInitialDraftPicks(teamIds, startingSeason)` — produces
+  every team's owned picks across 3-year horizon × 7 rounds.
+- `picksForRoundInSlotOrder(picks, season, round, slotMap)` —
+  filters + sorts by original-team standing. Returns assets in
+  pick order; the picker is each asset's `currentTeamId`.
+- `consumePicks(picks, consumedIds)` — pure removal helper.
+- `advancePickHorizon(picks, currentDraftSeason, teamIds)` — drops
+  the just-drafted year, adds the new far-edge year (rolling
+  3-year window).
+- `buildSlotMap(draftOrder)` — convenience to turn
+  `computeDraftOrder` output into a `TeamId → slot` map.
+- `pickOwnershipByTeam(picks)` — convenience for inspector +
+  trade-evaluation display.
+- Constants exposed: `DRAFT_PICK_HORIZON_YEARS = 3`,
+  `DRAFT_PICK_ROUNDS = 7`.
+
+**Wiring:**
+
+- `LeagueState.draftPicks: readonly DraftPickAsset[]` — new field
+  (672 entries for a healthy league: 32 teams × 3 years × 7
+  rounds).
+- `createLeague` populates initial assets for seasons 2..4 (the
+  first draft fires for season 2 during `advanceSeason`).
+- `advanceSeason` now derives `draftOrder` per round from
+  `picksForRoundInSlotOrder` (using prior-season standings as the
+  slot map), passes `pickAssets` to `runDraft`, then
+  `applyDraftResult` removes consumed assets, and
+  `advancePickHorizon` rolls the window forward at the end of the
+  cycle.
+- `migrateLeagueForward` backfills owned-by-original-team picks
+  over the 3-year horizon for pre-v0.44 saves (no trade history
+  reconstructable — old leagues start "no picks traded").
+
+**Behavior change:** none today — every team still picks at their
+own slot since no trades happen yet. The end-state of every draft
+is identical to v0.43.x. The change is structural: when trade-ups
+land, they'll mutate `currentTeamId` on assets, and the existing
+draft pipeline will pick up the new picker automatically.
+
+**Public surface:** new exports `generateInitialDraftPicks`,
+`advancePickHorizon`, `picksForRoundInSlotOrder`, `consumePicks`,
+`buildSlotMap`, `pickOwnershipByTeam`,
+`DRAFT_PICK_HORIZON_YEARS`, `DRAFT_PICK_ROUNDS`.
+
+**Tests:** 16 new in `picks.test.ts` — pure helpers (generation
+sizing, ownership defaults, advance horizon math, slot ordering,
+consumption, ownership grouping with simulated trades) + 4
+integration tests (createLeague populates 672 assets, advanceSeason
+consumes-then-rolls-forward producing the next horizon window,
+draft history records carry asset IDs, migration backfill on
+pre-v0.44 saves).
+
+**Not in this slice (deferred):**
+
+- Trade-up firing logic — NPC desire model ("team A wants to move
+  up for prospect X"), chart-fair acceptance using `comparePickPackages`
+  + Doc 5 situational modifiers, ownership swap, post-trade
+  recompute.
+- Doc 14 trade-evaluator integration — picks as trade-package
+  members with chart valuation.
+- Compensatory picks (extra round-3-through-7 picks awarded for
+  free agency losses — would extend the asset pool with a
+  `compensatory: true` flag and post-FA generation pass).
+- Pick protections + conditional picks (top-N protected, becomes
+  next-year, etc.).
+- Inspector visibility — TeamDetail panel could show "owned picks"
+  + "traded-away picks". Quick follow-up but skipped to keep this
+  slice focused on infrastructure.
+
+---
+
 ## [0.43.0] — 2026-05-16
 
 ### Changed — Draft boards filter to eligible prospects + position filter UI

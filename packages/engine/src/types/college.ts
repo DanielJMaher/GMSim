@@ -1,4 +1,4 @@
-import type { PlayerId, ScoutId, TeamId, ContractId, CoachId } from './ids.js';
+import type { PlayerId, ScoutId, TeamId, ContractId, CoachId, DraftPickId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
 import type {
   PlayerSkills,
@@ -720,6 +720,42 @@ export interface CoachVisitObservation {
   confidence: Readonly<Partial<Record<keyof PlayerSkills, number>>>;
 }
 
+// ─── Draft Pick Asset (Doc 5 follow-on — tradeable picks) ──────────────
+
+/**
+ * A draft pick as a tradeable asset. Each team starts owning their
+ * own future picks across the 3-year horizon; trades change
+ * `currentTeamId` while `originalTeamId` stays fixed (the latter is
+ * what determines the pick's slot — a pick traded from a bad team
+ * to a good team still picks at the bad team's slot).
+ *
+ * Slot ordering is computed at draft time, not stored on the asset,
+ * because the original team's standings can change year over year
+ * (a future-year pick from team X is more or less valuable depending
+ * on how X performs between now and then). The asset just records
+ * who originated the pick + who currently owns it; the draft event
+ * sorts by the original team's just-finished-season standing.
+ */
+export interface DraftPickAsset {
+  id: DraftPickId;
+  /**
+   * Team the pick was originally awarded to. Determines slot in the
+   * pick's round (via that team's just-finished-season standings).
+   * Never changes once the asset is created.
+   */
+  originalTeamId: TeamId;
+  /**
+   * Team that currently owns the pick. Equal to `originalTeamId` at
+   * creation; trades update this. The team that actually makes the
+   * pick when the asset is consumed.
+   */
+  currentTeamId: TeamId;
+  /** League season number this pick is for (the season that draft fires for). */
+  seasonNumber: number;
+  /** 1..7. Slice 5b doesn't support compensatory rounds yet. */
+  round: number;
+}
+
 // ─── Draft event (Doc 3 — slice 5a) ─────────────────────────────────────
 
 /**
@@ -755,4 +791,18 @@ export interface DraftPickRecord {
   boardPriorityAtPick: number | null;
   /** Reason badge from the picking team's board, or null. */
   boardReasonAtPick: DraftBoardReason | null;
+  /**
+   * Draft pick asset that was consumed for this pick (v0.44.0+).
+   * Lets the inspector cross-reference picks with their tradeable
+   * asset record (e.g., "team X picked here via a pick originally
+   * owned by team Y"). Optional for back-compat with pre-v0.44 saves
+   * and direct `runDraft` callers that bypass the asset system.
+   */
+  pickAssetId?: DraftPickId;
+  /**
+   * Original team that the pick belonged to. Equals `teamId` for
+   * un-traded picks; differs when the pick was traded. Optional for
+   * back-compat.
+   */
+  originalTeamId?: TeamId;
 }

@@ -32,6 +32,11 @@ import { runDraft, applyDraftResult } from '../draft/event.js';
 import { computeDraftOrder } from '../draft/draft-order.js';
 import { runUdfaPromotion, applyUdfaResult } from '../draft/udfa.js';
 import { runCoachVisits, applyCoachVisits } from '../draft/coach-visits.js';
+import {
+  picksForRoundInSlotOrder,
+  buildSlotMap,
+  advancePickHorizon,
+} from '../draft/picks.js';
 import { preseasonCuts } from '../transactions/preseason-cuts.js';
 import { migrateLeagueForward } from './migrations.js';
 import { offseasonMoodDrift } from './mood.js';
@@ -293,22 +298,39 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
   // and reorder per-round). Drafted prospects are promoted to NFL
   // Player records (with rookie contracts) and appended to their
   // team's roster; the prospects exit the college pool.
-  const draftOrder = computeDraftOrder(records);
+  // Draft order is computed from the just-finished season's standings
+  // and used as the SLOT MAP: each original-team's standing determines
+  // which slot in each round their pick occupies. The team that actually
+  // makes a pick is the asset's currentTeamId, which may differ from
+  // originalTeamId when picks have been traded.
+  const draftSlotOrder = computeDraftOrder(records);
+  const slotMap = buildSlotMap(draftSlotOrder);
   const DRAFT_ROUNDS = 7;
-  const PICKS_PER_ROUND = draftOrder.length; // 32 for a healthy league
+  const PICKS_PER_ROUND = draftSlotOrder.length; // 32 for a healthy league
   const allDraftedRookieIds = new Set<PlayerId>();
   for (let round = 1; round <= DRAFT_ROUNDS; round++) {
     const startingOverallPick = (round - 1) * PICKS_PER_ROUND + 1;
+    // Look up this round's pick assets from the asset pool, ordered
+    // by the original team's slot. Derive `draftOrder` (= picker
+    // sequence) from the assets' currentTeamIds.
+    const roundAssets = picksForRoundInSlotOrder(
+      offseason.draftPicks,
+      nextSeasonNumber,
+      round,
+      slotMap,
+    );
+    const roundDraftOrder = roundAssets.map((a) => a.currentTeamId);
     const roundResult = runDraft(advancePrng.fork(`draft-round-${round}`), offseason, {
-      draftOrder,
+      draftOrder: roundDraftOrder,
       pickedOnTick: nextTick,
       seasonNumber: nextSeasonNumber,
       round,
       startingOverallPick,
+      pickAssets: roundAssets,
     });
     offseason = applyDraftResult(offseason, roundResult);
     for (const pick of roundResult.picks) allDraftedRookieIds.add(pick.promotedPlayerId);
-    if (roundResult.picks.length < draftOrder.length) {
+    if (roundResult.picks.length < roundDraftOrder.length) {
       // College pool exhausted of declared prospects — extremely rare.
       // Cut the draft short rather than infinite-loop on empty rounds.
       break;
@@ -407,6 +429,17 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     observedOnTick: nextTick,
   });
   offseason = applyCoachVisits(offseason, coachVisits);
+
+  // Roll the draft-pick horizon forward by one year: drop any stragglers
+  // from this season's draft (defensive — applyDraftResult should have
+  // consumed them all), generate next year's far-edge picks owned by
+  // each team's original-team self. After this call the asset list
+  // covers seasons nextSeasonNumber+1 through nextSeasonNumber+3.
+  const teamIds = Object.values(offseason.teams).map((t) => t.identity.id);
+  offseason = {
+    ...offseason,
+    draftPicks: advancePickHorizon(offseason.draftPicks, nextSeasonNumber, teamIds),
+  };
 
   return offseason;
 }

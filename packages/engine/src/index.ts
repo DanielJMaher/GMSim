@@ -254,6 +254,15 @@ export {
   valueOfPicks,
   comparePickPackages,
   roundForOverallPick,
+  // Doc 5 follow-on — DraftPickAsset infrastructure
+  generateInitialDraftPicks,
+  advancePickHorizon,
+  picksForRoundInSlotOrder,
+  consumePicks,
+  buildSlotMap,
+  pickOwnershipByTeam,
+  DRAFT_PICK_HORIZON_YEARS,
+  DRAFT_PICK_ROUNDS,
 } from './draft/index.js';
 export type {
   PromoteOptions,

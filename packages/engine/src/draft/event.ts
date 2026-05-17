@@ -1,7 +1,7 @@
 import type { Prng } from '../prng/index.js';
 import type { LeagueState } from '../types/league.js';
-import type { CollegePlayer, DraftPickRecord } from '../types/college.js';
-import type { TeamId, PlayerId, ContractId } from '../types/ids.js';
+import type { CollegePlayer, DraftPickRecord, DraftPickAsset } from '../types/college.js';
+import type { TeamId, PlayerId, ContractId, DraftPickId } from '../types/ids.js';
 import type { TeamState } from '../types/team.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
@@ -18,6 +18,14 @@ export interface RunDraftOptions {
   round?: number;
   /** Starting overall pick number (1 for round 1). */
   startingOverallPick?: number;
+  /**
+   * Optional pick assets in slot order, one per draft-order entry.
+   * When supplied, each generated `DraftPickRecord` records the
+   * `pickAssetId` + `originalTeamId` for asset-system bookkeeping
+   * (v0.44.0+). When omitted, records carry no asset reference —
+   * back-compat for tests that pass `draftOrder` directly.
+   */
+  pickAssets?: readonly DraftPickAsset[];
 }
 
 export interface DraftRunResult {
@@ -31,6 +39,8 @@ export interface DraftRunResult {
   rosterAdditionsByTeam: Map<TeamId, readonly PlayerId[]>;
   /** Prospect ids removed from `LeagueState.collegePool`. */
   removedFromCollegePool: ReadonlySet<PlayerId>;
+  /** Pick asset ids consumed (v0.44.0+; empty when no pickAssets supplied). */
+  consumedPickIds: ReadonlySet<DraftPickId>;
 }
 
 /**
@@ -74,11 +84,13 @@ export function runDraft(
   const newContracts: Contract[] = [];
   const rosterAdditions = new Map<TeamId, PlayerId[]>();
   const removed = new Set<PlayerId>();
+  const consumedPickIds = new Set<DraftPickId>();
 
   for (let i = 0; i < options.draftOrder.length; i++) {
     const teamId = options.draftOrder[i]!;
     const team = league.teams[teamId];
     if (!team) continue;
+    const pickAsset = options.pickAssets?.[i];
 
     const overallPick = startingOverallPick + i;
     const board = league.draftBoards[teamId] ?? [];
@@ -129,7 +141,12 @@ export function runDraft(
       boardRankAtPick: boardRank,
       boardPriorityAtPick: boardEntry?.priority ?? null,
       boardReasonAtPick: boardEntry?.reason ?? null,
+      ...(pickAsset
+        ? { pickAssetId: pickAsset.id, originalTeamId: pickAsset.originalTeamId }
+        : {}),
     });
+
+    if (pickAsset) consumedPickIds.add(pickAsset.id);
 
     void team;
   }
@@ -140,6 +157,7 @@ export function runDraft(
     newContracts,
     rosterAdditionsByTeam: rosterAdditions,
     removedFromCollegePool: removed,
+    consumedPickIds,
   };
 }
 
@@ -172,6 +190,11 @@ export function applyDraftResult(
     (cp) => !result.removedFromCollegePool.has(cp.id),
   );
 
+  // Draft pick assets: drop the ones consumed by this draft run.
+  const draftPicks = result.consumedPickIds.size > 0
+    ? league.draftPicks.filter((p) => !result.consumedPickIds.has(p.id))
+    : league.draftPicks;
+
   return {
     ...league,
     players: players as typeof league.players,
@@ -179,6 +202,7 @@ export function applyDraftResult(
     teams: teams as typeof league.teams,
     collegePool,
     draftHistory: [...league.draftHistory, ...result.picks],
+    draftPicks,
   };
 }
 

@@ -11,6 +11,7 @@ import type {
   ProDayAttendanceRecord,
   DraftPickRecord,
   CoachVisitObservation,
+  DraftPickAsset,
 } from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
@@ -168,6 +169,21 @@ export interface LeagueState {
    * future polish slices.
    */
   coachVisitObservations: readonly CoachVisitObservation[];
+
+  /**
+   * Tradeable draft pick assets. Each team starts owning their own
+   * picks for the next 3 league years; trades change `currentTeamId`
+   * while `originalTeamId` stays fixed. `runDraft` consumes assets
+   * for the upcoming season and they're rolled forward each
+   * `advanceSeason` so the horizon stays at +3 years out from the
+   * current draft.
+   *
+   * Slot ordering at draft time is computed from each pick's
+   * `originalTeamId` and the just-finished season's standings — a
+   * pick traded from a bad team to a good team still picks at the
+   * bad team's slot.
+   */
+  draftPicks: readonly DraftPickAsset[];
 }
 
 export type LeaguePhase =

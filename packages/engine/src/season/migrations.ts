@@ -11,6 +11,7 @@ import { generateInitialCollegeObservations } from '../draft/college-observation
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
 import { runCombine } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
+import { generateInitialDraftPicks } from '../draft/picks.js';
 import type { DraftBoardEntry, CombineMeasurables, ProDayAttendanceRecord } from '../types/college.js';
 
 /**
@@ -57,6 +58,12 @@ import type { DraftBoardEntry, CombineMeasurables, ProDayAttendanceRecord } from
  * v0.39.0: `LeagueState.coachVisitObservations` exists. Pre-v0.39
  * saves backfill with an empty array — coach visits accumulate from
  * the next advance onwards.
+ *
+ * v0.44.0: `LeagueState.draftPicks` (tradeable pick assets) exists.
+ * Pre-v0.44 saves backfill by regenerating each team's owned picks
+ * over the standard 3-year horizon, anchored at the upcoming-draft
+ * season (`seasonNumber + 1`). No pre-existing trade history can be
+ * reconstructed — old leagues start as if no picks have been traded.
  */
 export function migrateLeagueForward(league: LeagueState): LeagueState {
   const updates: Record<PlayerId, Player> = {};
@@ -194,6 +201,14 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
   // v0.39.0 coach visit observations. Empty array — accumulate forward.
   if (!next.coachVisitObservations) {
     next = { ...next, coachVisitObservations: [] };
+  }
+
+  // v0.44.0 draft pick assets. Backfill: each team owns its own picks
+  // for next 3 years (no trade history reconstructable).
+  if (!next.draftPicks) {
+    const teamIds = Object.values(next.teams).map((t) => t.identity.id);
+    const picks = generateInitialDraftPicks(teamIds, next.seasonNumber + 1);
+    next = { ...next, draftPicks: picks };
   }
 
   return next;
