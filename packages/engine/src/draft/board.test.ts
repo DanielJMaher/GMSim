@@ -125,4 +125,16 @@ describe('regenerateDraftBoardsForLeague (slice 3)', () => {
       }
     }
   });
+
+  it('every board entry references a draft-eligible prospect (slice v0.43)', () => {
+    const league = createLeague({ seed: 'boards-eligibility' });
+    const prospectById = new Map(league.collegePool.map((cp) => [cp.id, cp] as const));
+    for (const board of Object.values(league.draftBoards)) {
+      for (const entry of board) {
+        const cp = prospectById.get(entry.collegePlayerId);
+        expect(cp).toBeDefined();
+        expect(cp!.isDraftEligible).toBe(true);
+      }
+    }
+  });
 });

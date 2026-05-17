@@ -16,6 +16,70 @@ _Nothing yet._
 
 ---
 
+## [0.43.0] — 2026-05-16
+
+### Changed — Draft boards filter to eligible prospects + position filter UI
+
+Two related cleanups surfaced by slice 6 (coach visits had to walk
+deep past non-eligible board entries) and slice 5b (draft results
+panel showed pre-JR prospects mixed in with the actual draftable
+cohort).
+
+**Engine (`engine/src/draft/board.ts`):**
+
+- `regenerateDraftBoardsForLeague` now filters board entries to
+  draft-eligible prospects only (`cp.isDraftEligible` —
+  JR / SR / RS_SR). Scouts still file observations on pre-JRs
+  (slice 2 doesn't filter by eligibility), so the engine continues
+  to accumulate multi-year intel on rising freshmen / sophomores —
+  those reports just don't surface on the *current* draft board
+  until the prospect ages into JR.
+- Downstream wins:
+  - Coach visits (slice 6) no longer skip past non-eligible
+    top-board prospects — the top of every board is now eligible by
+    construction.
+  - Draft results readability — the boards the picker walks contain
+    only valid pick targets.
+  - Inspector clarity — what users see on a draft board is what
+    teams could actually pick this year.
+
+**Inspector (`apps/web/src/App.tsx`):**
+
+- New **Position filter dropdown** in `DraftBoardsPanel` alongside
+  the existing Team selector + Top N toggle. Options: All, QB,
+  Skill (RB/WR/TE), OL, DL, LB, DB, ST — by position group, not
+  specific position, to keep the dropdown short.
+- Filter applies to `nflProjectedPosition` (not `collegePosition`)
+  so conversion candidates surface under the right NFL bucket —
+  a college DE projecting as 3-4 OLB shows up when you filter LB.
+- Original board ranks preserved — when filtering to QBs, the
+  table shows "#4 overall, #11 overall, …" rather than "1, 2, …"
+  so you can see at a glance how high the displayed QBs sit on the
+  full board.
+- Reason-count badges at the top flip dynamically with the filter
+  ("how many BLUE_CHIPs at QB?" when QB is selected).
+
+**Tests:**
+
+- New `board.test.ts` assertion: every board entry references a
+  draft-eligible prospect. All existing tests (board, event,
+  integration, coach-visits, etc.) pass unchanged — the eligibility
+  filter narrows the input universe but doesn't change relative
+  ordering or aggregation math.
+
+**Not in this slice (deferred):**
+
+- Boards split into "current draft" + "future class watch" surfaces.
+  Right now non-eligible prospects' observations accumulate but
+  aren't summarized anywhere. A future polish slice could add a
+  "Next year's class" view per team.
+- College Pool panel — its prospect table already has the
+  eligibility-only filter implicit (it sorts by tier × ceiling on
+  draft-eligible only), but doesn't yet have a position filter
+  parallel to the new Draft Boards one. Quick follow-up if useful.
+
+---
+
 ## [0.42.0] — 2026-05-16
 
 ### Changed — Inspector tab reorg (UX polish)

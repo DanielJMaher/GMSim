@@ -213,6 +213,13 @@ function buildBoardForTeamWithNeed(
   for (const [collegePlayerId, obsList] of byProspect) {
     const prospect = prospectById.get(collegePlayerId);
     if (!prospect) continue;
+    // Boards are the "who could we actually pick" surface — keep them
+    // limited to draft-eligible prospects (JR / SR / RS_SR). Scouts
+    // still file observations on pre-JRs (slice 2 doesn't filter by
+    // eligibility) so the engine accumulates intel on the next several
+    // classes, but those reports don't surface on the current draft
+    // board until the prospect ages into JR.
+    if (!prospect.isDraftEligible) continue;
     const aggregated = aggregateCollegeObservations(obsList, prospect, addedOnTick);
     const schemeFit = schemeFitForCollegeProspect(prospect, hc);
     const projGroup = positionGroupFor(prospect.nflProjectedPosition);

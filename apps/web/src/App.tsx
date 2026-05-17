@@ -61,7 +61,7 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor } from '@gmsim/engine';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -1267,10 +1267,24 @@ const REASON_COLORS: Record<DraftBoardReason, string> = {
   DEVELOPMENTAL: 'text-zinc-300',
 };
 
+type PositionFilter = PositionGroup | 'ALL';
+
+const POSITION_FILTER_OPTIONS: ReadonlyArray<{ value: PositionFilter; label: string }> = [
+  { value: 'ALL', label: 'All' },
+  { value: PositionGroup.QB, label: 'QB' },
+  { value: PositionGroup.SKILL, label: 'Skill (RB/WR/TE)' },
+  { value: PositionGroup.OL, label: 'OL' },
+  { value: PositionGroup.DL, label: 'DL' },
+  { value: PositionGroup.LB, label: 'LB' },
+  { value: PositionGroup.DB, label: 'DB' },
+  { value: PositionGroup.ST, label: 'ST' },
+];
+
 function DraftBoardsPanel({ league }: { league: LeagueState }) {
   const teamsList = useMemo(() => Object.values(league.teams), [league.teams]);
   const [selectedTeamId, setSelectedTeamId] = useState(teamsList[0]?.identity.id ?? null);
   const [topN, setTopN] = useState(20);
+  const [positionFilter, setPositionFilter] = useState<PositionFilter>('ALL');
 
   const board: readonly DraftBoardEntry[] = selectedTeamId ? (league.draftBoards[selectedTeamId] ?? []) : [];
   const prospectById = useMemo(() => {
@@ -1278,13 +1292,33 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
     return m;
   }, [league.collegePool]);
 
+  // Attach the original board rank to each entry BEFORE filtering so
+  // the "#" column shows real overall rank ("this prospect is #4 on
+  // the full board, but the only QB in the top 20"), not a filtered
+  // re-rank that would lie about board position.
+  const rankedEntries = useMemo(() => {
+    return board.map((entry, idx) => ({ entry, rank: idx + 1 }));
+  }, [board]);
+
+  const filteredRanked = useMemo(() => {
+    if (positionFilter === 'ALL') return rankedEntries;
+    return rankedEntries.filter(({ entry }) => {
+      const cp = prospectById.get(entry.collegePlayerId);
+      if (!cp) return false;
+      return positionGroupFor(cp.nflProjectedPosition) === positionFilter;
+    });
+  }, [rankedEntries, positionFilter, prospectById]);
+
+  // Reason counts reflect the filtered set — flips dynamically with the
+  // position filter so badges read "how many BLUE_CHIPs at QB" when
+  // QB is selected.
   const reasonCounts = useMemo(() => {
     const counts: Record<DraftBoardReason, number> = {
       BLUE_CHIP: 0, SCHEME_FIT: 0, POSITIONAL_NEED: 0, CONVERSION_PROJECTION: 0, DEVELOPMENTAL: 0,
     };
-    for (const e of board) counts[e.reason]++;
+    for (const { entry } of filteredRanked) counts[entry.reason]++;
     return counts;
-  }, [board]);
+  }, [filteredRanked]);
 
   const selectedTeam = selectedTeamId ? league.teams[selectedTeamId] : null;
   const selectedHc = selectedTeam ? league.coaches[selectedTeam.headCoachId] : null;
@@ -1306,6 +1340,20 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
               {teamsList.map((t) => (
                 <option key={t.identity.id} value={t.identity.id}>
                   {t.identity.abbreviation} — {t.identity.fullName}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1 text-zinc-400">
+            <span className="uppercase tracking-wide text-[10px]">Pos</span>
+            <select
+              value={positionFilter}
+              onChange={(e) => setPositionFilter(e.target.value as PositionFilter)}
+              className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 font-mono text-xs focus:border-violet-500 focus:outline-none"
+            >
+              {POSITION_FILTER_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
                 </option>
               ))}
             </select>
@@ -1365,12 +1413,12 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
             </tr>
           </thead>
           <tbody>
-            {board.slice(0, topN).map((entry, idx) => {
+            {filteredRanked.slice(0, topN).map(({ entry, rank }) => {
               const cp = prospectById.get(entry.collegePlayerId);
               if (!cp) return null;
               return (
                 <tr key={entry.collegePlayerId} className="border-b border-zinc-900 hover:bg-zinc-900/30">
-                  <td className="px-2 py-1 text-right font-mono text-zinc-500">{idx + 1}</td>
+                  <td className="px-2 py-1 text-right font-mono text-zinc-500">{rank}</td>
                   <td className="px-2 py-1">
                     <div className="font-medium text-zinc-100">{cp.firstName} {cp.lastName}</div>
                     <div className="text-[10px] text-zinc-500">
