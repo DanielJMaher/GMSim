@@ -16,6 +16,72 @@ _Nothing yet._
 
 ---
 
+## [0.42.0] — 2026-05-16
+
+### Changed — Inspector tab reorg (UX polish)
+
+Main inspector view now splits into 4 tabs. Before this slice the
+single-scroll layout had grown to:
+
+- LeagueOverview
+- CollegePool + DraftBoards + DraftResults (slice 5+ Draft surfaces)
+- FreeAgentPool
+- NewsFeed + TransactionLog
+- SeasonResults + SeasonLeaders + Awards (when simulated)
+- 8 DivisionSections
+
+…all rendered together, which made scanning specific areas painful
+and obscured what was relevant in the current moment.
+
+**New tab structure:**
+
+- **League** (default) — `LeagueOverview` + `SeasonResults` /
+  `SeasonLeaders` / `Awards` (when simulated) + the 8 division
+  sections. Day-to-day "where are we" view.
+- **Draft** — `CollegePool` + `DraftBoards` + `DraftResults`. The
+  full draft-cycle surface in one place.
+- **Free Agency** — `FreeAgentPool`. Standalone tab since it's its
+  own focused workflow.
+- **News** — `NewsFeed` + `TransactionLog`. Activity stream.
+
+**Tab nav:**
+
+- Sticky to the top of the viewport — stays visible while scrolling
+  within a tab. Backdrop-blur so content scrolling behind reads
+  cleanly.
+- Per-tab color accent (League emerald / Draft violet / Free Agency
+  sky / News amber) matching the existing per-panel borders.
+- Live count badges where useful: Draft shows college-prospect pool
+  size, Free Agency shows total FAs, News shows transaction-log
+  length. League omits a count (its content is qualitatively varied).
+
+**TeamDetail modal:** unchanged — still opens over any tab when a
+team is clicked. The `selectedTeamId` state moved out of the tab
+switching path so clicking a team in the League tab opens the
+modal over that tab without losing tab state.
+
+**No mechanics change.** Pure UX polish — every panel preserved,
+nothing removed, no behavior changed.
+
+**Public surface:** none. The tab state is internal to the
+inspector.
+
+**Tests:** none added — this is presentational. Engine suite
+unchanged.
+
+**Not in this slice (deferred):**
+
+- File-split refactor of `apps/web/src/App.tsx` (now ~4600 LOC).
+  Each tab + its panels could move into its own file. Worthwhile
+  follow-up but big mechanical churn — saving for a dedicated
+  refactor slice rather than mixing it in here.
+- Tab routing via URL hash — could let "share this seed AND this
+  tab" links work. Premature for a dev inspector.
+- Per-tab default-collapsed state on heavier subpanels (the College
+  Pool table can be 60 rows when expanded). Polish.
+
+---
+
 ## [0.41.0] — 2026-05-16
 
 ### Changed — Recency-weighted observation aggregation (Doc 3 + Doc 4)

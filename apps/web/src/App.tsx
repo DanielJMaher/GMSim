@@ -75,10 +75,43 @@ import { getSchoolById } from '@gmsim/engine';
  */
 const DEFAULT_SEED = 'phase-2-season';
 
+type InspectorTab = 'league' | 'draft' | 'free-agency' | 'news';
+
+interface TabDef {
+  id: InspectorTab;
+  label: string;
+  /** Active-tab classes — full strings so Tailwind JIT picks them up. */
+  activeClasses: string;
+}
+
+const TAB_DEFS: readonly TabDef[] = [
+  {
+    id: 'league',
+    label: 'League',
+    activeClasses: 'border-emerald-400 bg-emerald-500/10 text-emerald-200',
+  },
+  {
+    id: 'draft',
+    label: 'Draft',
+    activeClasses: 'border-violet-400 bg-violet-500/10 text-violet-200',
+  },
+  {
+    id: 'free-agency',
+    label: 'Free Agency',
+    activeClasses: 'border-sky-400 bg-sky-500/10 text-sky-200',
+  },
+  {
+    id: 'news',
+    label: 'News',
+    activeClasses: 'border-amber-400 bg-amber-500/10 text-amber-200',
+  },
+];
+
 export function App() {
   const [seedDraft, setSeedDraft] = useState(DEFAULT_SEED);
   const [league, setLeague] = useState<LeagueState>(() => createLeague({ seed: DEFAULT_SEED }));
   const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
+  const [activeTab, setActiveTab] = useState<InspectorTab>('league');
 
   const seasonSimmed = league.schedule !== null;
   const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
@@ -200,28 +233,62 @@ export function App() {
         </div>
       </header>
 
-      <LeagueOverview league={league} />
+      <TabNav
+        active={activeTab}
+        onChange={setActiveTab}
+        leagueCounts={{
+          collegeProspects: league.collegePool.length,
+          freeAgents: Object.values(league.players).filter((p) => p.teamId === null).length,
+          recentTransactions: league.transactionLog.length,
+        }}
+      />
 
-      <CollegePoolPanel league={league} />
+      {activeTab === 'league' && (
+        <>
+          <LeagueOverview league={league} />
 
-      <DraftBoardsPanel league={league} />
+          {seasonSimmed && records && <SeasonResultsView league={league} records={records} />}
 
-      <DraftResultsPanel league={league} />
+          {seasonSimmed && seasonStats && (
+            <SeasonLeadersView league={league} stats={seasonStats} />
+          )}
 
-      <FreeAgentPoolPanel league={league} />
+          {seasonSimmed && awards && <AwardsView league={league} awards={awards} />}
 
-      <NewsFeedPanel league={league} />
-
-      <TransactionLogPanel league={league} />
-
-      {seasonSimmed && records && <SeasonResultsView league={league} records={records} />}
-
-      {seasonSimmed && seasonStats && (
-        <SeasonLeadersView league={league} stats={seasonStats} />
+          {divisions.map((division) => (
+            <DivisionSection
+              key={division}
+              division={division}
+              league={league}
+              records={records}
+              teams={teams.filter((t) => t.identity.division === division)}
+              selectedTeamId={selectedTeamId}
+              onSelect={setSelectedTeamId}
+            />
+          ))}
+        </>
       )}
 
-      {seasonSimmed && awards && <AwardsView league={league} awards={awards} />}
+      {activeTab === 'draft' && (
+        <>
+          <CollegePoolPanel league={league} />
+          <DraftBoardsPanel league={league} />
+          <DraftResultsPanel league={league} />
+        </>
+      )}
 
+      {activeTab === 'free-agency' && (
+        <FreeAgentPoolPanel league={league} />
+      )}
+
+      {activeTab === 'news' && (
+        <>
+          <NewsFeedPanel league={league} />
+          <TransactionLogPanel league={league} />
+        </>
+      )}
+
+      {/* TeamDetail modal renders over the active tab. */}
       {selectedTeam && (
         <TeamDetail
           team={selectedTeam}
@@ -232,19 +299,66 @@ export function App() {
           onLeagueChange={setLeague}
         />
       )}
-
-      {divisions.map((division) => (
-        <DivisionSection
-          key={division}
-          division={division}
-          league={league}
-          records={records}
-          teams={teams.filter((t) => t.identity.division === division)}
-          selectedTeamId={selectedTeamId}
-          onSelect={setSelectedTeamId}
-        />
-      ))}
     </main>
+  );
+}
+
+function TabNav({
+  active,
+  onChange,
+  leagueCounts,
+}: {
+  active: InspectorTab;
+  onChange: (t: InspectorTab) => void;
+  leagueCounts: {
+    collegeProspects: number;
+    freeAgents: number;
+    recentTransactions: number;
+  };
+}) {
+  const countFor = (tab: InspectorTab): number | null => {
+    switch (tab) {
+      case 'draft':
+        return leagueCounts.collegeProspects;
+      case 'free-agency':
+        return leagueCounts.freeAgents;
+      case 'news':
+        return leagueCounts.recentTransactions;
+      case 'league':
+        return null;
+    }
+  };
+  return (
+    <nav className="sticky top-0 z-20 mb-6 -mx-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-2 backdrop-blur lg:-mx-10 lg:px-10">
+      <div className="flex flex-wrap gap-1">
+        {TAB_DEFS.map((tab) => {
+          const isActive = tab.id === active;
+          const count = countFor(tab.id);
+          return (
+            <button
+              key={tab.id}
+              onClick={() => onChange(tab.id)}
+              className={`group flex items-baseline gap-2 rounded-t border-b-2 px-3 py-1.5 text-sm transition-colors ${
+                isActive
+                  ? tab.activeClasses
+                  : 'border-transparent text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+              }`}
+            >
+              <span className="font-medium">{tab.label}</span>
+              {count !== null && (
+                <span
+                  className={`rounded px-1.5 py-0.5 text-[10px] font-mono ${
+                    isActive ? 'bg-zinc-900/60 text-zinc-300' : 'bg-zinc-900/40 text-zinc-500 group-hover:text-zinc-400'
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
