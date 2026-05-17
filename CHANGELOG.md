@@ -16,6 +16,71 @@ _Nothing yet._
 
 ---
 
+## [0.41.0] — 2026-05-16
+
+### Changed — Recency-weighted observation aggregation (Doc 3 + Doc 4)
+
+Closes a long-open thread from slices 2 + 3: scout reports no longer
+carry equal weight forever. NFL watch lists (Doc 4) and college
+draft boards (Doc 3 slice 3) now weight observations on an
+exponential decay — newer reports dominate, older reports gradually
+fade but stay minimally visible.
+
+Before this slice, watch lists / boards aggregated by confidence
+only. In multi-year leagues a prospect's year-1 reports stayed at
+full weight indefinitely, so post-development newer reads couldn't
+shift their board placement. Now: same prospect's priority moves as
+fresh intelligence arrives.
+
+**Engine — new `engine/src/scouting/recency.ts`:**
+
+- `recencyWeight(ageInTicks): number` — exponential decay, half-
+  life 1 league year (52 ticks), floor 0.125.
+- Curve:
+    - age 0 (fresh): 1.00
+    - 1 year (52 ticks): 0.50
+    - 2 years (104 ticks): 0.25
+    - 3+ years: floor 0.125
+- Negative ages clamp to 0 (defensive — observations from the
+  future shouldn't exist, but if they do they're treated as fresh).
+- Non-finite ages return floor.
+
+**Engine — aggregation sites updated:**
+
+- `engine/src/scouting/watch-list.ts` — `aggregateObservations`
+  now takes `currentTick` and multiplies every (skill × confidence)
+  pair AND every confidence average entry by `recencyWeight(age)`.
+- `engine/src/draft/board.ts` —
+  `aggregateCollegeObservations` gets the same treatment.
+
+**The floor matters:** even ancient reports keep 12.5% weight so a
+prospect who hasn't been re-scouted recently doesn't disappear from
+the board entirely — they're present but easily outvoted by anything
+more recent. Zeroing old reports would drop observation counts to
+zero on under-covered prospects and silently exclude them from the
+board.
+
+**Public surface:** new exports `recencyWeight`,
+`RECENCY_HALF_LIFE_TICKS`, `RECENCY_WEIGHT_FLOOR` (constants
+exposed for tuning).
+
+**Tests:** +8 in `recency.test.ts` — anchor weights at 0/1/2/3
+years, monotonic decay, floor behavior, defensive negative + NaN
+inputs, constants. All existing scouting + draft board tests pass
+unchanged (the aggregation change preserves the relative ordering
+within a single cycle since all observations are same-aged then).
+
+**Not in this slice (deferred):**
+
+- Per-source recency tuning — coach visits could decay slower than
+  scout reports (intangibles change less year-over-year). Would
+  need a per-observation-type curve; not warranted yet.
+- Inspector visibility of report ages in the prospect detail panel
+  — currently the "tick" column is there but the panel doesn't
+  surface "this report is X seasons old → counts 25%" explicitly.
+
+---
+
 ## [0.40.0] — 2026-05-16
 
 ### Added — Draft pick value chart (Doc 5 base)

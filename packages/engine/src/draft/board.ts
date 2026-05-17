@@ -13,6 +13,7 @@ import type { HeadCoach } from '../types/personnel.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { schemeFitForPlayer } from '../scheme/index.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { recencyWeight } from '../scouting/recency.js';
 
 const DRAFT_BOARD_SIZE = 50;
 
@@ -212,7 +213,7 @@ function buildBoardForTeamWithNeed(
   for (const [collegePlayerId, obsList] of byProspect) {
     const prospect = prospectById.get(collegePlayerId);
     if (!prospect) continue;
-    const aggregated = aggregateCollegeObservations(obsList, prospect);
+    const aggregated = aggregateCollegeObservations(obsList, prospect, addedOnTick);
     const schemeFit = schemeFitForCollegeProspect(prospect, hc);
     const projGroup = positionGroupFor(prospect.nflProjectedPosition);
     const need = needScores[projGroup] ?? 1.0;
@@ -251,14 +252,20 @@ interface AggregatedCollegeObservation {
 
 /**
  * Confidence-weighted aggregate of one prospect's observations from
- * one team's scouts. The "observed key skill" is averaged over the
- * skills with archetype weight ≥ 1.2 (skills that actually matter
- * for this archetype). Falls back to a small default set when the
- * archetype is unknown / has no high-weight skills.
+ * one team's scouts, with **recency weighting** (v0.41.0): older
+ * observations carry less weight via exponential decay (half-life
+ * one league year, floor 0.125). The "observed key skill" is
+ * averaged over the skills with archetype weight ≥ 1.2 (skills that
+ * actually matter for this archetype). Falls back to a small default
+ * set when the archetype is unknown / has no high-weight skills.
+ *
+ * `currentTick` is the tick the board is being regenerated at;
+ * per-observation age = `currentTick - obs.observedOnTick`.
  */
 function aggregateCollegeObservations(
   observations: readonly CollegePlayerObservation[],
   prospect: CollegePlayer,
+  currentTick: number,
 ): AggregatedCollegeObservation {
   const archetype = getArchetypeById(prospect.archetype);
   const keys: (keyof PlayerSkills)[] = archetype
@@ -271,26 +278,28 @@ function aggregateCollegeObservations(
   let skillSum = 0;
   let skillWeight = 0;
   let confidenceSum = 0;
-  let confidenceCount = 0;
+  let confidenceWeightCount = 0;
 
   for (const obs of observations) {
+    const recency = recencyWeight(currentTick - obs.observedOnTick);
     for (const key of keys) {
       const value = obs.skills[key];
       const conf = obs.confidence[key];
       if (value === undefined || conf === undefined) continue;
-      skillSum += value * conf;
-      skillWeight += conf;
+      const weight = conf * recency;
+      skillSum += value * weight;
+      skillWeight += weight;
     }
     for (const conf of Object.values(obs.confidence)) {
       if (typeof conf !== 'number') continue;
-      confidenceSum += conf;
-      confidenceCount++;
+      confidenceSum += conf * recency;
+      confidenceWeightCount += recency;
     }
   }
 
   return {
     observedSkillScore: skillWeight > 0 ? skillSum / skillWeight : 0,
-    meanConfidence: confidenceCount > 0 ? confidenceSum / confidenceCount : 0,
+    meanConfidence: confidenceWeightCount > 0 ? confidenceSum / confidenceWeightCount : 0,
   };
 }
 

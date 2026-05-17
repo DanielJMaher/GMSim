@@ -6,6 +6,7 @@ import type { TeamState } from '../types/team.js';
 import type { HeadCoach } from '../types/personnel.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { schemeFitForPlayer } from '../scheme/index.js';
+import { recencyWeight } from './recency.js';
 
 const WATCH_LIST_SIZE = 15;
 
@@ -111,7 +112,7 @@ function buildWatchListForTeam(
     // valid as history, but they're not a watch target anymore — drop
     // them from the list.
     if (player.teamId === teamId) continue;
-    const aggregated = aggregateObservations(obsList, player);
+    const aggregated = aggregateObservations(obsList, player, addedOnTick);
     const schemeFit = schemeFitForPlayer(player, {
       offensiveScheme: hc.offensiveScheme,
       defensiveScheme: hc.defensiveScheme,
@@ -149,15 +150,21 @@ interface AggregatedObservation {
 }
 
 /**
- * Confidence-weighted aggregate of one player's observations. The
- * "observed key skill" is averaged over the skills with archetype
- * weight ≥ 1.2 (the skills that actually matter for this player). If
- * the archetype is unknown or has no high-weight skills, fall back to
- * a small default set.
+ * Confidence-weighted aggregate of one player's observations, with
+ * **recency weighting** (v0.41.0): older observations carry less
+ * weight via an exponential decay (half-life one league year, floor
+ * 0.125). The "observed key skill" is averaged over the skills with
+ * archetype weight ≥ 1.2 (the skills that actually matter for this
+ * player). If the archetype is unknown or has no high-weight skills,
+ * fall back to a small default set.
+ *
+ * `currentTick` is the tick the watch list is being built at; per-
+ * observation age = `currentTick - obs.observedOnTick`.
  */
 function aggregateObservations(
   observations: readonly PlayerObservation[],
   player: Player,
+  currentTick: number,
 ): AggregatedObservation {
   const archetype = getArchetypeById(player.archetype);
   const keys: (keyof PlayerSkills)[] = archetype
@@ -170,25 +177,31 @@ function aggregateObservations(
   let skillSum = 0;
   let skillWeight = 0;
   let confidenceSum = 0;
-  let confidenceCount = 0;
+  let confidenceWeightCount = 0;
 
   for (const obs of observations) {
+    const recency = recencyWeight(currentTick - obs.observedOnTick);
     for (const key of keys) {
       const value = obs.skills[key];
       const conf = obs.confidence[key];
       if (value === undefined || conf === undefined) continue;
-      skillSum += value * conf;
-      skillWeight += conf;
+      const weight = conf * recency;
+      skillSum += value * weight;
+      skillWeight += weight;
     }
     for (const conf of Object.values(obs.confidence)) {
       if (typeof conf !== 'number') continue;
-      confidenceSum += conf;
-      confidenceCount++;
+      // Recency-weighted confidence average: each entry contributes
+      // `recency` to both the numerator (conf*recency) and the
+      // denominator (recency), so the mean is the recency-weighted
+      // arithmetic mean of confidence values.
+      confidenceSum += conf * recency;
+      confidenceWeightCount += recency;
     }
   }
 
   const observedSkillScore = skillWeight > 0 ? skillSum / skillWeight : 0;
-  const meanConfidence = confidenceCount > 0 ? confidenceSum / confidenceCount : 0;
+  const meanConfidence = confidenceWeightCount > 0 ? confidenceSum / confidenceWeightCount : 0;
   return { observedSkillScore, meanConfidence };
 }
 
