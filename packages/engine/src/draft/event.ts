@@ -11,6 +11,7 @@ import {
   applyTradeUpToWorkingAssets,
   type TradeUpRecord,
 } from './trade-up.js';
+import { computeChartModifiers } from './chart-modifiers.js';
 
 export interface RunDraftOptions {
   /** Order in which teams pick. Length sets how many picks fire. */
@@ -116,6 +117,11 @@ export function runDraft(
     // working list).
     if (workingRoundAssets) {
       const overallPickAtSlot = startingOverallPick + i;
+      const onClockTeamId = workingRoundAssets[i]?.currentTeamId;
+      const onClockTeam = onClockTeamId ? league.teams[onClockTeamId] : undefined;
+      const onClockModifiers = onClockTeam
+        ? computeChartModifiers(onClockTeam, league.owners, league.gms, league.coaches)
+        : undefined;
       const proposal = evaluateTradeUpForPick({
         onClockIndex: i,
         overallPick: overallPickAtSlot,
@@ -126,6 +132,7 @@ export function runDraft(
         availableById,
         fullDraftPicks: league.draftPicks,
         tradeUpsFiredSoFar: tradeUps.length,
+        ...(onClockModifiers ? { onClockModifiers } : {}),
       });
       if (proposal) {
         applyTradeUpToWorkingAssets(workingRoundAssets, proposal);

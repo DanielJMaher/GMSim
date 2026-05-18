@@ -16,6 +16,115 @@ _Nothing yet._
 
 ---
 
+## [0.46.0] — 2026-05-18
+
+### Added — Doc 5 dynamic situational modifiers (slice 1)
+
+Each team's effective pick-value chart now shifts based on
+organizational state. v0.45's trade-up firing used a flat Doc 5 base
+chart for every team — this slice adds the per-team multipliers Doc 5
+specifies, so a championship-window team values current picks more
+than a rebuilder and a rebuilder values incoming future picks at a
+premium. The same trade-up offer can be accepted by one team and
+refused by another.
+
+Per North Star: modifiers are **never surfaced to the player** as
+numbers or labels. Daniel discovers each team's chart through
+observed NPC behavior — repeated overpays for current picks, refusal
+to trade down off a future pick.
+
+**Engine — new `engine/src/draft/chart-modifiers.ts`:**
+
+- `ChartModifiers { currentMultiplier, futureMultiplier }` — per-team
+  multipliers that compose multiplicatively over the Doc 5 base
+  chart. `NEUTRAL_MODIFIERS = { 1.0, 1.0 }` reproduces v0.45 behavior
+  exactly.
+- `computeChartModifiers(team, owners, gms, coaches)` — pure
+  function that derives the multipliers from organizational state.
+- `pickValueForTeam(baseValue, modifiers, yearsOut, isQbTarget)` —
+  applies modifiers + the QB premium when the target prospect is a
+  QB. QB premium applies only to the current-year pick that lands
+  the QB, not to future-pick sweeteners.
+- `QB_CURRENT_PICK_PREMIUM = 1.3` — Doc 5: "When a QB is the clear
+  target of a trade-up, the acquiring team's chart value threshold
+  increases by 25-50%." Slice 1 picks 30% (mid-range, flat); per-GM
+  scaling lands when GM-desperation modifiers ship.
+
+**Four modifiers in slice 1:**
+
+1. **TeamPersonality baseline** — `championshipUrgency` and
+   `patienceLevel` (from the L/L-01 50/20/20/10 owner/GM/HC/fans
+   composite) drive a smooth multiplier curve. High urgency inflates
+   current + deflates future; high patience does the opposite. Each
+   point above/below the 5-midpoint nudges multipliers ~3–4%.
+2. **CompetitiveWindow override** — multiplicative overlay:
+   CHAMPIONSHIP (current ×1.10, future ×0.65), CONTENDER (×1.05 /
+   ×0.80), RETOOLING (×0.95 / ×1.10), REBUILDING (×0.85 / ×1.25).
+   EMERGING + STAGNANT stay neutral — Doc 5 doesn't pin a direction.
+3. **Owner RING_CHASER + high legacyMotivation (≥8)** — extra
+   future-pick deflation. Both together: future ×0.70, current
+   ×1.10. Either alone: future ×0.85, current ×1.05. Doc 5: "elderly
+   owner chasing a championship — one of the most exploitable
+   situations in the game." We don't model literal owner age; the
+   quirk + motivation pattern is what Doc 5 actually cares about.
+4. **QB premium** — when the target prospect's `nflProjectedPosition
+   === 'QB'`, the current-year on-clock pick's value inflates 30%
+   from both sides' perspective. Trading-up team values the
+   acquisition more highly; on-clock team resists trading down more
+   strongly. Same picks shift in or out of acceptance based on
+   target position alone.
+
+**Asymmetric perspective (slice 1 cap):**
+
+The on-clock team's modifiers drive both the ratio calculation and
+the sweetener selection in `evaluateTradeUpForPick`. The trading-up
+team's modifiers don't yet shape offer construction or desire — that
+asymmetry is slice 2. The asymmetry that ships in slice 1 is
+**per-on-clock-team**: a rebuilder accepts deals a championship team
+would refuse, even from the same trading-up partner. This produces
+the exploitable inefficiencies Doc 5 calls out.
+
+**Wiring:**
+
+- `evaluateTradeUpForPick` gained optional `onClockModifiers:
+  ChartModifiers` arg (defaults to `NEUTRAL_MODIFIERS` for
+  back-compat). Offer construction now values future picks through
+  the on-clock team's chart — rebuilders inflate them, championship
+  teams discount them.
+- `runDraft` in `event.ts` computes the on-clock team's modifiers
+  per-pick via `computeChartModifiers` and threads them through.
+  Same modifier values can be referenced multiple times per draft
+  (each team's state is stable for the round); recomputed each pick
+  is fine — it's cheap.
+
+**Modifiers explicitly deferred:**
+
+- Hot-seat HC pressure (needs HC tenure tracking)
+- First-year HC without QB (needs hire-date + roster lookup)
+- GM contract status / desperation (not modeled in PGS yet)
+- Aging franchise QB, gaping LT hole, excess draft capital (roster
+  analysis; deeper slice)
+- Surprise-contender mid-season modifier shift (in-season state)
+- Trading-up team's modifiers shaping offer/desire (slice 2)
+- Per-GM QB-premium scaling (slice 2 alongside GM desperation)
+- Inspector visibility — modifiers stay engine-internal per North
+  Star; behavior-only signaling is the design intent
+
+**Public surface:** new exports `computeChartModifiers`,
+`pickValueForTeam`, `NEUTRAL_MODIFIERS`, `QB_CURRENT_PICK_PREMIUM`,
+and type `ChartModifiers`.
+
+**Tests:** 10 new in `chart-modifiers.test.ts` (neutral pass-through,
+QB premium on current only, independent current/future scaling,
+neutral-on-missing-personnel guard, CHAMPIONSHIP/REBUILDING window
+swings, RING_CHASER amplification, patient-rebuilder stack, full
+window spread). 3 new in `trade-up.test.ts` demonstrating the
+asymmetry: CHAMPIONSHIP on-clock rejects what NEUTRAL accepts,
+REBUILDING on-clock accepts at higher ratio, QB-target shifts an
+otherwise-fine offer into rejection.
+
+---
+
 ## [0.45.0] — 2026-05-17
 
 ### Added — Draft trade-up firing (Doc 3 war-room, slice 1)

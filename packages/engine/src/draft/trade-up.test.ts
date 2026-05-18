@@ -312,6 +312,81 @@ describe('evaluateTradeUpForPick', () => {
   });
 });
 
+describe('evaluateTradeUpForPick — Doc 5 dynamic modifiers', () => {
+  function buildSlot1to5Scenario(opts: {
+    onClockModifiers?: import('./chart-modifiers.js').ChartModifiers;
+    targetPosition?: string;
+  }) {
+    const onClockTeam = TEAM_A;
+    const tradingUpTeam = TEAM_B;
+    const futurePicks: DraftPickAsset[] = [
+      asset({
+        id: 'fR1',
+        originalTeam: tradingUpTeam,
+        seasonNumber: SEASON + 1,
+        round: 1,
+      }),
+    ];
+    const workingRoundAssets: DraftPickAsset[] = [];
+    for (let i = 0; i < 5; i++) {
+      const tid = i === 0 ? onClockTeam : i === 4 ? tradingUpTeam : TeamId(`T${i}`);
+      workingRoundAssets.push(asset({ id: `p${i + 1}`, originalTeam: tid, round: 1 }));
+    }
+    const targetCp = (opts.targetPosition
+      ? { nflProjectedPosition: opts.targetPosition }
+      : {}) as CollegePlayer;
+    const availableById = new Map<PlayerId, CollegePlayer>([[PROSPECT_X, targetCp]]);
+    return evaluateTradeUpForPick({
+      onClockIndex: 0,
+      overallPick: 1,
+      round: 1,
+      seasonNumber: SEASON,
+      workingRoundAssets,
+      draftBoards: {
+        [onClockTeam]: [entry({ id: PROSPECT_X, priority: 100 })],
+        [tradingUpTeam]: [entry({ id: PROSPECT_X, priority: 200 })],
+      },
+      availableById,
+      fullDraftPicks: futurePicks,
+      tradeUpsFiredSoFar: 0,
+      ...(opts.onClockModifiers ? { onClockModifiers: opts.onClockModifiers } : {}),
+    });
+  }
+
+  it('CHAMPIONSHIP-windowed on-clock REJECTS what NEUTRAL accepts', () => {
+    // Same slot-1-to-slot-5 swap + R1-next-year sweetener.
+    // NEUTRAL accepts (ratio ~1.04); CHAMPIONSHIP modifiers
+    // (current 1.1, future 0.65) deflate the future-pick sweetener
+    // and tip the ratio below 1.0.
+    const accepted = buildSlot1to5Scenario({});
+    expect(accepted).not.toBeNull();
+
+    const rejected = buildSlot1to5Scenario({
+      onClockModifiers: { currentMultiplier: 1.1, futureMultiplier: 0.65 },
+    });
+    expect(rejected).toBeNull();
+  });
+
+  it('REBUILDING-windowed on-clock accepts what CHAMPIONSHIP rejects', () => {
+    // REBUILDING modifiers (current 0.85, future 1.25) inflate the
+    // future-pick sweetener — same R1-next-year now closes the gap
+    // comfortably from the rebuilder's perspective.
+    const rebuilderAccepted = buildSlot1to5Scenario({
+      onClockModifiers: { currentMultiplier: 0.85, futureMultiplier: 1.25 },
+    });
+    expect(rebuilderAccepted).not.toBeNull();
+    expect(rebuilderAccepted!.ratio).toBeGreaterThan(1.0);
+  });
+
+  it('QB target inflates the gap — same offer that works for WR fails for QB', () => {
+    const wrAccepted = buildSlot1to5Scenario({ targetPosition: 'WR' });
+    expect(wrAccepted).not.toBeNull();
+
+    const qbRejected = buildSlot1to5Scenario({ targetPosition: 'QB' });
+    expect(qbRejected).toBeNull();
+  });
+});
+
 describe('applyTradeUpToWorkingAssets', () => {
   it('flips currentTeamId on both the on-clock and swap assets', () => {
     const onClockAsset = asset({ id: 'p1', originalTeam: TEAM_A, round: 1 });

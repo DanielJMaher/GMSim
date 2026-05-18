@@ -30,6 +30,11 @@ import type {
 } from '../types/college.js';
 import type { TeamId, DraftPickId, PlayerId } from '../types/ids.js';
 import { pickValue as basePickValue } from './pick-value.js';
+import {
+  pickValueForTeam,
+  NEUTRAL_MODIFIERS,
+  type ChartModifiers,
+} from './chart-modifiers.js';
 
 /**
  * Max trade-ups allowed in a single draft. Real NFL R1 trade-up
@@ -140,6 +145,16 @@ export interface EvaluateTradeUpArgs {
   fullDraftPicks: readonly DraftPickAsset[];
   /** How many trade-ups have already fired in this draft. */
   tradeUpsFiredSoFar: number;
+  /**
+   * On-clock team's per-team chart modifiers (Doc 5 dynamic
+   * situational adjustments). Drives both the ratio calculation and
+   * the sweetener selection — a rebuilder values incoming future
+   * picks more, a championship team less. Optional for back-compat
+   * with callers that haven't computed modifiers yet; defaults to
+   * `NEUTRAL_MODIFIERS` (1.0 / 1.0) which reproduces the v0.45
+   * static-chart behavior exactly.
+   */
+  onClockModifiers?: ChartModifiers;
 }
 
 /**
@@ -164,6 +179,13 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
   if (!onClockTopTarget) return null;
 
   const targetPlayerId = onClockTopTarget.entry.collegePlayerId;
+  // Look up the target prospect to check for QB-premium eligibility
+  // (Doc 5). Only the on-clock pick itself gets the QB premium —
+  // not the swap pick (different slot, different prospect) or any
+  // future-pick sweeteners.
+  const targetProspect = args.availableById.get(targetPlayerId);
+  const isQbTarget = targetProspect?.nflProjectedPosition === 'QB';
+  const onClockModifiers = args.onClockModifiers ?? NEUTRAL_MODIFIERS;
 
   // Sweep teams picking AFTER the on-clock slot. Highest priority on
   // the same target wins (most desperate).
@@ -202,6 +224,8 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     seasonNumber: args.seasonNumber,
     tradingUpTeamId: bestCandidate.teamId,
     fullDraftPicks: args.fullDraftPicks,
+    onClockModifiers,
+    isQbTarget,
   });
   if (!offer) return null;
 
@@ -258,13 +282,31 @@ interface BuildOfferArgs {
   seasonNumber: number;
   tradingUpTeamId: TeamId;
   fullDraftPicks: readonly DraftPickAsset[];
+  onClockModifiers: ChartModifiers;
+  isQbTarget: boolean;
 }
 
 function buildOffer(
   args: BuildOfferArgs,
 ): { futurePickIds: DraftPickId[]; ratio: number } | null {
-  const onClockValue = basePickValue(args.onClockOverallPick, 0);
-  const swapValue = basePickValue(args.swapAssetOverallPick, 0);
+  // All values computed on the ON-CLOCK team's chart. A rebuilder
+  // values incoming future picks at a premium (futureMultiplier > 1)
+  // and a tiny sweetener can close the gap; a championship team
+  // values them at a discount and needs more to be persuaded.
+  const onClockValue = pickValueForTeam(
+    basePickValue(args.onClockOverallPick, 0),
+    args.onClockModifiers,
+    0,
+    args.isQbTarget,
+  );
+  // Swap pick is at a later slot — the prospect available there is
+  // a different player, so the QB premium does not transfer.
+  const swapValue = pickValueForTeam(
+    basePickValue(args.swapAssetOverallPick, 0),
+    args.onClockModifiers,
+    0,
+    false,
+  );
   if (onClockValue <= 0) return null;
   const gap = onClockValue - swapValue;
   if (gap <= 0) {
@@ -274,9 +316,10 @@ function buildOffer(
     return null;
   }
 
-  // Trading-up team's owned future picks, sorted ascending by chart
-  // value so the greedy sweep adds the smallest sweetener first
-  // (minimizes over-pay).
+  // Trading-up team's owned future picks, sorted ascending by their
+  // value TO THE ON-CLOCK TEAM. Greedy adds the cheapest sweetener
+  // first so the on-clock team's ratio just clears 1.0 — minimizes
+  // over-pay rather than maximizes it.
   const futurePool = args.fullDraftPicks
     .filter(
       (p) =>
@@ -285,7 +328,7 @@ function buildOffer(
     )
     .map((p) => ({
       pick: p,
-      value: futurePickHeuristicValue(p, args.seasonNumber),
+      value: futurePickHeuristicValue(p, args.seasonNumber, args.onClockModifiers),
     }))
     .filter((x) => x.value > 0)
     .sort((a, b) => a.value - b.value);
@@ -307,17 +350,25 @@ function buildOffer(
 }
 
 /**
- * Chart value of a future pick using the round-midpoint slot
- * heuristic (we don't know what slot a future pick will land in
- * because next-year standings haven't been computed). Picks beyond
- * round 7 fall through to 0; only rounds 1-7 are tradeable.
+ * Chart value of a future pick from the on-clock team's perspective.
+ * Uses the round-midpoint slot heuristic (next-year standings aren't
+ * known, so both sides converge on midpoint) and then applies the
+ * on-clock team's modifiers — rebuilders inflate, championship
+ * teams deflate. Picks beyond round 7 fall through to 0; only
+ * rounds 1-7 are tradeable.
  */
 function futurePickHeuristicValue(
   pick: DraftPickAsset,
   currentDraftSeason: number,
+  onClockModifiers: ChartModifiers,
 ): number {
   const midpoint = ROUND_MIDPOINT_OVERALL_PICK[pick.round];
   if (midpoint === undefined) return 0;
   const yearsOut = pick.seasonNumber - currentDraftSeason;
-  return basePickValue(midpoint, yearsOut);
+  return pickValueForTeam(
+    basePickValue(midpoint, yearsOut),
+    onClockModifiers,
+    yearsOut,
+    false,
+  );
 }
