@@ -1513,6 +1513,35 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
 
   const consensusRank = useMemo(() => consensusRankIndex(consensus), [consensus]);
 
+  // Aggregate reach distribution across the whole draft — small
+  // sparkline that lets Daniel scan the variance at a glance. Hook
+  // call lifted above the early returns so the hook count stays
+  // stable across renders (React Rules of Hooks).
+  const reachDistribution = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    let total = 0;
+    let above = 0;
+    let big = 0;
+    for (const p of picks) {
+      const r = consensusRank.get(p.collegePlayerId);
+      if (r === undefined) continue;
+      const reach = r - p.overallPick;
+      total++;
+      if (reach > 0) above++;
+      if (reach >= 20) big++;
+      const bucket =
+        reach <= -30 ? '≤−30' :
+        reach <= -10 ? '−29..−10' :
+        reach < 0 ? '−9..−1' :
+        reach === 0 ? '0' :
+        reach < 10 ? '+1..+9' :
+        reach < 30 ? '+10..+29' :
+        '≥+30';
+      buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+    }
+    return { buckets, total, above, big };
+  }, [picks, consensusRank]);
+
   if (availableSeasons.length === 0) {
     return (
       <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
@@ -1545,33 +1574,6 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
   // negative = steal at this slot per consensus.
   const reachVsConsensusSlot =
     consRank !== null ? consRank - currentPick.overallPick : null;
-
-  // Aggregate reach distribution across the whole draft — small
-  // sparkline that lets Daniel scan the variance at a glance.
-  const reachDistribution = useMemo(() => {
-    const buckets: Record<string, number> = {};
-    let total = 0;
-    let above = 0;
-    let big = 0;
-    for (const p of picks) {
-      const r = consensusRank.get(p.collegePlayerId);
-      if (r === undefined) continue;
-      const reach = r - p.overallPick;
-      total++;
-      if (reach > 0) above++;
-      if (reach >= 20) big++;
-      const bucket =
-        reach <= -30 ? '≤−30' :
-        reach <= -10 ? '−29..−10' :
-        reach < 0 ? '−9..−1' :
-        reach === 0 ? '0' :
-        reach < 10 ? '+1..+9' :
-        reach < 30 ? '+10..+29' :
-        '≥+30';
-      buckets[bucket] = (buckets[bucket] ?? 0) + 1;
-    }
-    return { buckets, total, above, big };
-  }, [picks, consensusRank]);
 
   // Render the boards as a centered window around the picked player
   // (or top of board if the picked player isn't on this view's board).
