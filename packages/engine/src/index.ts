@@ -265,6 +265,9 @@ export {
   pickOwnershipByTeam,
   DRAFT_PICK_HORIZON_YEARS,
   DRAFT_PICK_ROUNDS,
+  // v0.50 — consensus board diagnostic
+  computeConsensusBoard,
+  consensusRankIndex,
 } from './draft/index.js';
 export type {
   PromoteOptions,
@@ -276,6 +279,7 @@ export type {
   RunCoachVisitsOptions,
   PickReference,
   PickTradeEvaluation,
+  ConsensusBoardEntry,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,

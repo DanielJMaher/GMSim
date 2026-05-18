@@ -83,6 +83,13 @@ export { advanceCollegeScoutingCycle } from './college-cycle.js';
 // Slice 3: per-team draft boards
 export { regenerateDraftBoards, regenerateDraftBoardsForLeague } from './board.js';
 
+// Diagnostic helper (v0.50): consensus-board derivation
+export {
+  computeConsensusBoard,
+  consensusRankIndex,
+  type ConsensusBoardEntry,
+} from './consensus.js';
+
 // Slice 4: combine + pro days
 export { runCombine, rollCombineResults } from './combine.js';
 export { runProDays } from './pro-days.js';

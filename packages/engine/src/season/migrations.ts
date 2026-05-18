@@ -211,5 +211,13 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, draftPicks: picks };
   }
 
+  // v0.50.0 per-season draft-board snapshots. No reconstruction —
+  // start empty. Future drafts will populate. Pre-v0.50 saves
+  // simply won't have replayable history for the drafts that
+  // already fired, but new drafts will populate going forward.
+  if (!next.draftBoardSnapshots) {
+    next = { ...next, draftBoardSnapshots: {} };
+  }
+
   return next;
 }

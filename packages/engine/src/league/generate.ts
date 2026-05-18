@@ -242,6 +242,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
       NFL_TEAMS.map((t) => t.id),
       2,
     ),
+    draftBoardSnapshots: {},
   };
 
   // Initial boards first (we need them so pro-day attendance can

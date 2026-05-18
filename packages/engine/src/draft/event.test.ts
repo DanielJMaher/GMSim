@@ -198,6 +198,27 @@ describe('draft integration in advanceSeason', () => {
     expect(lastPick.round).toBeLessThanOrEqual(7);
   });
 
+  it('advanceSeason snapshots the draft boards used (v0.50)', () => {
+    const league = createLeague({ seed: 'adv-snapshot' });
+    const played = simulateSeason(league);
+    const after = advanceSeason(played);
+    // Pre-advance: no snapshots. After: one entry keyed by the
+    // season that just drafted (= league.seasonNumber post-advance).
+    expect(league.draftBoardSnapshots).toEqual({});
+    expect(Object.keys(after.draftBoardSnapshots)).toEqual([
+      String(after.seasonNumber),
+    ]);
+    // The snapshot should match the boards that were ACTIVE before
+    // the draft (i.e., the pre-draft state), not the regenerated
+    // post-draft boards. Every team in the league should have a
+    // snapshot entry.
+    const snapshot = after.draftBoardSnapshots[after.seasonNumber];
+    expect(snapshot).toBeDefined();
+    for (const teamId of Object.keys(after.teams)) {
+      expect(snapshot![teamId as keyof typeof snapshot]).toBeDefined();
+    }
+  });
+
   it('multi-year drafts accumulate in draftHistory', () => {
     let league = createLeague({ seed: 'adv-multi' });
     league = simulateSeason(league);

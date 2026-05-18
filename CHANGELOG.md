@@ -16,6 +16,86 @@ _Nothing yet._
 
 ---
 
+## [0.50.0] — 2026-05-18
+
+### Added — Draft replay inspector + consensus board diagnostic
+
+Step-through view of a completed draft, with the picking team's
+board, a derived consensus board, the picked player's ground-truth
+stats, and the headline diagnostic: per-pick reach delta between
+team rank and consensus rank. Built to answer Daniel's hypothesis
+that team boards have been reaching too far from consensus.
+
+Per Doc 3: "No global consensus anything" — the consensus board is
+diagnostic-only. The engine itself never reads it; no team behavior
+depends on it.
+
+**Engine — new state:**
+
+- `LeagueState.draftBoardSnapshots: Record<seasonNumber,
+  Record<TeamId, DraftBoardEntry[]>>` — per-season snapshot of
+  every team's board at the moment the draft fired. `advanceSeason`
+  captures the snapshot BEFORE the draft runs (boards regenerate
+  post-draft, so without this they'd be lost). Sparse — only
+  populated for seasons that actually drafted.
+- Migration: pre-v0.50 saves get `draftBoardSnapshots: {}`. Past
+  drafts aren't replayable (boards already regenerated); new drafts
+  populate going forward.
+
+**Engine — `engine/src/draft/consensus.ts`:**
+
+- `computeConsensusBoard(perTeamBoards)` — aggregates the 32
+  per-team boards into a sorted consensus view. Per prospect:
+  `averagePriority`, `appearances` (how many of 32 carry them),
+  `averageRank`. Pure function — recompute per-render is cheap.
+- `consensusRankIndex(consensus)` — convenience for "what's the
+  consensus rank of player X" lookups.
+
+**Inspector — new `DraftReplayPanel` on the Draft tab:**
+
+- Season selector (only seasons with snapshots).
+- Pick navigator: ⏮ ◀ Prev / numeric input / Next ▶ ⏭ / slider.
+- Pick headline: team, player, team-board rank, consensus rank,
+  and the big diagnostic — **Reach +N** or **Steal -N** badge.
+- 3-column body:
+  - Player card (ground-truth skills with current → ceiling,
+    position, school, archetype + assumed-archetype misread flag,
+    tier badge)
+  - Picking team's board (windowed around the picked player)
+  - Consensus board (windowed; shows appearances + avg priority)
+- Draft-wide reach histogram at the bottom — shape of variance
+  across the whole draft (≤−30, −29..−10, ..., 0, ..., ≥+30
+  buckets) plus headline counts (N picks reached past consensus,
+  N big reaches ≥20).
+
+**Diagnostic semantics:**
+
+- `reach = consensusRank - overallPick`. Positive = picked earlier
+  than consensus would suggest (team reached). Negative = picked
+  later than consensus (steal at this slot per consensus).
+- Big reach threshold is ≥20 (cosmetic — flagged in amber on the
+  badge + the histogram).
+
+**Public surface:** new exports `computeConsensusBoard`,
+`consensusRankIndex`, type `ConsensusBoardEntry`.
+
+**Tests:** 6 new in `consensus.test.ts` (aggregation, absence-is-
+not-zero, sort by avgPriority, rank averaging, empty input,
+consensusRankIndex). 1 new in `event.test.ts` (advanceSeason
+populates the snapshot correctly).
+
+**Not in this slice:**
+
+- Auto-play animation through the draft (manual stepping only).
+- Trade-up surfacing in the replay (v0.45 trade-ups have a record
+  but the replay doesn't yet visualize them between picks).
+- Click-to-jump on board entries (would let you navigate "which
+  pick was player X?" from the consensus view).
+- Per-pick saved trade-up context (who tried to trade up for this
+  player but failed gates).
+
+---
+
 ## [0.49.0] — 2026-05-18
 
 ### Added — Doc 5 dynamic modifiers (slice 2)

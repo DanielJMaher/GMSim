@@ -308,6 +308,20 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
   const DRAFT_ROUNDS = 7;
   const PICKS_PER_ROUND = draftSlotOrder.length; // 32 for a healthy league
   const allDraftedRookieIds = new Set<PlayerId>();
+
+  // Snapshot the boards-in-use BEFORE the draft fires (v0.50+).
+  // The boards stored on `league.draftBoards` reflect this season's
+  // pre-draft state; after the draft + offseason refresh later in
+  // this same advance call they'll be regenerated against the
+  // next year's pool. The inspector's draft-replay view needs the
+  // pre-draft snapshot to render per-pick board context.
+  offseason = {
+    ...offseason,
+    draftBoardSnapshots: {
+      ...offseason.draftBoardSnapshots,
+      [nextSeasonNumber]: offseason.draftBoards,
+    },
+  };
   for (let round = 1; round <= DRAFT_ROUNDS; round++) {
     const startingOverallPick = (round - 1) * PICKS_PER_ROUND + 1;
     // Look up this round's pick assets from the asset pool, ordered

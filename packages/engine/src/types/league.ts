@@ -184,6 +184,18 @@ export interface LeagueState {
    * bad team's slot.
    */
   draftPicks: readonly DraftPickAsset[];
+
+  /**
+   * Snapshot of every team's `draftBoards` at the moment each draft
+   * fired, keyed by the draft's `seasonNumber`. v0.50.0+. Populated
+   * by `advanceSeason` before the draft event; supports the
+   * inspector's draft-replay view (boards regenerate post-draft, so
+   * the live ones can't be replayed otherwise).
+   *
+   * Sparse — only contains seasons that actually drafted. Empty
+   * `{}` for fresh leagues and migrated pre-v0.50 saves.
+   */
+  draftBoardSnapshots: Readonly<Record<number, Readonly<Record<TeamId, readonly DraftBoardEntry[]>>>>;
 }
 
 export type LeaguePhase =

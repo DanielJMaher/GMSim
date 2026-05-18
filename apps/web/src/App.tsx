@@ -61,7 +61,7 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex } from '@gmsim/engine';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -273,6 +273,7 @@ export function App() {
         <>
           <CollegePoolPanel league={league} />
           <DraftBoardsPanel league={league} />
+          <DraftReplayPanel league={league} />
           <DraftResultsPanel league={league} />
         </>
       )}
@@ -1457,6 +1458,545 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
         teams. CONVERSION projections are unique to the teams whose schemes value the conversion.
       </p>
     </section>
+  );
+}
+
+// ─── DRAFT REPLAY PANEL (v0.50) ───────────────────────────────────────────
+//
+// Step-through view of a completed draft. Surfaces the picking team's
+// internal board, the consensus board (derived from all 32 boards),
+// the picked player's ground-truth stats, and — the primary diagnostic
+// — the reach delta between the team's evaluation and the league
+// consensus at each pick. Daniel's "are boards reaching too far down
+// consensus?" hypothesis is exactly what this panel exists to make
+// answerable.
+
+function DraftReplayPanel({ league }: { league: LeagueState }) {
+  // Available seasons = those with both a snapshot AND picks in history.
+  // Pre-v0.50 saves can have draft history without snapshots; new
+  // drafts will populate snapshots going forward.
+  const availableSeasons = useMemo(() => {
+    const seasonsInHistory = new Set<number>();
+    for (const p of league.draftHistory) seasonsInHistory.add(p.seasonNumber);
+    const out: number[] = [];
+    for (const s of Object.keys(league.draftBoardSnapshots)) {
+      const n = Number(s);
+      if (seasonsInHistory.has(n)) out.push(n);
+    }
+    return out.sort((a, b) => b - a); // newest first
+  }, [league.draftHistory, league.draftBoardSnapshots]);
+
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const effectiveSeason = selectedSeason ?? availableSeasons[0] ?? null;
+
+  const picks = useMemo(() => {
+    if (effectiveSeason === null) return [];
+    return league.draftHistory
+      .filter((p) => p.seasonNumber === effectiveSeason)
+      .sort((a, b) => a.overallPick - b.overallPick);
+  }, [league.draftHistory, effectiveSeason]);
+
+  const [pickIndex, setPickIndex] = useState(0);
+  const safePickIndex = Math.max(0, Math.min(pickIndex, picks.length - 1));
+  const currentPick: DraftPickRecord | null =
+    picks.length > 0 ? picks[safePickIndex] ?? null : null;
+
+  const snapshot = useMemo(() => {
+    if (effectiveSeason === null) return null;
+    return league.draftBoardSnapshots[effectiveSeason] ?? null;
+  }, [effectiveSeason, league.draftBoardSnapshots]);
+
+  const consensus = useMemo(() => {
+    if (!snapshot) return [];
+    return computeConsensusBoard(snapshot);
+  }, [snapshot]);
+
+  const consensusRank = useMemo(() => consensusRankIndex(consensus), [consensus]);
+
+  if (availableSeasons.length === 0) {
+    return (
+      <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-zinc-300">
+          Draft replay
+        </h2>
+        <p className="text-xs text-zinc-500">
+          No replayable drafts yet. Drafts that fire after v0.50 capture board
+          snapshots; simulate + advance the league to populate one.
+        </p>
+      </section>
+    );
+  }
+
+  if (!currentPick || !snapshot) {
+    return null;
+  }
+
+  const team = league.teams[currentPick.teamId];
+  const prospect = league.collegePool.find((cp) => cp.id === currentPick.collegePlayerId);
+  // Promotion preserves PlayerId, so the rookie record is reachable
+  // through players[promotedPlayerId] even after the prospect's left
+  // the college pool.
+  const rookie = league.players[currentPick.promotedPlayerId];
+  const teamBoard = snapshot[currentPick.teamId] ?? [];
+  const teamRank = currentPick.boardRankAtPick;
+  const consRank = consensusRank.get(currentPick.collegePlayerId) ?? null;
+  // reachVsConsensusSlot = how many spots EARLIER than consensus the
+  // pick was made. Positive = team reached past the consensus value;
+  // negative = steal at this slot per consensus.
+  const reachVsConsensusSlot =
+    consRank !== null ? consRank - currentPick.overallPick : null;
+
+  // Aggregate reach distribution across the whole draft — small
+  // sparkline that lets Daniel scan the variance at a glance.
+  const reachDistribution = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    let total = 0;
+    let above = 0;
+    let big = 0;
+    for (const p of picks) {
+      const r = consensusRank.get(p.collegePlayerId);
+      if (r === undefined) continue;
+      const reach = r - p.overallPick;
+      total++;
+      if (reach > 0) above++;
+      if (reach >= 20) big++;
+      const bucket =
+        reach <= -30 ? '≤−30' :
+        reach <= -10 ? '−29..−10' :
+        reach < 0 ? '−9..−1' :
+        reach === 0 ? '0' :
+        reach < 10 ? '+1..+9' :
+        reach < 30 ? '+10..+29' :
+        '≥+30';
+      buckets[bucket] = (buckets[bucket] ?? 0) + 1;
+    }
+    return { buckets, total, above, big };
+  }, [picks, consensusRank]);
+
+  // Render the boards as a centered window around the picked player
+  // (or top of board if the picked player isn't on this view's board).
+  const WINDOW = 6;
+  const teamBoardWindow = bandAround(
+    teamBoard.map((entry, idx) => ({ entry, rank: idx + 1 })),
+    teamRank ?? 1,
+    WINDOW,
+  );
+  const consensusWindow = bandAround(
+    consensus.map((entry, idx) => ({ entry, rank: idx + 1 })),
+    consRank ?? 1,
+    WINDOW,
+  );
+
+  return (
+    <section className="mb-8 rounded border border-sky-500/40 bg-sky-500/10 p-4">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-sky-200">
+          Draft replay — Season {effectiveSeason} (step-through)
+        </h2>
+        <div className="flex items-center gap-1 text-xs">
+          <span className="text-zinc-500 uppercase tracking-wide text-[10px]">season</span>
+          {availableSeasons.map((s) => (
+            <button
+              key={s}
+              onClick={() => {
+                setSelectedSeason(s);
+                setPickIndex(0);
+              }}
+              className={`rounded border px-2 py-0.5 font-mono ${
+                s === effectiveSeason
+                  ? 'border-sky-400 bg-sky-500/30 text-sky-100'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-sky-500/40 hover:text-sky-300'
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Pick navigator */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-zinc-800 bg-zinc-950/50 p-2">
+        <button
+          onClick={() => setPickIndex(0)}
+          disabled={safePickIndex === 0}
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs font-mono text-zinc-300 hover:border-sky-500/40 disabled:opacity-30"
+        >
+          ⏮
+        </button>
+        <button
+          onClick={() => setPickIndex(Math.max(0, safePickIndex - 1))}
+          disabled={safePickIndex === 0}
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs font-mono text-zinc-300 hover:border-sky-500/40 disabled:opacity-30"
+        >
+          ◀ Prev
+        </button>
+        <input
+          type="number"
+          min={1}
+          max={picks.length}
+          value={safePickIndex + 1}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (Number.isFinite(n)) setPickIndex(Math.max(0, Math.min(picks.length - 1, n - 1)));
+          }}
+          className="w-16 rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs font-mono text-sky-200 focus:border-sky-500 focus:outline-none"
+        />
+        <span className="text-xs text-zinc-500">/ {picks.length}</span>
+        <button
+          onClick={() => setPickIndex(Math.min(picks.length - 1, safePickIndex + 1))}
+          disabled={safePickIndex >= picks.length - 1}
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs font-mono text-zinc-300 hover:border-sky-500/40 disabled:opacity-30"
+        >
+          Next ▶
+        </button>
+        <button
+          onClick={() => setPickIndex(picks.length - 1)}
+          disabled={safePickIndex >= picks.length - 1}
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs font-mono text-zinc-300 hover:border-sky-500/40 disabled:opacity-30"
+        >
+          ⏭
+        </button>
+        <input
+          type="range"
+          min={1}
+          max={picks.length}
+          value={safePickIndex + 1}
+          onChange={(e) => setPickIndex(Number(e.target.value) - 1)}
+          className="flex-1 accent-sky-500"
+        />
+      </div>
+
+      {/* Pick headline */}
+      <div className="mb-3 rounded border border-sky-500/40 bg-sky-950/40 p-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="font-mono text-lg text-sky-100">
+            #{currentPick.overallPick} · R{currentPick.round} ·{' '}
+            <span className="text-amber-200">{team?.identity.abbreviation ?? currentPick.teamId}</span>{' '}
+            picks{' '}
+            <span className="text-zinc-100">{rookie ? `${rookie.firstName} ${rookie.lastName}` : currentPick.promotedPlayerId}</span>
+          </div>
+          <ReachBadge reach={reachVsConsensusSlot} />
+        </div>
+        <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-400">
+          <span>
+            Team rank{' '}
+            <span className="font-mono text-zinc-200">
+              {teamRank === null ? 'off board' : `#${teamRank}`}
+            </span>
+          </span>
+          <span>
+            Consensus rank{' '}
+            <span className="font-mono text-zinc-200">
+              {consRank === null ? 'off everyone\'s board' : `#${consRank}`}
+            </span>
+          </span>
+          {currentPick.boardReasonAtPick && (
+            <span>
+              Reason{' '}
+              <span className="rounded bg-violet-500/20 px-1 font-mono text-[10px] uppercase text-violet-200">
+                {currentPick.boardReasonAtPick}
+              </span>
+            </span>
+          )}
+          {currentPick.originalTeamId && currentPick.originalTeamId !== currentPick.teamId && (
+            <span className="text-amber-300">
+              From{' '}
+              <span className="font-mono">
+                {league.teams[currentPick.originalTeamId]?.identity.abbreviation
+                  ?? currentPick.originalTeamId}
+              </span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 3-column body: player card | team board | consensus board */}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <DraftReplayPlayerCard prospect={prospect ?? null} rookie={rookie ?? null} />
+        <DraftReplayBoardColumn
+          title={`${team?.identity.abbreviation ?? 'Team'} board`}
+          accent="violet"
+          window={teamBoardWindow}
+          highlightId={currentPick.collegePlayerId}
+          prospectById={league.collegePool}
+          extractRankInfo={(entry) => ({
+            label: entry.reason,
+            value: `pri ${entry.priority.toFixed(0)}`,
+          })}
+        />
+        <DraftReplayBoardColumn
+          title="Consensus"
+          accent="emerald"
+          window={consensusWindow}
+          highlightId={currentPick.collegePlayerId}
+          prospectById={league.collegePool}
+          extractRankInfo={(entry) => ({
+            label: `${entry.appearances}/32`,
+            value: `avg ${entry.averagePriority.toFixed(0)}`,
+          })}
+        />
+      </div>
+
+      {/* Draft-wide reach distribution */}
+      <div className="mt-3 rounded border border-zinc-800 bg-zinc-950/40 p-2">
+        <div className="mb-1 flex items-baseline justify-between text-[10px] text-zinc-500">
+          <span className="uppercase tracking-wider">Reach distribution (this draft)</span>
+          <span>
+            <span className="font-mono text-zinc-300">{reachDistribution.above}</span>/{reachDistribution.total} picks reached
+            past consensus · <span className="font-mono text-amber-300">{reachDistribution.big}</span> big reaches (≥20)
+          </span>
+        </div>
+        <ReachHistogram buckets={reachDistribution.buckets} />
+      </div>
+    </section>
+  );
+}
+
+function bandAround<T>(
+  entries: readonly T[],
+  centerRank: number,
+  window: number,
+): readonly T[] {
+  if (entries.length === 0) return [];
+  const center = Math.max(1, Math.min(entries.length, centerRank));
+  const start = Math.max(0, center - 1 - window);
+  const end = Math.min(entries.length, center - 1 + window + 1);
+  return entries.slice(start, end);
+}
+
+function ReachBadge({ reach }: { reach: number | null }) {
+  if (reach === null) {
+    return (
+      <span className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-400">
+        Off consensus
+      </span>
+    );
+  }
+  // Positive reach = picked EARLIER than consensus rank (team reached
+  // ahead of where consensus would have valued them).
+  if (reach > 0) {
+    const big = reach >= 20;
+    return (
+      <span
+        className={`rounded border px-2 py-0.5 font-mono text-xs ${
+          big
+            ? 'border-amber-500 bg-amber-500/20 text-amber-200'
+            : 'border-amber-700 bg-amber-700/20 text-amber-300'
+        }`}
+      >
+        Reach +{reach}
+      </span>
+    );
+  }
+  if (reach < 0) {
+    const big = reach <= -20;
+    return (
+      <span
+        className={`rounded border px-2 py-0.5 font-mono text-xs ${
+          big
+            ? 'border-emerald-500 bg-emerald-500/20 text-emerald-200'
+            : 'border-emerald-700 bg-emerald-700/20 text-emerald-300'
+        }`}
+      >
+        Steal {reach}
+      </span>
+    );
+  }
+  return (
+    <span className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 font-mono text-xs text-zinc-300">
+      On consensus
+    </span>
+  );
+}
+
+function DraftReplayPlayerCard({
+  prospect,
+  rookie,
+}: {
+  prospect: CollegePlayer | null;
+  rookie: Player | null;
+}) {
+  const school = prospect ? getSchoolById(prospect.schoolId) : null;
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/50 p-3 text-xs">
+      <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">Player</div>
+      {rookie && (
+        <div className="mb-1 font-mono text-sm text-zinc-100">
+          {rookie.firstName} {rookie.lastName}
+        </div>
+      )}
+      <div className="space-y-1 text-[11px] text-zinc-400">
+        {prospect && (
+          <>
+            <div>
+              <span className="text-zinc-500">Position</span>{' '}
+              <span className="font-mono text-zinc-200">{prospect.nflProjectedPosition}</span>
+              {prospect.isConversionCandidate && (
+                <span className="ml-1 rounded bg-cyan-500/20 px-1 text-[9px] uppercase text-cyan-200">
+                  conv from {prospect.collegePosition}
+                </span>
+              )}
+            </div>
+            <div>
+              <span className="text-zinc-500">School</span>{' '}
+              <span className="text-zinc-300">{school?.name ?? prospect.schoolId}</span>
+              <span className="text-zinc-600"> · {prospect.classYear}</span>
+            </div>
+            <div>
+              <span className="text-zinc-500">Tier</span>{' '}
+              <TierBadge tier={prospect.tier} />
+              <span className="ml-2 text-zinc-500">Arch</span>{' '}
+              <span className="font-mono text-zinc-300">{prospect.archetype}</span>
+            </div>
+            {prospect.assumedArchetype !== prospect.archetype && (
+              <div className="text-amber-400">
+                Assumed archetype: {prospect.assumedArchetype}{' '}
+                <span className="text-amber-600">(misread)</span>
+              </div>
+            )}
+          </>
+        )}
+        {rookie && (
+          <div className="mt-2 border-t border-zinc-800 pt-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+              Ground-truth skills (dev view)
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px]">
+              <SkillRow label="speed" v={rookie.current.speed} ceiling={rookie.ceiling.speed} />
+              <SkillRow label="accel" v={rookie.current.acceleration} ceiling={rookie.ceiling.acceleration} />
+              <SkillRow label="strength" v={rookie.current.strength} ceiling={rookie.ceiling.strength} />
+              <SkillRow label="tech" v={rookie.current.technicalSkill} ceiling={rookie.ceiling.technicalSkill} />
+              <SkillRow label="iq" v={rookie.current.footballIq} ceiling={rookie.ceiling.footballIq} />
+              <SkillRow label="decision" v={rookie.current.decisionMaking} ceiling={rookie.ceiling.decisionMaking} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SkillRow({
+  label,
+  v,
+  ceiling,
+}: {
+  label: string;
+  v: number;
+  ceiling: number;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-1">
+      <span className="text-zinc-500">{label}</span>
+      <span className="text-zinc-200">
+        {v}
+        {ceiling > v && <span className="text-zinc-600"> → {ceiling}</span>}
+      </span>
+    </div>
+  );
+}
+
+function TierBadge({ tier }: { tier: 'STAR' | 'STARTER' | 'BACKUP' | 'FRINGE' }) {
+  const cls =
+    tier === 'STAR' ? 'bg-amber-500/20 text-amber-200 border-amber-500/40' :
+    tier === 'STARTER' ? 'bg-sky-500/20 text-sky-200 border-sky-500/40' :
+    tier === 'BACKUP' ? 'bg-zinc-700/40 text-zinc-300 border-zinc-700' :
+    'bg-zinc-900 text-zinc-500 border-zinc-800';
+  return (
+    <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase ${cls}`}>
+      {tier}
+    </span>
+  );
+}
+
+function DraftReplayBoardColumn<T extends { collegePlayerId: PlayerId }>({
+  title,
+  accent,
+  window,
+  highlightId,
+  prospectById,
+  extractRankInfo,
+}: {
+  title: string;
+  accent: 'violet' | 'emerald';
+  window: readonly { entry: T; rank: number }[];
+  highlightId: PlayerId;
+  prospectById: readonly CollegePlayer[];
+  extractRankInfo: (entry: T) => { label: string; value: string };
+}) {
+  const cpById = useMemo(() => new Map(prospectById.map((cp) => [cp.id, cp] as const)), [prospectById]);
+  const titleClass =
+    accent === 'violet' ? 'text-violet-200 border-violet-500/40' : 'text-emerald-200 border-emerald-500/40';
+  return (
+    <div className={`rounded border bg-zinc-950/50 p-3 text-xs ${titleClass}`}>
+      <div className="mb-2 text-[10px] uppercase tracking-wider">{title}</div>
+      <div className="space-y-0.5">
+        {window.length === 0 && (
+          <div className="text-[11px] text-zinc-600">No board data.</div>
+        )}
+        {window.map(({ entry, rank }) => {
+          const isPicked = entry.collegePlayerId === highlightId;
+          const cp = cpById.get(entry.collegePlayerId);
+          const info = extractRankInfo(entry);
+          return (
+            <div
+              key={String(entry.collegePlayerId) + rank}
+              className={`flex items-baseline justify-between gap-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                isPicked
+                  ? 'bg-amber-500/30 text-amber-100 ring-1 ring-amber-500'
+                  : 'text-zinc-400'
+              }`}
+            >
+              <span className="flex items-baseline gap-1">
+                <span className="w-6 text-right text-zinc-500">#{rank}</span>
+                <span className="truncate text-zinc-300">
+                  {cp ? `${cp.firstName} ${cp.lastName}` : String(entry.collegePlayerId)}
+                </span>
+                {cp && (
+                  <span className="text-[9px] text-zinc-600">
+                    {cp.nflProjectedPosition}
+                  </span>
+                )}
+              </span>
+              <span className="text-[9px] text-zinc-500">
+                {info.label}
+                <span className="ml-1 text-zinc-400">{info.value}</span>
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ReachHistogram({ buckets }: { buckets: Record<string, number> }) {
+  const ORDER = ['≤−30', '−29..−10', '−9..−1', '0', '+1..+9', '+10..+29', '≥+30'];
+  const maxVal = Math.max(1, ...Object.values(buckets));
+  return (
+    <div className="flex items-end gap-1">
+      {ORDER.map((label) => {
+        const count = buckets[label] ?? 0;
+        const height = (count / maxVal) * 28; // px
+        const isSteal = label.startsWith('−') || label === '≤−30';
+        const isReach = label.startsWith('+') || label === '≥+30';
+        const cls = isSteal
+          ? 'bg-emerald-500/60'
+          : isReach
+            ? 'bg-amber-500/60'
+            : 'bg-zinc-600';
+        return (
+          <div key={label} className="flex flex-1 flex-col items-center text-[9px]">
+            <div className="mb-0.5 font-mono text-zinc-300">{count}</div>
+            <div
+              className={`w-full rounded-t ${cls}`}
+              style={{ height: `${Math.max(1, height)}px` }}
+            />
+            <div className="mt-0.5 text-zinc-500">{label}</div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
