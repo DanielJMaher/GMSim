@@ -47,17 +47,40 @@ describe('computeConsensusBoard', () => {
     expect(y.averagePriority).toBe(100);
   });
 
-  it('sorts descending by averagePriority', () => {
+  it('sorts descending by totalPriority (appearance-weighted)', () => {
+    // 'Pop' is on both boards at moderate priority — high total.
+    // 'Niche' is on one board at extreme priority but low total.
     const boards = {
-      [TEAM_A]: [entry('Hi', 250), entry('Lo', 50)],
-      [TEAM_B]: [entry('Mid', 150), entry('Hi', 240)],
+      [TEAM_A]: [entry('Pop', 150), entry('Niche', 300)],
+      [TEAM_B]: [entry('Pop', 140)],
     };
     const consensus = computeConsensusBoard(boards);
-    expect(consensus.map((e) => e.collegePlayerId)).toEqual([
-      PlayerId('Hi'),
-      PlayerId('Mid'),
-      PlayerId('Lo'),
-    ]);
+    // Pop totals 290 across 2 appearances; Niche totals 300 on 1.
+    // Niche edges Pop on total — but the v0.51 ranking with appearance
+    // tiebreak should still favor Pop when totals are close.
+    // Adjust scenario to make total ordering unambiguous.
+    expect(consensus[0]!.totalPriority).toBe(300); // Niche by raw total
+    // Switch scenario: high-appearance prospect should out-rank niche.
+    const boards2 = {
+      [TEAM_A]: [entry('BlueChip', 150)],
+      [TEAM_B]: [entry('BlueChip', 140), entry('Niche', 200)],
+      [TEAM_C]: [entry('BlueChip', 145)],
+    };
+    const consensus2 = computeConsensusBoard(boards2);
+    // BlueChip total 435 (3 appearances) beats Niche 200 (1 appearance).
+    expect(consensus2[0]!.collegePlayerId).toBe(PlayerId('BlueChip'));
+    expect(consensus2[1]!.collegePlayerId).toBe(PlayerId('Niche'));
+  });
+
+  it('preserves averagePriority as an informational stat (not the ranking signal)', () => {
+    const boards = {
+      [TEAM_A]: [entry('X', 200), entry('Y', 100)],
+    };
+    const consensus = computeConsensusBoard(boards);
+    const x = consensus.find((e) => e.collegePlayerId === PlayerId('X'))!;
+    expect(x.averagePriority).toBe(200);
+    expect(x.totalPriority).toBe(200);
+    expect(x.appearances).toBe(1);
   });
 
   it('averages rank position across appearances', () => {

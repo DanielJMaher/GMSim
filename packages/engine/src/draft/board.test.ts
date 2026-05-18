@@ -36,7 +36,11 @@ describe('regenerateDraftBoardsForLeague (slice 3)', () => {
       expect(entry.schemeFit).toBeGreaterThan(0);
       expect(entry.meanConfidence).toBeGreaterThan(0);
       expect(entry.meanConfidence).toBeLessThanOrEqual(1);
-      expect(entry.observationCount).toBeGreaterThan(0);
+      // observationCount may be 0 when the entry came from the
+      // league-aggregate fallback (v0.51 media-layer proxy) —
+      // prospect made the board through other teams' scouting
+      // rather than this team's firsthand reports.
+      expect(entry.observationCount).toBeGreaterThanOrEqual(0);
       expect(['BLUE_CHIP', 'SCHEME_FIT', 'POSITIONAL_NEED', 'CONVERSION_PROJECTION', 'DEVELOPMENTAL']).toContain(entry.reason);
     }
   });
@@ -136,5 +140,67 @@ describe('regenerateDraftBoardsForLeague (slice 3)', () => {
         expect(cp!.isDraftEligible).toBe(true);
       }
     }
+  });
+});
+
+describe('draft reach distribution (v0.51 damped priority formula)', () => {
+  // After advancing one season, picks should land near their consensus
+  // rank in aggregate: mean(reach) ≈ 0 (every reach implies an
+  // equivalent steal somewhere), and the bulk of reaches should sit
+  // inside ±15 spots. Pre-v0.51 this test caught a strongly right-
+  // skewed distribution where the modal bucket was ≥+30 reaches.
+  it('mean reach is near 0 and big reaches (|reach| ≥ 30) are a minority', async () => {
+    const { computeConsensusBoard, consensusRankIndex } = await import('./consensus.js');
+
+    let league = createLeague({ seed: 'reach-distribution' });
+    league = simulateSeason(league);
+    league = advanceSeason(league);
+
+    // Pull the just-fired draft + its snapshot.
+    const draftSeason = league.seasonNumber;
+    const snapshot = league.draftBoardSnapshots[draftSeason];
+    expect(snapshot).toBeDefined();
+    const picks = league.draftHistory.filter((p) => p.seasonNumber === draftSeason);
+    expect(picks.length).toBeGreaterThan(200);
+
+    const consensus = computeConsensusBoard(snapshot!);
+    const consensusRank = consensusRankIndex(consensus);
+
+    const reaches: number[] = [];
+    for (const p of picks) {
+      const r = consensusRank.get(p.collegePlayerId);
+      if (r === undefined) continue;
+      reaches.push(r - p.overallPick);
+    }
+    const meanReach =
+      reaches.length === 0 ? 0 : reaches.reduce((s, r) => s + r, 0) / reaches.length;
+    const bigReaches = reaches.filter((r) => Math.abs(r) >= 30).length;
+    const bigReachRatio = reaches.length === 0 ? 0 : bigReaches / reaches.length;
+
+    // Diagnostic printout — visible in test output, lets us see the
+    // distribution shape when calibration moves.
+    const buckets = {
+      'steal ≤−30': reaches.filter((r) => r <= -30).length,
+      'steal −29..−10': reaches.filter((r) => r <= -10 && r > -30).length,
+      'steal −9..−1': reaches.filter((r) => r < 0 && r > -10).length,
+      'on consensus 0': reaches.filter((r) => r === 0).length,
+      'reach +1..+9': reaches.filter((r) => r > 0 && r < 10).length,
+      'reach +10..+29': reaches.filter((r) => r >= 10 && r < 30).length,
+      'reach ≥+30': reaches.filter((r) => r >= 30).length,
+    };
+    // eslint-disable-next-line no-console
+    console.log('reach distribution:', { meanReach, bigReachRatio, consensusSize: consensus.length, n: reaches.length, buckets });
+
+    // Need a decent sample of consensus-aligned picks. Late-round
+    // picks routinely fall through to BPA (boards are 50-deep, draft
+    // is 224 picks), so we don't require all 224 to land on
+    // consensus — but we do need ≥40 to compute a meaningful mean.
+    expect(reaches.length).toBeGreaterThan(40);
+    // Mean reach should be close to 0 — symmetric reach/steal in
+    // equilibrium. Pre-v0.51 this was strongly positive (~+50).
+    expect(Math.abs(meanReach)).toBeLessThan(15);
+    // Less than 30% of picks should be |reach| ≥ 30. Pre-v0.51 this
+    // was the modal bucket (>50% of picks).
+    expect(bigReachRatio).toBeLessThan(0.3);
   });
 });

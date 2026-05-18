@@ -18,6 +18,49 @@ import { recencyWeight } from '../scouting/recency.js';
 const DRAFT_BOARD_SIZE = 50;
 
 /**
+ * Priority formula calibration (v0.51).
+ *
+ * v0.46–v0.50 used a raw multiplicative formula:
+ *
+ *   priority = observedSkillScore × schemeFit × meanConfidence × need
+ *
+ * The inspector's draft-replay reach histogram (v0.50) revealed
+ * pathological reach: 129/214 picks landed ≥+30 ahead of consensus
+ * AND 42/214 landed ≤−30 (steals at the late picks). Bimodal — no
+ * picks on consensus. Diagnosis: multiplicative compounding of
+ * schemeFit/confidence/need produced per-team priority swings of
+ * 4×+ for the same observedSkillScore, so each team's #1 became a
+ * "niche darling" rather than a consensus top prospect. Late-round
+ * picks then scooped the true blue-chips that no team had at #1.
+ *
+ * v0.51 makes observedSkillScore the dominant signal and uses
+ * per-team factors as small ADDITIVE adjustments (Doc 3's "variance
+ * IS the system" still holds — boards diverge on second and third
+ * priorities — but the top of each team's board now centers on the
+ * prospects everyone evaluates highly):
+ *
+ *   priority = (observedSkillScore + schemeBonus + needBonus)
+ *              × confidenceFactor
+ *
+ *   schemeBonus      = (schemeFit - 1) × SCHEME_BONUS_SCALE
+ *                      → clamped to ±SCHEME_BONUS_CAP
+ *   needBonus        = (need - 1) × NEED_BONUS_SCALE
+ *                      → clamped to ±NEED_BONUS_CAP
+ *   confidenceFactor = CONFIDENCE_FLOOR
+ *                      + (1 - CONFIDENCE_FLOOR) × meanConfidence
+ *
+ * Real NFL: a true blue-chip QB tops every team's board regardless
+ * of scheme. Scheme fit and need shift mid-board rankings but rarely
+ * unseat the consensus top-of-class. Our v0.51 formula targets that
+ * behavior.
+ */
+const SCHEME_BONUS_SCALE = 8;
+const SCHEME_BONUS_CAP = 6;
+const NEED_BONUS_SCALE = 12;
+const NEED_BONUS_CAP = 4;
+const CONFIDENCE_FLOOR = 0.8;
+
+/**
  * Position-group depth targets used by the draft-board need score.
  * A team well below target at a position group elevates prospects
  * who project there. Slightly thinner than the FA watch-list
@@ -145,6 +188,7 @@ function regenerateDraftBoardsInternal(args: {
   }
 
   const obsByTeam = new Map<TeamId, CollegePlayerObservation[]>();
+  const obsByProspect = new Map<PlayerId, CollegePlayerObservation[]>();
   for (const obs of args.observations) {
     const teamId = scoutToTeam.get(obs.scoutId);
     if (!teamId) continue;
@@ -154,6 +198,34 @@ function regenerateDraftBoardsInternal(args: {
       obsByTeam.set(teamId, bucket);
     }
     bucket.push(obs);
+    let pBucket = obsByProspect.get(obs.collegePlayerId);
+    if (!pBucket) {
+      pBucket = [];
+      obsByProspect.set(obs.collegePlayerId, pBucket);
+    }
+    pBucket.push(obs);
+  }
+
+  // v0.51: league-wide aggregate per prospect — derived from ALL
+  // teams' scout observations pooled together. This is the
+  // "media big board" proxy Doc 3 calls out as the third intel
+  // stream (alongside team scouts + team coaches) until the full
+  // media-outlets module lands. Boards that haven't been scouted
+  // by a particular team's staff still surface the consensus
+  // prospects through this aggregate, with reduced confidence to
+  // reflect "we know about this guy from the wider league signal,
+  // not firsthand."
+  const leagueAggregateByProspect = new Map<
+    PlayerId,
+    { observedSkillScore: number; meanConfidence: number }
+  >();
+  for (const [pid, obsList] of obsByProspect) {
+    const prospect = prospectById.get(pid);
+    if (!prospect) continue;
+    leagueAggregateByProspect.set(
+      pid,
+      aggregateCollegeObservations(obsList, prospect, args.addedOnTick),
+    );
   }
 
   const out: Record<TeamId, DraftBoardEntry[]> = {} as Record<TeamId, DraftBoardEntry[]>;
@@ -172,6 +244,7 @@ function regenerateDraftBoardsInternal(args: {
       hc,
       need,
       args.addedOnTick,
+      leagueAggregateByProspect,
     );
   }
   return out;
@@ -192,12 +265,26 @@ function buildBoardForTeam(
   return buildBoardForTeamWithNeed(teamObservations, prospectById, hc, need, addedOnTick);
 }
 
+/**
+ * Confidence discount applied to the league-aggregate fallback when
+ * a team has no firsthand observations of a prospect. Doc 3: media
+ * coverage is real but doesn't carry the same conviction as your
+ * own scouts. 0.4 lets consensus blue chips still surface on every
+ * board but keeps niche-fit prospects (where the picking team
+ * actually scouted them) at higher priority for that team.
+ */
+const LEAGUE_FALLBACK_CONFIDENCE_DISCOUNT = 0.7;
+
 function buildBoardForTeamWithNeed(
   teamObservations: readonly CollegePlayerObservation[],
   prospectById: Map<PlayerId, CollegePlayer>,
   hc: HeadCoach,
   needScores: Readonly<Record<PositionGroup, number>>,
   addedOnTick: number,
+  leagueAggregateByProspect?: ReadonlyMap<
+    PlayerId,
+    { observedSkillScore: number; meanConfidence: number }
+  >,
 ): DraftBoardEntry[] {
   const byProspect = new Map<PlayerId, CollegePlayerObservation[]>();
   for (const obs of teamObservations) {
@@ -209,29 +296,65 @@ function buildBoardForTeamWithNeed(
     bucket.push(obs);
   }
 
+  // Candidate set = (team's own observations) ∪ (every prospect any
+  // team in the league has observations on). Without the union we
+  // skip true blue-chips that other teams' scouts cover well but
+  // ours didn't — exactly the v0.50 reach-bias root cause.
+  const candidateIds = new Set<PlayerId>(byProspect.keys());
+  if (leagueAggregateByProspect) {
+    for (const pid of leagueAggregateByProspect.keys()) candidateIds.add(pid);
+  }
+
   const entries: DraftBoardEntry[] = [];
-  for (const [collegePlayerId, obsList] of byProspect) {
+  for (const collegePlayerId of candidateIds) {
     const prospect = prospectById.get(collegePlayerId);
     if (!prospect) continue;
-    // Boards are the "who could we actually pick" surface — keep them
-    // limited to draft-eligible prospects (JR / SR / RS_SR). Scouts
-    // still file observations on pre-JRs (slice 2 doesn't filter by
-    // eligibility) so the engine accumulates intel on the next several
-    // classes, but those reports don't surface on the current draft
-    // board until the prospect ages into JR.
+    // Boards are the "who could we actually pick" surface — keep
+    // them limited to draft-eligible prospects (JR / SR / RS_SR).
     if (!prospect.isDraftEligible) continue;
-    const aggregated = aggregateCollegeObservations(obsList, prospect, addedOnTick);
+
+    const ownObs = byProspect.get(collegePlayerId);
+    const aggregated = ownObs
+      ? aggregateCollegeObservations(ownObs, prospect, addedOnTick)
+      : null;
+
+    // Pull from own scouts if available; otherwise from the league
+    // aggregate (with reduced confidence to reflect "media" intel
+    // vs firsthand scouting).
+    let observedSkillScore: number;
+    let meanConfidence: number;
+    let observationCount: number;
+    if (aggregated && aggregated.meanConfidence > 0) {
+      observedSkillScore = aggregated.observedSkillScore;
+      meanConfidence = aggregated.meanConfidence;
+      observationCount = ownObs!.length;
+    } else if (leagueAggregateByProspect) {
+      const league = leagueAggregateByProspect.get(collegePlayerId);
+      if (!league || league.meanConfidence === 0) continue;
+      observedSkillScore = league.observedSkillScore;
+      meanConfidence = league.meanConfidence * LEAGUE_FALLBACK_CONFIDENCE_DISCOUNT;
+      observationCount = 0;
+    } else {
+      continue;
+    }
+
     const schemeFit = schemeFitForCollegeProspect(prospect, hc);
     const projGroup = positionGroupFor(prospect.nflProjectedPosition);
     const need = needScores[projGroup] ?? 1.0;
+    const schemeBonus = clampSigned(
+      (schemeFit - 1) * SCHEME_BONUS_SCALE,
+      SCHEME_BONUS_CAP,
+    );
+    const needBonus = clampSigned((need - 1) * NEED_BONUS_SCALE, NEED_BONUS_CAP);
+    const confFactor = CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * meanConfidence;
     const priority = Math.max(
       0,
-      aggregated.observedSkillScore * schemeFit * aggregated.meanConfidence * need,
+      (observedSkillScore + schemeBonus + needBonus) * confFactor,
     );
     const reason = deriveDraftBoardReason(
       prospect,
-      aggregated.observedSkillScore,
-      aggregated.meanConfidence,
+      observedSkillScore,
+      meanConfidence,
       schemeFit,
       need,
     );
@@ -240,10 +363,10 @@ function buildBoardForTeamWithNeed(
       collegePlayerId,
       priority: round1(priority),
       reason,
-      observedSkillScore: round1(aggregated.observedSkillScore),
+      observedSkillScore: round1(observedSkillScore),
       schemeFit: round2(schemeFit),
-      meanConfidence: round2(aggregated.meanConfidence),
-      observationCount: obsList.length,
+      meanConfidence: round2(meanConfidence),
+      observationCount,
       addedOnTick,
     });
   }
@@ -394,6 +517,11 @@ function computeDraftNeedScores(
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
+}
+
+/** Symmetric clamp to ±cap. */
+function clampSigned(v: number, cap: number): number {
+  return Math.max(-cap, Math.min(cap, v));
 }
 
 function round1(v: number): number {

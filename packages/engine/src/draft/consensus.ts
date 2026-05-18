@@ -26,11 +26,21 @@ export interface ConsensusBoardEntry {
   collegePlayerId: PlayerId;
   /**
    * Average priority across the teams that have this prospect on
-   * their board. Teams that don't carry the prospect contribute
-   * nothing — Doc 3 treats absence as "this team's evaluators
-   * didn't see/value the prospect," not as a 0.
+   * their board. Informational — NOT used for ranking. Teams
+   * without the prospect contribute nothing to this average.
    */
   averagePriority: number;
+  /**
+   * Aggregate priority across the entire league, treating
+   * off-board as 0. **This is the ranking signal** (v0.51+) —
+   * `totalPriority = averagePriority × appearances`. A player on
+   * 1/32 boards with priority 200 (total 200) ranks BELOW a
+   * player on 32/32 boards with priority 150 (total 4800). Fixes
+   * the v0.50 inspector bug where niche-darling prospects with
+   * tiny appearance counts dominated the consensus over true
+   * blue-chips.
+   */
+  totalPriority: number;
   /**
    * Number of teams (out of the league-wide 32) that have this
    * prospect anywhere on their top-N board. Convergence signal —
@@ -91,12 +101,21 @@ export function computeConsensusBoard(
     out.push({
       collegePlayerId,
       averagePriority: acc.prioritySum / acc.count,
+      totalPriority: acc.prioritySum,
       appearances: acc.count,
       averageRank: acc.rankSum / acc.count,
     });
   }
 
-  out.sort((a, b) => b.averagePriority - a.averagePriority);
+  // Rank by total priority — equivalent to averagePriority weighted
+  // by appearances. Prospects on many boards rank above prospects
+  // on few boards at equal average priority. Tie-break by
+  // appearances so a 32/32 prospect beats a 16/32 prospect at exact
+  // total parity.
+  out.sort((a, b) => {
+    if (a.totalPriority !== b.totalPriority) return b.totalPriority - a.totalPriority;
+    return b.appearances - a.appearances;
+  });
   return out;
 }
 
