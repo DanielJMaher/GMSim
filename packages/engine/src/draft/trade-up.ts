@@ -33,8 +33,34 @@ import { pickValue as basePickValue } from './pick-value.js';
 import {
   pickValueForTeam,
   NEUTRAL_MODIFIERS,
+  QB_CURRENT_PICK_PREMIUM,
   type ChartModifiers,
 } from './chart-modifiers.js';
+
+/**
+ * One team's per-team chart context — modifiers + per-GM QB premium.
+ * Bundled together because they're both per-team values consumed by
+ * the same pickValueForTeam call. Callers pre-compute these once
+ * per draft and pass them in via `teamContexts`.
+ */
+export interface TeamChartContext {
+  modifiers: ChartModifiers;
+  qbPremium: number;
+}
+
+/**
+ * Trading-up team's acceptance floor — they refuse to construct an
+ * offer where, from their own chart's perspective, they're giving up
+ * more than 1/this in chart value vs what they're receiving. 0.5
+ * means "I'll over-pay up to 2×." Caps absurd over-pays even when an
+ * extreme-rebuilder on-clock team would happily accept.
+ *
+ * Doc 5: "Trade-ups in Round 1, especially top 10, consistently show
+ * teams overpaying by 20-58%." 0.5 (= 100% over-pay max) is loose
+ * enough to allow QB-desperate trade-ups (which Doc 5 anchors at
+ * 30-60% premium) while preventing pathological 5× over-pays.
+ */
+const TRADING_UP_ACCEPTANCE_FLOOR = 0.5;
 
 /**
  * Max trade-ups allowed in a single draft. Real NFL R1 trade-up
@@ -153,8 +179,24 @@ export interface EvaluateTradeUpArgs {
    * with callers that haven't computed modifiers yet; defaults to
    * `NEUTRAL_MODIFIERS` (1.0 / 1.0) which reproduces the v0.45
    * static-chart behavior exactly.
+   *
+   * Superseded by `teamContexts[onClockTeamId]` when both are
+   * provided — the bundled context includes the per-GM QB premium
+   * which loose-arg `onClockModifiers` cannot carry.
    */
   onClockModifiers?: ChartModifiers;
+  /**
+   * Per-team chart context (modifiers + per-GM QB premium) for
+   * every team in the league (v0.49+). When provided, the evaluator
+   * uses it for BOTH the on-clock team AND the trading-up team —
+   * enabling the trading-up acceptance floor (offer-side cap on
+   * over-pay) and the per-team QB-premium asymmetry.
+   *
+   * Optional for back-compat; when omitted the evaluator falls back
+   * to `onClockModifiers` for the on-clock side and skips the
+   * trading-up perspective check entirely (slice-1 v0.46 behavior).
+   */
+  teamContexts?: Readonly<Record<TeamId, TeamChartContext>>;
 }
 
 /**
@@ -185,7 +227,14 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
   // future-pick sweeteners.
   const targetProspect = args.availableById.get(targetPlayerId);
   const isQbTarget = targetProspect?.nflProjectedPosition === 'QB';
-  const onClockModifiers = args.onClockModifiers ?? NEUTRAL_MODIFIERS;
+
+  // On-clock chart context: prefer the bundled v0.49 teamContexts
+  // form (includes per-GM QB premium) over the legacy onClockModifiers
+  // arg (modifiers-only); fall back to NEUTRAL.
+  const onClockContext: TeamChartContext = args.teamContexts?.[onClockTeamId] ?? {
+    modifiers: args.onClockModifiers ?? NEUTRAL_MODIFIERS,
+    qbPremium: QB_CURRENT_PICK_PREMIUM,
+  };
 
   // Sweep teams picking AFTER the on-clock slot. Highest priority on
   // the same target wins (most desperate).
@@ -218,13 +267,20 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
 
   if (!bestCandidate) return null;
 
+  // Trading-up context: only enables the offer-side acceptance
+  // floor when teamContexts is provided (v0.49+ callers). Without
+  // it we fall back to slice-1 v0.46 behavior — no trading-up
+  // perspective check.
+  const tradingUpContext = args.teamContexts?.[bestCandidate.teamId];
+
   const offer = buildOffer({
     onClockOverallPick: args.overallPick,
     swapAssetOverallPick: bestCandidate.swapOverallPick,
     seasonNumber: args.seasonNumber,
     tradingUpTeamId: bestCandidate.teamId,
     fullDraftPicks: args.fullDraftPicks,
-    onClockModifiers,
+    onClockContext,
+    tradingUpContext,
     isQbTarget,
   });
   if (!offer) return null;
@@ -282,28 +338,32 @@ interface BuildOfferArgs {
   seasonNumber: number;
   tradingUpTeamId: TeamId;
   fullDraftPicks: readonly DraftPickAsset[];
-  onClockModifiers: ChartModifiers;
+  onClockContext: TeamChartContext;
+  /** v0.49+ — when provided, the trading-up acceptance floor applies. */
+  tradingUpContext: TeamChartContext | undefined;
   isQbTarget: boolean;
 }
 
 function buildOffer(
   args: BuildOfferArgs,
 ): { futurePickIds: DraftPickId[]; ratio: number } | null {
-  // All values computed on the ON-CLOCK team's chart. A rebuilder
-  // values incoming future picks at a premium (futureMultiplier > 1)
-  // and a tiny sweetener can close the gap; a championship team
-  // values them at a discount and needs more to be persuaded.
+  // All offer-construction values computed on the ON-CLOCK team's
+  // chart. A rebuilder values incoming future picks at a premium
+  // (futureMultiplier > 1) and a tiny sweetener can close the gap;
+  // a championship team values them at a discount and needs more
+  // to be persuaded.
   const onClockValue = pickValueForTeam(
     basePickValue(args.onClockOverallPick, 0),
-    args.onClockModifiers,
+    args.onClockContext.modifiers,
     0,
     args.isQbTarget,
+    args.onClockContext.qbPremium,
   );
   // Swap pick is at a later slot — the prospect available there is
   // a different player, so the QB premium does not transfer.
   const swapValue = pickValueForTeam(
     basePickValue(args.swapAssetOverallPick, 0),
-    args.onClockModifiers,
+    args.onClockContext.modifiers,
     0,
     false,
   );
@@ -328,16 +388,18 @@ function buildOffer(
     )
     .map((p) => ({
       pick: p,
-      value: futurePickHeuristicValue(p, args.seasonNumber, args.onClockModifiers),
+      value: futurePickHeuristicValue(p, args.seasonNumber, args.onClockContext.modifiers),
     }))
     .filter((x) => x.value > 0)
     .sort((a, b) => a.value - b.value);
 
   const chosenIds: DraftPickId[] = [];
+  const chosenPicks: DraftPickAsset[] = [];
   let totalSweetener = 0;
   for (const f of futurePool) {
     if (chosenIds.length >= MAX_FUTURE_PICKS_PER_OFFER) break;
     chosenIds.push(f.pick.id);
+    chosenPicks.push(f.pick);
     totalSweetener += f.value;
     if (totalSweetener >= gap) break;
   }
@@ -346,29 +408,54 @@ function buildOffer(
   const ratio = totalReceived / onClockValue;
   if (ratio < ACCEPTANCE_RATIO_FLOOR) return null;
 
+  // v0.49+ trading-up perspective check — even if the on-clock team
+  // would accept, the trading-up team caps their own over-pay. Skip
+  // when no tradingUpContext was provided (slice-1 back-compat).
+  if (args.tradingUpContext) {
+    const tuReceived = pickValueForTeam(
+      basePickValue(args.onClockOverallPick, 0),
+      args.tradingUpContext.modifiers,
+      0,
+      args.isQbTarget,
+      args.tradingUpContext.qbPremium,
+    );
+    const tuSwap = pickValueForTeam(
+      basePickValue(args.swapAssetOverallPick, 0),
+      args.tradingUpContext.modifiers,
+      0,
+      false,
+    );
+    let tuSweetener = 0;
+    for (const pick of chosenPicks) {
+      tuSweetener += futurePickHeuristicValue(
+        pick,
+        args.seasonNumber,
+        args.tradingUpContext.modifiers,
+      );
+    }
+    const tuGiven = tuSwap + tuSweetener;
+    const tuRatio = tuGiven > 0 ? tuReceived / tuGiven : 0;
+    if (tuRatio < TRADING_UP_ACCEPTANCE_FLOOR) return null;
+  }
+
   return { futurePickIds: chosenIds, ratio };
 }
 
 /**
- * Chart value of a future pick from the on-clock team's perspective.
+ * Chart value of a future pick from a specified team's perspective.
  * Uses the round-midpoint slot heuristic (next-year standings aren't
  * known, so both sides converge on midpoint) and then applies the
- * on-clock team's modifiers — rebuilders inflate, championship
- * teams deflate. Picks beyond round 7 fall through to 0; only
- * rounds 1-7 are tradeable.
+ * supplied modifiers — rebuilders inflate, championship teams
+ * deflate. Picks beyond round 7 fall through to 0; only rounds 1-7
+ * are tradeable.
  */
 function futurePickHeuristicValue(
   pick: DraftPickAsset,
   currentDraftSeason: number,
-  onClockModifiers: ChartModifiers,
+  modifiers: ChartModifiers,
 ): number {
   const midpoint = ROUND_MIDPOINT_OVERALL_PICK[pick.round];
   if (midpoint === undefined) return 0;
   const yearsOut = pick.seasonNumber - currentDraftSeason;
-  return pickValueForTeam(
-    basePickValue(midpoint, yearsOut),
-    onClockModifiers,
-    yearsOut,
-    false,
-  );
+  return pickValueForTeam(basePickValue(midpoint, yearsOut), modifiers, yearsOut, false);
 }

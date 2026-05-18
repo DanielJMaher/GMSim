@@ -16,6 +16,98 @@ _Nothing yet._
 
 ---
 
+## [0.49.0] — 2026-05-18
+
+### Added — Doc 5 dynamic modifiers (slice 2)
+
+Three additions complete the second pass of Doc 5's situational
+modifier framework. v0.46 shipped only the on-clock team's
+perspective with a flat QB premium; this slice closes the
+asymmetry loop and adds a behavior-driven hot-seat HC signal.
+
+**Engine — `engine/src/draft/chart-modifiers.ts`:**
+
+- **Hot-seat HC modifier** — derived from `team.seasonHistory`. 3+
+  consecutive sub-.500 finishes triggers a +10% current / −20%
+  future overlay on top of the existing modifiers. Doc 5: "HC on
+  the hot seat — unusual willingness to give up future capital."
+  We use seasonHistory as the proxy until HC tenure tracking lands;
+  a team that's been losing for years has a HC under pressure
+  whether or not the same HC stayed through it all.
+- **`qbPremiumForGm(gm)`** — replaces the flat 1.30 with a per-GM
+  value mapped from `gm.spectrums.patienceUnderPressure`:
+  - patience 1  (desperate) → 1.50  (max Doc 5 range)
+  - patience 5  (average)   → 1.38
+  - patience 10 (patient)   → 1.23  (low end of Doc 5 range)
+
+  Doc 5: "varies by GM personality and desperation level." Per-team
+  asymmetry: a patient on-clock team resists trading down for QB
+  picks less strongly, AND a desperate trading-up team values the
+  on-clock QB pick more highly → QB trade-ups fire more aggressively
+  when desperation is on the buying side.
+- **`pickValueForTeam` gained optional `qbPremium` arg** — defaults
+  to `QB_CURRENT_PICK_PREMIUM` (1.30) for back-compat. Callers pass
+  the per-team value from `qbPremiumForGm`.
+
+**Engine — `engine/src/draft/trade-up.ts`:**
+
+- **Trading-up perspective acceptance floor** — when both teams'
+  contexts are supplied, the offer-construction step now also checks
+  the trading-up team's ratio after greedy sweetener selection. If
+  the offer (from THEIR chart) puts them at less than ~50%
+  acceptance (`TRADING_UP_ACCEPTANCE_FLOOR = 0.5`), they refuse to
+  construct it. Caps absurd over-pay even when an extreme-rebuilder
+  on-clock would happily accept. The classic "patient rebuilder
+  refuses to trade away their future for an on-clock pick they
+  don't value" guardrail.
+- **New `TeamChartContext { modifiers, qbPremium }`** type and
+  `teamContexts: Record<TeamId, TeamChartContext>` arg on
+  `EvaluateTradeUpArgs`. When provided, drives both on-clock AND
+  trading-up perspectives. The v0.46 `onClockModifiers` arg stays
+  as a back-compat fallback when `teamContexts` is omitted.
+
+**Engine — `engine/src/draft/event.ts`:**
+
+- `runDraft` pre-computes every team's `TeamChartContext` once at
+  the start of each round and threads the map through to the
+  trade-up evaluator. Cheap (each team's modifiers are stable for
+  the round) and centralizes the team-state reads.
+
+**Asymmetric loop completed:**
+
+Slice 1 (v0.46) said "on-clock team's chart drives the math; trading-
+up team's chart is deferred." That deferral closes here. The full
+loop now reads:
+
+- Trading-up team identifies a candidate (board overlap + priority).
+- Greedy sweetener selection valued on **on-clock team's chart**.
+- Both teams' acceptance must clear: on-clock ratio ≥ 1.0 AND
+  trading-up ratio ≥ 0.5. Asymmetry between these floors lets the
+  trading-up team voluntarily over-pay (per Doc 5's 20-58% premium
+  observation) without unbounded losses.
+
+**Tests:** 5 new in `chart-modifiers.test.ts` — hot-seat triggers
+from 3 consecutive losing seasons (and not from mixed history or 2
+seasons), `qbPremiumForGm` covers Doc 5's 1.20-1.50 range,
+`pickValueForTeam` honors per-team QB premium override. 3 new in
+`trade-up.test.ts` — rebuilder/contender asymmetry still fires
+trade-ups, trading-up floor refuses extreme-rebuilder-trading-up
+over-pays, per-team QB premium scales acceptance threshold.
+
+**Modifiers still deferred to future slices:**
+
+- First-year HC without QB (needs HC hire-date tracking)
+- GM contract status / desperation (not modeled in PGS yet)
+- Roster-state position-specific modifiers (gaping LT hole inflates
+  LT picks; aging franchise QB inflates QB picks; excess draft
+  capital — these need position-aware modifier shape, not the
+  current global `current`/`future` multipliers)
+- Trade-deadline urgency modifier (engine doesn't currently
+  differentiate mid-season trade context — `runProactiveTrades`
+  fires offseason-only)
+
+---
+
 ## [0.48.0] — 2026-05-18
 
 ### Added — Rebuilder fire-sale player-for-picks trade pattern

@@ -41,7 +41,7 @@
  */
 
 import { CompetitiveWindow } from '../types/enums.js';
-import type { TeamState } from '../types/team.js';
+import type { TeamState, TeamSeasonRecord } from '../types/team.js';
 import type { Owner, Gm, HeadCoach } from '../types/personnel.js';
 import type { OwnerId, GmId, CoachId } from '../types/ids.js';
 import { computeTeamPersonality } from '../personnel/team-personality.js';
@@ -156,10 +156,68 @@ export function computeChartModifiers(
     current *= 1.05;
   }
 
+  // ── Hot-seat HC (v0.49 — slice 2) ───────────────────────────────
+  // Doc 5: "HC on the hot seat — inflates value of all high-impact
+  // positions, deflates future pick value significantly. Observable
+  // signal: unusual willingness to give up future capital." We
+  // derive the hot-seat signal from team.seasonHistory (3+
+  // consecutive sub-.500 finishes). The engine doesn't model HC
+  // tenure separately yet, so we're using the team's recent results
+  // as a proxy — a team that's been losing for years has a HC under
+  // pressure whether or not the same HC stayed through all of it.
+  if (isHotSeatByRecord(team.seasonHistory)) {
+    current *= 1.1;
+    future *= 0.8;
+  }
+
   return {
     currentMultiplier: round2(current),
     futureMultiplier: round2(future),
   };
+}
+
+/**
+ * Hot-seat HC detection from team season history. Returns true when
+ * the team has finished sub-.500 in each of the last
+ * `HOT_SEAT_CONSECUTIVE_LOSING_SEASONS` seasons (default 3). Real
+ * NFL pressure typically builds over 2-3 seasons before a HC change;
+ * this is the engine's proxy until HC tenure tracking lands.
+ *
+ * Returns false for teams without enough history (rookie leagues or
+ * brand-new franchises) — they can't be "on the hot seat" yet.
+ */
+const HOT_SEAT_CONSECUTIVE_LOSING_SEASONS = 3;
+
+function isHotSeatByRecord(seasonHistory: readonly TeamSeasonRecord[]): boolean {
+  if (seasonHistory.length < HOT_SEAT_CONSECUTIVE_LOSING_SEASONS) return false;
+  const recent = seasonHistory.slice(-HOT_SEAT_CONSECUTIVE_LOSING_SEASONS);
+  for (const rec of recent) {
+    if (rec.wins >= rec.losses) return false;
+  }
+  return true;
+}
+
+/**
+ * Per-GM QB premium for the current-year on-clock pick when the
+ * target is a QB. Doc 5: "When a QB is the clear target of a
+ * trade-up, the acquiring team's chart value threshold increases by
+ * 25-50% depending on GM personality and desperation level."
+ *
+ * Mapped from GM.spectrums.patienceUnderPressure (1..10):
+ *   patience 1  (most desperate) → 1.50  (max Doc 5 range)
+ *   patience 5  (average)        → 1.38
+ *   patience 10 (most patient)   → 1.23  (low end of Doc 5 range)
+ *
+ * The asymmetric design matters: a patient on-clock team (low QB
+ * premium) won't resist trading down for QB-targeted offers as
+ * strongly, AND a desperate trading-up team (high QB premium) values
+ * the on-clock pick higher → they'll overpay aggressively. Both
+ * effects push QB trade-ups toward firing.
+ */
+export function qbPremiumForGm(gm: Gm): number {
+  const patience = gm.spectrums.patienceUnderPressure;
+  // premium = 1.20 + (11 - patience) * 0.03  → range [1.23, 1.50]
+  return round2(1.2 + (11 - patience) * 0.03);
 }
 
 /**
@@ -178,10 +236,11 @@ export function pickValueForTeam(
   modifiers: ChartModifiers,
   yearsOut: number,
   isQbTarget: boolean,
+  qbPremium?: number,
 ): number {
   if (yearsOut === 0) {
     let v = baseValue * modifiers.currentMultiplier;
-    if (isQbTarget) v *= QB_CURRENT_PICK_PREMIUM;
+    if (isQbTarget) v *= qbPremium ?? QB_CURRENT_PICK_PREMIUM;
     return v;
   }
   return baseValue * modifiers.futureMultiplier;

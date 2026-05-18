@@ -10,8 +10,13 @@ import {
   evaluateTradeUpForPick,
   applyTradeUpToWorkingAssets,
   type TradeUpRecord,
+  type TeamChartContext,
 } from './trade-up.js';
-import { computeChartModifiers } from './chart-modifiers.js';
+import {
+  computeChartModifiers,
+  qbPremiumForGm,
+  QB_CURRENT_PICK_PREMIUM,
+} from './chart-modifiers.js';
 
 export interface RunDraftOptions {
   /** Order in which teams pick. Length sets how many picks fire. */
@@ -110,6 +115,21 @@ export function runDraft(
     ? [...options.pickAssets]
     : null;
 
+  // v0.49+ — pre-compute every team's chart context once per draft
+  // call (cheap; each team's modifiers/QB-premium are stable for
+  // the duration of the round). Passed through to the trade-up
+  // evaluator so it can apply both on-clock AND trading-up
+  // perspectives without re-deriving per pick.
+  const teamContexts: Record<string, TeamChartContext> = {};
+  if (workingRoundAssets) {
+    for (const team of Object.values(league.teams)) {
+      const modifiers = computeChartModifiers(team, league.owners, league.gms, league.coaches);
+      const gm = league.gms[team.gmId];
+      const qbPremium = gm ? qbPremiumForGm(gm) : QB_CURRENT_PICK_PREMIUM;
+      teamContexts[team.identity.id] = { modifiers, qbPremium };
+    }
+  }
+
   for (let i = 0; i < options.draftOrder.length; i++) {
     // Trade-up check fires BEFORE the pick so the picking team
     // reflects any same-round ownership flip. Only runs when the
@@ -117,11 +137,6 @@ export function runDraft(
     // working list).
     if (workingRoundAssets) {
       const overallPickAtSlot = startingOverallPick + i;
-      const onClockTeamId = workingRoundAssets[i]?.currentTeamId;
-      const onClockTeam = onClockTeamId ? league.teams[onClockTeamId] : undefined;
-      const onClockModifiers = onClockTeam
-        ? computeChartModifiers(onClockTeam, league.owners, league.gms, league.coaches)
-        : undefined;
       const proposal = evaluateTradeUpForPick({
         onClockIndex: i,
         overallPick: overallPickAtSlot,
@@ -132,7 +147,7 @@ export function runDraft(
         availableById,
         fullDraftPicks: league.draftPicks,
         tradeUpsFiredSoFar: tradeUps.length,
-        ...(onClockModifiers ? { onClockModifiers } : {}),
+        teamContexts: teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
       });
       if (proposal) {
         applyTradeUpToWorkingAssets(workingRoundAssets, proposal);

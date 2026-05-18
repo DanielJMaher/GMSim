@@ -142,12 +142,14 @@ export type {
   TradeUpProposal,
   TradeUpRecord,
   EvaluateTradeUpArgs,
+  TeamChartContext,
 } from './trade-up.js';
 
-// Slice (v0.46.0): Doc 5 dynamic situational modifiers
+// Slice (v0.46.0+): Doc 5 dynamic situational modifiers
 export {
   computeChartModifiers,
   pickValueForTeam,
+  qbPremiumForGm,
   NEUTRAL_MODIFIERS,
   QB_CURRENT_PICK_PREMIUM,
 } from './chart-modifiers.js';

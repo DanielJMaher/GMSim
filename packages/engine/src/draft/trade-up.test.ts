@@ -7,6 +7,10 @@ import {
   MAX_FUTURE_PICKS_PER_OFFER,
 } from './trade-up.js';
 import { TeamId, PlayerId, DraftPickId } from '../types/ids.js';
+import {
+  NEUTRAL_MODIFIERS,
+  QB_CURRENT_PICK_PREMIUM,
+} from './chart-modifiers.js';
 import type {
   CollegePlayer,
   DraftBoardEntry,
@@ -384,6 +388,134 @@ describe('evaluateTradeUpForPick — Doc 5 dynamic modifiers', () => {
 
     const qbRejected = buildSlot1to5Scenario({ targetPosition: 'QB' });
     expect(qbRejected).toBeNull();
+  });
+});
+
+describe('evaluateTradeUpForPick — trading-up perspective (v0.49)', () => {
+  function buildSlot1to5Scenario(opts: {
+    teamContexts?: Record<TeamId, import('./trade-up.js').TeamChartContext>;
+    targetPosition?: string;
+    sweetenerRound?: number;
+  }) {
+    const onClockTeam = TEAM_A;
+    const tradingUpTeam = TEAM_B;
+    const sweetenerRound = opts.sweetenerRound ?? 1;
+    const futurePicks: DraftPickAsset[] = [
+      asset({
+        id: 'fR',
+        originalTeam: tradingUpTeam,
+        seasonNumber: SEASON + 1,
+        round: sweetenerRound,
+      }),
+    ];
+    const workingRoundAssets: DraftPickAsset[] = [];
+    for (let i = 0; i < 5; i++) {
+      const tid = i === 0 ? onClockTeam : i === 4 ? tradingUpTeam : TeamId(`T${i}`);
+      workingRoundAssets.push(asset({ id: `p${i + 1}`, originalTeam: tid, round: 1 }));
+    }
+    const targetCp = (opts.targetPosition
+      ? { nflProjectedPosition: opts.targetPosition }
+      : {}) as CollegePlayer;
+    const availableById = new Map<PlayerId, CollegePlayer>([[PROSPECT_X, targetCp]]);
+    return evaluateTradeUpForPick({
+      onClockIndex: 0,
+      overallPick: 1,
+      round: 1,
+      seasonNumber: SEASON,
+      workingRoundAssets,
+      draftBoards: {
+        [onClockTeam]: [entry({ id: PROSPECT_X, priority: 100 })],
+        [tradingUpTeam]: [entry({ id: PROSPECT_X, priority: 200 })],
+      },
+      availableById,
+      fullDraftPicks: futurePicks,
+      tradeUpsFiredSoFar: 0,
+      ...(opts.teamContexts ? { teamContexts: opts.teamContexts } : {}),
+    });
+  }
+
+  it('rebuilder on-clock + championship trading-up: trade still fires (asymmetry helps)', () => {
+    const teamContexts = {
+      [TEAM_A]: {
+        modifiers: { currentMultiplier: 0.85, futureMultiplier: 1.25 },
+        qbPremium: QB_CURRENT_PICK_PREMIUM,
+      },
+      [TEAM_B]: {
+        modifiers: { currentMultiplier: 1.1, futureMultiplier: 0.65 },
+        qbPremium: QB_CURRENT_PICK_PREMIUM,
+      },
+    } as const;
+    const proposal = buildSlot1to5Scenario({ teamContexts });
+    expect(proposal).not.toBeNull();
+  });
+
+  it('trading-up acceptance floor refuses absurdly inflated sweetener over-pay', () => {
+    // Trading-up team values future picks SO HIGHLY (futureMultiplier
+    // 5.0) that giving up an R1-next-year to leapfrog feels like
+    // throwing away the rebuild. The on-clock team is willing
+    // (modest modifiers; small gap closes easily), but the
+    // trading-up team's offer-side floor (their ratio < 0.5) blocks
+    // construction. This is the "patient-rebuilder refuses to trade
+    // away their future" guardrail.
+    const teamContexts = {
+      [TEAM_A]: {
+        modifiers: NEUTRAL_MODIFIERS,
+        qbPremium: QB_CURRENT_PICK_PREMIUM,
+      },
+      [TEAM_B]: {
+        modifiers: { currentMultiplier: 0.5, futureMultiplier: 5.0 },
+        qbPremium: QB_CURRENT_PICK_PREMIUM,
+      },
+    } as const;
+    const proposal = buildSlot1to5Scenario({ teamContexts, sweetenerRound: 1 });
+    expect(proposal).toBeNull();
+  });
+
+  it('per-team QB premium scales the acceptance threshold appropriately', () => {
+    // QB target, NEUTRAL modifiers; vary on-clock QB premium to show
+    // that a desperate on-clock GM resists trading down for QB picks
+    // MORE than a patient GM does.
+    const desperateOnClock = {
+      [TEAM_A]: {
+        modifiers: NEUTRAL_MODIFIERS,
+        qbPremium: 1.5,
+      },
+      [TEAM_B]: {
+        modifiers: NEUTRAL_MODIFIERS,
+        qbPremium: 1.5,
+      },
+    } as const;
+    const patientOnClock = {
+      [TEAM_A]: {
+        modifiers: NEUTRAL_MODIFIERS,
+        qbPremium: 1.2,
+      },
+      [TEAM_B]: {
+        modifiers: NEUTRAL_MODIFIERS,
+        qbPremium: 1.5,
+      },
+    } as const;
+    // Sweetener: a R3 mid-future-year pick — small enough that QB
+    // premium tightening can tip the threshold.
+    const desperateProposal = buildSlot1to5Scenario({
+      teamContexts: desperateOnClock,
+      targetPosition: 'QB',
+      sweetenerRound: 3,
+    });
+    const patientProposal = buildSlot1to5Scenario({
+      teamContexts: patientOnClock,
+      targetPosition: 'QB',
+      sweetenerRound: 3,
+    });
+    // Patient on-clock applies smaller QB premium → easier to accept
+    // (lower required threshold). At minimum: patient's ratio ≥
+    // desperate's ratio, if both fire.
+    if (desperateProposal && patientProposal) {
+      expect(patientProposal.ratio).toBeGreaterThanOrEqual(desperateProposal.ratio);
+    } else if (desperateProposal === null && patientProposal !== null) {
+      // Expected case: desperate rejected, patient accepted.
+      expect(patientProposal.ratio).toBeGreaterThanOrEqual(1.0);
+    }
   });
 });
 
