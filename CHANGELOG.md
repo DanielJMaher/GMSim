@@ -16,6 +16,95 @@ _Nothing yet._
 
 ---
 
+## [0.47.0] — 2026-05-18
+
+### Added — Draft picks as trade-package assets (Doc 14 pick integration)
+
+The Doc 14 player-trade evaluator and `executeTrade` machinery now
+understand draft-pick assets alongside players. Mid-season
+player-for-pick trades become structurally possible — pick valuation
+flows through the same 5-factor pipeline that already prices
+players, asset-ownership flips propagate to `LeagueState.draftPicks`,
+and the transaction log carries both halves.
+
+This slice ships the **infrastructure only** — no new proactive
+trade pattern fires yet. The v0.21 `runProactiveTrades` pipeline
+continues to operate player-for-player. The "rebuilder fire-sale
+for picks" pattern that actually exploits this layer is the v0.48
+follow-on (mirrors the v0.44 → v0.45 split for draft-side picks).
+
+**Engine — `engine/src/trade/value.ts`:**
+
+- `evaluatePickValue(team, pickAsset, league)` — per-team
+  $M-equivalent valuation. Wraps the Doc 5 chart (`basePickValue`)
+  with the v0.46 per-team modifiers (`pickValueForTeam`) plus a
+  fixed `CHART_POINT_TO_DOLLARS = 3000` conversion. Round-midpoint
+  slot heuristic is used (we don't know next-year standings).
+- `PickValueBreakdown { total, totalDollars, factors: { chart,
+  modifiers } }` — mirrors `PlayerValueBreakdown` shape so the
+  inspector can render both side-by-side with one template.
+- `evaluateTradePackage(team, incoming, outgoing, league, picks?)`
+  gained an optional `picks: { incoming?, outgoing? }` arg.
+  `TradePackageEvaluation` gained `receivedPicks` / `givenPicks`
+  arrays; `netValue` now sums across all four asset lists. Existing
+  callers that omit `picks` see identical behavior.
+
+**Chart-point → $M conversion calibration:**
+
+```
+Pick 1   (10000 pts) → $30.0M   ≈ above-STAR rookie expectation
+Pick 16  (3740 pts)  → $11.2M   ≈ STARTER+ on rookie deal
+Pick 32  (1630 pts)  → $4.9M    ≈ STARTER on rookie deal
+Pick 64  (650 pts)   → $1.95M   ≈ BACKUP
+Pick 224 (20 pts)    → $0.06M   ≈ UDFA territory
+```
+
+Single tunable constant; calibration moves uniformly.
+
+**Engine — `engine/src/transactions/trade.ts`:**
+
+- `TradePayload` gained optional `picksAToB?: DraftPickId[]` and
+  `picksBToA?: DraftPickId[]`. Mirror of the existing `playersAToB`
+  / `playersBToA` shape — additive, back-compat.
+- `executeTrade` validates each listed pick is currently owned by
+  the source team (throws on mismatch), then flips `currentTeamId`
+  on the asset in `LeagueState.draftPicks`. Original team stays
+  fixed so the pick still picks at its origin slot.
+- `TransactionTrade` gained `picksAToB?` / `picksBToA?` fields
+  (recorded only when non-empty). Inspector can render trade
+  history with both player and pick rows.
+
+**Types — `engine/src/types/transaction.ts`:**
+
+- `TradeValueEvaluation` gained optional `receivedPicks` /
+  `givenPicks` mirroring `TradePackageEvaluation`. New
+  `PickTradeValueBreakdown` interface mirrors `PickValueBreakdown`
+  for the types-layer reflection.
+
+**Public surface:** new exports `evaluatePickValue` (function) and
+`PickValueBreakdown` (type) from the engine top-level.
+
+**Tests:** 5 new in `trade/value.test.ts` (positive total + chart
+factor present, current R1 dominates future R3, rebuilder values
+incoming future picks more than contender, mixed player+pick
+package netValue sums correctly, empty-picks-arg matches omitted).
+4 new in `transactions/trade.test.ts` (pick flip preserves
+originalTeamId, mixed player+pick trade moves both atomically,
+throws on unowned-pick trade, traded picks recorded on transaction).
+
+**Not in this slice (deferred to v0.48+):**
+
+- New proactive trade pattern that fires player-for-pick deals
+  (rebuilder fire-sale archetype is the canonical Doc 14 use case)
+- Conditional picks (top-N protected, performance-based conversion)
+- Compensatory picks (post-FA generation pass)
+- Trade-deadline urgency modifiers (Doc 14: compressed-timeline
+  acceptance band; v0.46 dynamic-modifiers slice 2 territory)
+- Inspector visibility — pick-trade rendering in the existing trade
+  detail panel
+
+---
+
 ## [0.46.0] — 2026-05-18
 
 ### Added — Doc 5 dynamic situational modifiers (slice 1)

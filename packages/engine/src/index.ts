@@ -164,13 +164,15 @@ export type {
   PreferenceFactors,
 } from './transactions/index.js';
 
-// Trade-value evaluator (Doc 14 5-factor)
+// Trade-value evaluator (Doc 14 5-factor + Doc 5 pick valuation)
 export {
   evaluatePlayerValue,
   evaluateTradePackage,
+  evaluatePickValue,
 } from './trade/value.js';
 export type {
   PlayerValueBreakdown,
+  PickValueBreakdown,
   TradePackageEvaluation,
   ValueFactor,
 } from './trade/value.js';

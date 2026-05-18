@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
-import { evaluatePlayerValue, evaluateTradePackage } from './value.js';
+import { evaluatePlayerValue, evaluateTradePackage, evaluatePickValue } from './value.js';
 import { CompetitiveWindow, Position } from '../types/enums.js';
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
+import type { DraftPickAsset } from '../types/college.js';
 
 describe('evaluatePlayerValue', () => {
   it('produces a positive total + populated breakdown for any player/team pairing', () => {
@@ -149,6 +150,108 @@ describe('evaluateTradePackage', () => {
     const recv = pkg.received.reduce((s, r) => s + r.breakdown.total, 0);
     const giv = pkg.given.reduce((s, g) => s + g.breakdown.total, 0);
     expect(pkg.netValue).toBeCloseTo(recv - giv, 5);
+  });
+});
+
+describe('evaluatePickValue', () => {
+  it('produces a positive total + chart + modifier breakdown', () => {
+    const league = createLeague({ seed: 'pv-basic' });
+    const team = Object.values(league.teams)[0]!;
+    const pick = league.draftPicks.find((p) => p.round === 1)!;
+    const v = evaluatePickValue(team, pick, league);
+    expect(v.total).toBeGreaterThan(0);
+    expect(v.totalDollars).toBeCloseTo(v.total * 1_000_000, 5);
+    expect(v.factors.chart.rationale).toContain('R1');
+    expect(v.factors.modifiers.multiplier).toBeGreaterThan(0);
+  });
+
+  it('current-year R1 out-values future-year R3 by a wide margin', () => {
+    const league = createLeague({ seed: 'pv-tier' });
+    const team = Object.values(league.teams)[0]!;
+    // Pin a R1 picking this year vs a R3 picking 2 years out.
+    const currentR1: DraftPickAsset = {
+      ...league.draftPicks.find((p) => p.round === 1)!,
+      seasonNumber: league.seasonNumber,
+    };
+    const futureR3: DraftPickAsset = {
+      ...league.draftPicks.find((p) => p.round === 3)!,
+      seasonNumber: league.seasonNumber + 2,
+    };
+    const vR1 = evaluatePickValue(team, currentR1, league);
+    const vR3 = evaluatePickValue(team, futureR3, league);
+    expect(vR1.total).toBeGreaterThan(vR3.total * 5);
+  });
+
+  it('rebuilder values incoming future picks more than a contender', () => {
+    const league = createLeague({ seed: 'pv-modifier' });
+    const baseTeam = Object.values(league.teams)[0]!;
+    const rebuilder: TeamState = {
+      ...baseTeam,
+      competitiveWindow: CompetitiveWindow.REBUILDING,
+    };
+    const contender: TeamState = {
+      ...baseTeam,
+      competitiveWindow: CompetitiveWindow.CHAMPIONSHIP,
+    };
+    const futureR2: DraftPickAsset = {
+      ...league.draftPicks.find((p) => p.round === 2)!,
+      seasonNumber: league.seasonNumber + 1,
+    };
+    const rebuilderValue = evaluatePickValue(rebuilder, futureR2, league);
+    const contenderValue = evaluatePickValue(contender, futureR2, league);
+    expect(rebuilderValue.total).toBeGreaterThan(contenderValue.total);
+  });
+});
+
+describe('evaluateTradePackage with picks', () => {
+  it('mixed player+pick package netValue sums across both asset types', () => {
+    const league = createLeague({ seed: 'tp-mixed' });
+    const team = Object.values(league.teams)[0]!;
+    const incomingPlayer = Object.values(league.players)[0]!;
+    const outgoingPlayer = Object.values(league.players)[1]!;
+    const incomingPick = league.draftPicks.find((p) => p.round === 2)!;
+    const outgoingPick = league.draftPicks.find(
+      (p) => p.round === 5 && p.id !== incomingPick.id,
+    )!;
+
+    const evalWithPicks = evaluateTradePackage(
+      team,
+      [incomingPlayer],
+      [outgoingPlayer],
+      league,
+      { incoming: [incomingPick], outgoing: [outgoingPick] },
+    );
+    const evalWithoutPicks = evaluateTradePackage(
+      team,
+      [incomingPlayer],
+      [outgoingPlayer],
+      league,
+    );
+
+    const incomingPickValue = evaluatePickValue(team, incomingPick, league).total;
+    const outgoingPickValue = evaluatePickValue(team, outgoingPick, league).total;
+    const expectedDelta = incomingPickValue - outgoingPickValue;
+    expect(evalWithPicks.netValue - evalWithoutPicks.netValue).toBeCloseTo(
+      expectedDelta,
+      5,
+    );
+    expect(evalWithPicks.receivedPicks.length).toBe(1);
+    expect(evalWithPicks.givenPicks.length).toBe(1);
+  });
+
+  it('empty picks arrays produce identical result to omitting the picks arg', () => {
+    const league = createLeague({ seed: 'tp-empty' });
+    const team = Object.values(league.teams)[0]!;
+    const a = Object.values(league.players)[0]!;
+    const b = Object.values(league.players)[1]!;
+    const withEmpty = evaluateTradePackage(team, [a], [b], league, {
+      incoming: [],
+      outgoing: [],
+    });
+    const without = evaluateTradePackage(team, [a], [b], league);
+    expect(withEmpty.netValue).toBe(without.netValue);
+    expect(withEmpty.receivedPicks).toEqual([]);
+    expect(withEmpty.givenPicks).toEqual([]);
   });
 });
 

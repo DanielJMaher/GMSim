@@ -2,10 +2,16 @@ import type { LeagueState } from '../types/league.js';
 import type { Player, TalentTier } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
 import type { Position } from '../types/enums.js';
+import type { DraftPickAsset } from '../types/college.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { currentCapHit } from '../contracts/cap.js';
 import { ageOfPlayer } from '../season/development.js';
+import { pickValue as basePickValue } from '../draft/pick-value.js';
+import {
+  computeChartModifiers,
+  pickValueForTeam,
+} from '../draft/chart-modifiers.js';
 
 /**
  * Doc 14 five-factor trade-value evaluator.
@@ -68,9 +74,69 @@ export interface TradePackageEvaluation {
   received: readonly { playerId: string; breakdown: PlayerValueBreakdown }[];
   /** Per-player breakdowns for assets going FROM the evaluating team. */
   given: readonly { playerId: string; breakdown: PlayerValueBreakdown }[];
-  /** Sum of received `total` minus sum of given `total`. Positive = good deal. */
+  /**
+   * Per-pick breakdowns for draft picks coming TO the evaluating team.
+   * Empty when the trade doesn't involve picks (v0.46 and earlier paths).
+   */
+  receivedPicks: readonly { pickId: string; breakdown: PickValueBreakdown }[];
+  /** Per-pick breakdowns for draft picks going FROM the evaluating team. */
+  givenPicks: readonly { pickId: string; breakdown: PickValueBreakdown }[];
+  /**
+   * Sum of received `total` minus sum of given `total`, across both
+   * player and pick assets. Positive = good deal.
+   */
   netValue: number;
 }
+
+/**
+ * Per-pick valuation in $M, breaking out the Doc 5 base chart input
+ * from the per-team modifier multiplier. Inspector renders the
+ * rationale strings to explain why one team values the same future
+ * 3rd more than another.
+ */
+export interface PickValueBreakdown {
+  total: number;
+  totalDollars: number;
+  factors: {
+    /** Doc 5 base chart points (with yearsOut discount applied). */
+    chart: ValueFactor;
+    /** Per-team current/future multiplier from chart-modifiers. */
+    modifiers: ValueFactor;
+  };
+}
+
+/**
+ * Conversion from Doc 5 chart points to $M-equivalent value used by
+ * the trade evaluator. Anchored so pick #1 (10,000 pts) ≈ $30M —
+ * lands above the STAR base ($28M) and below the historical "team
+ * overpays for blue-chip" ceiling ($40M+). Calibration points:
+ *
+ *   Pick 1   (10000 pts) → $30M    ≈ above-STAR rookie expectation
+ *   Pick 16  (3740 pts)  → $11.2M  ≈ STARTER+ on rookie deal
+ *   Pick 32  (1630 pts)  → $4.9M   ≈ STARTER on rookie deal
+ *   Pick 64  (650 pts)   → $1.95M  ≈ BACKUP
+ *   Pick 224 (20 pts)    → $0.06M  ≈ UDFA territory
+ *
+ * Single tunable constant — calibration moves uniformly. When Doc 14
+ * scout-consensus + Pro-Bowl recognition land they'll add their own
+ * factor lines to PlayerValueBreakdown; this conversion stays put.
+ */
+const CHART_POINT_TO_DOLLARS = 3000;
+
+/**
+ * Round-midpoint slot used to value future-year picks (we don't
+ * know next-year standings, so both sides converge on midpoint).
+ * Mirrors the heuristic in `draft/trade-up.ts`.
+ */
+const ROUND_MIDPOINT_OVERALL_PICK: Readonly<Record<number, number>> = {
+  1: 16,
+  2: 48,
+  3: 80,
+  4: 112,
+  5: 144,
+  6: 176,
+  7: 224,
+};
 
 /**
  * Tier base value in $M. Anchors the entire model; each factor
@@ -153,16 +219,74 @@ export function evaluatePlayerValue(
 }
 
 /**
+ * Compute one team's perceived value of a single draft pick. Pure
+ * compute over league state; no PRNG. For a current-year pick,
+ * uses the pick's actual `originalTeamId` standings to estimate
+ * slot — but the originating team's standings haven't been computed
+ * yet at most mid-season trade points, so we fall back to the
+ * round-midpoint slot heuristic (same as the trade-up evaluator
+ * uses for future picks).
+ *
+ * The per-team chart modifiers from v0.46 apply — a rebuilder values
+ * incoming future picks more than a championship team would.
+ */
+export function evaluatePickValue(
+  team: TeamState,
+  pick: DraftPickAsset,
+  league: LeagueState,
+): PickValueBreakdown {
+  const midpoint = ROUND_MIDPOINT_OVERALL_PICK[pick.round] ?? 0;
+  const yearsOut = Math.max(0, pick.seasonNumber - league.seasonNumber);
+  const baseChartValue = basePickValue(midpoint, yearsOut);
+
+  const modifiers = computeChartModifiers(
+    team,
+    league.owners,
+    league.gms,
+    league.coaches,
+  );
+  const teamAdjusted = pickValueForTeam(baseChartValue, modifiers, yearsOut, false);
+  const totalDollars = teamAdjusted * CHART_POINT_TO_DOLLARS;
+  const total = totalDollars / 1_000_000;
+
+  const yearLabel = yearsOut === 0 ? 'this year' : `${yearsOut}-yr future`;
+  const chart: ValueFactor = {
+    multiplier: 1,
+    rationale: `R${pick.round} ${yearLabel} mid-slot ${baseChartValue.toFixed(0)} pts`,
+  };
+  const modMult = yearsOut === 0 ? modifiers.currentMultiplier : modifiers.futureMultiplier;
+  const modifiers_: ValueFactor = {
+    multiplier: modMult,
+    rationale: `team ${yearsOut === 0 ? 'current' : 'future'}-pick mod ×${modMult.toFixed(2)}`,
+  };
+
+  return {
+    total,
+    totalDollars,
+    factors: { chart, modifiers: modifiers_ },
+  };
+}
+
+/**
  * Evaluate a full trade package from one team's perspective. Returns
  * per-asset breakdowns plus the netValue — positive means the team
  * perceives a gain. A trade is mutually acceptable when both teams'
  * `netValue` are positive.
+ *
+ * Pick assets are valued via `evaluatePickValue` using the team's
+ * own chart modifiers — same package, different perceived value
+ * from each side, which is exactly the Doc 14 / Doc 5 asymmetry
+ * that drives interesting trade dynamics.
  */
 export function evaluateTradePackage(
   team: TeamState,
   incoming: readonly Player[],
   outgoing: readonly Player[],
   league: LeagueState,
+  picks?: {
+    incoming?: readonly DraftPickAsset[];
+    outgoing?: readonly DraftPickAsset[];
+  },
 ): TradePackageEvaluation {
   const received = incoming.map((p) => ({
     playerId: p.id as string,
@@ -172,9 +296,27 @@ export function evaluateTradePackage(
     playerId: p.id as string,
     breakdown: evaluatePlayerValue(team, p, league),
   }));
-  const receivedTotal = received.reduce((s, r) => s + r.breakdown.total, 0);
-  const givenTotal = given.reduce((s, g) => s + g.breakdown.total, 0);
-  return { received, given, netValue: receivedTotal - givenTotal };
+  const receivedPicks = (picks?.incoming ?? []).map((p) => ({
+    pickId: p.id as string,
+    breakdown: evaluatePickValue(team, p, league),
+  }));
+  const givenPicks = (picks?.outgoing ?? []).map((p) => ({
+    pickId: p.id as string,
+    breakdown: evaluatePickValue(team, p, league),
+  }));
+  const receivedTotal =
+    received.reduce((s, r) => s + r.breakdown.total, 0) +
+    receivedPicks.reduce((s, r) => s + r.breakdown.total, 0);
+  const givenTotal =
+    given.reduce((s, g) => s + g.breakdown.total, 0) +
+    givenPicks.reduce((s, g) => s + g.breakdown.total, 0);
+  return {
+    received,
+    given,
+    receivedPicks,
+    givenPicks,
+    netValue: receivedTotal - givenTotal,
+  };
 }
 
 // ─── per-factor implementations ────────────────────────────────────────

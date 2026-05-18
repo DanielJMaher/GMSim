@@ -1,4 +1,4 @@
-import type { PlayerId, TeamId, ContractId, CoachId, OwnerId } from './ids.js';
+import type { PlayerId, TeamId, ContractId, CoachId, OwnerId, DraftPickId } from './ids.js';
 import type { TalentTier } from './player.js';
 import type { LeaguePhase } from './league.js';
 import type { WatchListReason } from './scout.js';
@@ -139,6 +139,13 @@ export interface TransactionTrade extends TransactionBase {
   teamBId: TeamId;
   playersAToB: readonly PlayerId[];
   playersBToA: readonly PlayerId[];
+  /**
+   * Draft picks moving from team A to team B (v0.47.0+). Optional —
+   * pre-v0.47 saves omit it; the inspector treats absent as empty.
+   */
+  picksAToB?: readonly DraftPickId[];
+  /** Draft picks moving from team B to team A (v0.47.0+). */
+  picksBToA?: readonly DraftPickId[];
   /** Dead money accrued to team A from accelerated proration on traded-away players. */
   deadMoneyTeamA: number;
   /** Dead money accrued to team B from accelerated proration on traded-away players. */
@@ -212,7 +219,25 @@ export interface AlternativeTradeCandidate {
 export interface TradeValueEvaluation {
   received: readonly { playerId: string; breakdown: TradeValueBreakdown }[];
   given: readonly { playerId: string; breakdown: TradeValueBreakdown }[];
+  /** Per-pick valuations for picks coming to this team. v0.47.0+. */
+  receivedPicks?: readonly { pickId: string; breakdown: PickTradeValueBreakdown }[];
+  /** Per-pick valuations for picks going from this team. v0.47.0+. */
+  givenPicks?: readonly { pickId: string; breakdown: PickTradeValueBreakdown }[];
   netValue: number;
+}
+
+/**
+ * Pick valuation breakdown — mirrors `PickValueBreakdown` from
+ * `trade/value.ts`, redeclared here to keep the types layer free of
+ * an inbound dependency on a transaction-adjacent module.
+ */
+export interface PickTradeValueBreakdown {
+  total: number;
+  totalDollars: number;
+  factors: {
+    chart: TradeValueFactor;
+    modifiers: TradeValueFactor;
+  };
 }
 
 /** Doc 14 5-factor breakdown — all values in $M. */

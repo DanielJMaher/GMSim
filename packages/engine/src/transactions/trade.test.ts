@@ -292,3 +292,104 @@ describe('executeTrade', () => {
     void (null as unknown as PlayerId);
   });
 });
+
+describe('executeTrade with draft picks (v0.47.0+)', () => {
+  it('flips currentTeamId on transferred picks; originalTeamId unchanged', () => {
+    const league = freshLeague('trade-pick-flip');
+    const teams = Object.values(league.teams);
+    const teamA = teams[0]!;
+    const teamB = teams[1]!;
+    const teamAPick = league.draftPicks.find(
+      (p) => p.currentTeamId === teamA.identity.id && p.round === 3,
+    )!;
+
+    const next = executeTrade(league, {
+      teamAId: teamA.identity.id,
+      teamBId: teamB.identity.id,
+      playersAToB: [],
+      playersBToA: [],
+      picksAToB: [teamAPick.id],
+    });
+
+    const flipped = next.draftPicks.find((p) => p.id === teamAPick.id)!;
+    expect(flipped.currentTeamId).toBe(teamB.identity.id);
+    expect(flipped.originalTeamId).toBe(teamA.identity.id);
+    // Other picks unaffected.
+    const untouched = next.draftPicks.filter((p) => p.id !== teamAPick.id);
+    const untouchedBefore = league.draftPicks.filter((p) => p.id !== teamAPick.id);
+    expect(untouched).toEqual(untouchedBefore);
+  });
+
+  it('mixed player+pick trade moves both atomically', () => {
+    const league = freshLeague('trade-mixed');
+    const teams = Object.values(league.teams);
+    const teamA = teams[0]!;
+    const teamB = teams[1]!;
+    const aPlayer = teamA.rosterIds.find(
+      (id) => !league.contracts[league.players[id]!.contractId!]!.noTradeClause,
+    )!;
+    const teamBPick = league.draftPicks.find(
+      (p) => p.currentTeamId === teamB.identity.id && p.round === 4,
+    )!;
+
+    const next = executeTrade(league, {
+      teamAId: teamA.identity.id,
+      teamBId: teamB.identity.id,
+      playersAToB: [aPlayer],
+      playersBToA: [],
+      picksBToA: [teamBPick.id],
+    });
+
+    // Player moved
+    expect(next.teams[teamB.identity.id]!.rosterIds).toContain(aPlayer);
+    expect(next.teams[teamA.identity.id]!.rosterIds).not.toContain(aPlayer);
+    // Pick moved
+    const flipped = next.draftPicks.find((p) => p.id === teamBPick.id)!;
+    expect(flipped.currentTeamId).toBe(teamA.identity.id);
+  });
+
+  it('throws when attempting to trade a pick the source does not own', () => {
+    const league = freshLeague('trade-pick-unowned');
+    const teams = Object.values(league.teams);
+    const teamA = teams[0]!;
+    const teamB = teams[1]!;
+    // Find a pick currently owned by team B but try to send it from A.
+    const teamBPick = league.draftPicks.find(
+      (p) => p.currentTeamId === teamB.identity.id,
+    )!;
+    expect(() =>
+      executeTrade(league, {
+        teamAId: teamA.identity.id,
+        teamBId: teamB.identity.id,
+        playersAToB: [],
+        playersBToA: [],
+        picksAToB: [teamBPick.id],
+      }),
+    ).toThrow(/owned by/);
+  });
+
+  it('records traded picks on the trade transaction', () => {
+    const league = freshLeague('trade-pick-log');
+    const teams = Object.values(league.teams);
+    const teamA = teams[0]!;
+    const teamB = teams[1]!;
+    const teamAPick = league.draftPicks.find(
+      (p) => p.currentTeamId === teamA.identity.id && p.round === 5,
+    )!;
+
+    const next = executeTrade(league, {
+      teamAId: teamA.identity.id,
+      teamBId: teamB.identity.id,
+      playersAToB: [],
+      playersBToA: [],
+      picksAToB: [teamAPick.id],
+    });
+
+    const tradeEntry = next.transactionLog[next.transactionLog.length - 1]!;
+    expect(tradeEntry.kind).toBe('trade');
+    if (tradeEntry.kind === 'trade') {
+      expect(tradeEntry.picksAToB).toEqual([teamAPick.id]);
+      expect(tradeEntry.picksBToA).toBeUndefined();
+    }
+  });
+});

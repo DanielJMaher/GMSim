@@ -2,19 +2,22 @@ import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
+import type { DraftPickAsset } from '../types/college.js';
 import type { Transaction } from '../types/transaction.js';
 import type {
   PlayerId,
   TeamId,
+  DraftPickId,
   ContractId as ContractIdType,
 } from '../types/ids.js';
 import { ContractId } from '../types/ids.js';
 import { signingBonusProrationPerYear } from '../contracts/cap.js';
 
 /**
- * A two-team trade: each side sends some players to the other. Phase 2
- * MVP — no draft picks, no cash considerations, no third-team brokers.
- * Those land alongside the draft module.
+ * A two-team trade: each side sends some players and/or draft picks
+ * to the other. v0.47.0 adds pick support; pre-v0.47 paths that
+ * omit `picksAToB`/`picksBToA` behave identically. Cash considerations
+ * and third-team brokers are still deferred.
  */
 export interface TradePayload {
   teamAId: TeamId;
@@ -23,6 +26,14 @@ export interface TradePayload {
   playersAToB: readonly PlayerId[];
   /** Players moving from team B to team A. */
   playersBToA: readonly PlayerId[];
+  /**
+   * Draft-pick assets moving from team A to team B. Optional.
+   * Validated against `LeagueState.draftPicks` — each id must
+   * currently belong to team A.
+   */
+  picksAToB?: readonly DraftPickId[];
+  /** Draft-pick assets moving from team B to team A. Optional. */
+  picksBToA?: readonly DraftPickId[];
   /**
    * If true, traded players with `noTradeClause` go through anyway.
    * Defaults to false — the clause blocks the trade.
@@ -88,6 +99,10 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
 
   validateTradeSide(league, teamA, payload.playersAToB, payload.overrideNoTrade);
   validateTradeSide(league, teamB, payload.playersBToA, payload.overrideNoTrade);
+  const picksAToB = payload.picksAToB ?? [];
+  const picksBToA = payload.picksBToA ?? [];
+  validatePickOwnership(league, payload.teamAId, picksAToB);
+  validatePickOwnership(league, payload.teamBId, picksBToA);
 
   // Collect per-side dead money from trade-away proration acceleration.
   const deadA = sumRemainingProration(league, payload.playersAToB);
@@ -135,6 +150,19 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     deadMoneyByYear: addToYear(teamB.deadMoneyByYear, 0, deadB),
   };
 
+  // Apply pick ownership flips. Same-id pick stays in the asset list
+  // with `currentTeamId` reassigned to the receiving team; original
+  // team stays fixed so the pick still picks at its origin slot.
+  let draftPicksNext: readonly DraftPickAsset[] = league.draftPicks;
+  if (picksAToB.length > 0 || picksBToA.length > 0) {
+    const flips = new Map<DraftPickId, TeamId>();
+    for (const id of picksAToB) flips.set(id, payload.teamBId);
+    for (const id of picksBToA) flips.set(id, payload.teamAId);
+    draftPicksNext = league.draftPicks.map((p) =>
+      flips.has(p.id) ? { ...p, currentTeamId: flips.get(p.id)! } : p,
+    );
+  }
+
   const meta = payload.metadata;
   const entry: Transaction = {
     kind: 'trade',
@@ -146,6 +174,8 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     playersBToA: [...payload.playersBToA],
     deadMoneyTeamA: deadA,
     deadMoneyTeamB: deadB,
+    ...(picksAToB.length > 0 ? { picksAToB: [...picksAToB] } : {}),
+    ...(picksBToA.length > 0 ? { picksBToA: [...picksBToA] } : {}),
     ...(meta?.initiatorTeamId ? { initiatorTeamId: meta.initiatorTeamId } : {}),
     ...(meta?.source ? { source: meta.source } : {}),
     ...(meta?.teamAValue ? { teamAValue: meta.teamAValue } : {}),
@@ -164,8 +194,30 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     } as Readonly<Record<TeamId, TeamState>>,
     players: playersNext as Readonly<Record<PlayerId, Player>>,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
+    draftPicks: draftPicksNext,
     transactionLog: [...league.transactionLog, entry],
   };
+}
+
+function validatePickOwnership(
+  league: LeagueState,
+  expectedOwner: TeamId,
+  pickIds: readonly DraftPickId[],
+): void {
+  if (pickIds.length === 0) return;
+  const byId = new Map<DraftPickId, DraftPickAsset>();
+  for (const p of league.draftPicks) byId.set(p.id, p);
+  for (const id of pickIds) {
+    const pick = byId.get(id);
+    if (!pick) {
+      throw new Error(`executeTrade: pick ${id} not found in league asset list`);
+    }
+    if (pick.currentTeamId !== expectedOwner) {
+      throw new Error(
+        `executeTrade: pick ${id} is owned by ${pick.currentTeamId}, not ${expectedOwner}`,
+      );
+    }
+  }
 }
 
 function validateTradeSide(
