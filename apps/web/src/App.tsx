@@ -478,6 +478,16 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
   const observations = league.collegeObservations;
   const collegeScouts = league.collegeScouts;
 
+  // Consensus board derived from the league-wide 32 boards. Doc 3:
+  // teams don't internally consume a consensus — engine never reads
+  // this — but the inspector treats it as the most useful "what's
+  // the league as a whole thinking" view of the prospect pool.
+  const consensus = useMemo(
+    () => computeConsensusBoard(league.draftBoards),
+    [league.draftBoards],
+  );
+  const consensusRanks = useMemo(() => consensusRankIndex(consensus), [consensus]);
+
   const classCounts = useMemo(() => {
     const counts = new Map<ClassYear, number>();
     for (const cp of pool) counts.set(cp.classYear, (counts.get(cp.classYear) ?? 0) + 1);
@@ -524,34 +534,32 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
     [pool],
   );
 
-  // Sample for the prospect table — top 25 draft-eligible by tier+ceiling proxy.
-  // Slice 1 doesn't have observations yet, so we use ground-truth ceiling-mean
-  // as the order. Slice 3 (draft boards) will replace this with the team-board view.
+  // Consensus-ordered featured list. Prospects with no consensus
+  // entry (i.e., not on any team's top-N board) fall to the bottom.
+  // Per Doc 3 the boards filter to draft-eligible prospects, so the
+  // consensus-eligible set ≈ the draftable cohort.
   const featured = useMemo(() => {
-    const tierRank: Record<CollegePlayer['tier'], number> = { STAR: 4, STARTER: 3, BACKUP: 2, FRINGE: 1 };
-    const ceilingMean = (cp: CollegePlayer) => {
-      const c = cp.ceiling;
-      return (
-        c.speed + c.acceleration + c.agility + c.strength + c.technicalSkill +
-        c.footballIq + c.decisionMaking + c.handsBallSkills
-      ) / 8;
-    };
-    const sorted = [...draftEligible].sort((a, b) => {
-      const t = tierRank[b.tier] - tierRank[a.tier];
-      if (t !== 0) return t;
-      return ceilingMean(b) - ceilingMean(a);
-    });
-    return sorted.slice(0, expanded ? 60 : 15);
-  }, [draftEligible, expanded]);
+    const cpById = new Map(pool.map((cp) => [cp.id, cp] as const));
+    const orderedFromConsensus: CollegePlayer[] = [];
+    for (const entry of consensus) {
+      const cp = cpById.get(entry.collegePlayerId);
+      if (!cp) continue;
+      if (!cp.isDraftEligible) continue;
+      orderedFromConsensus.push(cp);
+    }
+    return orderedFromConsensus.slice(0, expanded ? 60 : 15);
+  }, [consensus, pool, expanded]);
 
   return (
     <section className="mb-8 rounded border border-violet-500/30 bg-violet-500/5 p-4">
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-violet-300">
-          College Pool — Draft Module (Doc 3)
+          Consensus Board — Live Draft Class (aggregated from 32 boards)
         </h2>
         <span className="text-xs text-zinc-500">
           {pool.length} prospects · {draftEligible.length} draft-eligible
+          {' · '}
+          <span className="text-violet-400">{consensus.length} on consensus</span>
           {' · '}
           <span className="text-violet-400">{collegeScoutCount} college scouts</span>
           {' · '}
@@ -581,7 +589,7 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
 
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400">
-          Draft-eligible prospects · top {featured.length} by tier × ceiling
+          Consensus top {featured.length} · ranked by mean priority across teams that carry the prospect
         </h3>
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -595,12 +603,15 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
         <table className="w-full text-xs">
           <thead className="text-[10px] uppercase tracking-wider text-zinc-500">
             <tr className="border-b border-zinc-800">
+              <th className="px-2 py-1 text-right" title="Consensus rank — 1-based across the prospects on ≥1 team's board">#</th>
               <th className="px-2 py-1 text-left">Prospect</th>
               <th className="px-2 py-1 text-left">Class</th>
               <th className="px-2 py-1 text-left">School</th>
               <th className="px-2 py-1 text-left">Pos</th>
               <th className="px-2 py-1 text-left">NFL proj</th>
-              <th className="px-2 py-1 text-left">Voice</th>
+              <th className="px-2 py-1 text-center" title="Teams (of 32) with this prospect on their top-50 board">Boards</th>
+              <th className="px-2 py-1 text-center" title="Mean priority across teams that carry the prospect">Avg pri</th>
+              <th className="px-2 py-1 text-center" title="Mean board rank across teams that carry the prospect">Avg rk</th>
               <th className="px-2 py-1 text-center">★</th>
               <th className="px-2 py-1 text-center">Tier</th>
               <th className="px-2 py-1 text-center" title="Reports filed by college scouts on this prospect">Reports</th>
@@ -612,11 +623,15 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
             {featured.map((cp) => {
               const combine = league.combineResults[cp.id];
               const isOpen = expandedProspectId === cp.id;
+              const consRank = consensusRanks.get(cp.id) ?? null;
+              const consEntry = consRank !== null ? consensus[consRank - 1] ?? null : null;
               return (
                 <React.Fragment key={cp.id}>
                   <CollegeProspectRow
                     prospect={cp}
                     reportCount={observationsByProspect.get(cp.id) ?? 0}
+                    consensusRank={consRank}
+                    consensusEntry={consEntry}
                     isOpen={isOpen}
                     onClick={() =>
                       setExpandedProspectId(isOpen ? null : cp.id)
@@ -625,7 +640,7 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
                   />
                   {isOpen && (
                     <tr className="border-t border-zinc-800 bg-zinc-950/60">
-                      <td colSpan={11} className="px-3 py-3">
+                      <td colSpan={14} className="px-3 py-3">
                         <CollegeProspectDetail prospect={cp} league={league} />
                       </td>
                     </tr>
@@ -638,9 +653,9 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
       </div>
 
       <p className="mt-2 text-[10px] text-zinc-600">
-        Reports column = number of college-scout observations across all 32 teams.
-        40 column shows combine-reported 40-yard time when available (italics = drill skipped).
-        The Draft Boards panel below shows each team's scheme-fit-aware ranking.
+        Consensus is diagnostic-only — the engine doesn't internally consume it (Doc 3:
+        "no global consensus anything"). Boards column = teams (of 32) with this prospect
+        on their top-50 board. Click a row for the full prospect dossier.
       </p>
     </section>
   );
@@ -659,12 +674,16 @@ function CollegeProspectRow({
   prospect,
   reportCount,
   combine,
+  consensusRank,
+  consensusEntry,
   isOpen,
   onClick,
 }: {
   prospect: CollegePlayer;
   reportCount: number;
   combine?: CombineMeasurables;
+  consensusRank: number | null;
+  consensusEntry: { appearances: number; averagePriority: number; averageRank: number } | null;
   isOpen: boolean;
   onClick: () => void;
 }) {
@@ -698,6 +717,9 @@ function CollegeProspectRow({
       className={`cursor-pointer border-b border-zinc-900 hover:bg-zinc-900/30 ${isOpen ? 'bg-zinc-900/40' : ''}`}
       onClick={onClick}
     >
+      <td className="px-2 py-1 text-right font-mono text-zinc-300">
+        {consensusRank !== null ? consensusRank : <span className="text-zinc-700">—</span>}
+      </td>
       <td className="px-2 py-1">
         <div className="font-medium text-zinc-100">
           <span className="mr-1 text-zinc-600">{isOpen ? '▼' : '▶'}</span>
@@ -725,7 +747,29 @@ function CollegeProspectRow({
         {conversionTag}
         {misreadTag}
       </td>
-      <td className="px-2 py-1 text-zinc-400">{VOICE_LABELS[prospect.personalityVoice]}</td>
+      <td className="px-2 py-1 text-center font-mono text-zinc-300">
+        {consensusEntry ? (
+          <span
+            className={
+              consensusEntry.appearances >= 20
+                ? 'text-emerald-300'
+                : consensusEntry.appearances >= 10
+                  ? 'text-zinc-300'
+                  : 'text-zinc-500'
+            }
+          >
+            {consensusEntry.appearances}/32
+          </span>
+        ) : (
+          <span className="text-zinc-700">—</span>
+        )}
+      </td>
+      <td className="px-2 py-1 text-center font-mono text-zinc-300">
+        {consensusEntry ? consensusEntry.averagePriority.toFixed(0) : <span className="text-zinc-700">—</span>}
+      </td>
+      <td className="px-2 py-1 text-center font-mono text-zinc-400">
+        {consensusEntry ? consensusEntry.averageRank.toFixed(1) : <span className="text-zinc-700">—</span>}
+      </td>
       <td className="px-2 py-1 text-center font-mono text-zinc-300">{prospect.recruiting.starRating}</td>
       <td className={`px-2 py-1 text-center font-mono ${tierColor}`}>{prospect.tier}</td>
       <td className={`px-2 py-1 text-center font-mono ${reportCount === 0 ? 'text-zinc-700' : reportCount >= 8 ? 'text-violet-300' : 'text-zinc-400'}`}>
@@ -1513,6 +1557,31 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
 
   const consensusRank = useMemo(() => consensusRankIndex(consensus), [consensus]);
 
+  // Name + position lookup that resolves BOTH undrafted prospects
+  // (still in collegePool) and drafted ones (promoted to
+  // league.players with the same PlayerId). Without this we render
+  // raw CP_... ids for every player picked in the current draft.
+  const nameLookup = useMemo(() => {
+    const m = new Map<PlayerId, ProspectNameRecord>();
+    for (const cp of league.collegePool) {
+      m.set(cp.id, {
+        firstName: cp.firstName,
+        lastName: cp.lastName,
+        position: cp.nflProjectedPosition,
+      });
+    }
+    for (const p of Object.values(league.players)) {
+      if (!m.has(p.id)) {
+        m.set(p.id, {
+          firstName: p.firstName,
+          lastName: p.lastName,
+          position: p.position,
+        });
+      }
+    }
+    return m;
+  }, [league.collegePool, league.players]);
+
   // Aggregate reach distribution across the whole draft — small
   // sparkline that lets Daniel scan the variance at a glance. Hook
   // call lifted above the early returns so the hook count stays
@@ -1720,7 +1789,7 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
           accent="violet"
           window={teamBoardWindow}
           highlightId={currentPick.collegePlayerId}
-          prospectById={league.collegePool}
+          nameLookup={nameLookup}
           extractRankInfo={(entry) => ({
             label: entry.reason,
             value: `pri ${entry.priority.toFixed(0)}`,
@@ -1731,7 +1800,7 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
           accent="emerald"
           window={consensusWindow}
           highlightId={currentPick.collegePlayerId}
-          prospectById={league.collegePool}
+          nameLookup={nameLookup}
           extractRankInfo={(entry) => ({
             label: `${entry.appearances}/32`,
             value: `avg ${entry.averagePriority.toFixed(0)}`,
@@ -1911,22 +1980,27 @@ function TierBadge({ tier }: { tier: 'STAR' | 'STARTER' | 'BACKUP' | 'FRINGE' })
   );
 }
 
+interface ProspectNameRecord {
+  firstName: string;
+  lastName: string;
+  position: Position;
+}
+
 function DraftReplayBoardColumn<T extends { collegePlayerId: PlayerId }>({
   title,
   accent,
   window,
   highlightId,
-  prospectById,
+  nameLookup,
   extractRankInfo,
 }: {
   title: string;
   accent: 'violet' | 'emerald';
   window: readonly { entry: T; rank: number }[];
   highlightId: PlayerId;
-  prospectById: readonly CollegePlayer[];
+  nameLookup: ReadonlyMap<PlayerId, ProspectNameRecord>;
   extractRankInfo: (entry: T) => { label: string; value: string };
 }) {
-  const cpById = useMemo(() => new Map(prospectById.map((cp) => [cp.id, cp] as const)), [prospectById]);
   const titleClass =
     accent === 'violet' ? 'text-violet-200 border-violet-500/40' : 'text-emerald-200 border-emerald-500/40';
   return (
@@ -1938,7 +2012,7 @@ function DraftReplayBoardColumn<T extends { collegePlayerId: PlayerId }>({
         )}
         {window.map(({ entry, rank }) => {
           const isPicked = entry.collegePlayerId === highlightId;
-          const cp = cpById.get(entry.collegePlayerId);
+          const name = nameLookup.get(entry.collegePlayerId);
           const info = extractRankInfo(entry);
           return (
             <div
@@ -1952,12 +2026,10 @@ function DraftReplayBoardColumn<T extends { collegePlayerId: PlayerId }>({
               <span className="flex items-baseline gap-1">
                 <span className="w-6 text-right text-zinc-500">#{rank}</span>
                 <span className="truncate text-zinc-300">
-                  {cp ? `${cp.firstName} ${cp.lastName}` : String(entry.collegePlayerId)}
+                  {name ? `${name.firstName} ${name.lastName}` : String(entry.collegePlayerId)}
                 </span>
-                {cp && (
-                  <span className="text-[9px] text-zinc-600">
-                    {cp.nflProjectedPosition}
-                  </span>
+                {name && (
+                  <span className="text-[9px] text-zinc-600">{name.position}</span>
                 )}
               </span>
               <span className="text-[9px] text-zinc-500">
