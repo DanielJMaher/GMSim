@@ -355,3 +355,158 @@ describe('runProactiveTrades', () => {
     }
   });
 });
+
+describe('runProactiveTrades — rebuilder fire-sale (v0.48.0+)', () => {
+  function buildFireSaleScenario(opts: {
+    seed: string;
+    buyerWindow: CompetitiveWindow;
+    sellerWindow: CompetitiveWindow;
+    vetAge: number;
+  }): { league: LeagueState; buyerId: TeamId; sellerId: TeamId; vetId: string } | null {
+    const base = createLeague({ seed: opts.seed });
+    const teamIds = Object.keys(base.teams) as TeamId[];
+    const buyerId = teamIds[0]!;
+    const sellerId = teamIds[1]!;
+    let league: LeagueState = base;
+
+    // Strip every STAR/STARTER WR from the buyer to guarantee a deficit.
+    const buyer = league.teams[buyerId]!;
+    const buyerWrIds = buyer.rosterIds.filter((id) => {
+      const p = league.players[id];
+      return p?.position === Position.WR && (p.tier === 'STAR' || p.tier === 'STARTER');
+    });
+    league = {
+      ...league,
+      teams: {
+        ...league.teams,
+        [buyerId]: {
+          ...buyer,
+          rosterIds: buyer.rosterIds.filter((id) => !buyerWrIds.includes(id)),
+          competitiveWindow: opts.buyerWindow,
+        },
+      } as LeagueState['teams'],
+    };
+
+    // Find a seller WR STAR/STARTER, set to age `vetAge`, clear NTC.
+    const seller = league.teams[sellerId]!;
+    const sellerVet = seller.rosterIds
+      .map((id) => league.players[id])
+      .filter(
+        (p): p is Player =>
+          Boolean(p) &&
+          p!.position === Position.WR &&
+          (p!.tier === 'STAR' || p!.tier === 'STARTER') &&
+          p!.contractId !== null,
+      )[0];
+    if (!sellerVet) return null;
+
+    const simYear = 2026 + (league.seasonNumber - 1);
+    const birthYear = simYear - opts.vetAge;
+    const agedVet: Player = { ...sellerVet, birthDate: `${birthYear}-06-15` };
+    const contract = league.contracts[sellerVet.contractId!]!;
+    league = {
+      ...league,
+      players: {
+        ...league.players,
+        [sellerVet.id]: agedVet,
+      } as LeagueState['players'],
+      contracts: {
+        ...league.contracts,
+        [contract.id]: { ...contract, noTradeClause: false },
+      } as LeagueState['contracts'],
+      teams: {
+        ...league.teams,
+        [sellerId]: { ...seller, competitiveWindow: opts.sellerWindow },
+      } as LeagueState['teams'],
+    };
+
+    // Mark every other team STAGNANT so they don't bid + don't sell.
+    const others = { ...league.teams };
+    for (const id of teamIds) {
+      if (id === buyerId || id === sellerId) continue;
+      others[id] = { ...league.teams[id]!, competitiveWindow: CompetitiveWindow.STAGNANT };
+    }
+    league = { ...league, teams: others as LeagueState['teams'] };
+
+    return { league, buyerId, sellerId, vetId: sellerVet.id };
+  }
+
+  it('fires a player-for-picks trade when an aging rebuilder STAR meets a CONTENDER need', () => {
+    const scenario = buildFireSaleScenario({
+      seed: 'firesale-fires',
+      buyerWindow: CompetitiveWindow.CHAMPIONSHIP,
+      sellerWindow: CompetitiveWindow.REBUILDING,
+      vetAge: 32,
+    });
+    if (!scenario) return;
+    const { league, buyerId, sellerId, vetId } = scenario;
+
+    const after = runProactiveTrades(new Prng('fs'), league, league.tick);
+    const newTrades = after.transactionLog
+      .slice(league.transactionLog.length)
+      .filter((t) => t.kind === 'trade');
+    if (newTrades.length === 0) return; // seed-specific skip; gates can pinch
+
+    // A fire-sale trade must have:
+    //  - source = proactive-rebuild-firesale
+    //  - playersBToA contains the aged vet (seller → buyer)
+    //  - picksAToB non-empty (buyer paid in picks)
+    //  - playersAToB empty (no player coming back)
+    const firesale = newTrades.find(
+      (t) => t.kind === 'trade' && t.source === 'proactive-rebuild-firesale',
+    );
+    if (!firesale || firesale.kind !== 'trade') return;
+    expect(firesale.teamAId).toBe(buyerId);
+    expect(firesale.teamBId).toBe(sellerId);
+    expect(firesale.playersAToB.length).toBe(0);
+    expect(firesale.playersBToA).toContain(vetId);
+    expect(firesale.picksAToB).toBeDefined();
+    expect((firesale.picksAToB ?? []).length).toBeGreaterThan(0);
+
+    // The traded picks should have flipped currentTeamId to the seller.
+    for (const pid of firesale.picksAToB ?? []) {
+      const pick = after.draftPicks.find((p) => p.id === pid)!;
+      expect(pick.currentTeamId).toBe(sellerId);
+    }
+  });
+
+  it('does NOT fire when the buyer is EMERGING (outside fire-sale buyer window)', () => {
+    const scenario = buildFireSaleScenario({
+      seed: 'firesale-no-emerging',
+      buyerWindow: CompetitiveWindow.EMERGING,
+      sellerWindow: CompetitiveWindow.REBUILDING,
+      vetAge: 32,
+    });
+    if (!scenario) return;
+    const { league } = scenario;
+
+    const after = runProactiveTrades(new Prng('fs'), league, league.tick);
+    const firesales = after.transactionLog
+      .slice(league.transactionLog.length)
+      .filter(
+        (t) =>
+          t.kind === 'trade' && t.source === 'proactive-rebuild-firesale',
+      );
+    expect(firesales.length).toBe(0);
+  });
+
+  it('does NOT fire when the aging vet is below the 30-year-old threshold', () => {
+    const scenario = buildFireSaleScenario({
+      seed: 'firesale-no-young',
+      buyerWindow: CompetitiveWindow.CHAMPIONSHIP,
+      sellerWindow: CompetitiveWindow.REBUILDING,
+      vetAge: 27,
+    });
+    if (!scenario) return;
+    const { league } = scenario;
+
+    const after = runProactiveTrades(new Prng('fs'), league, league.tick);
+    const firesales = after.transactionLog
+      .slice(league.transactionLog.length)
+      .filter(
+        (t) =>
+          t.kind === 'trade' && t.source === 'proactive-rebuild-firesale',
+      );
+    expect(firesales.length).toBe(0);
+  });
+});

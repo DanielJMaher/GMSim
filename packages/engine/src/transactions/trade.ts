@@ -60,6 +60,7 @@ export interface TradeMetadata {
   source?:
     | 'proactive-need'
     | 'proactive-fit-swap'
+    | 'proactive-rebuild-firesale'
     | 'request-driven'
     | 'manual';
   /** Doc 14 5-factor breakdown from team A's perspective. */

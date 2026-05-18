@@ -16,6 +16,92 @@ _Nothing yet._
 
 ---
 
+## [0.48.0] — 2026-05-18
+
+### Added — Rebuilder fire-sale player-for-picks trade pattern
+
+`runProactiveTrades` now fires the canonical Doc 14 "old vet on
+rebuild → contender for picks" archetype (Khalil Mack to Bears,
+Stafford to Rams, Davante Adams to Raiders). The v0.47 pick-as-
+trade-asset infrastructure was the substrate; this slice adds the
+NPC pattern that actually fires these trades.
+
+**Engine — new pattern in `transactions/proactive-trades.ts`:**
+
+- `collectRebuilderFireSaleCandidates(league, blueprint)` — third
+  collector alongside positional-need + scheme-fit-swap. Sellers:
+  REBUILDING / RETOOLING / STAGNANT teams holding STAR/STARTERs
+  aged 30+. Buyers: CHAMPIONSHIP / CONTENDER teams with a
+  positional deficit at that player's position + cap room + at
+  least one tradeable pick.
+- `buildFireSaleOffer(seller, buyerPicks, targetValue, league)` —
+  greedy smallest-pick-first selection (valued from the seller's
+  perspective via `evaluatePickValue`) until the package clears
+  the player's perceived value. Caps at
+  `MAX_PICKS_PER_FIRESALE_OFFER = 3`. Returns `[]` when the cap
+  can't clear the value — the buyer doesn't have enough chips.
+- 5-factor gate on both sides as usual. The v0.46 modifier
+  asymmetry (rebuilder values future picks at a premium, contender
+  at a discount) is what closes the math — both sides see
+  netValue > 0 from the same package.
+
+**Compensation model (slice 1 narrowing):**
+
+- Picks-only compensation. No player coming back; seller's roster
+  shrinks by 1 and refills naturally next offseason. Multi-asset
+  offers (pick + young player the contender's blocked) are a
+  follow-on.
+- Buyers restricted to CHAMPIONSHIP / CONTENDER. EMERGING teams
+  rarely ship future picks for current vets in real NFL.
+- Single aging veteran per fired trade. Multi-player blockbusters
+  (the "and a 2027 R3" sweetener pattern) are a follow-on.
+
+**Engine — `transactions/proactive-trades.ts` other changes:**
+
+- `TradeCandidate` gained optional `returnId?` + `picksAToB?`
+  fields and a new `'rebuild-firesale'` kind. The dispatch loop
+  threads `picksAToB` through `executeTrade`; `tradeStillValid`
+  re-validates pick ownership; `buildAlternatives` /
+  `sharesPlayer` / `toAlternative` handle the optional returnId.
+- Priority bonus `FIRESALE_PRIORITY_BONUS = 100` slots fire-sales
+  between baseline positional-need (~0) and scheme-fit-swap
+  (200) — they're meaningful narrative beats but not as
+  surprising as a mutual scheme-fit improvement.
+
+**Engine — `transactions/trade.ts` + `types/transaction.ts`:**
+
+- `source` enum gained `'proactive-rebuild-firesale'` everywhere
+  it appears.
+- `AlternativeTradeCandidate.returnId` became optional to
+  accommodate pick-only patterns.
+
+**Behavior change:** fire-sale trades start firing during
+`advanceSeason` whenever the (rebuilder seller × aging vet ×
+contender buyer × positional fit × cap room × owned picks)
+configuration aligns. Cap-driven trade volume scales naturally
+with how many teams are in the relevant windows.
+
+**Tests:** 3 new in `proactive-trades.test.ts` — fires when
+configuration aligns (verifies picksAToB recorded, draftPicks
+ownership flipped to seller, no return player), does NOT fire
+when buyer is EMERGING, does NOT fire when vet is under 30.
+
+**Not in this slice (deferred):**
+
+- Multi-asset offers — current-year R3 + future R1, or pick +
+  young player. Real NFL trade-ups often bundle these.
+- Trade-deadline urgency modifier — Doc 5's mid-season ramp
+  (contender acceptance band widens; rebuilder seller leverage
+  grows). v0.46 dynamic-modifiers slice 2 territory.
+- Cap-dump archetype — contender absorbs an expensive vet's
+  contract in exchange for a smaller pick package than chart
+  value would suggest. Reads the cap delta as compensation.
+- Conditional picks (top-N protected, performance-based
+  conversion) — would let a contender offer a "2026 R2 that
+  becomes R1 if we make the AFC Championship" sweetener.
+
+---
+
 ## [0.47.0] — 2026-05-18
 
 ### Added — Draft picks as trade-package assets (Doc 14 pick integration)

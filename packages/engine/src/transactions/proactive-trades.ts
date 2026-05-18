@@ -1,7 +1,8 @@
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
-import type { PlayerId, TeamId } from '../types/ids.js';
+import type { DraftPickAsset } from '../types/college.js';
+import type { PlayerId, TeamId, DraftPickId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
 import type {
   OffensiveSchemeArchetype,
@@ -15,8 +16,11 @@ import { schemeFitForPlayer } from '../scheme/fit.js';
 import { executeTrade } from './trade.js';
 import {
   evaluateTradePackage,
+  evaluatePlayerValue,
+  evaluatePickValue,
   type TradePackageEvaluation,
 } from '../trade/value.js';
+import { ageOfPlayer } from '../season/development.js';
 import type { AlternativeTradeCandidate } from '../types/transaction.js';
 
 /** Max alternatives persisted on each fired trade transaction. */
@@ -88,6 +92,7 @@ export function runProactiveTrades(
   const candidates: TradeCandidate[] = [
     ...collectPositionalNeedCandidates(league, blueprintByPos),
     ...collectSchemeFitSwapCandidates(league),
+    ...collectRebuilderFireSaleCandidates(league, blueprintByPos),
   ];
 
   // Highest priority first; deterministic tiebreak.
@@ -130,14 +135,19 @@ export function runProactiveTrades(
       working = executeTrade(working, {
         teamAId: c.buyerId,
         teamBId: c.sellerId,
-        playersAToB: [c.returnId],
+        playersAToB: c.returnId ? [c.returnId] : [],
         playersBToA: [c.acquireId],
+        ...(c.picksAToB && c.picksAToB.length > 0
+          ? { picksAToB: c.picksAToB }
+          : {}),
         metadata: {
           initiatorTeamId: c.buyerId,
           source:
             c.kind === 'scheme-fit-swap'
               ? 'proactive-fit-swap'
-              : 'proactive-need',
+              : c.kind === 'rebuild-firesale'
+                ? 'proactive-rebuild-firesale'
+                : 'proactive-need',
           // teamA = buyer in our orientation.
           teamAValue: c.buyerEval,
           teamBValue: c.sellerEval,
@@ -173,7 +183,9 @@ function buildAlternatives(
   processedOutcomes: readonly CandidateOutcome[],
   allCandidates: readonly TradeCandidate[],
 ): AlternativeTradeCandidate[] {
-  const sharedPlayerIds = new Set<PlayerId>([fired.acquireId, fired.returnId]);
+  const sharedPlayerIds = new Set<PlayerId>(
+    fired.returnId ? [fired.acquireId, fired.returnId] : [fired.acquireId],
+  );
   const results: AlternativeTradeCandidate[] = [];
   const seen = new Set<TradeCandidate>();
 
@@ -211,7 +223,9 @@ function sharesPlayer(
   candidate: TradeCandidate,
   ids: ReadonlySet<PlayerId>,
 ): boolean {
-  return ids.has(candidate.acquireId) || ids.has(candidate.returnId);
+  if (ids.has(candidate.acquireId)) return true;
+  if (candidate.returnId && ids.has(candidate.returnId)) return true;
+  return false;
 }
 
 function toAlternative(
@@ -222,7 +236,7 @@ function toAlternative(
     buyerId: c.buyerId,
     sellerId: c.sellerId,
     acquireId: c.acquireId,
-    returnId: c.returnId,
+    ...(c.returnId ? { returnId: c.returnId } : {}),
     buyerNetValue: c.buyerEval.netValue,
     sellerNetValue: c.sellerEval.netValue,
     reason,
@@ -234,11 +248,21 @@ interface TradeCandidate {
   sellerId: TeamId;
   /** Player the buyer is acquiring (moves seller -> buyer). */
   acquireId: PlayerId;
-  /** Player the buyer is sending back (moves buyer -> seller). */
-  returnId: PlayerId;
+  /**
+   * Player the buyer is sending back (moves buyer -> seller). Undefined
+   * for pick-only compensation patterns (v0.48+ rebuild-firesale).
+   */
+  returnId?: PlayerId;
+  /**
+   * Draft picks moving buyer -> seller as compensation. Empty (or
+   * undefined) for traditional player-for-player patterns. Used by
+   * v0.48+ rebuild-firesale where a contender pays a rebuilder in
+   * future picks for an aging veteran.
+   */
+  picksAToB?: readonly DraftPickId[];
   /** Higher = preferred. Used to order the execution queue. */
   priority: number;
-  kind: 'positional-need' | 'scheme-fit-swap';
+  kind: 'positional-need' | 'scheme-fit-swap' | 'rebuild-firesale';
   /** Doc 14 5-factor evaluation from the buyer's perspective. */
   buyerEval: TradePackageEvaluation;
   /** Doc 14 5-factor evaluation from the seller's perspective. */
@@ -468,6 +492,170 @@ function collectSchemeFitSwapCandidates(league: LeagueState): TradeCandidate[] {
 }
 
 /**
+ * Pass 3 (v0.48.0+): rebuilder fire-sale for picks. A REBUILDING /
+ * RETOOLING / STAGNANT team holding an aging STAR/STARTER (30+)
+ * ships them to a CHAMPIONSHIP/CONTENDER buyer with positional
+ * depth need; buyer pays in future picks, no player coming back.
+ *
+ * Doc 14's canonical "old vet on rebuild → contender for picks"
+ * archetype (Khalil Mack to Bears, Stafford to Rams). The Doc 5
+ * dynamic-modifier asymmetry (rebuilder values future picks at a
+ * premium, contender at a discount) is what makes the math close
+ * — both sides perceive netValue > 0 from the same package.
+ *
+ * Slice 1 narrowing:
+ *   - Buyers limited to CHAMPIONSHIP/CONTENDER (EMERGING teams
+ *     rarely ship future picks for current vets in real NFL)
+ *   - Compensation is picks only (no return player)
+ *   - At most {@link MAX_PICKS_PER_FIRESALE_OFFER} picks per offer
+ *   - Single aging veteran per fired trade
+ *
+ * Future slices can layer multi-asset offers (pick + young player
+ * the contender's blocked), tag the trade-deadline urgency modifier
+ * for the buyer (Doc 5 mid-season ramp), and surface compensation
+ * for cap-dump scenarios (contender absorbs salary in exchange for
+ * a smaller pick package).
+ */
+const REBUILDER_VETERAN_MIN_AGE = 30;
+const MAX_PICKS_PER_FIRESALE_OFFER = 3;
+/** Slightly outranks plain positional-need but under scheme-fit-swap. */
+const FIRESALE_PRIORITY_BONUS = 100;
+
+const FIRESALE_BUYER_WINDOWS: ReadonlySet<CompetitiveWindow> = new Set([
+  CompetitiveWindow.CHAMPIONSHIP,
+  CompetitiveWindow.CONTENDER,
+]);
+
+function collectRebuilderFireSaleCandidates(
+  league: LeagueState,
+  blueprintByPos: Map<Position, number>,
+): TradeCandidate[] {
+  const out: TradeCandidate[] = [];
+  const teamIds = (Object.keys(league.teams) as TeamId[]).sort();
+
+  // Index pick assets by current owner — saves an O(n) scan per buyer.
+  const picksByOwner = new Map<TeamId, DraftPickAsset[]>();
+  for (const p of league.draftPicks) {
+    let bucket = picksByOwner.get(p.currentTeamId);
+    if (!bucket) {
+      bucket = [];
+      picksByOwner.set(p.currentTeamId, bucket);
+    }
+    bucket.push(p);
+  }
+
+  for (const sellerId of teamIds) {
+    const seller = league.teams[sellerId]!;
+    if (!REBUILD_WINDOWS.has(seller.competitiveWindow)) continue;
+
+    // Aging STAR/STARTERs with valid contracts + no NTC.
+    const agingVets: Player[] = [];
+    for (const playerId of seller.rosterIds) {
+      const player = league.players[playerId];
+      if (!player) continue;
+      if (player.tier !== 'STAR' && player.tier !== 'STARTER') continue;
+      if (ageOfPlayer(player, league.seasonNumber) < REBUILDER_VETERAN_MIN_AGE) continue;
+      if (!player.contractId) continue;
+      const contract = league.contracts[player.contractId];
+      if (!contract || contract.noTradeClause) continue;
+      agingVets.push(player);
+    }
+    if (agingVets.length === 0) continue;
+
+    // Seller needs baseline cap room (the outgoing vet's proration
+    // accelerates as dead money — same constraint as other passes).
+    const sellerCapRoom = league.salaryCap - teamCapUsage(seller, league);
+    if (sellerCapRoom < PROACTIVE_TRADE_CAP_SAFETY) continue;
+
+    for (const acquire of agingVets) {
+      for (const buyerId of teamIds) {
+        if (buyerId === sellerId) continue;
+        const buyer = league.teams[buyerId]!;
+        if (!FIRESALE_BUYER_WINDOWS.has(buyer.competitiveWindow)) continue;
+
+        // Buyer must have a positional hole at the vet's position.
+        const buyerNeeds = positionDeficits(buyer, league, blueprintByPos);
+        if (!buyerNeeds.has(acquire.position)) continue;
+
+        // Buyer cap room for the vet's current hit + safety.
+        const acquireContract = league.contracts[acquire.contractId!]!;
+        const buyerCapRoom = league.salaryCap - teamCapUsage(buyer, league);
+        const acquireHit = currentCapHit(acquireContract);
+        if (buyerCapRoom < acquireHit + PROACTIVE_TRADE_CAP_SAFETY) continue;
+
+        const buyerPicks = picksByOwner.get(buyerId) ?? [];
+        if (buyerPicks.length === 0) continue;
+
+        // Offer: smallest picks from seller's perspective until they
+        // perceive the package as ≥ the vet's value. Minimizes
+        // over-pay (the same greedy-from-smallest pattern the
+        // trade-up evaluator uses).
+        const sellerVetValue = evaluatePlayerValue(seller, acquire, league).total;
+        const offer = buildFireSaleOffer(seller, buyerPicks, sellerVetValue, league);
+        if (offer.length === 0) continue;
+
+        // 5-factor gate — both sides must perceive a positive net.
+        // Buyer's perception of the picks (low — contender modifiers
+        // discount future picks) vs the vet (high — win-now timing
+        // premium) drives buyer netValue > 0 naturally; rebuilder's
+        // perception is the mirror image.
+        const buyerEval = evaluateTradePackage(buyer, [acquire], [], league, {
+          outgoing: offer,
+        });
+        if (buyerEval.netValue <= 0) continue;
+        const sellerEval = evaluateTradePackage(seller, [], [acquire], league, {
+          incoming: offer,
+        });
+        if (sellerEval.netValue <= 0) continue;
+
+        const priority =
+          FIRESALE_PRIORITY_BONUS + (buyerEval.netValue + sellerEval.netValue) * 10;
+
+        out.push({
+          buyerId,
+          sellerId,
+          acquireId: acquire.id,
+          picksAToB: offer.map((p) => p.id),
+          priority,
+          kind: 'rebuild-firesale',
+          buyerEval,
+          sellerEval,
+        });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Greedy construction of the smallest pick package (by the seller's
+ * perceived value) that clears `targetValue`. Caps at
+ * {@link MAX_PICKS_PER_FIRESALE_OFFER}; returns `[]` when the cap is
+ * hit without clearing — the buyer can't make the deal happen.
+ */
+function buildFireSaleOffer(
+  seller: TeamState,
+  availablePicks: readonly DraftPickAsset[],
+  targetValue: number,
+  league: LeagueState,
+): DraftPickAsset[] {
+  const valued = availablePicks
+    .map((p) => ({ pick: p, value: evaluatePickValue(seller, p, league).total }))
+    .filter((x) => x.value > 0)
+    .sort((a, b) => a.value - b.value);
+
+  const chosen: DraftPickAsset[] = [];
+  let total = 0;
+  for (const v of valued) {
+    if (chosen.length >= MAX_PICKS_PER_FIRESALE_OFFER) break;
+    chosen.push(v.pick);
+    total += v.value;
+    if (total >= targetValue) break;
+  }
+  return total >= targetValue ? chosen : [];
+}
+
+/**
  * Compute positional deficits for a team — positions where they have
  * fewer STAR+STARTER bodies than the blueprint asks for. Returns the
  * map of position -> deficit, only populated for positions with > 0
@@ -602,18 +790,39 @@ function tradeStillValid(league: LeagueState, c: TradeCandidate): boolean {
   const seller = league.teams[c.sellerId];
   if (!buyer || !seller) return false;
   if (!seller.rosterIds.includes(c.acquireId)) return false;
-  if (!buyer.rosterIds.includes(c.returnId)) return false;
   const acquire = league.players[c.acquireId];
-  const returnPlayer = league.players[c.returnId];
-  if (!acquire?.contractId || !returnPlayer?.contractId) return false;
+  if (!acquire?.contractId) return false;
   const acquireContract = league.contracts[acquire.contractId];
-  const returnContract = league.contracts[returnPlayer.contractId];
-  if (!acquireContract || !returnContract) return false;
-  if (acquireContract.noTradeClause || returnContract.noTradeClause) return false;
+  if (!acquireContract) return false;
+  if (acquireContract.noTradeClause) return false;
+
+  // Validate return player if there is one.
+  let returnHit = 0;
+  if (c.returnId) {
+    if (!buyer.rosterIds.includes(c.returnId)) return false;
+    const returnPlayer = league.players[c.returnId];
+    if (!returnPlayer?.contractId) return false;
+    const returnContract = league.contracts[returnPlayer.contractId];
+    if (!returnContract) return false;
+    if (returnContract.noTradeClause) return false;
+    returnHit = currentCapHit(returnContract);
+  }
+
+  // Validate any pick assets the buyer is sending — they must still
+  // own each one (a prior fired trade may have shipped one elsewhere).
+  if (c.picksAToB && c.picksAToB.length > 0) {
+    const pickById = new Map<DraftPickId, DraftPickAsset>();
+    for (const p of league.draftPicks) pickById.set(p.id, p);
+    for (const id of c.picksAToB) {
+      const pick = pickById.get(id);
+      if (!pick) return false;
+      if (pick.currentTeamId !== c.buyerId) return false;
+    }
+  }
+
   // Cap-safety guard. See PROACTIVE_TRADE_CAP_SAFETY rationale.
   const buyerCapRoom = league.salaryCap - teamCapUsage(buyer, league);
   const acquireHit = currentCapHit(acquireContract);
-  const returnHit = currentCapHit(returnContract);
   if (buyerCapRoom < acquireHit - returnHit + PROACTIVE_TRADE_CAP_SAFETY) return false;
   const sellerCapRoom = league.salaryCap - teamCapUsage(seller, league);
   if (sellerCapRoom < PROACTIVE_TRADE_CAP_SAFETY) return false;

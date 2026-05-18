@@ -166,6 +166,7 @@ export interface TransactionTrade extends TransactionBase {
   source?:
     | 'proactive-need'
     | 'proactive-fit-swap'
+    | 'proactive-rebuild-firesale'
     | 'request-driven'
     | 'manual';
   /** Doc 14 5-factor evaluation from team A's perspective. */
@@ -196,8 +197,11 @@ export interface AlternativeTradeCandidate {
   sellerId: TeamId;
   /** Player the buyer would have acquired (moves seller → buyer). */
   acquireId: PlayerId;
-  /** Player the buyer would have sent back (moves buyer → seller). */
-  returnId: PlayerId;
+  /**
+   * Player the buyer would have sent back (moves buyer → seller).
+   * Optional — pick-only patterns (v0.48+ rebuild-firesale) omit it.
+   */
+  returnId?: PlayerId;
   /** Buyer's perceived net value in $M. Always > 0 for candidates that passed the gate. */
   buyerNetValue: number;
   /** Seller's perceived net value in $M. May be ≤ 0 for failed-gate alternatives. */
