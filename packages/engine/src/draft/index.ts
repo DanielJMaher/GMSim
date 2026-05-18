@@ -129,3 +129,17 @@ export {
   DRAFT_PICK_HORIZON_YEARS,
   DRAFT_PICK_ROUNDS,
 } from './picks.js';
+
+// Slice (v0.45.0): Trade-up firing within the draft event
+export {
+  evaluateTradeUpForPick,
+  applyTradeUpToWorkingAssets,
+  MAX_TRADE_UPS_PER_DRAFT,
+  TRADE_UP_TARGET_SLOT_CEILING,
+  MAX_FUTURE_PICKS_PER_OFFER,
+} from './trade-up.js';
+export type {
+  TradeUpProposal,
+  TradeUpRecord,
+  EvaluateTradeUpArgs,
+} from './trade-up.js';

@@ -6,6 +6,11 @@ import type { TeamState } from '../types/team.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import { promoteProspectToPlayer } from './promote.js';
+import {
+  evaluateTradeUpForPick,
+  applyTradeUpToWorkingAssets,
+  type TradeUpRecord,
+} from './trade-up.js';
 
 export interface RunDraftOptions {
   /** Order in which teams pick. Length sets how many picks fire. */
@@ -41,6 +46,15 @@ export interface DraftRunResult {
   removedFromCollegePool: ReadonlySet<PlayerId>;
   /** Pick asset ids consumed (v0.44.0+; empty when no pickAssets supplied). */
   consumedPickIds: ReadonlySet<DraftPickId>;
+  /**
+   * Trade-ups that fired during this draft run (v0.45.0+). Empty
+   * when `pickAssets` wasn't supplied (the trade-up evaluator
+   * requires asset state to mutate). `applyDraftResult` reads this
+   * to propagate future-pick ownership flips into
+   * `LeagueState.draftPicks` and `LeagueState.draftHistory` retains
+   * one record per trade-up via inspection of the picks themselves.
+   */
+  tradeUps: readonly TradeUpRecord[];
 }
 
 /**
@@ -85,12 +99,55 @@ export function runDraft(
   const rosterAdditions = new Map<TeamId, PlayerId[]>();
   const removed = new Set<PlayerId>();
   const consumedPickIds = new Set<DraftPickId>();
+  const tradeUps: TradeUpRecord[] = [];
+
+  // Working copy of this round's pick assets — trade-ups mutate
+  // currentTeamId on the slots that get swapped. The picking team at
+  // each slot is derived from this list (NOT options.draftOrder),
+  // which is the original ordering and stale once a trade-up fires.
+  const workingRoundAssets: DraftPickAsset[] | null = options.pickAssets
+    ? [...options.pickAssets]
+    : null;
 
   for (let i = 0; i < options.draftOrder.length; i++) {
-    const teamId = options.draftOrder[i]!;
+    // Trade-up check fires BEFORE the pick so the picking team
+    // reflects any same-round ownership flip. Only runs when the
+    // caller provided `pickAssets` (the evaluator mutates the
+    // working list).
+    if (workingRoundAssets) {
+      const overallPickAtSlot = startingOverallPick + i;
+      const proposal = evaluateTradeUpForPick({
+        onClockIndex: i,
+        overallPick: overallPickAtSlot,
+        round,
+        seasonNumber: options.seasonNumber,
+        workingRoundAssets,
+        draftBoards: league.draftBoards,
+        availableById,
+        fullDraftPicks: league.draftPicks,
+        tradeUpsFiredSoFar: tradeUps.length,
+      });
+      if (proposal) {
+        applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
+        tradeUps.push({
+          seasonNumber: options.seasonNumber,
+          round,
+          overallPick: overallPickAtSlot,
+          onClockTeamId: proposal.onClockTeamId,
+          onClockAssetId: proposal.onClockAssetId,
+          tradingUpTeamId: proposal.tradingUpTeamId,
+          swapAssetId: proposal.swapAssetId,
+          futurePickIds: proposal.futurePickIds,
+          targetCollegePlayerId: proposal.targetCollegePlayerId,
+          ratio: proposal.ratio,
+        });
+      }
+    }
+
+    const pickAsset = workingRoundAssets ? workingRoundAssets[i] : undefined;
+    const teamId = pickAsset?.currentTeamId ?? options.draftOrder[i]!;
     const team = league.teams[teamId];
     if (!team) continue;
-    const pickAsset = options.pickAssets?.[i];
 
     const overallPick = startingOverallPick + i;
     const board = league.draftBoards[teamId] ?? [];
@@ -158,6 +215,7 @@ export function runDraft(
     rosterAdditionsByTeam: rosterAdditions,
     removedFromCollegePool: removed,
     consumedPickIds,
+    tradeUps,
   };
 }
 
@@ -191,9 +249,29 @@ export function applyDraftResult(
   );
 
   // Draft pick assets: drop the ones consumed by this draft run.
-  const draftPicks = result.consumedPickIds.size > 0
+  let draftPicks = result.consumedPickIds.size > 0
     ? league.draftPicks.filter((p) => !result.consumedPickIds.has(p.id))
     : league.draftPicks;
+
+  // Trade-ups: future-year picks that flipped ownership during the
+  // round need their currentTeamId updated in the league asset list
+  // so the next year's draft sees the new owner. Same-round swaps
+  // are already reflected in the consumed picks (the new owner used
+  // their swap asset to make a pick this round), so they don't need
+  // additional handling here.
+  if (result.tradeUps.length > 0) {
+    const futureFlips = new Map<DraftPickId, TeamId>();
+    for (const tu of result.tradeUps) {
+      for (const fid of tu.futurePickIds) {
+        futureFlips.set(fid, tu.onClockTeamId);
+      }
+    }
+    if (futureFlips.size > 0) {
+      draftPicks = draftPicks.map((p) =>
+        futureFlips.has(p.id) ? { ...p, currentTeamId: futureFlips.get(p.id)! } : p,
+      );
+    }
+  }
 
   return {
     ...league,

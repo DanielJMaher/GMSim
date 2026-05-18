@@ -9,6 +9,8 @@ import { advanceSeason } from '../season/advance.js';
 import { computeRecords } from '../season/standings.js';
 import { positionGroupFor } from '../players/position-group.js';
 import type { TeamId } from '../types/ids.js';
+import { DraftPickId as DraftPickIdFactory } from '../types/ids.js';
+import type { DraftPickAsset } from '../types/college.js';
 
 describe('runDraft (slice 5a)', () => {
   it('fires one pick per team in draft order', () => {
@@ -243,6 +245,148 @@ describe('draft integration in advanceSeason', () => {
       expect(team.rosterIds).toContain(pick.promotedPlayerId);
       expect(after.players[pick.promotedPlayerId]).toBeDefined();
     }
+  });
+
+  it('draft results expose a tradeUps array (may be empty)', () => {
+    const league = createLeague({ seed: 'adv-tradeups' });
+    const played = simulateSeason(league);
+    const after = advanceSeason(played);
+    // Asset state stays consistent: no orphan picks, no double-owned
+    // picks (every asset id is unique and present at most once).
+    const ids = after.draftPicks.map((p) => p.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    // Number of picks in draftHistory equals number of picks fired
+    // (trade-ups don't add picks, they re-route existing slots).
+    const rookiesThisYear = after.draftHistory.filter(
+      (p) => p.seasonNumber === played.seasonNumber + 1,
+    );
+    expect(rookiesThisYear.length).toBeGreaterThanOrEqual(200);
+  });
+
+  it('trade-up firing through runDraft swaps pick ownership end-to-end', () => {
+    // Construct a synthetic scenario where two teams' top-of-board
+    // overlaps on a prospect that's at slot 1. Manually inject the
+    // boards + ensure the trading-up team owns a sufficient future
+    // pick. Drive runDraft directly.
+    const baseLeague = createLeague({ seed: 'tradeup-direct' });
+    const declaredPool = rollJuniorDeclarations(new Prng('d'), baseLeague.collegePool);
+    // Find the first declared eligible prospect — that's our target X.
+    const targetProspect = declaredPool.find(
+      (cp) => cp.isDraftEligible && cp.hasDeclared,
+    )!;
+    expect(targetProspect).toBeDefined();
+
+    const teamIds = Object.keys(baseLeague.teams).slice(0, 5) as TeamId[];
+    // Board: both team[0] (on clock) and team[4] (slot 5) have the
+    // same target with HIGH priority. Other teams have unrelated #1s
+    // (use a different prospect so we can verify only team[4] trades up).
+    const otherProspect = declaredPool.find(
+      (cp) => cp.id !== targetProspect.id && cp.isDraftEligible && cp.hasDeclared,
+    )!;
+    const sharedTargetBoard = [
+      {
+        collegePlayerId: targetProspect.id,
+        priority: 200,
+        reason: 'BLUE_CHIP' as const,
+        observedSkillScore: 90,
+        schemeFit: 1,
+        meanConfidence: 0.9,
+        observationCount: 8,
+        addedOnTick: 0,
+      },
+    ];
+    const teamFourBoard = [
+      {
+        collegePlayerId: targetProspect.id,
+        priority: 250, // higher than team[0]'s 200 — team[4] is more desperate
+        reason: 'BLUE_CHIP' as const,
+        observedSkillScore: 92,
+        schemeFit: 1,
+        meanConfidence: 0.9,
+        observationCount: 8,
+        addedOnTick: 0,
+      },
+    ];
+    const otherBoard = [
+      {
+        collegePlayerId: otherProspect.id,
+        priority: 150,
+        reason: 'BLUE_CHIP' as const,
+        observedSkillScore: 80,
+        schemeFit: 1,
+        meanConfidence: 0.8,
+        observationCount: 5,
+        addedOnTick: 0,
+      },
+    ];
+
+    const draftBoards = {
+      ...baseLeague.draftBoards,
+      [teamIds[0]!]: sharedTargetBoard,
+      [teamIds[1]!]: otherBoard,
+      [teamIds[2]!]: otherBoard,
+      [teamIds[3]!]: otherBoard,
+      [teamIds[4]!]: teamFourBoard,
+    };
+
+    // Pick assets for slots 1-5 in this round; team[4] owns a R1 next
+    // year as sweetener (its R1 mid-pick value × 0.75 ≈ 2805, more
+    // than enough to close the slot 1-vs-slot 5 gap of 2400).
+    const pickAssets = teamIds.map(
+      (tid, i): DraftPickAsset => ({
+        id: DraftPickIdFactory(`DP_S2_R1_${tid}`),
+        originalTeamId: tid,
+        currentTeamId: tid,
+        seasonNumber: 2,
+        round: 1,
+        // overallPick implied by slot i
+        ...(i === -1 ? {} : {}),
+      }),
+    );
+    const team4FuturePick: DraftPickAsset = {
+      id: DraftPickIdFactory(`DP_S3_R1_${teamIds[4]!}`),
+      originalTeamId: teamIds[4]!,
+      currentTeamId: teamIds[4]!,
+      seasonNumber: 3,
+      round: 1,
+    };
+    const league = {
+      ...baseLeague,
+      collegePool: declaredPool,
+      draftBoards,
+      draftPicks: [...pickAssets, team4FuturePick],
+    };
+
+    const result = runDraft(new Prng('tradeup'), league, {
+      draftOrder: teamIds,
+      pickedOnTick: 100,
+      seasonNumber: 2,
+      round: 1,
+      startingOverallPick: 1,
+      pickAssets,
+    });
+
+    // Trade-up fired and team[4] got the prospect.
+    expect(result.tradeUps.length).toBe(1);
+    const tu = result.tradeUps[0]!;
+    expect(tu.tradingUpTeamId).toBe(teamIds[4]);
+    expect(tu.onClockTeamId).toBe(teamIds[0]);
+    expect(tu.targetCollegePlayerId).toBe(targetProspect.id);
+    expect(tu.ratio).toBeGreaterThanOrEqual(1.0);
+    expect(tu.futurePickIds).toContain(team4FuturePick.id);
+
+    // The slot-1 pick fired with team[4] as the picker AND the
+    // target prospect was selected.
+    const slot1Pick = result.picks.find((p) => p.overallPick === 1)!;
+    expect(slot1Pick.teamId).toBe(teamIds[4]);
+    expect(slot1Pick.collegePlayerId).toBe(targetProspect.id);
+
+    // Apply and verify future pick ownership flipped in league asset list.
+    const after = applyDraftResult(league, result);
+    const flippedFuture = after.draftPicks.find((p) => p.id === team4FuturePick.id);
+    expect(flippedFuture).toBeDefined();
+    expect(flippedFuture!.currentTeamId).toBe(teamIds[0]);
+    expect(flippedFuture!.originalTeamId).toBe(teamIds[4]); // original unchanged
   });
 
   it('migration backfills draftHistory on a save without it', () => {

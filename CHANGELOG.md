@@ -16,6 +16,117 @@ _Nothing yet._
 
 ---
 
+## [0.45.0] — 2026-05-17
+
+### Added — Draft trade-up firing (Doc 3 war-room, slice 1)
+
+Trade-ups now fire inside the live draft. The v0.44.0 `DraftPickAsset`
+infrastructure was the substrate; this slice wires NPC desire,
+chart-fair offer construction, and asset-ownership swaps into
+`runDraft` so a team holding a later slot can leapfrog the on-clock
+team when both boards converge on the same prospect.
+
+**Engine — new `engine/src/draft/trade-up.ts`:**
+
+- `evaluateTradeUpForPick({...})` — pure evaluator called per-pick
+  inside `runDraft`. Identifies the team further down the round most
+  desperate to land the on-clock team's top board target, builds the
+  smallest-overpay offer (their same-round pick + minimum future
+  picks via the Doc 5 chart) that brings the on-clock ratio ≥ 1.0.
+- `applyTradeUpToWorkingAssets(working, proposal)` — flips
+  `currentTeamId` on the on-clock + swap assets in the round's
+  working list. Future-pick ownership flips are surfaced on the
+  resulting `TradeUpRecord` and applied by `applyDraftResult` against
+  `LeagueState.draftPicks`.
+- Types: `TradeUpProposal` (under-consideration), `TradeUpRecord`
+  (durable, returned in `DraftRunResult`), `EvaluateTradeUpArgs`.
+- Constants:
+  - `MAX_TRADE_UPS_PER_DRAFT = 3` — real NFL R1 typically sees 2-4.
+  - `TRADE_UP_TARGET_SLOT_CEILING = 10` — Doc 5: "Trade-ups in Round
+    1, especially top 10, consistently show teams overpaying by
+    20-58%." Outside the top 10, chart premiums aren't worth the
+    future capital.
+  - `MAX_FUTURE_PICKS_PER_OFFER = 2` — caps sweetener depth.
+
+**Desire model (slice 1):**
+
+A team further down the round wants to trade up when their own
+top-of-board still-available prospect matches the on-clock team's
+top-of-board still-available prospect. Highest priority on that
+prospect wins the race — most desperate ≈ most willing to over-pay.
+
+**Acceptance:**
+
+Static Doc 5 base chart only. The on-clock team accepts when the
+ratio (received total / given total) ≥ 1.0. The trading-up team
+voluntarily over-pays as much as it takes to close the gap — Doc 5's
+"16-20% premium to move up in the early first round" is baked into
+how much gets offered, not into the acceptance threshold. Greedy
+selection adds the smallest-value future pick first, stopping as soon
+as the gap closes; this minimizes over-pay rather than maximizing it.
+
+**Future-pick valuation:**
+
+Future picks are valued at the round midpoint slot (R1=16, R2=48,
+R3=80, R4=112, R5=144, R6=176, R7=224) since the trading-up team's
+future standing isn't known. Doc 5's `yearsOut` discount stack
+applies (75%, 58%, 44% for 1, 2, 3 years out).
+
+**Wiring:**
+
+- `runDraft` now maintains a `workingRoundAssets` mutable copy of
+  the supplied `pickAssets` and consults `evaluateTradeUpForPick`
+  before each slot fires. The picking team is derived from the
+  working list's `currentTeamId` (not the original `draftOrder`),
+  which is now stale once a trade-up flips ownership.
+- `DraftRunResult` gained `tradeUps: readonly TradeUpRecord[]`.
+- `applyDraftResult` propagates future-pick `currentTeamId` flips
+  to `LeagueState.draftPicks` before the next round runs (same-round
+  swaps are already reflected via the consumed-pick filter).
+- `advanceSeason` is unchanged structurally — trade-ups happen
+  inside `runDraft` and round-2+ picks pick up the updated owner via
+  the existing per-round `picksForRoundInSlotOrder` call.
+
+**Behavior change:** trade-ups can now fire in healthy leagues during
+the season-N+1 draft. Cap: 3 per draft, top-10 slots only. Outcome
+depends on board overlap, which is driven by scouting/coaching
+quality + scheme convergence. Quiet drafts (no board overlap on
+top-10 prospects) produce zero trade-ups, just like the real NFL
+some years.
+
+**Public surface:** new exports `evaluateTradeUpForPick`,
+`applyTradeUpToWorkingAssets`, `MAX_TRADE_UPS_PER_DRAFT`,
+`TRADE_UP_TARGET_SLOT_CEILING`, `MAX_FUTURE_PICKS_PER_OFFER`, and
+types `TradeUpProposal`, `TradeUpRecord`, `EvaluateTradeUpArgs`.
+
+**Tests:** 8 new in `trade-up.test.ts` (slot ceiling, per-draft cap,
+no-overlap rejection, highest-priority-candidate selection, offer
+ratio ≥ 1.0, infeasible-offer rejection, sweetener cap, working-
+assets mutation). 2 new in `event.test.ts` (assets stay consistent
+through `advanceSeason`, synthetic trade-up scenario fires end-to-end
+with the target prospect landing on the trading-up team and the
+future pick's ownership flipped in `LeagueState.draftPicks`).
+
+**Not in this slice (deferred):**
+
+- Doc 5 dynamic situational modifiers — coaching hot-seat, GM
+  desperation, ownership philosophy, roster state, competitive
+  window. Each NPC team's chart shifts dynamically per organizational
+  state; reads from Living League. Substantial — also enables
+  acceptance bands narrower/wider than the static ratio-floor 1.0.
+- QB premium override — Doc 5 calls out 25-50% chart inflation when
+  a QB is the target; needs prospect-position lookup at the
+  evaluator level.
+- Cross-round trade-ups within the same draft (e.g., R2 pick + a R1
+  current-year for a higher R1) — current slice keeps compensation
+  to future picks only.
+- Doc 14 trade-evaluator pick integration — picks-as-trade-package
+  members in the existing player-trade evaluator.
+- Inspector visibility — surfacing each draft's trade-up history on
+  the Draft tab.
+
+---
+
 ## [0.44.0] — 2026-05-16
 
 ### Added — Draft pick assets as tradeable objects
