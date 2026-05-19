@@ -107,6 +107,13 @@ export {
   tickPhase,
   nextPhaseAfter,
   LIFECYCLE_ORDER,
+  phaseCalendarLabel,
+  phaseCalendarDate,
+  formatCalendarDate,
+  isTradeDeadlineWeek,
+  TRADE_DEADLINE_WEEK_INDEX,
+  SEASON_ONE_ANCHOR_YEAR,
+  CALENDAR_ANCHORS,
   advancePlayerDevelopment,
   ageOfPlayer,
   rollRetirement,
@@ -137,6 +144,8 @@ export {
   type NewsItem,
   type NewsSource,
   type NewsFeedOptions,
+  type CalendarDate,
+  type LifecyclePhase,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 

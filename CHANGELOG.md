@@ -16,6 +16,60 @@ _Nothing yet._
 
 ---
 
+## [0.57.0] — 2026-05-19
+
+### Added — Calendar layer for the lifecycle
+
+New `engine/src/season/calendar.ts` module turns the abstract
+`LifecyclePhase` (+ `currentWeek`) into human-readable labels and
+approximate calendar dates. Display-only layer — engine logic still
+keys off the phase enum + week index. The inspector can render
+"Week 5 · Oct 5" or "Mid-March · Free Agency" without re-deriving
+date arithmetic.
+
+**Public API additions**
+
+- `phaseCalendarLabel(phase, currentWeek?)` — short label, e.g.,
+  `"Week 8"`, `"Wild Card Round"`, `"Mid-March · Free Agency"`.
+- `phaseCalendarDate(phase, currentWeek, seasonNumber)` — `CalendarDate
+  | null`. Anchored on Sept 7 Week 1 of season 1 (2026); each
+  subsequent week advances 7 days. Offseason phases anchor on canonical
+  NFL dates (Super Bowl Feb 11, FA opens March 13, draft April 25,
+  etc.). `READY_FOR_NEXT_SEASON` returns `null`.
+- `formatCalendarDate(date)` — ISO `YYYY-MM-DD` string.
+- `isTradeDeadlineWeek(currentWeek)` + `TRADE_DEADLINE_WEEK_INDEX = 7`
+  — used by v0.58 to gate the trade-deadline urgency modifier on a
+  single in-season tick. Surfaced here because the deadline IS a
+  calendar fact (Tuesday after Week 8).
+- `CALENDAR_ANCHORS` — canonical date constants, exposed for any
+  consumer that wants the underlying anchors.
+
+**Anchors**
+
+| Phase                    | Anchor (kickoff year) |
+| ------------------------ | --------------------- |
+| Week 1                   | Sept 7                |
+| Trade deadline (Week 8)  | Oct 27                |
+| Wild Card                | Jan 13 (kickoff+1)    |
+| Super Bowl               | Feb 11 (kickoff+1)    |
+| Free Agency opens        | Mar 13 (kickoff+1)    |
+| Draft Day 1              | Apr 25 (kickoff+1)    |
+| UDFA signing             | Apr 28 (kickoff+1)    |
+
+These are deliberately stable across seasons (real NFL calendar
+shifts a day or two year-to-year; the simulation doesn't). The
+17-week engine season (one less than real NFL's 18) lands the
+playoffs a week earlier — Wild Card mid-January rather than
+mid-month-after.
+
+### Engine-only slice
+
+No LeagueState changes. No inspector wiring. The calendar is a pure
+display layer; consumers opt in. 19 new tests in `calendar.test.ts`.
+Full suite: 692 passing, 1 skipped.
+
+---
+
 ## [0.56.0] — 2026-05-19
 
 ### Added — Week-by-week + playoff-round ticks

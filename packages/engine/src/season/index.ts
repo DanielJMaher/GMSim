@@ -17,6 +17,16 @@ export {
   LIFECYCLE_ORDER,
   type LifecyclePhase,
 } from './lifecycle.js';
+export {
+  phaseCalendarLabel,
+  phaseCalendarDate,
+  formatCalendarDate,
+  isTradeDeadlineWeek,
+  TRADE_DEADLINE_WEEK_INDEX,
+  SEASON_ONE_ANCHOR_YEAR,
+  CALENDAR_ANCHORS,
+  type CalendarDate,
+} from './calendar.js';
 export { advancePlayerDevelopment, ageOfPlayer } from './development.js';
 export {
   rollRetirement,
