@@ -227,5 +227,20 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, tradeUpHistory: [] };
   }
 
+  // v0.53.1 hasReturnedToSchool flag on every CollegePlayer. Pre-
+  // v0.53.1 saves backfill to `false` everywhere — the next cycle's
+  // `rollJuniorDeclarations` will flip undeclared JRs to `true` on
+  // their next non-declaration roll.
+  if (next.collegePool.some((cp) => (cp as unknown as { hasReturnedToSchool?: boolean }).hasReturnedToSchool === undefined)) {
+    next = {
+      ...next,
+      collegePool: next.collegePool.map((cp) =>
+        (cp as unknown as { hasReturnedToSchool?: boolean }).hasReturnedToSchool === undefined
+          ? { ...cp, hasReturnedToSchool: false }
+          : cp,
+      ),
+    };
+  }
+
   return next;
 }

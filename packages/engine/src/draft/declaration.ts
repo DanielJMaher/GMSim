@@ -45,11 +45,15 @@ export function rollJuniorDeclarations(
     if (cp.classYear === 'SR' || cp.classYear === 'RS_SR') {
       return { ...cp, hasDeclared: true };
     }
-    // JR — tier-based roll.
+    // JR — tier-based roll. A JR who rolls non-declare is
+    // explicitly RETURNING to college; flag them so boards filter
+    // them out until they age into SR (next cycle).
     if (cp.classYear === 'JR') {
       const p = JR_DECLARATION_RATE[cp.tier];
       const declares = prng.fork(`decl:${cp.id}`).next() < p;
-      return declares ? { ...cp, hasDeclared: true } : cp;
+      return declares
+        ? { ...cp, hasDeclared: true }
+        : { ...cp, hasReturnedToSchool: true };
     }
     // Pre-JR: not eligible to declare yet.
     return cp;

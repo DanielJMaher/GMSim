@@ -293,35 +293,32 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     ),
   };
 
-  // Filter draftBoards to declared prospects (v0.52).
+  // Drop returning JRs from `draftBoards` before the snapshot
+  // (v0.53.1). At this point in the advance,
+  // `rollJuniorDeclarations` has flipped every JR to either
+  // `hasDeclared=true` (entering the draft) or
+  // `hasReturnedToSchool=true` (going back to school). Returning
+  // JRs aren't draft candidates this cycle — they should be off
+  // the team's board. SRs, RS_SRs, and declared JRs stay.
   //
-  // Boards were regenerated at the end of last advance — before this
-  // season's JR declarations rolled. Some board entries are
-  // eligibility-qualified JRs who DIDN'T declare and aren't draft
-  // candidates this year. `runDraft` already filters them out via
-  // `availableById` (declared+eligible), but the SNAPSHOT used by
-  // the inspector's draft-replay view would show them as if they
-  // were skipped board entries — confusing ("why didn't the team
-  // pick their #2?" — because #2 was still in college).
-  //
-  // Filtering here keeps boards consistent with what the team
-  // actually had to choose from. Engine behavior is unchanged
-  // (runDraft already skipped them); only the snapshot becomes
-  // accurate.
-  const declaredIds = new Set<PlayerId>();
+  // `runDraft` already filters returning JRs out via
+  // `availableById` (declared+eligible), but the SNAPSHOT also
+  // needs the filter so the inspector's draft-replay view doesn't
+  // show "skipped" entries who were actually back in college.
+  const returningIds = new Set<PlayerId>();
   for (const cp of offseason.collegePool) {
-    if (cp.hasDeclared) declaredIds.add(cp.id);
+    if (cp.hasReturnedToSchool) returningIds.add(cp.id);
   }
-  const declaredOnlyBoards: Record<string, readonly DraftBoardEntry[]> = {};
+  const draftCandidateBoards: Record<string, readonly DraftBoardEntry[]> = {};
   for (const teamId of Object.keys(offseason.draftBoards)) {
     const board = offseason.draftBoards[teamId as keyof typeof offseason.draftBoards] ?? [];
-    declaredOnlyBoards[teamId] = board.filter((e) =>
-      declaredIds.has(e.collegePlayerId),
+    draftCandidateBoards[teamId] = board.filter(
+      (e) => !returningIds.has(e.collegePlayerId),
     );
   }
   offseason = {
     ...offseason,
-    draftBoards: declaredOnlyBoards as typeof offseason.draftBoards,
+    draftBoards: draftCandidateBoards as typeof offseason.draftBoards,
   };
 
   // Draft event — 7 rounds, 32 picks each (224 total) via BPA-from-

@@ -16,6 +16,44 @@ _Nothing yet._
 
 ---
 
+## [0.53.1] — 2026-05-19
+
+### Fixed — Boards include the full draftable cohort; only explicit returners drop
+
+v0.53.0 over-filtered by hiding everyone with `hasDeclared=false`,
+which left the consensus board and team boards looking like
+"seniors only" between cycles. Daniel: "what we want is the
+consensus board and team boards to have every draftable prospect.
+Then after declaration any returning players are taken off the
+boards."
+
+**Fix: new `CollegePlayer.hasReturnedToSchool` flag** that
+distinguishes JRs who actively chose to return from JRs who simply
+haven't had their declaration roll yet:
+
+- `generateCollegePlayer` initializes the flag to `false`.
+- `rollJuniorDeclarations` flips a non-declaring JR to
+  `hasReturnedToSchool=true` (in addition to leaving `hasDeclared=false`).
+- `advanceCollegePool` resets the flag to `false` on aging — the
+  returner ages into SR (auto-declared) and is back in play.
+- `buildBoardForTeamWithNeed` filter changed from
+  `!hasDeclared` to `hasReturnedToSchool`. Pending JRs (pre-roll)
+  stay on the board; only post-roll returners drop off.
+- `advanceSeason` snapshot filter (v0.52) updated to the same
+  semantics — at draft time, returners are out; everyone else
+  who's draft-eligible is in.
+- Migration backfills `hasReturnedToSchool=false` on pre-v0.53.1
+  saves.
+
+The result Daniel wanted: every cycle the boards show the full
+draftable cohort (JRs + SRs + RS_SRs). After the declaration roll,
+the JRs who chose to return drop off. After the next aging cycle,
+they're back on (as SRs).
+
+**Engine suite:** 665 passing + 1 skipped.
+
+---
+
 ## [0.53.0] — 2026-05-19
 
 ### Fixed — Boards filter to declared prospects everywhere + inspector view default

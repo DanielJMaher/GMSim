@@ -204,6 +204,11 @@ export function advanceCollegePool(
       classYear: nextClass,
       isDraftEligible,
       hasDeclared,
+      // Reset hasReturnedToSchool on aging. A returning JR ages
+      // into SR (now auto-declared); their "returning" status
+      // applied only to the cycle they declined to declare in,
+      // not their SR year.
+      hasReturnedToSchool: false,
       collegeStats: newStats,
       injuryHistory: newInjuries,
     });

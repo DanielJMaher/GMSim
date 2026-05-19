@@ -369,6 +369,19 @@ export interface CollegePlayer {
    * offseason. False juniors stay in the pool another year.
    */
   hasDeclared: boolean;
+  /**
+   * True iff this prospect explicitly chose to return to college
+   * (a JR who rolled non-declare). Distinct from "hasDeclared=false"
+   * — a fresh JR who hasn't had their declaration roll yet is
+   * `hasDeclared=false` AND `hasReturnedToSchool=false` (i.e.,
+   * pending; still on the board). A JR who actively decided to
+   * return has `hasReturnedToSchool=true` and is removed from
+   * draft boards until the next aging cycle resets the flag (when
+   * they age into SR and auto-declare).
+   *
+   * v0.53.1+. Pre-v0.53.1 saves backfill to `false`.
+   */
+  hasReturnedToSchool: boolean;
 
   /** Birthdate in ISO YYYY-MM-DD; age derived from sim clock. */
   birthDate: string;

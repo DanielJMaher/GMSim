@@ -224,6 +224,7 @@ export function generateCollegePlayer(
     classYear: options.classYear,
     isDraftEligible,
     hasDeclared,
+    hasReturnedToSchool: false,
     birthDate,
     collegePosition,
     nflProjectedPosition: projection.projected,
