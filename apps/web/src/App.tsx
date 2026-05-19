@@ -1343,9 +1343,17 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
     out.sort((a, b) => b - a);
     return out;
   }, [league.draftBoardSnapshots]);
-  const [viewMode, setViewMode] = useState<'current' | number>(() =>
-    snapshotSeasons[0] ?? 'current',
-  );
+  // User-selected view, or null = auto-default to most-recent
+  // snapshot (falling back to 'current' if no snapshots exist).
+  // Derived as `viewMode` below so the panel re-resolves when
+  // snapshots appear mid-session (e.g., after the first
+  // simulate + advance) — the old useState lazy initializer
+  // captured an empty snapshotSeasons on first mount and stayed
+  // stuck on 'current' forever.
+  const [userViewMode, setUserViewMode] = useState<'current' | number | null>(null);
+  const viewMode: 'current' | number =
+    userViewMode ?? snapshotSeasons[0] ?? 'current';
+  const setViewMode = setUserViewMode;
   // Filter the board to prospects who did NOT get drafted in this
   // view's season. For 'current' the toggle is a no-op (no draft
   // has fired yet for the upcoming pool). For a snapshot, it

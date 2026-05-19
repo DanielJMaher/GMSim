@@ -319,8 +319,14 @@ function buildBoardForTeamWithNeed(
     const prospect = prospectById.get(collegePlayerId);
     if (!prospect) continue;
     // Boards are the "who could we actually pick" surface — keep
-    // them limited to draft-eligible prospects (JR / SR / RS_SR).
+    // them limited to draft-eligible prospects (JR / SR / RS_SR)
+    // AND declared (v0.53). A prospect who returned to school last
+    // cycle but isn't yet opted-in for the upcoming draft is
+    // off-the-board until they declare. SR / RS_SR auto-declare on
+    // aging (advanceCollegePool), so the steady-state board after
+    // each advance covers the upcoming-draft cohort.
     if (!prospect.isDraftEligible) continue;
+    if (!prospect.hasDeclared) continue;
 
     const ownObs = byProspect.get(collegePlayerId);
     const aggregated = ownObs

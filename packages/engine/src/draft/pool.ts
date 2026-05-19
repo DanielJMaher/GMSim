@@ -187,11 +187,23 @@ export function advanceCollegePool(
     const newInjuries = extendInjuryHistory(advancedPrng.fork('inj'), prospect, nextClass);
     const isDraftEligible =
       nextClass === 'JR' || nextClass === 'SR' || nextClass === 'RS_SR';
+    // v0.53: SR / RS_SR auto-declare at aging time. Without this, a
+    // prospect who didn't declare as JR ages into SR but stays
+    // hasDeclared=false until the NEXT advance's `rollJuniorDeclarations`
+    // catches up — so post-advance preview boards show them as
+    // ambiguous "in school" entries when they should clearly be
+    // upcoming-draft candidates. (Daniel: "returning players should
+    // be removed from teams's draft boards" — coupled with the
+    // regeneration filter, this keeps boards focused on the
+    // upcoming-draft cohort that's actually opted in.)
+    const hasDeclared =
+      prospect.hasDeclared || nextClass === 'SR' || nextClass === 'RS_SR';
 
     nextPool.push({
       ...prospect,
       classYear: nextClass,
       isDraftEligible,
+      hasDeclared,
       collegeStats: newStats,
       injuryHistory: newInjuries,
     });

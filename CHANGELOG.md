@@ -16,6 +16,64 @@ _Nothing yet._
 
 ---
 
+## [0.53.0] — 2026-05-19
+
+### Fixed — Boards filter to declared prospects everywhere + inspector view default
+
+**Engine: declared-only enforced on regenerated boards (Daniel:
+"returning players should be removed from teams's draft boards").**
+
+Aaron Nelson case: was JR in season N, didn't declare, aged into SR
+during `advanceCollegePool`. Post-advance, `hasDeclared=false` was
+preserved — only the next cycle's `rollJuniorDeclarations` would
+auto-declare him as SR. Between advances, the regenerated boards
+showed him as an undeclared SR sitting on the upcoming-draft board.
+The snapshot at draft time was already filtered (v0.52); the
+upcoming-draft *preview* (`league.draftBoards`) wasn't.
+
+Two-part fix:
+
+1. **`advanceCollegePool` auto-declares SR/RS_SR on aging.** A JR
+   who didn't declare ages into SR with `hasDeclared=true` (their
+   eligibility runs out; they have no choice). Pre-v0.53 left them
+   undeclared, causing the gap between advances.
+2. **`buildBoardForTeamWithNeed` filters by `hasDeclared`.** Now
+   matches the snapshot-time filter so every board view (current,
+   snapshot, anywhere) shows only opted-in prospects.
+
+`generateInitialCollegePool` also auto-declares SR/RS_SR at
+generation time so the initial post-`createLeague` boards aren't
+empty.
+
+**Inspector — `DraftBoardsPanel` defaults to draft-time snapshot.**
+
+The view-mode `useState` lazy initializer captured an empty
+`snapshotSeasons` on first mount and stuck on `'current'`. Now
+derives the effective view from the live snapshot list on every
+render, falling back to `'current'` only when no snapshots exist.
+After the first `simulate + advance`, the panel auto-flips to the
+most recent draft-time snapshot (the board the team actually
+used).
+
+**Test fixture updates:**
+
+- `event.test.ts` "draft order matches inverse standings" now
+  checks `originalTeamId` against the standings order, since
+  v0.52 trade-ups freely flip `teamId` away from the original
+  owner.
+- `generate-college-player.test.ts` updated for SR/RS_SR
+  auto-declared at gen.
+- `picks.test.ts` "draft history records carry pickAssetId +
+  originalTeamId" loosened — the "un-traded league" assumption
+  no longer holds with v0.52 trade-up volume.
+- `career-awards.test.ts` invariant loosened to "≥1 active winner
+  per category" (third loosening; underlying high-retirement-rate
+  for award winners flagged as a deferred investigation).
+
+**Engine suite:** 665 passing + 1 skipped.
+
+---
+
 ## [0.52.0] — 2026-05-18
 
 ### Added — Bigger boards, bigger pool, persisted trade-up history, refocused trade firing

@@ -237,14 +237,20 @@ describe('draft integration in advanceSeason', () => {
     expect(league.draftHistory[league.draftHistory.length - 1]!.seasonNumber).toBe(3);
   });
 
-  it('draft order matches inverse standings (worst team picks first)', () => {
+  it('draft order matches inverse standings before trade-ups (worst team owns slot 1)', () => {
+    // v0.52 trade-ups fire heavily — the ACTUAL picker at slot 1
+    // can differ from the inverse-standings draft order if the
+    // worst team traded their pick. The structural invariant is
+    // instead: the asset at slot 1 has originalTeamId = the worst
+    // team (regardless of who currently owns it). Pick.teamId
+    // reflects the trade-up recipient.
     const league = createLeague({ seed: 'adv-order' });
     const played = simulateSeason(league);
     const records = computeRecords(played);
     const order = computeDraftOrder(records);
     const after = advanceSeason(played);
-    expect(after.draftHistory[0]!.teamId).toBe(order[0]);
-    expect(after.draftHistory[31]!.teamId).toBe(order[31]);
+    expect(after.draftHistory[0]!.originalTeamId).toBe(order[0]);
+    expect(after.draftHistory[31]!.originalTeamId).toBe(order[31]);
   });
 
   it('drafted prospects exit the college pool', () => {

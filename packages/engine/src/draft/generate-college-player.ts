@@ -205,11 +205,16 @@ export function generateCollegePlayer(
 
   const isDraftEligible =
     options.classYear === 'JR' || options.classYear === 'SR' || options.classYear === 'RS_SR';
-  // Auto-declare for SR / RS_SR; JR rolls (~35% declare on the fly,
-  // but slice 1 doesn't have a draft event yet — we initialize all
-  // eligible prospects with hasDeclared=false; the future draft slice
-  // can flip declarations when the time comes).
-  const hasDeclared = false;
+  // SR / RS_SR auto-declare at generation (eligibility runs out
+  // next year — they have no choice). JRs are undeclared at
+  // generation; `rollJuniorDeclarations` flips them per tier-
+  // weighted probability at the start of each advance. Pre-JR
+  // classes stay false (not yet eligible to declare). v0.53 made
+  // this match the aging-time auto-declare in `advanceCollegePool`
+  // — without it, initial boards generate empty under the v0.53
+  // declared-only filter.
+  const hasDeclared =
+    options.classYear === 'SR' || options.classYear === 'RS_SR';
 
   return {
     id: PlayerId(`CP_${options.idSuffix}`),

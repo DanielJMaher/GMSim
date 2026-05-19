@@ -35,15 +35,18 @@ describe('generateCollegePlayer', () => {
   });
 
   it('marks JR/SR/RS_SR as draft-eligible and earlier years as not', () => {
-    const cases: Array<['TRUE_FR' | 'RS_FR' | 'SO' | 'JR' | 'SR' | 'RS_SR', boolean]> = [
-      ['TRUE_FR', false],
-      ['RS_FR', false],
-      ['SO', false],
-      ['JR', true],
-      ['SR', true],
-      ['RS_SR', true],
+    // v0.53: SR/RS_SR auto-declare at generation (eligibility runs
+    // out — they have no choice but to enter the next draft). JRs
+    // stay undeclared at gen and roll declaration each cycle.
+    const cases: Array<['TRUE_FR' | 'RS_FR' | 'SO' | 'JR' | 'SR' | 'RS_SR', boolean, boolean]> = [
+      ['TRUE_FR', false, false],
+      ['RS_FR', false, false],
+      ['SO', false, false],
+      ['JR', true, false],
+      ['SR', true, true],
+      ['RS_SR', true, true],
     ];
-    for (const [year, expected] of cases) {
+    for (const [year, expectedEligible, expectedDeclared] of cases) {
       const cp = generateCollegePlayer(new Prng(`seed-${year}`), {
         idSuffix: `Y_${year}`,
         classYear: year,
@@ -51,8 +54,8 @@ describe('generateCollegePlayer', () => {
         simYear: 2026,
       });
       expect(cp.classYear).toBe(year);
-      expect(cp.isDraftEligible).toBe(expected);
-      expect(cp.hasDeclared).toBe(false);
+      expect(cp.isDraftEligible).toBe(expectedEligible);
+      expect(cp.hasDeclared).toBe(expectedDeclared);
     }
   });
 
