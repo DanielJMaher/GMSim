@@ -219,5 +219,13 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, draftBoardSnapshots: {} };
   }
 
+  // v0.52.0 trade-up history. No reconstruction — start empty.
+  // Future drafts populate; pre-v0.52 trade-ups already fired
+  // (their pick-ownership flips are baked into draftPicks) but
+  // the inspector can't replay their narrative.
+  if (!next.tradeUpHistory) {
+    next = { ...next, tradeUpHistory: [] };
+  }
+
   return next;
 }

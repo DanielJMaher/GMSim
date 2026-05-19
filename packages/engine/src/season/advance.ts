@@ -3,6 +3,7 @@ import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState, TeamSeasonRecord } from '../types/team.js';
 import type { HeadCoach } from '../types/personnel.js';
+import type { DraftBoardEntry } from '../types/college.js';
 import type { TeamId, PlayerId, CoachId, ContractId as ContractIdType } from '../types/ids.js';
 import type { CareerSeasonStats } from '../types/stats.js';
 import type { AwardKind } from '../types/awards.js';
@@ -292,6 +293,37 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
     ),
   };
 
+  // Filter draftBoards to declared prospects (v0.52).
+  //
+  // Boards were regenerated at the end of last advance — before this
+  // season's JR declarations rolled. Some board entries are
+  // eligibility-qualified JRs who DIDN'T declare and aren't draft
+  // candidates this year. `runDraft` already filters them out via
+  // `availableById` (declared+eligible), but the SNAPSHOT used by
+  // the inspector's draft-replay view would show them as if they
+  // were skipped board entries — confusing ("why didn't the team
+  // pick their #2?" — because #2 was still in college).
+  //
+  // Filtering here keeps boards consistent with what the team
+  // actually had to choose from. Engine behavior is unchanged
+  // (runDraft already skipped them); only the snapshot becomes
+  // accurate.
+  const declaredIds = new Set<PlayerId>();
+  for (const cp of offseason.collegePool) {
+    if (cp.hasDeclared) declaredIds.add(cp.id);
+  }
+  const declaredOnlyBoards: Record<string, readonly DraftBoardEntry[]> = {};
+  for (const teamId of Object.keys(offseason.draftBoards)) {
+    const board = offseason.draftBoards[teamId as keyof typeof offseason.draftBoards] ?? [];
+    declaredOnlyBoards[teamId] = board.filter((e) =>
+      declaredIds.has(e.collegePlayerId),
+    );
+  }
+  offseason = {
+    ...offseason,
+    draftBoards: declaredOnlyBoards as typeof offseason.draftBoards,
+  };
+
   // Draft event — 7 rounds, 32 picks each (224 total) via BPA-from-
   // board. Draft order is inverse of prior season's standings; same
   // order is reused for each round (trade-ups will land in slice 5c
@@ -309,12 +341,12 @@ export function advanceSeason(leagueIn: LeagueState): LeagueState {
   const PICKS_PER_ROUND = draftSlotOrder.length; // 32 for a healthy league
   const allDraftedRookieIds = new Set<PlayerId>();
 
-  // Snapshot the boards-in-use BEFORE the draft fires (v0.50+).
-  // The boards stored on `league.draftBoards` reflect this season's
-  // pre-draft state; after the draft + offseason refresh later in
-  // this same advance call they'll be regenerated against the
-  // next year's pool. The inspector's draft-replay view needs the
-  // pre-draft snapshot to render per-pick board context.
+  // Snapshot the (declared-filtered) boards BEFORE the draft fires
+  // (v0.50+; declared-only as of v0.52). After the draft + offseason
+  // refresh later in this same advance call, league.draftBoards is
+  // regenerated against the next year's pool. The inspector's draft-
+  // replay view needs this pre-draft snapshot to render per-pick
+  // board context.
   offseason = {
     ...offseason,
     draftBoardSnapshots: {

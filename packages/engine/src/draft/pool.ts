@@ -7,33 +7,36 @@ import { generateCollegePlayer } from './generate-college-player.js';
 import { rollCollegeStats } from './college-stats.js';
 
 /**
- * Per-class population sizes. Tuned so the active pool size hovers
- * around 1000 across all six classes and stays approximately stable
- * across `advanceCollegePool` calls — TRUE_FR inflow (210) closely
- * matches SR + RS_SR outflow (~205), so the pool doesn't drift far
- * over multi-year runs. (Mid-cohort attrition modeling — transfers
- * out, walk-outs, early declarations — is deferred to a later
- * slice; until then, the cohort sizes naturally taper down through
- * the years rather than via per-year attrition rolls.)
+ * Per-class population sizes. v0.52 bumps ~25% across the board so
+ * the declared+eligible cohort (SR + RS_SR + declared JRs) reliably
+ * clears the **350-prospect floor** Daniel set for "a real draft
+ * class size."
  *
- *   TRUE_FR (incoming) — set equal to senior outflow for stability
+ * Pre-v0.52 sizes produced ~287 declared-eligible (180 SR + 25 RS_SR
+ * + ~82 declared JRs at JR_DECLARATION_RATE × 190). v0.52 sizes
+ * target ~365 declared (225 SR + 30 RS_SR + ~110 declared JRs at
+ * same rate × 250).
+ *
+ * Pool stays approximately stable across `advanceCollegePool` calls
+ * because TRUE_FR inflow (265) closely matches SR + RS_SR outflow
+ * (~255). Mid-cohort attrition modeling (transfers, walk-outs,
+ * early declarations) is deferred — cohort sizes naturally taper
+ * down through the years rather than via per-year attrition rolls.
+ *
+ *   TRUE_FR (incoming) — set ≈ senior outflow for stability
  *   RS_FR              — reduced (some redshirt, some attrited)
  *   SO                 — further reduced
  *   JR                 — eligible for draft
  *   SR                 — auto-declared
  *   RS_SR              — rare extra-year guys
- *
- * The actual draft-eligible cohort (JR + SR + RS_SR with declarations)
- * is what scouts focus on most heavily; the TRUE_FR / RS_FR / SO
- * cohorts exist so the pool has multi-year arcs.
  */
 const CLASS_TARGETS: Record<ClassYear, number> = {
-  TRUE_FR: 210,
-  RS_FR: 200,
-  SO: 200,
-  JR: 190,
-  SR: 180,
-  RS_SR: 25,
+  TRUE_FR: 290,
+  RS_FR: 275,
+  SO: 270,
+  JR: 270,
+  SR: 250,
+  RS_SR: 35,
 };
 
 /**

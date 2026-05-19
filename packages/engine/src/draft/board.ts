@@ -15,7 +15,16 @@ import { schemeFitForPlayer } from '../scheme/index.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { recencyWeight } from '../scouting/recency.js';
 
-const DRAFT_BOARD_SIZE = 50;
+/**
+ * Maximum board depth. v0.52 raises from 50 → 500 to rank every
+ * draft-eligible prospect a team has visibility into (own scouts or
+ * league-aggregate via the v0.51 media-board proxy). With the
+ * eligible cohort ≈ 500 prospects across JR/SR/RS_SR after class-
+ * size bumps in v0.52, 500 covers the full pool with headroom.
+ * Daniel: "big boards should rank every available draft-eligible
+ * player."
+ */
+const DRAFT_BOARD_SIZE = 500;
 
 /**
  * Priority formula calibration (v0.51).

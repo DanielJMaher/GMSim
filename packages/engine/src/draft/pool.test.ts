@@ -14,10 +14,10 @@ describe('generateInitialCollegePool', () => {
     }
   });
 
-  it('produces ~1000 prospects across all six class years', () => {
+  it('produces ~1390 prospects across all six class years (v0.52 sizes)', () => {
     const pool = generateInitialCollegePool(new Prng('size'));
-    expect(pool.length).toBeGreaterThanOrEqual(950);
-    expect(pool.length).toBeLessThanOrEqual(1100);
+    expect(pool.length).toBeGreaterThanOrEqual(1300);
+    expect(pool.length).toBeLessThanOrEqual(1500);
     const byClass = new Map<ClassYear, number>();
     for (const cp of pool) {
       byClass.set(cp.classYear, (byClass.get(cp.classYear) ?? 0) + 1);

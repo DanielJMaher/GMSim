@@ -806,3 +806,34 @@ export interface DraftPickRecord {
    */
   originalTeamId?: TeamId;
 }
+
+// ─── Trade-up history (Doc 3 — draft trades, v0.45 firing + v0.52 persistence) ─
+
+/**
+ * One trade-up that fired inside a draft event. v0.45 introduced
+ * trade-up firing inside `runDraft`; v0.52 persists these records on
+ * `LeagueState.tradeUpHistory` so the inspector can render
+ * draft-trade activity without having to replay the draft.
+ *
+ * Asymmetric semantics: `onClockTeamId` was originally on the
+ * clock at `overallPick` and DROPPED DOWN; `tradingUpTeamId` MOVED
+ * UP and acquired the slot. The on-clock team receives
+ * `swapAssetId` (the trading-up team's same-round pick) plus all
+ * `futurePickIds` as compensation; the trading-up team receives
+ * `onClockAssetId` (the slot that just fired).
+ */
+export interface TradeUpRecord {
+  seasonNumber: number;
+  round: number;
+  /** Slot the on-clock pick occupied (the slot the trading-up team acquired). */
+  overallPick: number;
+  onClockTeamId: TeamId;
+  onClockAssetId: DraftPickId;
+  tradingUpTeamId: TeamId;
+  swapAssetId: DraftPickId;
+  /** Future-year pick assets that flipped from trading-up team to on-clock team. */
+  futurePickIds: readonly DraftPickId[];
+  targetCollegePlayerId: PlayerId;
+  /** receivingValue / givingValue from on-clock perspective. Static base chart (v0.45). */
+  ratio: number;
+}

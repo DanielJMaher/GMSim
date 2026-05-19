@@ -16,6 +16,107 @@ _Nothing yet._
 
 ---
 
+## [0.52.0] — 2026-05-18
+
+### Added — Bigger boards, bigger pool, persisted trade-up history, refocused trade firing
+
+Four-part slice driven by Daniel observations on the v0.51 inspector:
+
+1. **Boards rank every observed draft-eligible prospect.**
+   `DRAFT_BOARD_SIZE` raised 50 → 500. Previously boards capped at
+   50 forced many R5-R7 picks through BPA fallback and made the
+   "what's still on the board" view incomplete. 500 covers the
+   eligible cohort with headroom.
+
+2. **Pool minimum 350 declared+eligible.** Class sizes bumped ~30%
+   (TRUE_FR 210 → 290, SR 180 → 250, etc.) so the
+   `declared + eligible` cohort reliably clears 350 — a real
+   draft-class size. Test asserts the floor on 4 seeds.
+
+3. **Trade-up history persisted + surfaced.** New
+   `LeagueState.tradeUpHistory: readonly TradeUpRecord[]`. Populated
+   by `applyDraftResult`; migration backfills `[]` for pre-v0.52
+   saves. `TradeUpRecord` type moved from `engine/src/draft/trade-up.ts`
+   to `engine/src/types/college.ts` so `LeagueState` can reference
+   it without an inbound dep. New `DraftTradesPanel` on the Draft
+   tab — season selector, per-trade card showing acquiring team /
+   dropping team / target prospect / future-pick sweeteners / chart
+   ratio.
+
+4. **Trade-up firing refocused.** v0.45's narrow constraints (top-10
+   slots only, 3-per-draft cap, strict same-#1 board match) fired
+   ~1 trade per draft. Daniel's spec: ~140 trades per draft, R1
+   6-18, late rounds heavier. v0.52 lifts the caps + broadens the
+   logic:
+
+   - **Slot ceiling removed** (`TRADE_UP_TARGET_SLOT_CEILING`
+     effectively inert at 999).
+   - **Per-draft cap** raised 3 → 250.
+   - **Per-team cap** added: `MAX_TRADE_UPS_PER_TEAM = 4`, seeded
+     across rounds via `league.tradeUpHistory` so it applies
+     league-wide across the 7 rounds.
+   - **At-risk depth round-aware**: R1=1 (strict same-#1), R2=2,
+     R3=3, R4=4, R5-R7=5. Narrow R1 keeps top-of-class trades
+     rare; wider late rounds capture board-variance opportunities.
+   - **Trading-up acceptance floor round-aware**: R1=0.80 (max ~25%
+     over-pay), tapers to R7=0.40. R1's stricter floor matches
+     Doc 5's R1-premium observation; looser late rounds reflect
+     that small-pick swaps are cheap.
+   - **Offer construction hybrid heuristic**: Stage 1 finds the
+     smallest single pick that alone clears the gap; Stage 2 falls
+     back to ascending-accumulate when no single pick suffices.
+     Previous ascending-only failed R1 (small picks couldn't
+     reach 4000-pt gap); pure descending starved late rounds
+     (burned big sweeteners on small gaps). Hybrid finds the right
+     single pick for each round.
+   - **Max future-pick sweeteners per offer** raised 2 → 4 to let
+     R1 deals construct.
+   - **Candidate target = candidate's #1** (not on-clock's #1).
+     After the swap, the trading-up team picks THEIR top
+     available, which may differ from what on-clock intended.
+
+   Result on `tradeup-volume` seed: 128 total fires (target ~140),
+   R1=17 (in 6-18 band), distributed R2-R6 between 15-25 per round,
+   R7=5.
+
+**Other engine changes:**
+
+- `advanceSeason` now filters `league.draftBoards` to declared
+  prospects BEFORE the draft snapshot fires (v0.52 — the
+  Aaron-Nelson-on-board-but-not-drafted confusion Daniel hit). Boards
+  regenerated at end of last advance reflected pre-declaration JR
+  state; this filter aligns the snapshot with what the team
+  actually had to choose from.
+
+**Inspector — `apps/web/src/App.tsx`:**
+
+- New `DraftTradesPanel` between `DraftReplayPanel` and
+  `DraftResultsPanel`.
+- `DraftBoardsPanel` gained a snapshot-vs-current view selector +
+  "undrafted only" toggle for snapshot views. Drafted-in-this-
+  season rows get a `→ #N` badge so it's clear at a glance which
+  board entries got picked.
+- `DraftResultsPanel` gained Consensus and Reach columns per pick
+  (consensus rank from the v0.50 snapshot; reach = consensus −
+  pick, color-coded amber for reach, emerald for steal).
+- `DraftReplayPanel` team-board column gained an "available only"
+  toggle (filter to prospects still on the board at this slot —
+  hides prospects taken by earlier picks).
+
+**Tests:** new `tradeUp volume` integration test in
+`board.test.ts`. `declaration.test.ts` asserts ≥350
+declared+eligible on 4 seeds. `pool.test.ts` and
+`integration.test.ts` bounds updated for v0.52 pool sizes.
+`board.test.ts` upper bound updated 50 → 500. `career-awards.test.ts`
+loosened to "≥1 active winner per category" — the previous strict
+threshold drifted twice (v0.51 + v0.52) due to widening rookie
+churn; underlying high-retirement-rate for veterans deferred as a
+follow-up investigation.
+
+**Engine suite:** 666 tests, 1 skipped, 665 passing.
+
+---
+
 ## [0.51.0] — 2026-05-18
 
 ### Fixed — Draft board priority calibration (reach-bias root cause)

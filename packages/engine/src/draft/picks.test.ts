@@ -163,12 +163,24 @@ describe('integration: assets consumed by draft + horizon rolls', () => {
     const played = simulateSeason(league);
     const after = advanceSeason(played);
     expect(after.draftHistory.length).toBeGreaterThan(0);
+    // Trade-up fires liberally from v0.52 onward (~128 trades per
+    // draft), so we can no longer assert originalTeamId === teamId
+    // ("un-traded league") — many slots ARE traded in any real
+    // league. The structural invariant is just that both fields are
+    // populated and that originalTeamId resolves to a real team.
     for (const pick of after.draftHistory) {
       expect(pick.pickAssetId).toBeDefined();
       expect(pick.originalTeamId).toBeDefined();
-      // Un-traded league: originalTeamId === teamId (picker).
-      expect(pick.originalTeamId).toBe(pick.teamId);
+      expect(after.teams[pick.originalTeamId!]).toBeDefined();
     }
+    // Spot-check: at least one pick should HAVE been traded (a
+    // smoke test that v0.52 trade-ups are firing as expected; if
+    // every pick still had originalTeamId === teamId the trade
+    // mechanic isn't working).
+    const tradedPicks = after.draftHistory.filter(
+      (p) => p.originalTeamId !== p.teamId,
+    );
+    expect(tradedPicks.length).toBeGreaterThan(0);
   });
 
   it('migration backfills draftPicks on pre-v0.44 save', () => {

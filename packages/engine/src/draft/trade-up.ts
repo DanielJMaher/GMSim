@@ -27,6 +27,7 @@ import type {
   CollegePlayer,
   DraftBoardEntry,
   DraftPickAsset,
+  TradeUpRecord,
 } from '../types/college.js';
 import type { TeamId, DraftPickId, PlayerId } from '../types/ids.js';
 import { pickValue as basePickValue } from './pick-value.js';
@@ -50,37 +51,93 @@ export interface TeamChartContext {
 
 /**
  * Trading-up team's acceptance floor — they refuse to construct an
- * offer where, from their own chart's perspective, they're giving up
- * more than 1/this in chart value vs what they're receiving. 0.5
- * means "I'll over-pay up to 2×." Caps absurd over-pays even when an
- * extreme-rebuilder on-clock team would happily accept.
+ * offer where, from their own chart's perspective, they're giving
+ * up more than 1/floor in chart value vs what they're receiving.
  *
- * Doc 5: "Trade-ups in Round 1, especially top 10, consistently show
- * teams overpaying by 20-58%." 0.5 (= 100% over-pay max) is loose
- * enough to allow QB-desperate trade-ups (which Doc 5 anchors at
- * 30-60% premium) while preventing pathological 5× over-pays.
+ * Round-dependent (v0.52): R1 floor is 0.65 (max ~54% over-pay,
+ * within Doc 5's "20-58% premium for early R1" observation), late
+ * rounds at 0.5 (cheaper picks, smaller absolute cost — over-pay
+ * tolerance can be looser). R1's higher floor naturally throttles
+ * R1 fire rate into Daniel's observed 6-18 per draft band without
+ * starving the mid- and late-round trade activity.
  */
-const TRADING_UP_ACCEPTANCE_FLOOR = 0.5;
+const TRADING_UP_ACCEPTANCE_FLOOR_BY_ROUND: Record<number, number> = {
+  1: 0.80,
+  2: 0.65,
+  3: 0.55,
+  4: 0.5,
+  5: 0.45,
+  6: 0.4,
+  7: 0.4,
+};
+const TRADING_UP_ACCEPTANCE_FLOOR_DEFAULT = 0.5;
 
 /**
- * Max trade-ups allowed in a single draft. Real NFL R1 trade-up
- * counts typically range 2-4. 3 is the median; future slices can
- * stretch this for chaotic markets (post-coaching-change leagues,
- * high-aggression GMs) once dynamic modifiers land.
+ * Max trade-ups allowed across the entire draft. v0.52 raises this
+ * from 3 → 250 (effectively uncapped) after Daniel's observation:
+ * real NFL drafts produce ~140 trade-ups per cycle (R1: 6-18, late
+ * rounds heavier due to wider board divergence + abundant pick
+ * inventory). The 3-cap was a placeholder; the natural rate-limiter
+ * is per-team pick inventory + the trading-up team's own
+ * acceptance floor.
  */
-export const MAX_TRADE_UPS_PER_DRAFT = 3;
+export const MAX_TRADE_UPS_PER_DRAFT = 250;
 
 /**
- * Only consider trade-ups into a target slot at or above this overall
- * pick number. Doc 5: "Trade-ups in Round 1, especially top 10,
- * consistently show teams overpaying by 20-58%." Outside the top 10
- * the chart premium isn't worth the future capital in NFL practice;
- * mid-to-late R1 sees swaps but not many move-ups.
+ * Slot ceiling: v0.45 capped trade-ups to the top-10 slot range
+ * citing Doc 5 ("trade-ups in early R1 overpay 20-58%"). Removing
+ * for v0.52 — Daniel's observed-NFL-frequency target (~140/draft)
+ * requires firing through all 7 rounds. Late rounds in particular
+ * see denser trade activity (per-team boards diverge most there).
+ * Keep the constant exported for back-compat with anyone reading
+ * the v0.45 cap explicitly; set to 999 so the guard is effectively
+ * inert.
  */
-export const TRADE_UP_TARGET_SLOT_CEILING = 10;
+export const TRADE_UP_TARGET_SLOT_CEILING = 999;
 
-/** Max future-year picks a trading-up team will include as sweetener. */
-export const MAX_FUTURE_PICKS_PER_OFFER = 2;
+/**
+ * Maximum board depth at which the on-clock team's top-K still-
+ * available entries count as "at-risk" for trade-up purposes. A
+ * candidate team's top entry must be in this band to qualify as
+ * a trade-up partner. Round-dependent (v0.52): R1 is narrowest
+ * (only the most-coveted prospects trigger fires — R1 picks are
+ * precious), late rounds widest (board variance is high; many
+ * prospects sit in many teams' top-N).
+ *
+ * Targets Daniel's observed NFL shape: R1 ~12 fires, late rounds
+ * cluster. v0.45 used K=1 globally; the widened late-round bands
+ * unlock the dense late-round trade activity.
+ */
+const TRADE_UP_AT_RISK_DEPTH_BY_ROUND: Record<number, number> = {
+  1: 1,
+  2: 2,
+  3: 3,
+  4: 4,
+  5: 5,
+  6: 5,
+  7: 5,
+};
+const TRADE_UP_AT_RISK_DEPTH_DEFAULT = 3;
+
+/**
+ * Per-team cap: how many times can the same team be the
+ * trading-up side in one draft? Real NFL teams rarely trade up
+ * more than 2-3 times per draft (limited by pick inventory). 5 is
+ * loose enough to let aggressive GMs cluster without producing a
+ * single team monopolizing the trade volume.
+ */
+export const MAX_TRADE_UPS_PER_TEAM = 4;
+
+/**
+ * Max future-year picks a trading-up team will include as sweetener.
+ * v0.45 cap of 2 made R1 trade-ups nearly impossible: closing the
+ * gap from slot 2 (9400 pts) to a slot-10 swap (5350) needs ~4050
+ * pts of future sweetener, and 2 R1 future picks at midpoint cap at
+ * ~5610. Most teams don't own 2 future R1s, so R1 deals couldn't
+ * construct. v0.52 raises to 4 — Doc 5 examples (Mahomes, Stafford)
+ * regularly bundle current + future + multiple picks.
+ */
+export const MAX_FUTURE_PICKS_PER_OFFER = 4;
 
 /**
  * Trade-up acceptance band from the on-clock team's perspective.
@@ -131,26 +188,10 @@ export interface TradeUpProposal {
   ratio: number;
 }
 
-/**
- * A trade-up that fired during a draft. Returned in `DraftRunResult`
- * so `applyDraftResult` can propagate future-pick ownership changes
- * to `LeagueState.draftPicks` and so the inspector can replay each
- * draft's trade history.
- */
-export interface TradeUpRecord {
-  seasonNumber: number;
-  round: number;
-  /** Slot the on-clock pick occupied (the slot the trading-up team acquired). */
-  overallPick: number;
-  onClockTeamId: TeamId;
-  onClockAssetId: DraftPickId;
-  tradingUpTeamId: TeamId;
-  swapAssetId: DraftPickId;
-  /** Future-year pick assets that flipped from trading-up team to on-clock team. */
-  futurePickIds: readonly DraftPickId[];
-  targetCollegePlayerId: PlayerId;
-  ratio: number;
-}
+// TradeUpRecord moved to types/college.ts (v0.52) so LeagueState can
+// reference it. Re-exported from draft/index.ts as part of the
+// public draft surface; imported above.
+export type { TradeUpRecord };
 
 export interface EvaluateTradeUpArgs {
   /** Index of the on-clock pick in the round's working asset list. */
@@ -171,6 +212,13 @@ export interface EvaluateTradeUpArgs {
   fullDraftPicks: readonly DraftPickAsset[];
   /** How many trade-ups have already fired in this draft. */
   tradeUpsFiredSoFar: number;
+  /**
+   * How many trade-ups each team has already initiated as the
+   * trading-up side. Used to enforce `MAX_TRADE_UPS_PER_TEAM` so
+   * one aggressive team doesn't monopolize draft trade volume.
+   * Optional for back-compat; defaults to no per-team cap.
+   */
+  tradeUpsByTeamSoFar?: ReadonlyMap<TeamId, number>;
   /**
    * On-clock team's per-team chart modifiers (Doc 5 dynamic
    * situational adjustments). Drives both the ratio calculation and
@@ -204,10 +252,19 @@ export interface EvaluateTradeUpArgs {
  * null when no team further down the round wants to move up enough
  * to construct a chart-fair offer.
  *
- * Selection: among teams whose own top-board still-available prospect
- * matches the on-clock team's top-board still-available prospect, the
- * team with the HIGHEST priority on that prospect wins. Highest
- * priority = most desperate to land him = most willing to over-pay.
+ * v0.52 selection model: the on-clock team's top-K still-available
+ * board entries (`TRADE_UP_AT_RISK_DEPTH`, default 20) define the
+ * "at-risk" set. Any team picking later whose own top-available
+ * prospect sits in that set is a potential trade-up partner — they
+ * lose access to a prospect they value highly if on-clock takes
+ * them. Among those candidates, the highest THEIR-board priority
+ * wins (most desperate = most willing to over-pay).
+ *
+ * v0.45 model used K=1 (strict same-#1 match), which was too narrow
+ * — only ~1 trade per draft when Daniel expects ~140. K=20 captures
+ * the realistic "we want this guy badly and so do they" overlap
+ * without firing trades for low-stakes prospects neither team
+ * cares about.
  */
 export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpProposal | null {
   if (args.overallPick > TRADE_UP_TARGET_SLOT_CEILING) return null;
@@ -220,13 +277,12 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
   const onClockTopTarget = findTopAvailable(onClockBoard, args.availableById);
   if (!onClockTopTarget) return null;
 
-  const targetPlayerId = onClockTopTarget.entry.collegePlayerId;
-  // Look up the target prospect to check for QB-premium eligibility
-  // (Doc 5). Only the on-clock pick itself gets the QB premium —
-  // not the swap pick (different slot, different prospect) or any
-  // future-pick sweeteners.
-  const targetProspect = args.availableById.get(targetPlayerId);
-  const isQbTarget = targetProspect?.nflProjectedPosition === 'QB';
+  // On-clock's intended target = their #1 still-available. Used
+  // only to populate the at-risk set; the trade-up's actual target
+  // is the CANDIDATE'S top (which they'll pick after the swap).
+  // QB premium evaluation defers until after we've selected the
+  // candidate.
+  void onClockTopTarget;
 
   // On-clock chart context: prefer the bundled v0.49 teamContexts
   // form (includes per-GM QB premium) over the legacy onClockModifiers
@@ -236,36 +292,72 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     qbPremium: QB_CURRENT_PICK_PREMIUM,
   };
 
-  // Sweep teams picking AFTER the on-clock slot. Highest priority on
-  // the same target wins (most desperate).
+  // Build the "at-risk" set: on-clock team's top-K still-available
+  // board entries. K is round-dependent so R1 stays narrow (only
+  // top-of-class prospects trigger fires) while late rounds widen
+  // to capture board-divergence opportunities.
+  const atRiskDepth =
+    TRADE_UP_AT_RISK_DEPTH_BY_ROUND[args.round] ?? TRADE_UP_AT_RISK_DEPTH_DEFAULT;
+  const atRiskIds = new Set<PlayerId>();
+  {
+    let count = 0;
+    for (const entry of onClockBoard) {
+      if (count >= atRiskDepth) break;
+      if (args.availableById.has(entry.collegePlayerId)) {
+        atRiskIds.add(entry.collegePlayerId);
+        count++;
+      }
+    }
+  }
+
+  // Sweep teams picking AFTER the on-clock slot. Skip teams that
+  // have already maxed their trade-up budget. Pick the candidate
+  // with highest THEIR-board priority on the prospect they're
+  // chasing.
   let bestCandidate: {
     teamId: TeamId;
     asset: DraftPickAsset;
     swapOverallPick: number;
     candidatePriority: number;
+    candidateTargetId: PlayerId;
   } | null = null;
 
   for (let j = args.onClockIndex + 1; j < args.workingRoundAssets.length; j++) {
     const asset = args.workingRoundAssets[j]!;
-    const candidateBoard = args.draftBoards[asset.currentTeamId] ?? [];
+    const candidateTeamId = asset.currentTeamId;
+    if (
+      args.tradeUpsByTeamSoFar &&
+      (args.tradeUpsByTeamSoFar.get(candidateTeamId) ?? 0) >= MAX_TRADE_UPS_PER_TEAM
+    ) {
+      continue;
+    }
+    const candidateBoard = args.draftBoards[candidateTeamId] ?? [];
     const candidateTop = findTopAvailable(candidateBoard, args.availableById);
     if (!candidateTop) continue;
-    if (candidateTop.entry.collegePlayerId !== targetPlayerId) continue;
+    if (!atRiskIds.has(candidateTop.entry.collegePlayerId)) continue;
     const swapOverallPick = args.overallPick + (j - args.onClockIndex);
     if (
       !bestCandidate ||
       candidateTop.entry.priority > bestCandidate.candidatePriority
     ) {
       bestCandidate = {
-        teamId: asset.currentTeamId,
+        teamId: candidateTeamId,
         asset,
         swapOverallPick,
         candidatePriority: candidateTop.entry.priority,
+        candidateTargetId: candidateTop.entry.collegePlayerId,
       };
     }
   }
 
   if (!bestCandidate) return null;
+
+  // QB premium evaluates against the CANDIDATE's actual target —
+  // after the swap, they pick that prospect at the on-clock slot.
+  // If candidate's target is a QB, the slot's perceived value
+  // inflates for both sides per Doc 5.
+  const candidateTargetProspect = args.availableById.get(bestCandidate.candidateTargetId);
+  const isQbTarget = candidateTargetProspect?.nflProjectedPosition === 'QB';
 
   // Trading-up context: only enables the offer-side acceptance
   // floor when teamContexts is provided (v0.49+ callers). Without
@@ -282,6 +374,7 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     onClockContext,
     tradingUpContext,
     isQbTarget,
+    round: args.round,
   });
   if (!offer) return null;
 
@@ -291,7 +384,7 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     tradingUpTeamId: bestCandidate.teamId,
     swapAssetId: bestCandidate.asset.id,
     futurePickIds: offer.futurePickIds,
-    targetCollegePlayerId: targetPlayerId,
+    targetCollegePlayerId: bestCandidate.candidateTargetId,
     ratio: offer.ratio,
   };
 }
@@ -342,6 +435,8 @@ interface BuildOfferArgs {
   /** v0.49+ — when provided, the trading-up acceptance floor applies. */
   tradingUpContext: TeamChartContext | undefined;
   isQbTarget: boolean;
+  /** Round (1..7). Picks the per-round trading-up acceptance floor. */
+  round: number;
 }
 
 function buildOffer(
@@ -376,10 +471,22 @@ function buildOffer(
     return null;
   }
 
-  // Trading-up team's owned future picks, sorted ascending by their
-  // value TO THE ON-CLOCK TEAM. Greedy adds the cheapest sweetener
-  // first so the on-clock team's ratio just clears 1.0 — minimizes
-  // over-pay rather than maximizes it.
+  // Trading-up team's owned future picks valued from the on-clock
+  // chart. v0.52 offer construction is a two-stage heuristic:
+  //
+  //   Stage 1: find the SMALLEST single pick that alone clears the
+  //   gap. If found, use it. This is the "least over-pay" outcome
+  //   in late rounds (small gaps) — a single R3 future covers a
+  //   R5 swap without burning a R1 future.
+  //
+  //   Stage 2: if no single pick covers the gap, accumulate in
+  //   ASCENDING order until cap or gap-closure. This is the only
+  //   case where multiple picks bundle.
+  //
+  // v0.45 ascending-only failed R1 (4 small picks couldn't reach
+  // the 4000-pt gap); pure descending starved late rounds (burned
+  // big sweeteners on small gaps). The hybrid finds the right
+  // single pick for each round.
   const futurePool = args.fullDraftPicks
     .filter(
       (p) =>
@@ -391,17 +498,29 @@ function buildOffer(
       value: futurePickHeuristicValue(p, args.seasonNumber, args.onClockContext.modifiers),
     }))
     .filter((x) => x.value > 0)
-    .sort((a, b) => a.value - b.value);
+    .sort((a, b) => a.value - b.value); // ascending
 
   const chosenIds: DraftPickId[] = [];
   const chosenPicks: DraftPickAsset[] = [];
   let totalSweetener = 0;
-  for (const f of futurePool) {
-    if (chosenIds.length >= MAX_FUTURE_PICKS_PER_OFFER) break;
-    chosenIds.push(f.pick.id);
-    chosenPicks.push(f.pick);
-    totalSweetener += f.value;
-    if (totalSweetener >= gap) break;
+
+  // Stage 1 — smallest single pick that alone clears the gap.
+  // (futurePool is ascending; the first one ≥ gap is the answer.)
+  const singleCover = futurePool.find((f) => f.value >= gap);
+  if (singleCover) {
+    chosenIds.push(singleCover.pick.id);
+    chosenPicks.push(singleCover.pick);
+    totalSweetener = singleCover.value;
+  } else {
+    // Stage 2 — no single pick suffices; bundle ascending until
+    // cap or gap-closure.
+    for (const f of futurePool) {
+      if (chosenIds.length >= MAX_FUTURE_PICKS_PER_OFFER) break;
+      chosenIds.push(f.pick.id);
+      chosenPicks.push(f.pick);
+      totalSweetener += f.value;
+      if (totalSweetener >= gap) break;
+    }
   }
 
   const totalReceived = swapValue + totalSweetener;
@@ -435,7 +554,10 @@ function buildOffer(
     }
     const tuGiven = tuSwap + tuSweetener;
     const tuRatio = tuGiven > 0 ? tuReceived / tuGiven : 0;
-    if (tuRatio < TRADING_UP_ACCEPTANCE_FLOOR) return null;
+    const floor =
+      TRADING_UP_ACCEPTANCE_FLOOR_BY_ROUND[args.round] ??
+      TRADING_UP_ACCEPTANCE_FLOOR_DEFAULT;
+    if (tuRatio < floor) return null;
   }
 
   return { futurePickIds: chosenIds, ratio };

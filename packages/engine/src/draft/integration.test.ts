@@ -9,10 +9,10 @@ import { simulateSeason } from '../season/runner.js';
  */
 
 describe('Draft slice 1 — league integration', () => {
-  it('createLeague populates a college pool of ~1000 prospects', () => {
+  it('createLeague populates a college pool of ~1390 prospects (v0.52 sizes)', () => {
     const league = createLeague({ seed: 'integration-1' });
-    expect(league.collegePool.length).toBeGreaterThanOrEqual(950);
-    expect(league.collegePool.length).toBeLessThanOrEqual(1100);
+    expect(league.collegePool.length).toBeGreaterThanOrEqual(1300);
+    expect(league.collegePool.length).toBeLessThanOrEqual(1500);
     // Spot-check determinism — same seed yields the same pool size.
     const league2 = createLeague({ seed: 'integration-1' });
     expect(league2.collegePool.length).toBe(league.collegePool.length);
@@ -50,12 +50,11 @@ describe('Draft slice 1 — league integration', () => {
     const newFreshmen = after.collegePool.filter((cp) => cp.classYear === 'TRUE_FR');
     expect(newFreshmen.length).toBeGreaterThanOrEqual(190);
 
-    // Pool size in the ~900 band post-draft. The 7-round draft (slice 5b)
-    // removes up to 224 declared prospects per cycle; the freshman class
-    // injection (~210) doesn't fully replace them, so the pool steady-
-    // states slightly smaller than the slice-1 ~1000 baseline.
-    expect(after.collegePool.length).toBeGreaterThanOrEqual(850);
-    expect(after.collegePool.length).toBeLessThanOrEqual(1100);
+    // Pool size in the ~1200 band post-draft (v0.52 class sizes). The
+    // 7-round draft removes up to 224 declared prospects per cycle;
+    // freshman injection partially replaces them.
+    expect(after.collegePool.length).toBeGreaterThanOrEqual(1100);
+    expect(after.collegePool.length).toBeLessThanOrEqual(1500);
   });
 
   it('migration backfills collegePool when missing on an older save', () => {
@@ -65,6 +64,6 @@ describe('Draft slice 1 — league integration', () => {
     const oldShape = { ...played } as typeof played & { collegePool?: typeof played.collegePool };
     delete oldShape.collegePool;
     const after = advanceSeason(oldShape as typeof played);
-    expect(after.collegePool.length).toBeGreaterThanOrEqual(850);
+    expect(after.collegePool.length).toBeGreaterThanOrEqual(1100);
   });
 });

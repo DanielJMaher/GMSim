@@ -67,4 +67,19 @@ describe('rollJuniorDeclarations', () => {
       }
     }
   });
+
+  it('declared + eligible cohort meets the 350-prospect floor (v0.52)', () => {
+    // Daniel's spec: "minimum 350 available players each draft."
+    // After class-size bumps in v0.52 the pool should reliably
+    // clear this threshold. Sample 4 seeds so the floor isn't a
+    // single-seed coincidence.
+    for (const seed of ['s1', 's2', 's3', 's4']) {
+      const pool = generateInitialCollegePool(new Prng(seed));
+      const after = rollJuniorDeclarations(new Prng(`${seed}-d`), pool);
+      const declaredEligible = after.filter(
+        (cp) => cp.isDraftEligible && cp.hasDeclared,
+      ).length;
+      expect(declaredEligible).toBeGreaterThanOrEqual(350);
+    }
+  });
 });

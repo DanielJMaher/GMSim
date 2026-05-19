@@ -274,6 +274,7 @@ export function App() {
           <CollegePoolPanel league={league} />
           <DraftBoardsPanel league={league} />
           <DraftReplayPanel league={league} />
+          <DraftTradesPanel league={league} />
           <DraftResultsPanel league={league} />
         </>
       )}
@@ -1331,28 +1332,87 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
   const [topN, setTopN] = useState(20);
   const [positionFilter, setPositionFilter] = useState<PositionFilter>('ALL');
 
-  const board: readonly DraftBoardEntry[] = selectedTeamId ? (league.draftBoards[selectedTeamId] ?? []) : [];
+  // View selector: 'current' shows the live `league.draftBoards`
+  // (regenerated post-advance for the next draft). A number selects
+  // the historical snapshot `league.draftBoardSnapshots[season]` —
+  // the board the team actually used to make that season's picks.
+  // Diagnosis is much clearer reading from the snapshot when
+  // comparing against the draft-results table.
+  const snapshotSeasons = useMemo(() => {
+    const out: number[] = Object.keys(league.draftBoardSnapshots).map(Number);
+    out.sort((a, b) => b - a);
+    return out;
+  }, [league.draftBoardSnapshots]);
+  const [viewMode, setViewMode] = useState<'current' | number>(() =>
+    snapshotSeasons[0] ?? 'current',
+  );
+  // Filter the board to prospects who did NOT get drafted in this
+  // view's season. For 'current' the toggle is a no-op (no draft
+  // has fired yet for the upcoming pool). For a snapshot, it
+  // shows "who fell through your board" — useful diagnostic.
+  const [undraftedOnly, setUndraftedOnly] = useState(false);
+
+  const board: readonly DraftBoardEntry[] =
+    selectedTeamId
+      ? viewMode === 'current'
+        ? league.draftBoards[selectedTeamId] ?? []
+        : league.draftBoardSnapshots[viewMode]?.[selectedTeamId] ?? []
+      : [];
+
   const prospectById = useMemo(() => {
     const m = new Map(league.collegePool.map((cp) => [cp.id, cp] as const));
     return m;
   }, [league.collegePool]);
 
+  // Map for resolving names — covers both pool prospects (still in
+  // college) AND drafted prospects (promoted to league.players with
+  // PlayerId preserved). Without the players-side lookup, drafted
+  // entries on a snapshot board would render as raw CP_... ids.
+  const nameAndPosLookup = useMemo(() => {
+    const m = new Map<string, { firstName: string; lastName: string; position: Position; schoolId?: string }>();
+    for (const cp of league.collegePool) {
+      m.set(cp.id, { firstName: cp.firstName, lastName: cp.lastName, position: cp.nflProjectedPosition, schoolId: cp.schoolId });
+    }
+    for (const p of Object.values(league.players)) {
+      if (!m.has(p.id)) {
+        m.set(p.id, { firstName: p.firstName, lastName: p.lastName, position: p.position });
+      }
+    }
+    return m;
+  }, [league.collegePool, league.players]);
+
+  // Set of prospects drafted in the snapshot's season (empty when
+  // viewing 'current'). Used by the undrafted-only toggle.
+  const draftedInThisSeason = useMemo(() => {
+    if (viewMode === 'current') return new Set<string>();
+    const s = new Set<string>();
+    for (const p of league.draftHistory) {
+      if (p.seasonNumber === viewMode) s.add(p.collegePlayerId);
+    }
+    return s;
+  }, [league.draftHistory, viewMode]);
+
   // Attach the original board rank to each entry BEFORE filtering so
-  // the "#" column shows real overall rank ("this prospect is #4 on
-  // the full board, but the only QB in the top 20"), not a filtered
-  // re-rank that would lie about board position.
+  // the "#" column shows real overall rank — filtered re-ranks would
+  // lie about board position.
   const rankedEntries = useMemo(() => {
     return board.map((entry, idx) => ({ entry, rank: idx + 1 }));
   }, [board]);
 
   const filteredRanked = useMemo(() => {
-    if (positionFilter === 'ALL') return rankedEntries;
-    return rankedEntries.filter(({ entry }) => {
-      const cp = prospectById.get(entry.collegePlayerId);
-      if (!cp) return false;
-      return positionGroupFor(cp.nflProjectedPosition) === positionFilter;
-    });
-  }, [rankedEntries, positionFilter, prospectById]);
+    let entries = rankedEntries;
+    if (positionFilter !== 'ALL') {
+      entries = entries.filter(({ entry }) => {
+        const meta = nameAndPosLookup.get(entry.collegePlayerId);
+        if (!meta) return false;
+        return positionGroupFor(meta.position) === positionFilter;
+      });
+    }
+    if (undraftedOnly && viewMode !== 'current') {
+      entries = entries.filter(({ entry }) => !draftedInThisSeason.has(entry.collegePlayerId));
+    }
+    return entries;
+  }, [rankedEntries, positionFilter, nameAndPosLookup, undraftedOnly, viewMode, draftedInThisSeason]);
 
   // Reason counts reflect the filtered set — flips dynamically with the
   // position filter so badges read "how many BLUE_CHIPs at QB" when
@@ -1370,11 +1430,47 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
 
   return (
     <section className="mb-8 rounded border border-violet-500/40 bg-violet-500/10 p-4">
-      <div className="mb-3 flex items-baseline justify-between">
+      <div className="mb-3 flex items-baseline justify-between flex-wrap gap-2">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-violet-200">
-          Draft Boards — 32 internal boards (Doc 3 slice 3)
+          Draft Boards —{' '}
+          {viewMode === 'current'
+            ? 'current (upcoming draft)'
+            : `season ${viewMode} snapshot (at draft time)`}
         </h2>
-        <div className="flex items-center gap-3 text-xs">
+        <div className="flex items-center gap-3 text-xs flex-wrap">
+          <label className="flex items-center gap-1 text-zinc-400">
+            <span className="uppercase tracking-wide text-[10px]">View</span>
+            <select
+              value={String(viewMode)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setViewMode(v === 'current' ? 'current' : Number(v));
+              }}
+              className="rounded border border-zinc-700 bg-zinc-900 px-2 py-0.5 font-mono text-xs focus:border-violet-500 focus:outline-none"
+            >
+              <option value="current">Current (upcoming)</option>
+              {snapshotSeasons.map((s) => (
+                <option key={s} value={String(s)}>
+                  Season {s} snapshot
+                </option>
+              ))}
+            </select>
+          </label>
+          {viewMode !== 'current' && (
+            <button
+              onClick={() => setUndraftedOnly((v) => !v)}
+              className={`rounded border px-2 py-0.5 font-mono text-[10px] transition-colors ${
+                undraftedOnly
+                  ? 'border-violet-500/50 bg-violet-500/20 text-violet-200'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-violet-500/30'
+              }`}
+              title={undraftedOnly
+                ? "Showing only board entries who weren't drafted in this season. Click to show all."
+                : "Showing the full snapshot board. Click to hide entries who got drafted in this season."}
+            >
+              {undraftedOnly ? 'undrafted only' : 'show all'}
+            </button>
+          )}
           <label className="flex items-center gap-1 text-zinc-400">
             <span className="uppercase tracking-wide text-[10px]">Team</span>
             <select
@@ -1460,25 +1556,76 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
           <tbody>
             {filteredRanked.slice(0, topN).map(({ entry, rank }) => {
               const cp = prospectById.get(entry.collegePlayerId);
-              if (!cp) return null;
+              const fromPlayers = league.players[entry.collegePlayerId];
+              const meta = nameAndPosLookup.get(entry.collegePlayerId);
+              // Snapshot view can reference prospects who've since
+              // been drafted (no longer in collegePool). Fall back to
+              // the rookie's NFL record for name + position.
+              if (!cp && !fromPlayers) return null;
+              const wasDraftedHere = draftedInThisSeason.has(entry.collegePlayerId);
+              const draftPick = wasDraftedHere
+                ? league.draftHistory.find(
+                    (p) =>
+                      p.collegePlayerId === entry.collegePlayerId &&
+                      p.seasonNumber === viewMode,
+                  )
+                : undefined;
               return (
-                <tr key={entry.collegePlayerId} className="border-b border-zinc-900 hover:bg-zinc-900/30">
+                <tr
+                  key={entry.collegePlayerId}
+                  className={`border-b border-zinc-900 hover:bg-zinc-900/30 ${
+                    wasDraftedHere ? 'opacity-70' : ''
+                  }`}
+                >
                   <td className="px-2 py-1 text-right font-mono text-zinc-500">{rank}</td>
                   <td className="px-2 py-1">
-                    <div className="font-medium text-zinc-100">{cp.firstName} {cp.lastName}</div>
+                    <div className="font-medium text-zinc-100">
+                      {meta ? `${meta.firstName} ${meta.lastName}` : entry.collegePlayerId}
+                      {wasDraftedHere && draftPick && (
+                        <span
+                          className="ml-2 rounded bg-amber-500/20 px-1 text-[9px] font-mono text-amber-300"
+                          title={`Drafted at #${draftPick.overallPick} by ${league.teams[draftPick.teamId]?.identity.abbreviation ?? '?'}`}
+                        >
+                          → #{draftPick.overallPick}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[10px] text-zinc-500">
-                      {cp.classYear} · {cp.recruiting.starRating}★
-                      {cp.bloodline.hasNflFamily && <span className="ml-1 text-amber-400" title={`NFL legacy: ${cp.bloodline.relativeName}`}>⚜</span>}
+                      {cp ? (
+                        <>
+                          {cp.classYear} · {cp.recruiting.starRating}★
+                          {cp.bloodline.hasNflFamily && (
+                            <span
+                              className="ml-1 text-amber-400"
+                              title={`NFL legacy: ${cp.bloodline.relativeName}`}
+                            >
+                              ⚜
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-zinc-600">drafted prospect</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-2 py-1 text-zinc-300">
-                    {getSchoolById(cp.schoolId)?.name ?? cp.schoolId}
+                    {cp
+                      ? getSchoolById(cp.schoolId)?.name ?? cp.schoolId
+                      : meta?.schoolId
+                        ? getSchoolById(meta.schoolId)?.name ?? meta.schoolId
+                        : '—'}
                   </td>
                   <td className="px-2 py-1 font-mono">
-                    <span className={cp.isConversionCandidate ? 'text-violet-300' : 'text-zinc-400'}>
-                      {cp.collegePosition !== cp.nflProjectedPosition
-                        ? `${cp.collegePosition}→${cp.nflProjectedPosition}`
-                        : cp.nflProjectedPosition}
+                    <span
+                      className={
+                        cp?.isConversionCandidate ? 'text-violet-300' : 'text-zinc-400'
+                      }
+                    >
+                      {cp
+                        ? cp.collegePosition !== cp.nflProjectedPosition
+                          ? `${cp.collegePosition}→${cp.nflProjectedPosition}`
+                          : cp.nflProjectedPosition
+                        : meta?.position ?? '?'}
                     </span>
                   </td>
                   <td className="px-2 py-1 text-right font-mono text-amber-300">{entry.priority.toFixed(1)}</td>
@@ -1497,9 +1644,9 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
       </div>
 
       <p className="mt-2 text-[10px] text-zinc-600">
-        Each team's board is derived from their own college scouts' reports + scheme + roster need —
-        no global "consensus" board. Same prospect appears at different priorities + reasons across
-        teams. CONVERSION projections are unique to the teams whose schemes value the conversion.
+        {viewMode === 'current'
+          ? "Current view = boards regenerated post-advance for the UPCOMING draft, not the one that just fired. Switch to a season snapshot to see the board the team actually used to make picks."
+          : "Snapshot view = the team's board AS IT WAS the moment that season's draft fired. Faded rows + → #N badges mark prospects who got drafted in this draft (with their pick number); the rest fell through the board."}
       </p>
     </section>
   );
@@ -1544,6 +1691,25 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
   const safePickIndex = Math.max(0, Math.min(pickIndex, picks.length - 1));
   const currentPick: DraftPickRecord | null =
     picks.length > 0 ? picks[safePickIndex] ?? null : null;
+
+  // Toggle: filter the picking team's board to prospects still
+  // available at this slot (i.e., not taken by any earlier pick).
+  // The board shown by default is the FULL pre-draft snapshot, which
+  // is misleading mid-draft — "Frank Ross #3 picked over Aaron Nelson
+  // #2" is fine when #2 was taken first by an earlier team. Toggle
+  // OFF shows the original pre-draft snapshot.
+  const [filterToAvailable, setFilterToAvailable] = useState(true);
+
+  // Set of prospects picked at any slot STRICTLY before this one.
+  // Used to filter the picking team's board view when the toggle is on.
+  const pickedBeforeThisSlot = useMemo(() => {
+    const s = new Set<PlayerId>();
+    for (let i = 0; i < safePickIndex; i++) {
+      const p = picks[i];
+      if (p) s.add(p.collegePlayerId);
+    }
+    return s;
+  }, [picks, safePickIndex]);
 
   const snapshot = useMemo(() => {
     if (effectiveSeason === null) return null;
@@ -1647,9 +1813,31 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
   // Render the boards as a centered window around the picked player
   // (or top of board if the picked player isn't on this view's board).
   const WINDOW = 6;
+  // Tag each board entry with its ORIGINAL rank (1-based) so the
+  // displayed numbers stay stable when the toggle filters out
+  // previously-picked prospects. Optionally drop already-picked
+  // entries so the user sees what the team actually had to choose
+  // from at this slot.
+  const teamBoardWithRanks = teamBoard.map((entry, idx) => ({ entry, rank: idx + 1 }));
+  const teamBoardFiltered = filterToAvailable
+    ? teamBoardWithRanks.filter(
+        ({ entry }) =>
+          entry.collegePlayerId === currentPick.collegePlayerId ||
+          !pickedBeforeThisSlot.has(entry.collegePlayerId),
+      )
+    : teamBoardWithRanks;
+  // Recenter on the picked entry within the (possibly filtered) list.
+  // The picked entry's POSITION in the filtered list is what we want
+  // to band around, not its original board rank.
+  const pickedPositionInFiltered = Math.max(
+    1,
+    teamBoardFiltered.findIndex(
+      (e) => e.entry.collegePlayerId === currentPick.collegePlayerId,
+    ) + 1,
+  );
   const teamBoardWindow = bandAround(
-    teamBoard.map((entry, idx) => ({ entry, rank: idx + 1 })),
-    teamRank ?? 1,
+    teamBoardFiltered,
+    pickedPositionInFiltered,
     WINDOW,
   );
   const consensusWindow = bandAround(
@@ -1784,17 +1972,34 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
       {/* 3-column body: player card | team board | consensus board */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         <DraftReplayPlayerCard prospect={prospect ?? null} rookie={rookie ?? null} />
-        <DraftReplayBoardColumn
-          title={`${team?.identity.abbreviation ?? 'Team'} board`}
-          accent="violet"
-          window={teamBoardWindow}
-          highlightId={currentPick.collegePlayerId}
-          nameLookup={nameLookup}
-          extractRankInfo={(entry) => ({
-            label: entry.reason,
-            value: `pri ${entry.priority.toFixed(0)}`,
-          })}
-        />
+        <div>
+          <div className="mb-1 flex justify-end">
+            <button
+              onClick={() => setFilterToAvailable((v) => !v)}
+              className={`rounded border px-2 py-0.5 font-mono text-[10px] transition-colors ${
+                filterToAvailable
+                  ? 'border-violet-500/50 bg-violet-500/20 text-violet-200'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-400 hover:border-violet-500/30'
+              }`}
+              title={filterToAvailable
+                ? "Showing only prospects still on the board at this pick. Click to show the full pre-draft board."
+                : "Showing the full pre-draft board. Click to filter out prospects already taken before this pick."}
+            >
+              {filterToAvailable ? 'available only' : 'show all'}
+            </button>
+          </div>
+          <DraftReplayBoardColumn
+            title={`${team?.identity.abbreviation ?? 'Team'} board${filterToAvailable ? ' (available at this pick)' : ''}`}
+            accent="violet"
+            window={teamBoardWindow}
+            highlightId={currentPick.collegePlayerId}
+            nameLookup={nameLookup}
+            extractRankInfo={(entry) => ({
+              label: entry.reason,
+              value: `pri ${entry.priority.toFixed(0)}`,
+            })}
+          />
+        </div>
         <DraftReplayBoardColumn
           title="Consensus"
           accent="emerald"
@@ -2074,6 +2279,204 @@ function ReachHistogram({ buckets }: { buckets: Record<string, number> }) {
   );
 }
 
+// ─── DRAFT TRADES PANEL (v0.52 — surface trade-up firings) ──────────────
+
+function DraftTradesPanel({ league }: { league: LeagueState }) {
+  // Group trade-ups by seasonNumber. Each season may produce 0..3
+  // trade-ups (per MAX_TRADE_UPS_PER_DRAFT in v0.45).
+  const tradesBySeason = useMemo(() => {
+    const m = new Map<number, typeof league.tradeUpHistory>();
+    for (const tu of league.tradeUpHistory) {
+      const arr = m.get(tu.seasonNumber);
+      if (arr) {
+        (arr as unknown as Array<typeof tu>).push(tu);
+      } else {
+        m.set(tu.seasonNumber, [tu] as unknown as typeof league.tradeUpHistory);
+      }
+    }
+    return [...m.entries()].sort((a, b) => b[0] - a[0]); // newest first
+  }, [league.tradeUpHistory]);
+
+  const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const effectiveSeason = selectedSeason ?? (tradesBySeason[0]?.[0] ?? null);
+
+  const trades =
+    effectiveSeason !== null
+      ? tradesBySeason.find(([s]) => s === effectiveSeason)?.[1] ?? []
+      : [];
+
+  // Resolve future-pick metadata for display (round + season).
+  // Picks may have been consumed by later drafts; check draftPicks
+  // (current asset list) first, fall back to draftHistory for
+  // already-fired ones.
+  const pickInfoById = useMemo(() => {
+    const m = new Map<string, { round: number; seasonNumber: number; originalTeamId?: TeamId }>();
+    for (const p of league.draftPicks) {
+      m.set(p.id, {
+        round: p.round,
+        seasonNumber: p.seasonNumber,
+        originalTeamId: p.originalTeamId,
+      });
+    }
+    for (const p of league.draftHistory) {
+      if (p.pickAssetId && !m.has(p.pickAssetId)) {
+        m.set(p.pickAssetId, {
+          round: p.round,
+          seasonNumber: p.seasonNumber,
+          ...(p.originalTeamId ? { originalTeamId: p.originalTeamId } : {}),
+        });
+      }
+    }
+    return m;
+  }, [league.draftPicks, league.draftHistory]);
+
+  const nameByCpId = useMemo(() => {
+    const m = new Map<string, { firstName: string; lastName: string; position: Position }>();
+    for (const cp of league.collegePool) {
+      m.set(cp.id, { firstName: cp.firstName, lastName: cp.lastName, position: cp.nflProjectedPosition });
+    }
+    for (const p of Object.values(league.players)) {
+      if (!m.has(p.id)) {
+        m.set(p.id, { firstName: p.firstName, lastName: p.lastName, position: p.position });
+      }
+    }
+    return m;
+  }, [league.collegePool, league.players]);
+
+  if (tradesBySeason.length === 0) {
+    return (
+      <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-zinc-300">
+          Draft trades
+        </h2>
+        <p className="text-xs text-zinc-500">
+          No draft trade-ups have fired yet. Trade-ups can only happen when two
+          teams' top board entries converge on the same prospect AND the
+          trading-up team can construct a Doc 5 chart-fair offer (top-10 slots
+          only; max 3 per draft).
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mb-8 rounded border border-amber-500/40 bg-amber-500/10 p-4">
+      <div className="mb-3 flex items-baseline justify-between flex-wrap gap-2">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-amber-200">
+          Draft trade-ups — Season {effectiveSeason} ({trades.length} {trades.length === 1 ? 'trade' : 'trades'})
+        </h2>
+        <div className="flex items-center gap-1 text-xs">
+          <span className="text-zinc-500 uppercase tracking-wide text-[10px]">season</span>
+          {tradesBySeason.map(([s, ts]) => (
+            <button
+              key={s}
+              onClick={() => setSelectedSeason(s)}
+              className={`rounded border px-2 py-0.5 font-mono ${
+                s === effectiveSeason
+                  ? 'border-amber-400 bg-amber-500/30 text-amber-100'
+                  : 'border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-amber-500/40 hover:text-amber-300'
+              }`}
+            >
+              {s} <span className="text-[9px] text-zinc-500">·{ts.length}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {trades.length === 0 ? (
+        <p className="text-xs text-zinc-500">No trade-ups in this season's draft — quiet draft.</p>
+      ) : (
+        <div className="space-y-3">
+          {trades.map((tu) => {
+            const acquiringTeam = league.teams[tu.tradingUpTeamId];
+            const droppingTeam = league.teams[tu.onClockTeamId];
+            const target = nameByCpId.get(tu.targetCollegePlayerId);
+            const swapInfo = pickInfoById.get(tu.swapAssetId);
+            return (
+              <div
+                key={`${tu.seasonNumber}-${tu.overallPick}-${tu.tradingUpTeamId}`}
+                className="rounded border border-amber-500/40 bg-zinc-950/40 p-3 text-xs"
+              >
+                <div className="mb-1 flex items-baseline justify-between flex-wrap gap-2">
+                  <div className="font-mono text-amber-200">
+                    Slot #{tu.overallPick} · R{tu.round} ·{' '}
+                    <span className="text-amber-100">
+                      {acquiringTeam?.identity.abbreviation ?? tu.tradingUpTeamId}
+                    </span>{' '}
+                    moves up
+                  </div>
+                  <span className="rounded bg-amber-500/20 px-1.5 py-0.5 font-mono text-[10px] text-amber-200">
+                    chart ratio {tu.ratio.toFixed(2)}
+                  </span>
+                </div>
+                <div className="mb-2 text-[11px] text-zinc-400">
+                  Target:{' '}
+                  <span className="text-zinc-200">
+                    {target ? `${target.firstName} ${target.lastName}` : tu.targetCollegePlayerId}
+                  </span>
+                  {target && (
+                    <span className="ml-1 text-[10px] text-zinc-500">({target.position})</span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  <div className="rounded border border-emerald-500/30 bg-zinc-950/40 p-2">
+                    <div className="mb-1 text-[10px] uppercase tracking-wider text-emerald-300">
+                      {acquiringTeam?.identity.abbreviation ?? tu.tradingUpTeamId} acquires
+                    </div>
+                    <div className="text-zinc-300">
+                      Slot #{tu.overallPick} (R{tu.round})
+                    </div>
+                  </div>
+                  <div className="rounded border border-rose-500/30 bg-zinc-950/40 p-2">
+                    <div className="mb-1 text-[10px] uppercase tracking-wider text-rose-300">
+                      {droppingTeam?.identity.abbreviation ?? tu.onClockTeamId} receives
+                    </div>
+                    <ul className="space-y-0.5 text-zinc-300">
+                      <li>
+                        <span className="font-mono text-[10px] text-zinc-500">·</span>{' '}
+                        {acquiringTeam?.identity.abbreviation ?? '?'}'s{' '}
+                        R{swapInfo?.round ?? '?'} pick (this draft)
+                      </li>
+                      {tu.futurePickIds.map((fid) => {
+                        const info = pickInfoById.get(fid);
+                        return (
+                          <li key={fid}>
+                            <span className="font-mono text-[10px] text-zinc-500">·</span>{' '}
+                            {acquiringTeam?.identity.abbreviation ?? '?'}'s{' '}
+                            {info ? (
+                              <>
+                                {info.seasonNumber} R{info.round}
+                              </>
+                            ) : (
+                              fid
+                            )}{' '}
+                            pick
+                          </li>
+                        );
+                      })}
+                      {tu.futurePickIds.length === 0 && (
+                        <li className="text-[10px] text-zinc-600">(no future-pick sweeteners)</li>
+                      )}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="mt-3 text-[10px] text-zinc-600">
+        Trade-ups fire inside <code>runDraft</code> when a team further down
+        the round wants the on-clock team's top-board prospect badly enough
+        to construct a chart-fair offer (v0.45 firing; v0.49 dynamic modifier
+        asymmetry tunes acceptance). The on-clock team accepts at ratio ≥ 1.0
+        (Doc 5 chart). Caps: 3 trade-ups per draft, top-10 slots only.
+      </p>
+    </section>
+  );
+}
+
 // ─── DRAFT RESULTS PANEL (Doc 3 — Draft Module slice 5a) ───────────────────
 
 function DraftResultsPanel({ league }: { league: LeagueState }) {
@@ -2090,6 +2493,16 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
 
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
   const effectiveSeason = selectedSeason ?? (seasons[0]?.[0] ?? null);
+
+  // Consensus rank per pick for the selected season — derived from
+  // the v0.50 draftBoardSnapshots captured at draft time. Null when
+  // the season's snapshot is missing (pre-v0.50 saves).
+  const consensusRanksForSeason = useMemo(() => {
+    if (effectiveSeason === null) return null;
+    const snapshot = league.draftBoardSnapshots[effectiveSeason];
+    if (!snapshot) return null;
+    return consensusRankIndex(computeConsensusBoard(snapshot));
+  }, [effectiveSeason, league.draftBoardSnapshots]);
 
   if (seasons.length === 0) {
     return (
@@ -2141,6 +2554,18 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-left">Pos</th>
               <th className="px-2 py-1 text-left">From</th>
               <th className="px-2 py-1 text-center">Board rank</th>
+              <th
+                className="px-2 py-1 text-center"
+                title="Consensus rank (totalPriority-sorted aggregate across all 32 boards at draft time)"
+              >
+                Consensus
+              </th>
+              <th
+                className="px-2 py-1 text-center"
+                title="Reach = consensus rank − overall pick. Positive = reach, negative = steal."
+              >
+                Reach
+              </th>
               <th className="px-2 py-1 text-left">Reason</th>
               <th className="px-2 py-1 text-right">Priority</th>
             </tr>
@@ -2156,6 +2581,8 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
                 (league.collegePool.find((cp) => cp.id === pick.collegePlayerId)?.schoolId)
                   ?? '__missing',
               );
+              const consRank = consensusRanksForSeason?.get(pick.collegePlayerId) ?? null;
+              const reach = consRank !== null ? consRank - pick.overallPick : null;
               return (
                 <tr key={`${pick.seasonNumber}-${pick.overallPick}`} className="border-b border-zinc-900 hover:bg-zinc-900/30">
                   <td className="px-2 py-1 text-right font-mono text-zinc-400">{pick.overallPick}</td>
@@ -2177,6 +2604,28 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
                       </span>
                     ) : (
                       <span className="text-zinc-600" title="Off-board pick (BPA fallback)">off</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1 text-center font-mono">
+                    {consRank !== null ? (
+                      <span className="text-emerald-300">#{consRank}</span>
+                    ) : (
+                      <span className="text-zinc-600" title="Off consensus (not on any team's board at draft time)">off</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1 text-center font-mono text-[11px]">
+                    {reach === null ? (
+                      <span className="text-zinc-600">—</span>
+                    ) : reach >= 20 ? (
+                      <span className="text-amber-300" title="Big reach (≥+20)">+{reach}</span>
+                    ) : reach > 0 ? (
+                      <span className="text-amber-400/80">+{reach}</span>
+                    ) : reach === 0 ? (
+                      <span className="text-zinc-300">0</span>
+                    ) : reach <= -20 ? (
+                      <span className="text-emerald-300" title="Big steal (≤−20)">{reach}</span>
+                    ) : (
+                      <span className="text-emerald-400/80">{reach}</span>
                     )}
                   </td>
                   <td className={`px-2 py-1 text-[10px] uppercase tracking-wide ${

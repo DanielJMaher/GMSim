@@ -130,6 +130,22 @@ export function runDraft(
     }
   }
 
+  // Per-team trade-up counter (v0.52). Tracks how many times each
+  // team has initiated as the trading-up side so the evaluator can
+  // enforce `MAX_TRADE_UPS_PER_TEAM` and prevent one aggressive team
+  // from monopolizing draft trade activity. SEEDED from prior
+  // rounds of this same draft (advanceSeason calls runDraft once
+  // per round; the cap must apply ACROSS rounds, not reset).
+  const tradeUpsByTeam = new Map<TeamId, number>();
+  for (const prior of league.tradeUpHistory) {
+    if (prior.seasonNumber === options.seasonNumber) {
+      tradeUpsByTeam.set(
+        prior.tradingUpTeamId,
+        (tradeUpsByTeam.get(prior.tradingUpTeamId) ?? 0) + 1,
+      );
+    }
+  }
+
   for (let i = 0; i < options.draftOrder.length; i++) {
     // Trade-up check fires BEFORE the pick so the picking team
     // reflects any same-round ownership flip. Only runs when the
@@ -147,10 +163,15 @@ export function runDraft(
         availableById,
         fullDraftPicks: league.draftPicks,
         tradeUpsFiredSoFar: tradeUps.length,
+        tradeUpsByTeamSoFar: tradeUpsByTeam,
         teamContexts: teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
       });
       if (proposal) {
         applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
+        tradeUpsByTeam.set(
+          proposal.tradingUpTeamId,
+          (tradeUpsByTeam.get(proposal.tradingUpTeamId) ?? 0) + 1,
+        );
         tradeUps.push({
           seasonNumber: options.seasonNumber,
           round,
@@ -303,6 +324,10 @@ export function applyDraftResult(
     collegePool,
     draftHistory: [...league.draftHistory, ...result.picks],
     draftPicks,
+    tradeUpHistory:
+      result.tradeUps.length > 0
+        ? [...league.tradeUpHistory, ...result.tradeUps]
+        : league.tradeUpHistory,
   };
 }
 

@@ -12,6 +12,7 @@ import type {
   DraftPickRecord,
   CoachVisitObservation,
   DraftPickAsset,
+  TradeUpRecord,
 } from './college.js';
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
@@ -196,6 +197,16 @@ export interface LeagueState {
    * `{}` for fresh leagues and migrated pre-v0.50 saves.
    */
   draftBoardSnapshots: Readonly<Record<number, Readonly<Record<TeamId, readonly DraftBoardEntry[]>>>>;
+
+  /**
+   * Append-only history of every trade-up that fired during a draft.
+   * Populated by `applyDraftResult` when v0.45+ trade-up firing
+   * produces records. The inspector's draft-trades view reads this
+   * to render trade-up activity without replaying the draft.
+   *
+   * Empty `[]` for fresh leagues and migrated pre-v0.52 saves.
+   */
+  tradeUpHistory: readonly TradeUpRecord[];
 }
 
 export type LeaguePhase =
