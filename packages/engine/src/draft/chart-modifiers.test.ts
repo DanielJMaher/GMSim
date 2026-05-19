@@ -320,6 +320,165 @@ describe('hot-seat HC modifier (v0.49)', () => {
   });
 });
 
+describe('trade-deadline urgency overlay (v0.58)', () => {
+  it('is a no-op when isTradeDeadlineWeek is false (default)', () => {
+    const owner = generateOwner(new Prng('td-off-o'), 'TST');
+    const gm = generateGm(new Prng('td-off-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-off-h'), 'TST');
+    const team = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.CONTENDER,
+    });
+    const baseline = computeChartModifiers(team, records(owner), records(gm), records(hc));
+    const off = computeChartModifiers(team, records(owner), records(gm), records(hc), {
+      isTradeDeadlineWeek: false,
+    });
+    expect(off).toEqual(baseline);
+  });
+
+  it('drops CONTENDER currentMultiplier on the deadline tick (overpay = devalue outgoing picks)', () => {
+    const owner = generateOwner(new Prng('td-contender-o'), 'TST');
+    const gm = generateGm(new Prng('td-contender-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-contender-h'), 'TST');
+    const team = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.CONTENDER,
+    });
+    const baseline = computeChartModifiers(team, records(owner), records(gm), records(hc));
+    const deadline = computeChartModifiers(team, records(owner), records(gm), records(hc), {
+      isTradeDeadlineWeek: true,
+    });
+    expect(deadline.currentMultiplier).toBeLessThan(baseline.currentMultiplier);
+    // Roughly -15% (DEADLINE_CONTENDER_CURRENT_DROP).
+    expect(deadline.currentMultiplier / baseline.currentMultiplier).toBeCloseTo(0.85, 1);
+  });
+
+  it('drops CHAMPIONSHIP currentMultiplier on the deadline tick', () => {
+    const owner = generateOwner(new Prng('td-champ-o'), 'TST');
+    const gm = generateGm(new Prng('td-champ-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-champ-h'), 'TST');
+    const team = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.CHAMPIONSHIP,
+    });
+    const baseline = computeChartModifiers(team, records(owner), records(gm), records(hc));
+    const deadline = computeChartModifiers(team, records(owner), records(gm), records(hc), {
+      isTradeDeadlineWeek: true,
+    });
+    expect(deadline.currentMultiplier).toBeLessThan(baseline.currentMultiplier);
+  });
+
+  it('boosts REBUILDING currentMultiplier on the deadline tick (cash-in window)', () => {
+    const owner = generateOwner(new Prng('td-rebuild-o'), 'TST');
+    const gm = generateGm(new Prng('td-rebuild-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-rebuild-h'), 'TST');
+    const team = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.REBUILDING,
+    });
+    const baseline = computeChartModifiers(team, records(owner), records(gm), records(hc));
+    const deadline = computeChartModifiers(team, records(owner), records(gm), records(hc), {
+      isTradeDeadlineWeek: true,
+    });
+    expect(deadline.currentMultiplier).toBeGreaterThan(baseline.currentMultiplier);
+    expect(deadline.currentMultiplier / baseline.currentMultiplier).toBeCloseTo(1.15, 1);
+  });
+
+  it('boosts RETOOLING currentMultiplier on the deadline tick', () => {
+    const owner = generateOwner(new Prng('td-retool-o'), 'TST');
+    const gm = generateGm(new Prng('td-retool-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-retool-h'), 'TST');
+    const team = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.RETOOLING,
+    });
+    const baseline = computeChartModifiers(team, records(owner), records(gm), records(hc));
+    const deadline = computeChartModifiers(team, records(owner), records(gm), records(hc), {
+      isTradeDeadlineWeek: true,
+    });
+    expect(deadline.currentMultiplier).toBeGreaterThan(baseline.currentMultiplier);
+  });
+
+  it('opens a wider buyer/seller overlap on the deadline tick', () => {
+    // The asymmetric design specifically widens the overlap window:
+    // rebuilder_current / contender_current rises above its baseline.
+    // Trades fire when V_r/V_c < rebuilder_current/contender_current,
+    // so a higher ratio fits more deals.
+    const owner = generateOwner(new Prng('td-overlap-o'), 'TST');
+    const gm = generateGm(new Prng('td-overlap-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-overlap-h'), 'TST');
+    const contender = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.CONTENDER,
+    });
+    const rebuilder = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.REBUILDING,
+    });
+    const baselineRatio =
+      computeChartModifiers(rebuilder, records(owner), records(gm), records(hc))
+        .currentMultiplier /
+      computeChartModifiers(contender, records(owner), records(gm), records(hc))
+        .currentMultiplier;
+    const deadlineRatio =
+      computeChartModifiers(rebuilder, records(owner), records(gm), records(hc), {
+        isTradeDeadlineWeek: true,
+      }).currentMultiplier /
+      computeChartModifiers(contender, records(owner), records(gm), records(hc), {
+        isTradeDeadlineWeek: true,
+      }).currentMultiplier;
+    expect(deadlineRatio).toBeGreaterThan(baselineRatio);
+  });
+
+  it('leaves EMERGING neutral on the deadline tick (Doc 5: no fixed direction)', () => {
+    const owner = generateOwner(new Prng('td-emerge-o'), 'TST');
+    const gm = generateGm(new Prng('td-emerge-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-emerge-h'), 'TST');
+    const team = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.EMERGING,
+    });
+    const baseline = computeChartModifiers(team, records(owner), records(gm), records(hc));
+    const deadline = computeChartModifiers(team, records(owner), records(gm), records(hc), {
+      isTradeDeadlineWeek: true,
+    });
+    expect(deadline.currentMultiplier).toBe(baseline.currentMultiplier);
+  });
+
+  it('leaves futureMultiplier untouched on the deadline tick (current capital only)', () => {
+    const owner = generateOwner(new Prng('td-fut-o'), 'TST');
+    const gm = generateGm(new Prng('td-fut-g'), 'TST');
+    const hc = generateHeadCoach(new Prng('td-fut-h'), 'TST');
+    const team = buildTeam({
+      owner,
+      gm,
+      hc,
+      competitiveWindow: CompetitiveWindow.CONTENDER,
+    });
+    const baseline = computeChartModifiers(team, records(owner), records(gm), records(hc));
+    const deadline = computeChartModifiers(team, records(owner), records(gm), records(hc), {
+      isTradeDeadlineWeek: true,
+    });
+    expect(deadline.futureMultiplier).toBe(baseline.futureMultiplier);
+  });
+});
+
 describe('qbPremiumForGm (v0.49)', () => {
   it('returns Doc 5 range (1.20-1.50) across patience spectrum', () => {
     const baseGm = generateGm(new Prng('qb-g'), 'TST');

@@ -423,6 +423,12 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
   const proactiveLeague: LeagueState = {
     ...tradeResult,
     tick: currentTick,
+    // Stamp the in-progress week so trade evaluators downstream see
+    // `currentWeek === weekIdx` while THIS tick's trades are valued.
+    // `isTradeDeadlineWeek` (v0.58) keys off this — without the stamp
+    // `league.currentWeek` would still be the prior tick's value and
+    // the deadline overlay would land one week late.
+    currentWeek: weekIdx,
   };
   const proactiveResult = runProactiveTrades(
     seasonPrng.fork(`proactive-trade-${weekIdx + 1}`),

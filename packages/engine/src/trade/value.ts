@@ -12,6 +12,7 @@ import {
   computeChartModifiers,
   pickValueForTeam,
 } from '../draft/chart-modifiers.js';
+import { isTradeDeadlineWeek } from '../season/calendar.js';
 
 /**
  * Doc 14 five-factor trade-value evaluator.
@@ -244,6 +245,7 @@ export function evaluatePickValue(
     league.owners,
     league.gms,
     league.coaches,
+    { isTradeDeadlineWeek: isTradeDeadlineWeek(league.currentWeek) },
   );
   const teamAdjusted = pickValueForTeam(baseChartValue, modifiers, yearsOut, false);
   const totalDollars = teamAdjusted * CHART_POINT_TO_DOLLARS;

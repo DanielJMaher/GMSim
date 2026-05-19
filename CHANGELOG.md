@@ -16,6 +16,61 @@ _Nothing yet._
 
 ---
 
+## [0.58.0] — 2026-05-19
+
+### Added — Trade-deadline urgency modifier
+
+Mid-season trade volume now spikes on the deadline week (the
+in-season tick where `currentWeek === 7`, i.e., Week 8 — Tuesday
+after which the real NFL deadline lands). This is the v0.46 chart
+modifier framework's first calendar-aware overlay, unlocked by the
+v0.56 per-week tick decomposition.
+
+**The asymmetric design** (counterintuitive at first glance):
+
+- Contenders (CHAMPIONSHIP/CONTENDER) get a `currentMultiplier`
+  **drop** (×0.85) on the deadline tick. Their own current-year picks
+  feel like chips to spend, not assets to hoard — "what does a 2027
+  R3 matter if we don't win 2026?"
+- Rebuilders (REBUILDING/RETOOLING/STAGNANT) get a `currentMultiplier`
+  **boost** (×1.15) — the deadline IS their selling window; smaller
+  pick packages now look acceptable compared to clinging to a vet
+  whose value erodes through the spring.
+
+Trades fire when both `netValue > 0`. The threshold between buyer and
+seller is roughly `rebuilder_current / contender_current` — raise that
+ratio and more deals overlap. v0.58's numbers raise the ratio by
+~30% relative to the CompetitiveWindow baseline (e.g., 0.85/1.05 →
+0.98/0.89 ≈ +30%).
+
+EMERGING teams are neutral on the deadline tick (Doc 5 doesn't pin
+a buyer/seller direction for that window). Future-pick valuations
+are untouched — the deadline pressure is about compressing
+current-year capital, not shifting horizons.
+
+### Plumbing
+
+- `computeChartModifiers(team, owners, gms, coaches, context?)` —
+  new optional `context: ChartModifierContext`. Defaults to neutral.
+- `evaluatePickValue(team, pick, league)` — internally derives
+  `isTradeDeadlineWeek(league.currentWeek)` and forwards it.
+- `applyRegularSeasonWeek` — stamps `currentWeek = weekIdx` on the
+  proactiveLeague before calling `runProactiveTrades` so the
+  in-progress week (not the prior tick's value) drives the deadline
+  check.
+
+### Tests
+
+- 6 new `chart-modifiers.test.ts` cases covering both directions of
+  the overlay + neutral cases + future-pick invariance + the wider
+  buyer/seller ratio.
+- 3 new `value.test.ts` cases proving `evaluatePickValue` reads
+  `currentWeek` correctly through the league-context plumbing.
+
+Full suite: green (no regressions).
+
+---
+
 ## [0.57.0] — 2026-05-19
 
 ### Added — Calendar layer for the lifecycle

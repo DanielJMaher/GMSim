@@ -63,6 +63,54 @@ export const NEUTRAL_MODIFIERS: ChartModifiers = {
 };
 
 /**
+ * Optional situational context. The Doc 5 baseline modifiers
+ * (TeamPersonality, CompetitiveWindow, etc.) are time-invariant; this
+ * struct carries the calendar-aware overlays that flip on for a
+ * specific tick (trade deadline week, etc.).
+ */
+export interface ChartModifierContext {
+  /**
+   * v0.58 trade-deadline urgency. When `true`, contenders inflate
+   * current-pick value further (overpaying for vets) and rebuilders
+   * deflate current-pick value further (accepting cheaper returns).
+   * Future-pick values are NOT touched — the deadline pressure is
+   * about converting current capital, not shifting horizons.
+   */
+  isTradeDeadlineWeek?: boolean;
+}
+
+const NEUTRAL_CONTEXT: ChartModifierContext = {};
+
+/**
+ * Doc 5 trade-deadline urgency overlay (v0.58). Active for one
+ * regular-season tick — the week leading up to the NFL trade deadline
+ * (Tuesday after Week 8). The asymmetric pressure that drives real
+ * trade volume runs THROUGH the picks teams exchange:
+ *
+ *   - Contenders DEPRECIATE current-pick value (their own picks feel
+ *     like chips to spend, not assets to hoard — "what does a 2027 R3
+ *     matter if we don't win 2026?"). Lower currentMultiplier means
+ *     contenders accept giving up MORE picks for the same vet.
+ *
+ *   - Rebuilders APPRECIATE current-pick value (the deadline IS their
+ *     selling window; smaller pick packages now look acceptable
+ *     compared to clinging to a vet whose value erodes through the
+ *     spring). Higher currentMultiplier means rebuilders accept
+ *     FEWER picks for the same vet.
+ *
+ * Concretely: trades fire when both `netValue > 0`. The threshold
+ * between buyer and seller is roughly `rebuilder_current /
+ * contender_current` — raise that ratio and more deals overlap. The
+ * v0.58 numbers (~10-15% each side) raise the threshold by ~30%
+ * relative to the baseline CompetitiveWindow split.
+ *
+ * Future-pick values are NOT touched — the deadline pressure is about
+ * compressing current-year capital, not shifting horizons.
+ */
+const DEADLINE_CONTENDER_CURRENT_DROP = 0.85;
+const DEADLINE_REBUILDER_CURRENT_BOOST = 1.15;
+
+/**
  * QB premium applied to the current-year pick value when the target
  * prospect is a QB. Doc 5: "When a QB is the clear target of a
  * trade-up, the acquiring team's chart value threshold increases by
@@ -90,6 +138,7 @@ export function computeChartModifiers(
   owners: Readonly<Record<OwnerId, Owner>>,
   gms: Readonly<Record<GmId, Gm>>,
   coaches: Readonly<Record<CoachId, HeadCoach>>,
+  context: ChartModifierContext = NEUTRAL_CONTEXT,
 ): ChartModifiers {
   const owner = owners[team.ownerId];
   const gm = gms[team.gmId];
@@ -168,6 +217,30 @@ export function computeChartModifiers(
   if (isHotSeatByRecord(team.seasonHistory)) {
     current *= 1.1;
     future *= 0.8;
+  }
+
+  // ── Trade-deadline urgency overlay (v0.58) ──────────────────────
+  // Applies on the single week-8 in-season tick. See
+  // `DEADLINE_CONTENDER_CURRENT_DROP` / `DEADLINE_REBUILDER_CURRENT_BOOST`
+  // commentary above for why the directions look counterintuitive
+  // (contenders DEPRECIATE their own picks, rebuilders APPRECIATE
+  // incoming picks) — this is what widens the buyer/seller overlap.
+  if (context.isTradeDeadlineWeek) {
+    switch (team.competitiveWindow) {
+      case CompetitiveWindow.CHAMPIONSHIP:
+      case CompetitiveWindow.CONTENDER:
+        current *= DEADLINE_CONTENDER_CURRENT_DROP;
+        break;
+      case CompetitiveWindow.REBUILDING:
+      case CompetitiveWindow.RETOOLING:
+      case CompetitiveWindow.STAGNANT:
+        current *= DEADLINE_REBUILDER_CURRENT_BOOST;
+        break;
+      case CompetitiveWindow.EMERGING:
+        // Neutral — emerging teams sit between buyer + seller
+        // motivations and Doc 5 doesn't pin a direction.
+        break;
+    }
   }
 
   return {

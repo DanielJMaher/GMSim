@@ -201,6 +201,78 @@ describe('evaluatePickValue', () => {
     const contenderValue = evaluatePickValue(contender, futureR2, league);
     expect(rebuilderValue.total).toBeGreaterThan(contenderValue.total);
   });
+
+  it('trade-deadline tick drops contender current-pick value (v0.58)', () => {
+    const baseLeague = createLeague({ seed: 'pv-deadline-contender' });
+    const baseTeam = Object.values(baseLeague.teams)[0]!;
+    const contender: TeamState = {
+      ...baseTeam,
+      competitiveWindow: CompetitiveWindow.CONTENDER,
+    };
+    const currentR2: DraftPickAsset = {
+      ...baseLeague.draftPicks.find((p) => p.round === 2)!,
+      seasonNumber: baseLeague.seasonNumber,
+    };
+    const baseline = evaluatePickValue(
+      contender,
+      currentR2,
+      { ...baseLeague, currentWeek: 4 },
+    );
+    const deadline = evaluatePickValue(
+      contender,
+      currentR2,
+      { ...baseLeague, currentWeek: 7 },
+    );
+    expect(deadline.total).toBeLessThan(baseline.total);
+  });
+
+  it('trade-deadline tick boosts rebuilder current-pick value (v0.58)', () => {
+    const baseLeague = createLeague({ seed: 'pv-deadline-rebuilder' });
+    const baseTeam = Object.values(baseLeague.teams)[0]!;
+    const rebuilder: TeamState = {
+      ...baseTeam,
+      competitiveWindow: CompetitiveWindow.REBUILDING,
+    };
+    const currentR2: DraftPickAsset = {
+      ...baseLeague.draftPicks.find((p) => p.round === 2)!,
+      seasonNumber: baseLeague.seasonNumber,
+    };
+    const baseline = evaluatePickValue(
+      rebuilder,
+      currentR2,
+      { ...baseLeague, currentWeek: 4 },
+    );
+    const deadline = evaluatePickValue(
+      rebuilder,
+      currentR2,
+      { ...baseLeague, currentWeek: 7 },
+    );
+    expect(deadline.total).toBeGreaterThan(baseline.total);
+  });
+
+  it('deadline tick does NOT touch future-pick valuations (v0.58)', () => {
+    const baseLeague = createLeague({ seed: 'pv-deadline-future' });
+    const baseTeam = Object.values(baseLeague.teams)[0]!;
+    const contender: TeamState = {
+      ...baseTeam,
+      competitiveWindow: CompetitiveWindow.CONTENDER,
+    };
+    const futureR2: DraftPickAsset = {
+      ...baseLeague.draftPicks.find((p) => p.round === 2)!,
+      seasonNumber: baseLeague.seasonNumber + 1,
+    };
+    const baseline = evaluatePickValue(
+      contender,
+      futureR2,
+      { ...baseLeague, currentWeek: 4 },
+    );
+    const deadline = evaluatePickValue(
+      contender,
+      futureR2,
+      { ...baseLeague, currentWeek: 7 },
+    );
+    expect(deadline.total).toBeCloseTo(baseline.total, 5);
+  });
 });
 
 describe('evaluateTradePackage with picks', () => {
