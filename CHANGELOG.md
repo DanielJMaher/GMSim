@@ -16,6 +16,83 @@ _Nothing yet._
 
 ---
 
+## [0.54.0] — 2026-05-19
+
+### Added — Event-granularity lifecycle (foundation)
+
+Daniel flagged the bundled `simulateSeason + advanceSeason` two-stage
+loop as MUST-DO-BEFORE-MORE-UI-WORK: too coarse for the inspector to
+ask "where are we in the cycle?" or to step through events one at a
+time. v0.54 lays the foundation by decomposing the ~600-line
+`advanceSeason` body into 6 ordered phase handlers, plus a public
+`tickPhase` driver that runs exactly one phase per call.
+
+**New `LifecyclePhase` enum**
+(`engine/src/season/lifecycle.ts`):
+
+```
+'REGULAR_SEASON'         — in-season; resets here when simulateSeason fires
+'POST_SEASON_FINALIZE'   — awards, dev, retirement, contract decrement,
+                           season history, IR activation
+'OFFSEASON_TRANSACTIONS' — contract expirations, cap cuts, proactive
+                           trades, NFL scouting cycle, FA refill,
+                           practice squad, mood drift, watch lists
+'PRE_DRAFT'              — JR declarations roll + board snapshot prep
+'DRAFT'                  — 7-round draft + per-pick trade-ups
+'POST_DRAFT_ROSTER'      — preseason cuts + UDFA pipeline
+'COLLEGE_CYCLE'          — pool advance + college scouting + board
+                           regen + combine + pro days + coach visits
+                           + pick horizon roll
+'READY_FOR_NEXT_SEASON'  — terminal; next simulateSeason resets to
+                           REGULAR_SEASON
+```
+
+**New public API:**
+
+- `tickPhase(league)` — applies the next phase, returns the new
+  state with `lifecyclePhase` advanced. No-op at
+  `READY_FOR_NEXT_SEASON`.
+- `nextPhaseAfter(phase)` — query the ordering.
+- `LIFECYCLE_ORDER` — the canonical sequence as a frozen array.
+
+**`advanceSeason` is now a thin loop over `tickPhase`** until the
+terminal phase. No behavior change; same end state as v0.53.1.
+
+**`LeagueState.lifecyclePhase`** added; migration backfills
+`REGULAR_SEASON` (if `schedule` present) or `READY_FOR_NEXT_SEASON`
+(if not) on pre-v0.54 saves. `createLeague` initializes to
+`REGULAR_SEASON`. `simulateSeason` stamps it back to `REGULAR_SEASON`
+at end of play so the post-Super-Bowl state cleanly signals "ready
+for the lifecycle to run."
+
+**Schedule-clear timing shifted**: `simulateSeason → schedule
+present` was previously cleared inside the bundled `advanceSeason`
+near the start. Now retained through the `DRAFT` phase (which uses
+it for slot-order records) and cleared at the end of
+`COLLEGE_CYCLE`. No external behavior change — final
+post-`advanceSeason` state still has `schedule: null`.
+
+**PRNG namespacing:** each phase derives its own PRNG from
+`seed::lifecycle::seasonNumber::PHASE`. Pre-v0.54 used the
+monolithic `seed::advance-{seasonNumber}` namespace, so the byte-
+exact draft outcomes shift even though the structural behavior is
+identical. Probabilistic tests are unaffected (no test pins specific
+players to specific picks); deterministic tests still produce the
+same outcome from the same seed across runs.
+
+**Engine suite:** 665 passing + 1 skipped.
+
+**Inspector benefits (deferred to v0.55):** UI can now read
+`league.lifecyclePhase`, render the calendar, and add per-phase
+step-through controls via `tickPhase`. Engine work first; UI next.
+
+**Not in this slice:**
+- Week-by-week granularity for `simulateSeason` (separate refactor).
+- Calendar dates per phase (mid-March FA, late-April draft, etc.).
+- UI controls — coming in v0.55.
+
+---
+
 ## [0.53.1] — 2026-05-19
 
 ### Fixed — Boards include the full draftable cohort; only explicit returners drop

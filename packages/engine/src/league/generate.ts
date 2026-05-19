@@ -244,6 +244,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     ),
     draftBoardSnapshots: {},
     tradeUpHistory: [],
+    lifecyclePhase: 'REGULAR_SEASON' as const,
   };
 
   // Initial boards first (we need them so pro-day attendance can

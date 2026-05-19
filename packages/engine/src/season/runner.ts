@@ -254,6 +254,9 @@ export function simulateSeason(
     ...leagueAfterRegSeason,
     players: playoffResult.players as typeof league.players,
     schedule: { ...regularSeasonComplete, playoffs: playoffResult.playoffs },
+    // Lifecycle stays REGULAR_SEASON through the play; the next
+    // tickPhase advances to POST_SEASON_FINALIZE.
+    lifecyclePhase: 'REGULAR_SEASON' as const,
   };
 }
 

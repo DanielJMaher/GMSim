@@ -242,5 +242,18 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     };
   }
 
+  // v0.54.0 lifecycle phase. Pre-v0.54 saves don't carry it — pick
+  // a sensible default based on whether a schedule is present
+  // (mid-season) vs not (between cycles). The next `advanceSeason`
+  // or `tickPhase` call will move it forward correctly either way.
+  if (!(next as unknown as { lifecyclePhase?: unknown }).lifecyclePhase) {
+    next = {
+      ...next,
+      lifecyclePhase: next.schedule
+        ? ('REGULAR_SEASON' as const)
+        : ('READY_FOR_NEXT_SEASON' as const),
+    };
+  }
+
   return next;
 }

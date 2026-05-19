@@ -11,6 +11,12 @@ export {
   type TeamRecord,
 } from './standings.js';
 export { advanceSeason } from './advance.js';
+export {
+  tickPhase,
+  nextPhaseAfter,
+  LIFECYCLE_ORDER,
+  type LifecyclePhase,
+} from './lifecycle.js';
 export { advancePlayerDevelopment, ageOfPlayer } from './development.js';
 export {
   rollRetirement,

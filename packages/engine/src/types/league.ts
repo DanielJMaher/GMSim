@@ -207,6 +207,22 @@ export interface LeagueState {
    * Empty `[]` for fresh leagues and migrated pre-v0.52 saves.
    */
   tradeUpHistory: readonly TradeUpRecord[];
+
+  /**
+   * Fine-grained lifecycle phase (v0.54+). `LeaguePhase` was coarse
+   * (REGULAR_SEASON / OFFSEASON_PRE_FA / etc.); `lifecyclePhase`
+   * tracks the engine's exact position in the annual cycle so UI
+   * can step through one event at a time via `tickPhase`. See
+   * `engine/src/season/lifecycle.ts` for the ordered sequence.
+   *
+   * `REGULAR_SEASON` while a schedule is being played;
+   * post-`simulateSeason` it remains there until the first
+   * `tickPhase` (or full `advanceSeason`) fires
+   * `POST_SEASON_FINALIZE`. Lands at `READY_FOR_NEXT_SEASON` after
+   * the final phase; next `simulateSeason` resets to
+   * `REGULAR_SEASON`.
+   */
+  lifecyclePhase: import('../season/lifecycle.js').LifecyclePhase;
 }
 
 export type LeaguePhase =
