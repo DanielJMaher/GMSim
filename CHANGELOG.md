@@ -16,6 +16,51 @@ _Nothing yet._
 
 ---
 
+## [0.55.0] — 2026-05-19
+
+### Added — Team Needs (positional)
+
+New public engine API `computeTeamNeeds(team, league)` returns a
+ranked `PositionNeed[]` per canonical Position (21 entries). UI takes
+top-5 for display. Score model:
+
+- `qse` = STAR ×1.2 + STARTER ×0.85 + BACKUP ×0.25 + FRINGE ×0.05
+- `ageBonus` = best STAR/STARTER over 29: 0.3 per year, capped 1.5
+- `score` = max(-2, starterSlots − qse + ageBonus)
+
+`starterSlots` is hand-tuned per position (QB 1, WR 3, EDGE 2, CB 2.5,
+S 2, etc.) so the rolloff reflects modern NFL usage rather than the
+53-man depth blueprint.
+
+### Changed — Inspector surfaces team needs
+
+- **Draft Boards panel** — top-5 needs chip strip under the selected
+  team's scheme line.
+- **Draft Replay panel** — top-5 needs of the on-clock team in the
+  pick headline, so per-pick selections can be checked against the
+  team's biggest holes at a glance.
+
+Both views compute against current league state (no
+`teamNeedsSnapshots` parallel yet — point-in-time needs are a future
+slice if needed).
+
+### Changed — Trade-up pick labels show slot #
+
+`DraftTradesPanel` receives-side picks now include slot # when
+known. Current-draft swap reads from `draftHistory.overallPick`;
+future-pick sweeteners show slot # once consumed in a later draft,
+otherwise `(TBD)`. Acquires-side already showed slot # since v0.52.
+
+### Changed — Reduced future-pick churn in trade-ups
+
+`MAX_FUTURE_PICKS_PER_OFFER` dropped from 4 → 2. v0.52 raised it to
+unlock R1 deals, but the side effect was too many late-round
+trade-ups bundling 3-4 future picks (uncommon in real NFL). Single-
+pick Stage 1 covers most cases including R1; Stage 2 bundles up to
+2 picks only when one can't span the gap.
+
+---
+
 ## [0.54.0] — 2026-05-19
 
 ### Added — Event-granularity lifecycle (foundation)

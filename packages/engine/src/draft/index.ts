@@ -161,3 +161,7 @@ export {
   QB_CURRENT_PICK_PREMIUM,
 } from './chart-modifiers.js';
 export type { ChartModifiers } from './chart-modifiers.js';
+
+// v0.55: positional team-needs scorer (inspector + future AI input)
+export { computeTeamNeeds } from './team-needs.js';
+export type { PositionNeed } from './team-needs.js';

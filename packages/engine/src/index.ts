@@ -271,6 +271,8 @@ export {
   // v0.50 — consensus board diagnostic
   computeConsensusBoard,
   consensusRankIndex,
+  // v0.55 — team-needs scorer
+  computeTeamNeeds,
 } from './draft/index.js';
 export type {
   PromoteOptions,
@@ -283,6 +285,7 @@ export type {
   PickReference,
   PickTradeEvaluation,
   ConsensusBoardEntry,
+  PositionNeed,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,

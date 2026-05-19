@@ -130,14 +130,15 @@ export const MAX_TRADE_UPS_PER_TEAM = 4;
 
 /**
  * Max future-year picks a trading-up team will include as sweetener.
- * v0.45 cap of 2 made R1 trade-ups nearly impossible: closing the
- * gap from slot 2 (9400 pts) to a slot-10 swap (5350) needs ~4050
- * pts of future sweetener, and 2 R1 future picks at midpoint cap at
- * ~5610. Most teams don't own 2 future R1s, so R1 deals couldn't
- * construct. v0.52 raises to 4 — Doc 5 examples (Mahomes, Stafford)
- * regularly bundle current + future + multiple picks.
+ * v0.45 cap of 2 made R1 trade-ups nearly impossible. v0.52 raised
+ * to 4 to unlock R1 deals, but a side effect was too many late-round
+ * trade-ups bundling 3-4 future picks (rare in real NFL). v0.55
+ * drops to 2 — Stage 1 (single pick clears gap) handles most cases
+ * including R1 (1 future R1 mid-pick = ~3950 pts, plenty for typical
+ * R1 gaps). Stage 2 bundles only when one pick can't span the gap;
+ * a 2-pick cap keeps that scenario rare and authentic.
  */
-export const MAX_FUTURE_PICKS_PER_OFFER = 4;
+export const MAX_FUTURE_PICKS_PER_OFFER = 2;
 
 /**
  * Trade-up acceptance band from the on-clock team's perspective.

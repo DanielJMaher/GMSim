@@ -61,7 +61,8 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds } from '@gmsim/engine';
+import type { PositionNeed } from '@gmsim/engine';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -1295,6 +1296,46 @@ function collegeStatHeadline(
   }
 }
 
+// ─── TEAM NEEDS STRIP (v0.55) ──────────────────────────────────────────────
+//
+// Compact display of a team's top-N positional needs, computed from
+// `computeTeamNeeds`. Reused in DraftBoardsPanel (per-team) and
+// DraftReplayPanel (on-clock team at each pick).
+
+function TeamNeedsStrip({
+  needs,
+  topN = 5,
+  label = 'Needs',
+  tone = 'amber',
+}: {
+  needs: readonly PositionNeed[];
+  topN?: number;
+  label?: string;
+  tone?: 'amber' | 'sky';
+}) {
+  const top = needs.slice(0, topN);
+  const accent =
+    tone === 'amber'
+      ? 'text-amber-200 border-amber-500/40 bg-amber-500/10'
+      : 'text-sky-200 border-sky-500/40 bg-sky-500/10';
+  return (
+    <div className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
+      <span className="uppercase tracking-wide text-[10px] text-zinc-500">{label}</span>
+      {top.map((n, i) => (
+        <span
+          key={n.position}
+          className={`rounded border px-1.5 py-0.5 font-mono ${accent}`}
+          title={`${n.position} — score ${n.score.toFixed(2)} · starters ${n.starterCount}/${n.blueprintTarget}${n.bestStarterAge !== null ? ` · best age ${n.bestStarterAge}` : ''}`}
+        >
+          <span className="mr-1 text-zinc-500">{i + 1}.</span>
+          {n.position}
+          <span className="ml-1 text-[9px] text-zinc-400">{n.score.toFixed(1)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // ─── DRAFT BOARDS PANEL (Doc 3 — Draft Module slice 3) ─────────────────────
 
 const REASON_LABELS: Record<DraftBoardReason, string> = {
@@ -1435,6 +1476,10 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
 
   const selectedTeam = selectedTeamId ? league.teams[selectedTeamId] : null;
   const selectedHc = selectedTeam ? league.coaches[selectedTeam.headCoachId] : null;
+  const selectedTeamNeeds = useMemo(
+    () => (selectedTeam ? computeTeamNeeds(selectedTeam, league) : []),
+    [selectedTeam, league],
+  );
 
   return (
     <section className="mb-8 rounded border border-violet-500/40 bg-violet-500/10 p-4">
@@ -1527,13 +1572,19 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
       </div>
 
       {selectedHc && (
-        <p className="mb-3 text-xs text-zinc-500">
+        <p className="mb-2 text-xs text-zinc-500">
           Scheme: <span className="font-mono text-emerald-300">{selectedHc.offensiveScheme}</span>
           {' / '}
           <span className="font-mono text-emerald-300">{selectedHc.defensiveScheme}</span>
           {' · '}
           HC: <span className="text-zinc-300">{selectedHc.name}</span>
         </p>
+      )}
+
+      {selectedTeamNeeds.length > 0 && (
+        <div className="mb-3">
+          <TeamNeedsStrip needs={selectedTeamNeeds} />
+        </div>
       )}
 
       <div className="mb-3 grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
@@ -1804,6 +1855,7 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
   }
 
   const team = league.teams[currentPick.teamId];
+  const teamNeeds = team ? computeTeamNeeds(team, league) : [];
   const prospect = league.collegePool.find((cp) => cp.id === currentPick.collegePlayerId);
   // Promotion preserves PlayerId, so the rookie record is reachable
   // through players[promotedPlayerId] even after the prospect's left
@@ -1975,6 +2027,15 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
             </span>
           )}
         </div>
+        {teamNeeds.length > 0 && (
+          <div className="mt-2">
+            <TeamNeedsStrip
+              needs={teamNeeds}
+              tone="sky"
+              label={`${team?.identity.abbreviation ?? 'Team'} needs`}
+            />
+          </div>
+        )}
       </div>
 
       {/* 3-column body: player card | team board | consensus board */}
@@ -2313,12 +2374,14 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
       ? tradesBySeason.find(([s]) => s === effectiveSeason)?.[1] ?? []
       : [];
 
-  // Resolve future-pick metadata for display (round + season).
-  // Picks may have been consumed by later drafts; check draftPicks
-  // (current asset list) first, fall back to draftHistory for
-  // already-fired ones.
+  // Resolve pick metadata for display (round + season + slot # when
+  // known). Slot # is only assigned once the draft fires, so future
+  // picks come from `league.draftPicks` (slot = undefined) and
+  // already-fired picks come from `league.draftHistory` (slot known).
+  // History takes precedence so a pick consumed in a later draft
+  // still surfaces its slot.
   const pickInfoById = useMemo(() => {
-    const m = new Map<string, { round: number; seasonNumber: number; originalTeamId?: TeamId }>();
+    const m = new Map<string, { round: number; seasonNumber: number; originalTeamId?: TeamId; overallPick?: number }>();
     for (const p of league.draftPicks) {
       m.set(p.id, {
         round: p.round,
@@ -2327,10 +2390,11 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
       });
     }
     for (const p of league.draftHistory) {
-      if (p.pickAssetId && !m.has(p.pickAssetId)) {
+      if (p.pickAssetId) {
         m.set(p.pickAssetId, {
           round: p.round,
           seasonNumber: p.seasonNumber,
+          overallPick: p.overallPick,
           ...(p.originalTeamId ? { originalTeamId: p.originalTeamId } : {}),
         });
       }
@@ -2443,7 +2507,13 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
                       <li>
                         <span className="font-mono text-[10px] text-zinc-500">·</span>{' '}
                         {acquiringTeam?.identity.abbreviation ?? '?'}'s{' '}
-                        R{swapInfo?.round ?? '?'} pick (this draft)
+                        R{swapInfo?.round ?? '?'}
+                        {swapInfo?.overallPick !== undefined && (
+                          <span className="ml-1 font-mono text-amber-200">
+                            #{swapInfo.overallPick}
+                          </span>
+                        )}{' '}
+                        <span className="text-[10px] text-zinc-500">(this draft)</span>
                       </li>
                       {tu.futurePickIds.map((fid) => {
                         const info = pickInfoById.get(fid);
@@ -2454,11 +2524,20 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
                             {info ? (
                               <>
                                 {info.seasonNumber} R{info.round}
+                                {info.overallPick !== undefined && (
+                                  <span className="ml-1 font-mono text-amber-200">
+                                    #{info.overallPick}
+                                  </span>
+                                )}
                               </>
                             ) : (
                               fid
                             )}{' '}
-                            pick
+                            {info && info.overallPick === undefined ? (
+                              <span className="text-[10px] text-zinc-600">(TBD)</span>
+                            ) : (
+                              <span className="text-[10px] text-zinc-500">pick</span>
+                            )}
                           </li>
                         );
                       })}
