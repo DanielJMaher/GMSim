@@ -215,14 +215,22 @@ export interface LeagueState {
    * can step through one event at a time via `tickPhase`. See
    * `engine/src/season/lifecycle.ts` for the ordered sequence.
    *
-   * `REGULAR_SEASON` while a schedule is being played;
-   * post-`simulateSeason` it remains there until the first
-   * `tickPhase` (or full `advanceSeason`) fires
-   * `POST_SEASON_FINALIZE`. Lands at `READY_FOR_NEXT_SEASON` after
-   * the final phase; next `simulateSeason` resets to
-   * `REGULAR_SEASON`.
+   * v0.56 split `REGULAR_SEASON` into `REGULAR_SEASON_WEEK` plus
+   * per-playoff-round phases (`WILD_CARD`, `DIVISIONAL`,
+   * `CONFERENCE`, `SUPER_BOWL`). `currentWeek` pairs with
+   * `REGULAR_SEASON_WEEK` to track in-season position.
    */
   lifecyclePhase: import('../season/lifecycle.js').LifecyclePhase;
+
+  /**
+   * Zero-indexed regular-season week most recently played (v0.56+).
+   * `null` outside of `REGULAR_SEASON_WEEK` (offseason, playoffs).
+   * `0` after the first week is played; advances each
+   * `REGULAR_SEASON_WEEK` tick. After the last regular-season week
+   * the phase transitions to `WILD_CARD` and `currentWeek` resets
+   * to null.
+   */
+  currentWeek: number | null;
 }
 
 export type LeaguePhase =

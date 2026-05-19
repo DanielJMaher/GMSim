@@ -250,9 +250,45 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = {
       ...next,
       lifecyclePhase: next.schedule
-        ? ('REGULAR_SEASON' as const)
+        ? ('REGULAR_SEASON_WEEK' as const)
         : ('READY_FOR_NEXT_SEASON' as const),
     };
+  }
+
+  // v0.56.0 lifecycle phase split. The coarse `REGULAR_SEASON` was
+  // replaced by `REGULAR_SEASON_WEEK` (in-season, paired with
+  // `currentWeek`) plus four playoff-round phases. v0.54/v0.55 saves
+  // carrying `lifecyclePhase: 'REGULAR_SEASON'` map onto the new
+  // enum based on schedule + playoffs state:
+  //   - no schedule → already offseason; nothing to do
+  //   - regular season weeks fully played + no playoffs → SUPER_BOWL
+  //     (will not re-fire; the offseason cycle is one tick away). We
+  //     can't reconstruct mid-season position perfectly, so leagues
+  //     loaded mid-season are conservatively snapped to the playoffs
+  //     boundary. In practice no save flow exposes mid-season state.
+  //   - regular season weeks fully played + playoffs done → SUPER_BOWL
+  //   - otherwise → REGULAR_SEASON_WEEK with currentWeek backfilled
+  //     from the highest played-week index.
+  const legacyPhase = next.lifecyclePhase as unknown as string;
+  if (legacyPhase === 'REGULAR_SEASON') {
+    next = { ...next, lifecyclePhase: 'REGULAR_SEASON_WEEK' as const };
+  }
+
+  // v0.56.0 currentWeek field. Backfill from the played schedule:
+  // the highest weekIdx whose week has any played game becomes the
+  // last-played week. If the playoffs already fired, currentWeek=null
+  // (the league is past the regular season).
+  if ((next as unknown as { currentWeek?: unknown }).currentWeek === undefined) {
+    let currentWeek: number | null = null;
+    if (next.schedule && !next.schedule.playoffs) {
+      let lastPlayedIdx = -1;
+      for (let i = 0; i < next.schedule.regularSeason.length; i++) {
+        const week = next.schedule.regularSeason[i] ?? [];
+        if (week.some((g) => g.result !== null)) lastPlayedIdx = i;
+      }
+      if (lastPlayedIdx >= 0) currentWeek = lastPlayedIdx;
+    }
+    next = { ...next, currentWeek } as LeagueState;
   }
 
   return next;

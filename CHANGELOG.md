@@ -16,6 +16,84 @@ _Nothing yet._
 
 ---
 
+## [0.56.0] — 2026-05-19
+
+### Added — Week-by-week + playoff-round ticks
+
+The v0.54 lifecycle decomposition covered the offseason. v0.56
+finishes the picture: `simulateSeason`'s monolithic week loop becomes
+17 separate `REGULAR_SEASON_WEEK` ticks plus four playoff-round
+phases (`WILD_CARD`, `DIVISIONAL`, `CONFERENCE`, `SUPER_BOWL`).
+Inspector step-through (future slice) now has a single timeline from
+opening kickoff through Super Bowl through draft to next opening
+kickoff.
+
+**Expanded `LifecyclePhase` enum** (`engine/src/season/lifecycle.ts`):
+
+```
+'REGULAR_SEASON_WEEK'    — one regular-season week just played
+'WILD_CARD'              — wild-card round just played
+'DIVISIONAL'             — divisional round just played
+'CONFERENCE'             — conference championships just played
+'SUPER_BOWL'             — Super Bowl just played (simulateSeason exit)
+'POST_SEASON_FINALIZE'   — (existing) awards, dev, retirement, ...
+... (existing offseason phases unchanged)
+'READY_FOR_NEXT_SEASON'  — wraps forward to REGULAR_SEASON_WEEK
+```
+
+`REGULAR_SEASON_WEEK` self-loops via `currentWeek: number | null`.
+Each tick fires one week's games + every per-week subsystem (poach,
+mid-season FA, mood, NPC trades, proactive trades) — the same bundle
+that ran inside the old loop body. The transition to `WILD_CARD`
+fires on the tick after the 17th regular-season week.
+
+**New `LeagueState.currentWeek`** — zero-indexed week most recently
+played. `null` outside of regular season. Migration backfills from
+the highest played-week index in the schedule.
+
+**Refactored `simulateSeason`** — now a thin `tickPhase` loop that
+terminates after the Super Bowl fires. Same shape as `advanceSeason`
+has had since v0.54. Public signature unchanged. The unused
+`SimulateSeasonOptions.seed` field was removed (no in-tree callers).
+
+**Refactored `runPlayoffs`** — wrapper over four new exported
+helpers (`playWildCardRound`, `playDivisionalRound`,
+`playConferenceRound`, `playSuperBowlRound`). Each takes the same
+playoffs-root PRNG (`seasonPrng.fork('playoffs')`) and reads prior
+rounds from `league.schedule.playoffs`, so step-through and bulk
+produce identical brackets.
+
+### Determinism
+
+Per-week and per-game PRNG namespaces match v0.55 exactly
+(`${seed}::season-${N}`, fork labels `week-K`, `poach-K`, `fa-K`,
+`mood-K`, `npc-trade-K`, `proactive-trade-K`, `schedule`, `playoffs`).
+670 passing + 1 skipped — identical to v0.55.0.
+
+### Migration
+
+Pre-v0.56 saves with `lifecyclePhase: 'REGULAR_SEASON'` map onto
+`'REGULAR_SEASON_WEEK'`. Missing `currentWeek` defaults to the
+highest played-week index from `schedule.regularSeason` (or `null` if
+no played weeks).
+
+### Test additions
+
+`runner.test.ts` adds three v0.56 tests:
+- Tick-by-tick reaches the same final state as bulk simulateSeason
+  (deep-equal schedule + players + teams + transactionLog)
+- Exactly 17 regular-season ticks + 4 playoff ticks per season
+- `currentWeek` progresses 0..16 then resets to `null` on the
+  wild-card transition
+
+### Engine-only slice
+
+No inspector changes. The step-through UI for a full-season scrubber
+(timeline + per-tick advance button) is the natural next slice now
+that the engine API supports it.
+
+---
+
 ## [0.55.0] — 2026-05-19
 
 ### Added — Team Needs (positional)
