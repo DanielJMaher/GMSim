@@ -16,6 +16,61 @@ _Nothing yet._
 
 ---
 
+## [0.59.0] — 2026-05-20
+
+### Added — Lifecycle step-through inspector
+
+The payoff slice for v0.54 + v0.56 + v0.57 substrate work. A new
+**Lifecycle** tab in the inspector renders the full annual cycle as
+a single timeline:
+
+- 17 regular-season week cells (with dates from
+  `phaseCalendarDate`); Week 8 styled in amber as the trade-deadline
+  tick
+- 4 playoff-round cells (Wild Card → Divisional → Conference → Super
+  Bowl)
+- 7 offseason phase cells (Post-Season Finalize through Ready for
+  Next Season)
+
+Current position highlighted in rose with a ring; current-phase
+badge shows the human-readable label (`Week 8`,
+`Mid-March · Free Agency`, etc.), approximate calendar date, raw
+`LifecyclePhase` + `currentWeek` values, and a "Trade deadline tick"
+chip when on `currentWeek === 7`.
+
+**Three step controls:**
+
+- **Step tick** — one `tickPhase(league)` call. REGULAR_SEASON_WEEK
+  self-loops, so each click advances exactly one week.
+- **Step to next phase** — keeps ticking until `lifecyclePhase`
+  changes. Skips through the 17-week self-loop to land on the next
+  distinct phase (typically the next playoff or offseason step).
+- **Step a full year** — runs ~28 ticks. Goes from any point in the
+  cycle back to the same point one year later.
+
+### Fixed — COLLEGE_CYCLE now stamps its own phase name
+
+`applyCollegeCycle` previously stamped `lifecyclePhase:
+'READY_FOR_NEXT_SEASON'` at the end of its work — making it invisible
+in step-through (the timeline skipped from `POST_DRAFT_ROSTER`
+directly to `READY_FOR_NEXT_SEASON`). The handler now stamps
+`'COLLEGE_CYCLE'` like every other phase; the subsequent tick
+advances to `READY_FOR_NEXT_SEASON` via the dispatch table.
+
+Side effect: a full annual cycle is now 28 ticks (was 27). All
+existing tests stay green — the change is transparent to
+`advanceSeason`, `simulateSeason`, and the v0.56 tick-equivalence
+tests.
+
+### UI
+
+`App.tsx` gains a `'lifecycle'` tab + `LifecyclePanel`,
+`CurrentPhaseBadge`, `LifecycleTimeline`, `TimelineGroup`, and
+`TimelineCell` components. The tab uses the rose color family;
+no other panels touched.
+
+---
+
 ## [0.58.1] — 2026-05-20
 
 ### Added — Diagnostic instruments for v0.58 calibration

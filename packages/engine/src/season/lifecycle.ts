@@ -920,7 +920,12 @@ function applyCollegeCycle(league: LeagueState, prng: PrngClass): LeagueState {
     // Clear the played schedule at the end of the cycle (DRAFT
     // needed it for slot-order records; nothing further does).
     schedule: null,
-    lifecyclePhase: 'READY_FOR_NEXT_SEASON',
+    // v0.59: stamp this phase's own name (was 'READY_FOR_NEXT_SEASON'
+    // pre-v0.59, which made COLLEGE_CYCLE invisible in step-through —
+    // the inspector skipped past it directly to the terminal marker).
+    // The next tickPhase advances to READY_FOR_NEXT_SEASON via the
+    // dispatch table.
+    lifecyclePhase: 'COLLEGE_CYCLE',
   };
   return offseason;
 }

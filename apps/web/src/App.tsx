@@ -63,6 +63,14 @@ import type {
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds } from '@gmsim/engine';
 import type { PositionNeed } from '@gmsim/engine';
+import {
+  tickPhase,
+  phaseCalendarLabel,
+  phaseCalendarDate,
+  formatCalendarDate,
+  TRADE_DEADLINE_WEEK_INDEX,
+} from '@gmsim/engine';
+import type { LifecyclePhase, CalendarDate } from '@gmsim/engine';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -76,7 +84,7 @@ import type { PositionNeed } from '@gmsim/engine';
  */
 const DEFAULT_SEED = 'phase-2-season';
 
-type InspectorTab = 'league' | 'draft' | 'free-agency' | 'news';
+type InspectorTab = 'league' | 'draft' | 'free-agency' | 'news' | 'lifecycle';
 
 interface TabDef {
   id: InspectorTab;
@@ -105,6 +113,11 @@ const TAB_DEFS: readonly TabDef[] = [
     id: 'news',
     label: 'News',
     activeClasses: 'border-amber-400 bg-amber-500/10 text-amber-200',
+  },
+  {
+    id: 'lifecycle',
+    label: 'Lifecycle',
+    activeClasses: 'border-rose-400 bg-rose-500/10 text-rose-200',
   },
 ];
 
@@ -291,6 +304,10 @@ export function App() {
         </>
       )}
 
+      {activeTab === 'lifecycle' && (
+        <LifecyclePanel league={league} onLeagueChange={setLeague} />
+      )}
+
       {/* TeamDetail modal renders over the active tab. */}
       {selectedTeam && (
         <TeamDetail
@@ -328,6 +345,8 @@ function TabNav({
       case 'news':
         return leagueCounts.recentTransactions;
       case 'league':
+        return null;
+      case 'lifecycle':
         return null;
     }
   };
@@ -6507,4 +6526,294 @@ function formatCoachAward(
   const team = league.teams[award.teamId];
   if (!coach || !team) return null;
   return `${coach.name} (${team.identity.abbreviation}) — ${award.summary}`;
+}
+
+// ─── Lifecycle step-through panel (v0.59) ───────────────────────────────
+//
+// Pays off the v0.54 + v0.56 + v0.57 substrate: a single timeline of the
+// 28 lifecycle ticks (17 regular-season weeks + 4 playoff rounds + 7
+// offseason phases) with the current position highlighted, calendar
+// labels + approximate dates, and step controls (one tick / one phase).
+
+const REG_SEASON_WEEKS = 17;
+
+const PLAYOFF_PHASES: readonly LifecyclePhase[] = [
+  'WILD_CARD',
+  'DIVISIONAL',
+  'CONFERENCE',
+  'SUPER_BOWL',
+];
+
+const OFFSEASON_PHASES: readonly LifecyclePhase[] = [
+  'POST_SEASON_FINALIZE',
+  'OFFSEASON_TRANSACTIONS',
+  'PRE_DRAFT',
+  'DRAFT',
+  'POST_DRAFT_ROSTER',
+  'COLLEGE_CYCLE',
+  'READY_FOR_NEXT_SEASON',
+];
+
+function LifecyclePanel({
+  league,
+  onLeagueChange,
+}: {
+  league: LeagueState;
+  onLeagueChange: (l: LeagueState) => void;
+}) {
+  const phase = league.lifecyclePhase;
+  const currentWeek = league.currentWeek;
+  const label = phaseCalendarLabel(phase, currentWeek);
+  const date = phaseCalendarDate(phase, currentWeek, league.seasonNumber);
+
+  function step() {
+    onLeagueChange(tickPhase(league));
+  }
+
+  function stepToNextPhase() {
+    // Walk ticks until lifecyclePhase changes. REGULAR_SEASON_WEEK
+    // self-loops via currentWeek; this skips through the remaining
+    // weeks to land on the next distinct phase (typically WILD_CARD).
+    // Safety cap covers a full year (28 ticks) + slack.
+    let l = league;
+    const startPhase = l.lifecyclePhase;
+    for (let i = 0; i < 50; i++) {
+      const next = tickPhase(l);
+      if (next === l) break;
+      l = next;
+      if (l.lifecyclePhase !== startPhase) break;
+    }
+    onLeagueChange(l);
+  }
+
+  function stepFullYear() {
+    // 28 ticks = full annual cycle. Safety-cap slightly higher.
+    let l = league;
+    for (let i = 0; i < 40; i++) {
+      const next = tickPhase(l);
+      if (next === l) break;
+      l = next;
+    }
+    onLeagueChange(l);
+  }
+
+  return (
+    <section className="mt-6 rounded border border-zinc-800 bg-zinc-900/40 p-4">
+      <h2 className="mb-3 text-lg font-semibold text-rose-200">Lifecycle</h2>
+
+      <CurrentPhaseBadge
+        phase={phase}
+        currentWeek={currentWeek}
+        label={label}
+        date={date}
+      />
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button
+          onClick={step}
+          className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-sm text-rose-200 hover:bg-rose-500/20"
+        >
+          Step tick
+        </button>
+        <button
+          onClick={stepToNextPhase}
+          className="rounded border border-rose-500/30 bg-rose-500/5 px-3 py-1 text-sm text-rose-300 hover:bg-rose-500/10"
+        >
+          Step to next phase
+        </button>
+        <button
+          onClick={stepFullYear}
+          className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm text-zinc-300 hover:border-rose-500/40 hover:text-rose-200"
+        >
+          Step a full year
+        </button>
+      </div>
+
+      <LifecycleTimeline
+        phase={phase}
+        currentWeek={currentWeek}
+        seasonNumber={league.seasonNumber}
+      />
+
+      <p className="mt-3 text-xs text-zinc-500">
+        Bulk <code className="text-zinc-300">simulateSeason</code> +{' '}
+        <code className="text-zinc-300">advanceSeason</code> (header buttons)
+        still work — they're just <code className="text-zinc-300">tickPhase</code>{' '}
+        loops under the hood. Use this panel to scrub through a year one
+        tick at a time and watch the engine state advance.
+      </p>
+    </section>
+  );
+}
+
+function CurrentPhaseBadge({
+  phase,
+  currentWeek,
+  label,
+  date,
+}: {
+  phase: LifecyclePhase;
+  currentWeek: number | null;
+  label: string;
+  date: CalendarDate | null;
+}) {
+  const isDeadlineWeek =
+    phase === 'REGULAR_SEASON_WEEK' && currentWeek === TRADE_DEADLINE_WEEK_INDEX;
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 rounded border border-rose-500/30 bg-rose-500/5 px-3 py-2">
+      <div>
+        <span className="text-[10px] uppercase tracking-wide text-zinc-500">Phase</span>
+        <span className="ml-2 font-mono text-sm text-rose-200">{phase}</span>
+      </div>
+      <div>
+        <span className="text-[10px] uppercase tracking-wide text-zinc-500">Label</span>
+        <span className="ml-2 text-sm text-zinc-200">{label}</span>
+      </div>
+      {date && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500">Date</span>
+          <span className="ml-2 font-mono text-xs text-zinc-300">
+            {formatCalendarDate(date)}
+          </span>
+        </div>
+      )}
+      {currentWeek !== null && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500">currentWeek</span>
+          <span className="ml-2 font-mono text-xs text-zinc-300">{currentWeek}</span>
+        </div>
+      )}
+      {isDeadlineWeek && (
+        <span className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-200">
+          Trade deadline tick
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LifecycleTimeline({
+  phase,
+  currentWeek,
+  seasonNumber,
+}: {
+  phase: LifecyclePhase;
+  currentWeek: number | null;
+  seasonNumber: number;
+}) {
+  return (
+    <div className="mt-5 space-y-4">
+      <TimelineGroup title="Regular Season">
+        <div className="grid grid-cols-9 gap-1 sm:grid-cols-[repeat(17,minmax(0,1fr))]">
+          {Array.from({ length: REG_SEASON_WEEKS }, (_, i) => {
+            const isCurrent =
+              phase === 'REGULAR_SEASON_WEEK' && currentWeek === i;
+            const cellDate = phaseCalendarDate('REGULAR_SEASON_WEEK', i, seasonNumber);
+            const isDeadline = i === TRADE_DEADLINE_WEEK_INDEX;
+            return (
+              <TimelineCell
+                key={`w${i}`}
+                isCurrent={isCurrent}
+                label={`W${i + 1}`}
+                sub={cellDate ? `${cellDate.month}/${cellDate.day}` : ''}
+                accent={isDeadline ? 'amber' : 'rose'}
+              />
+            );
+          })}
+        </div>
+      </TimelineGroup>
+
+      <TimelineGroup title="Playoffs">
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
+          {PLAYOFF_PHASES.map((p) => (
+            <TimelineCell
+              key={p}
+              isCurrent={phase === p}
+              label={phaseCalendarLabel(p, null)}
+              sub={formatDateOrEmpty(phaseCalendarDate(p, null, seasonNumber))}
+              accent="rose"
+              wide
+            />
+          ))}
+        </div>
+      </TimelineGroup>
+
+      <TimelineGroup title="Offseason">
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-7">
+          {OFFSEASON_PHASES.map((p) => (
+            <TimelineCell
+              key={p}
+              isCurrent={phase === p}
+              label={phaseCalendarLabel(p, null)}
+              sub={formatDateOrEmpty(phaseCalendarDate(p, null, seasonNumber))}
+              accent="rose"
+              wide
+            />
+          ))}
+        </div>
+      </TimelineGroup>
+    </div>
+  );
+}
+
+function TimelineGroup({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+        {title}
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+function TimelineCell({
+  isCurrent,
+  label,
+  sub,
+  accent,
+  wide = false,
+}: {
+  isCurrent: boolean;
+  label: string;
+  sub?: string;
+  accent: 'rose' | 'amber';
+  wide?: boolean;
+}) {
+  const accentBorder =
+    accent === 'amber' ? 'border-amber-500/30' : 'border-zinc-700';
+  const accentBg =
+    accent === 'amber' ? 'bg-amber-500/5' : 'bg-zinc-900/40';
+  const accentText =
+    accent === 'amber' ? 'text-amber-300' : 'text-zinc-400';
+  const currentClasses = isCurrent
+    ? 'border-rose-400 bg-rose-500/15 text-rose-100 ring-1 ring-rose-400/40'
+    : `${accentBorder} ${accentBg} ${accentText}`;
+  return (
+    <div
+      className={`flex flex-col items-center justify-center rounded border px-1.5 py-1 text-center transition-colors ${currentClasses} ${wide ? 'min-h-[3rem]' : 'min-h-[2.25rem]'}`}
+    >
+      <span
+        className={`font-mono text-[10px] font-medium leading-tight ${wide ? 'text-[11px]' : ''}`}
+      >
+        {label}
+      </span>
+      {sub && (
+        <span className="font-mono text-[9px] text-zinc-500 leading-none">
+          {sub}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function formatDateOrEmpty(date: CalendarDate | null): string {
+  if (!date) return '';
+  return `${date.month}/${date.day}`;
 }
