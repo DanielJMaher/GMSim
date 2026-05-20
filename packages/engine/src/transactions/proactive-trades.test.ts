@@ -3,6 +3,14 @@ import { createLeague } from '../league/generate.js';
 import { runProactiveTrades } from './proactive-trades.js';
 import { simulateSeason } from '../season/runner.js';
 import { advanceSeason } from '../season/advance.js';
+import { tickPhase } from '../season/lifecycle.js';
+import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
+import {
+  evaluatePlayerValue,
+  evaluatePickValue,
+  evaluateTradePackage,
+} from '../trade/value.js';
+import type { DraftPickAsset } from '../types/college.js';
 import { Prng } from '../prng/index.js';
 import { CompetitiveWindow, Position } from '../types/enums.js';
 import { teamCapUsage } from '../contracts/cap.js';
@@ -508,5 +516,391 @@ describe('runProactiveTrades — rebuilder fire-sale (v0.48.0+)', () => {
           t.kind === 'trade' && t.source === 'proactive-rebuild-firesale',
       );
     expect(firesales.length).toBe(0);
+  });
+});
+
+// Skipped by default — these are diagnostic instruments left in place
+// for the v0.58 deadline-calibration follow-up. Un-skip and re-run
+// when revisiting the "proactive trades don't fire in the wild"
+// problem. Each warm-up takes ~100s and the suite stays green
+// without them.
+// Skipped by default — diagnostic instruments preserved for the v0.58
+// deadline-calibration follow-up. The investigation revealed that
+// proactive trades barely fire at full-season scale (binding constraint
+// is `buildFireSaleOffer`'s ascending sort + 3-pick cap; even all 17
+// of a buyer's picks valued at ~$22M can't clear a $25M STAR vet target
+// in the seller's perception). The fix is multi-pronged and broke 4
+// existing tests in initial attempts; properly scoping it deserves its
+// own slice. Un-skip and re-run when revisiting.
+describe.skip('instrument: per-week trade volume (v0.58 deadline calibration)', () => {
+  // Not a gate — prints the per-week distribution of mid-season trades
+  // for three seeds × one full simulated season each. Used to confirm
+  // (or refute) that currentWeek === 7 produces a visible volume spike
+  // relative to baseline weeks under the v0.58 deadline urgency
+  // modifier. Compare the "Deadline week (Week 8)" column to the
+  // surrounding weeks' average.
+  it('instrument: trade volume per regular-season week (warm-up + measured season)', () => {
+    // Run 4 seasons to let competitive windows differentiate (fresh
+    // leagues start with neutral windows; rebuilders + contenders only
+    // separate after a couple of full standings cycles). Then measure
+    // season 5's per-week trade distribution.
+    const seeds = ['deadline-vol-a', 'deadline-vol-b', 'deadline-vol-c'];
+    const WARMUP_SEASONS = 4;
+    type SourceKey = 'proactive-need' | 'proactive-fit-swap' | 'proactive-rebuild-firesale' | 'request-driven' | 'manual' | 'unknown';
+    // [seed][weekIdx][source] -> count
+    const perSeed: Record<string, Record<SourceKey, number>[]> = {};
+    // [seed][weekIdx] -> picks moved (count of picks across all trades that week)
+    const picksMoved: Record<string, number[]> = {};
+    for (const seed of seeds) {
+      let league = createLeague({ seed });
+      for (let i = 0; i < WARMUP_SEASONS; i++) {
+        league = simulateSeason(league);
+        league = advanceSeason(league);
+      }
+      const seasonStartTick = league.tick;
+      const baselineLogLen = league.transactionLog.length;
+      const played = simulateSeason(league);
+      const weekRows: Record<SourceKey, number>[] = Array.from({ length: 17 }, () => ({
+        'proactive-need': 0,
+        'proactive-fit-swap': 0,
+        'proactive-rebuild-firesale': 0,
+        'request-driven': 0,
+        manual: 0,
+        unknown: 0,
+      }));
+      const picks = new Array(17).fill(0) as number[];
+      for (const tx of played.transactionLog.slice(baselineLogLen)) {
+        if (tx.kind !== 'trade') continue;
+        const weekIdx = tx.tick - seasonStartTick;
+        if (weekIdx < 0 || weekIdx >= 17) continue;
+        const src = (tx.source ?? 'unknown') as SourceKey;
+        weekRows[weekIdx]![src] += 1;
+        picks[weekIdx]! += (tx.picksAToB?.length ?? 0) + (tx.picksBToA?.length ?? 0);
+      }
+      perSeed[seed] = weekRows;
+      picksMoved[seed] = picks;
+    }
+
+    console.log('\n=== Trades per week, by source (Week 8 = deadline tick) ===');
+    const sources: SourceKey[] = ['proactive-need', 'proactive-fit-swap', 'proactive-rebuild-firesale', 'request-driven'];
+    for (const seed of seeds) {
+      console.log(`\n--- ${seed} ---`);
+      const header = ['Week '].concat(sources.map((s) => s.padStart(28))).concat(['picks'.padStart(8)]).join(' | ');
+      console.log(header);
+      console.log('-'.repeat(header.length));
+      for (let w = 0; w < 17; w++) {
+        const isDeadline = w === 7;
+        const marker = isDeadline ? ' ← deadline' : '';
+        const row = perSeed[seed]![w]!;
+        const cells = sources.map((s) => String(row[s] ?? 0).padStart(28));
+        const picksCell = String(picksMoved[seed]![w] ?? 0).padStart(8);
+        console.log(`W${(w + 1).toString().padStart(2, ' ')}   | ${cells.join(' | ')} | ${picksCell}${marker}`);
+      }
+    }
+
+    console.log('\n=== Aggregate over 3 seeds: deadline week vs others mean ===');
+    for (const src of sources) {
+      let deadline = 0;
+      let other = 0;
+      for (const seed of seeds) {
+        const rows = perSeed[seed]!;
+        deadline += rows[7]![src];
+        for (let w = 0; w < 17; w++) {
+          if (w !== 7) other += rows[w]![src];
+        }
+      }
+      const otherMean = other / 16;
+      const ratio = otherMean > 0 ? deadline / otherMean : Number.POSITIVE_INFINITY;
+      console.log(
+        `  ${src.padStart(28)}: deadline_sum=${deadline}  others_mean=${otherMean.toFixed(2)}  ratio=${ratio.toFixed(2)}x`,
+      );
+    }
+
+    // Picks moved aggregate
+    let deadlinePicks = 0;
+    let otherPicks = 0;
+    for (const seed of seeds) {
+      const arr = picksMoved[seed]!;
+      deadlinePicks += arr[7]!;
+      for (let w = 0; w < 17; w++) {
+        if (w !== 7) otherPicks += arr[w]!;
+      }
+    }
+    console.log(
+      `\n  Picks moved   : deadline_sum=${deadlinePicks}  others_mean_per_week=${(otherPicks / 16).toFixed(2)}`,
+    );
+    expect(true).toBe(true);
+  });
+
+  it('instrument: firesale gate funnel (mid-season snapshot)', () => {
+    // Step through a season tick-by-tick to capture a mid-season
+    // league at the deadline week, then count how many candidates
+    // each firesale gate produces. Reveals which gate kills in-season
+    // firesales.
+    const seed = 'firesale-gate-funnel';
+    let league = createLeague({ seed });
+    for (let i = 0; i < 4; i++) {
+      league = simulateSeason(league);
+      league = advanceSeason(league);
+    }
+    // Now play through Week 1 → Week 8 manually so we can inspect at
+    // the deadline tick.
+    while (league.lifecyclePhase !== 'REGULAR_SEASON_WEEK' || league.currentWeek !== 7) {
+      league = tickPhase(league);
+      if (league.lifecyclePhase === 'SUPER_BOWL') break; // safety
+    }
+    console.log(`\n=== Mid-season snapshot (Week ${(league.currentWeek ?? 0) + 1}, seed=${seed}) ===`);
+
+    const teamIds = Object.keys(league.teams);
+
+    // Window distribution
+    const windowCounts: Record<string, number> = {};
+    for (const id of teamIds) {
+      const w = league.teams[id as keyof typeof league.teams]!.competitiveWindow;
+      windowCounts[w] = (windowCounts[w] ?? 0) + 1;
+    }
+    console.log('Competitive windows:', JSON.stringify(windowCounts));
+
+    // Rebuilders + their aging-vet pool
+    const REBUILD = new Set(['REBUILDING', 'RETOOLING', 'STAGNANT']);
+    let rebuildersWithVets = 0;
+    let totalAgingVets = 0;
+    for (const id of teamIds) {
+      const team = league.teams[id as keyof typeof league.teams]!;
+      if (!REBUILD.has(team.competitiveWindow)) continue;
+      let agingVets = 0;
+      for (const pid of team.rosterIds) {
+        const p = league.players[pid];
+        if (!p) continue;
+        if (p.tier !== 'STAR' && p.tier !== 'STARTER') continue;
+        const age = 2026 + (league.seasonNumber - 1) - parseInt(p.birthDate.slice(0, 4));
+        if (age < 30) continue;
+        if (!p.contractId) continue;
+        const c = league.contracts[p.contractId];
+        if (!c || c.noTradeClause) continue;
+        agingVets++;
+      }
+      if (agingVets > 0) rebuildersWithVets++;
+      totalAgingVets += agingVets;
+    }
+    console.log(`Rebuilders w/ aging vets: ${rebuildersWithVets}  total aging vets available: ${totalAgingVets}`);
+
+    // Contender buyers with cap room
+    const CONTEND = new Set(['CHAMPIONSHIP', 'CONTENDER']);
+    let contendersWithCap = 0;
+    for (const id of teamIds) {
+      const team = league.teams[id as keyof typeof league.teams]!;
+      if (!CONTEND.has(team.competitiveWindow)) continue;
+      const room = league.salaryCap - teamCapUsage(team, league);
+      if (room >= 5_000_000) contendersWithCap++;
+    }
+    console.log(`Contenders w/ ≥$5M cap room: ${contendersWithCap}`);
+
+    // Pick assets owned by contenders
+    let contenderPicks = 0;
+    for (const pick of league.draftPicks) {
+      const team = league.teams[pick.currentTeamId as keyof typeof league.teams]!;
+      if (CONTEND.has(team.competitiveWindow)) contenderPicks++;
+    }
+    console.log(`Pick assets owned by contenders: ${contenderPicks}`);
+
+    // Now invoke runProactiveTrades directly and see if it produces firesales.
+    const after = runProactiveTrades(new Prng('funnel'), league, league.tick);
+    const newTrades = after.transactionLog.slice(league.transactionLog.length).filter((t) => t.kind === 'trade');
+    const bySource: Record<string, number> = {};
+    for (const t of newTrades) {
+      if (t.kind !== 'trade') continue;
+      const s = t.source ?? 'unknown';
+      bySource[s] = (bySource[s] ?? 0) + 1;
+    }
+    console.log(`runProactiveTrades direct call on mid-season league:`);
+    console.log(`  total new trades: ${newTrades.length}`);
+    console.log(`  by source: ${JSON.stringify(bySource)}`);
+
+    // Compare: does offseason firesale ever fire? Walk a full extra
+    // season (sim + advance) and count proactive-rebuild-firesales
+    // in the entire transaction log delta.
+    let post = league;
+    const baselineLen = post.transactionLog.length;
+    post = simulateSeason(post);
+    post = advanceSeason(post);
+    const fullDelta = post.transactionLog.slice(baselineLen).filter((t) => t.kind === 'trade');
+    const offseasonBySource: Record<string, number> = {};
+    for (const t of fullDelta) {
+      if (t.kind !== 'trade') continue;
+      const s = t.source ?? 'unknown';
+      offseasonBySource[s] = (offseasonBySource[s] ?? 0) + 1;
+    }
+    console.log(`Full-cycle (in-season + offseason) trades after this point:`);
+    console.log(`  total: ${fullDelta.length}`);
+    console.log(`  by source: ${JSON.stringify(offseasonBySource)}`);
+
+    expect(true).toBe(true);
+  });
+
+  it('instrument: per-gate rejection counts for firesale collection (mid-season)', () => {
+    // Walk through every potential rebuilder × aging-vet × contender
+    // combination at the deadline tick and tally which gate kills
+    // each candidate. The output identifies the binding constraint:
+    // cap-safety, offer-empty, buyer-net≤0, or seller-net≤0.
+    const seed = 'firesale-gate-counts';
+    let league = createLeague({ seed });
+    for (let i = 0; i < 4; i++) {
+      league = simulateSeason(league);
+      league = advanceSeason(league);
+    }
+    while (league.lifecyclePhase !== 'REGULAR_SEASON_WEEK' || league.currentWeek !== 7) {
+      league = tickPhase(league);
+      if (league.lifecyclePhase === 'SUPER_BOWL') break;
+    }
+    console.log(`\n=== Per-gate rejection counts (Week 8, seed=${seed}) ===`);
+
+    const PROACTIVE_TRADE_CAP_SAFETY = 5_000_000;
+    const REBUILDER_VETERAN_MIN_AGE = 30;
+    const MAX_PICKS_PER_FIRESALE_OFFER = 3;
+    const REBUILD = new Set(['REBUILDING', 'RETOOLING', 'STAGNANT']);
+    const FIRESALE_BUYER = new Set(['CHAMPIONSHIP', 'CONTENDER']);
+
+    // Index picks by current owner
+    const picksByOwner = new Map<string, DraftPickAsset[]>();
+    for (const p of league.draftPicks) {
+      const bucket = picksByOwner.get(p.currentTeamId) ?? [];
+      bucket.push(p);
+      picksByOwner.set(p.currentTeamId, bucket);
+    }
+
+    const teamIds = Object.keys(league.teams);
+    let pairings = 0;
+    const reject = {
+      sellerNotRebuilder: 0,
+      noAgingVets: 0,
+      sellerCapTight: 0,
+      buyerNotContender: 0,
+      buyerCapTight: 0,
+      buyerNoPicks: 0,
+      offerEmpty: 0,
+      buyerNetNeg: 0,
+      sellerNetNeg: 0,
+      passed: 0,
+    };
+    // Sample one full pairing trace (the first non-trivial one we hit).
+    let traced = false;
+
+    for (const sellerId of teamIds) {
+      const seller = league.teams[sellerId as keyof typeof league.teams]!;
+      if (!REBUILD.has(seller.competitiveWindow)) {
+        reject.sellerNotRebuilder++;
+        continue;
+      }
+      const agingVets = seller.rosterIds
+        .map((id) => league.players[id])
+        .filter((p) => p && (p.tier === 'STAR' || p.tier === 'STARTER'))
+        .filter((p) => {
+          if (!p) return false;
+          const age = 2026 + (league.seasonNumber - 1) - parseInt(p.birthDate.slice(0, 4));
+          return age >= REBUILDER_VETERAN_MIN_AGE;
+        })
+        .filter((p) => {
+          if (!p || !p.contractId) return false;
+          const c = league.contracts[p.contractId];
+          return Boolean(c && !c.noTradeClause);
+        });
+      if (agingVets.length === 0) {
+        reject.noAgingVets++;
+        continue;
+      }
+      const sellerRoom = league.salaryCap - teamCapUsage(seller, league);
+      if (sellerRoom < PROACTIVE_TRADE_CAP_SAFETY) {
+        reject.sellerCapTight++;
+        continue;
+      }
+      for (const acquire of agingVets) {
+        if (!acquire) continue;
+        for (const buyerId of teamIds) {
+          if (buyerId === sellerId) continue;
+          const buyer = league.teams[buyerId as keyof typeof league.teams]!;
+          if (!FIRESALE_BUYER.has(buyer.competitiveWindow)) {
+            reject.buyerNotContender++;
+            continue;
+          }
+          pairings++;
+          const acquireContract = league.contracts[acquire.contractId!]!;
+          const acquireHit = currentCapHit(acquireContract);
+          const buyerRoom = league.salaryCap - teamCapUsage(buyer, league);
+          if (buyerRoom < acquireHit + PROACTIVE_TRADE_CAP_SAFETY) {
+            reject.buyerCapTight++;
+            continue;
+          }
+          const buyerPicks = picksByOwner.get(buyerId) ?? [];
+          if (buyerPicks.length === 0) {
+            reject.buyerNoPicks++;
+            continue;
+          }
+          // Build offer greedy from seller's perspective.
+          const sellerVetValue = evaluatePlayerValue(seller, acquire, league).total;
+          const valued = buyerPicks
+            .map((p) => ({ pick: p, value: evaluatePickValue(seller, p, league).total }))
+            .filter((x) => x.value > 0)
+            .sort((a, b) => a.value - b.value);
+          const chosen: DraftPickAsset[] = [];
+          let totalVal = 0;
+          for (const v of valued) {
+            if (chosen.length >= MAX_PICKS_PER_FIRESALE_OFFER) break;
+            chosen.push(v.pick);
+            totalVal += v.value;
+            if (totalVal >= sellerVetValue) break;
+          }
+          if (totalVal < sellerVetValue) {
+            reject.offerEmpty++;
+            if (!traced) {
+              traced = true;
+              const valuedDesc = [...valued].reverse();
+              const bestSellerSum = valuedDesc.slice(0, 3).reduce((a, b) => a + b.value, 0);
+              const buyerPicksValued = buyerPicks
+                .map((p) => ({ pick: p, value: evaluatePickValue(buyer, p, league).total }))
+                .sort((a, b) => b.value - a.value);
+              const bestBuyerSum = buyerPicksValued.slice(0, 3).reduce((a, b) => a + b.value, 0);
+              const allBuyerSum = buyerPicksValued.reduce((a, b) => a + b.value, 0);
+              const allSellerSum = valuedDesc.reduce((a, b) => a + b.value, 0);
+              const buyerVet = evaluatePlayerValue(buyer, acquire, league).total;
+              console.log(`\n--- Sample failed pairing (offerEmpty) ---`);
+              console.log(`  seller=${sellerId} window=${seller.competitiveWindow}`);
+              console.log(`  buyer=${buyerId} window=${buyer.competitiveWindow}`);
+              console.log(`  vet=${acquire.id} tier=${acquire.tier} pos=${acquire.position} hit=$${(acquireHit / 1e6).toFixed(2)}M`);
+              console.log(`  sellerVetValue (target)         : $${sellerVetValue.toFixed(2)}M`);
+              console.log(`  buyerVetValue                   : $${buyerVet.toFixed(2)}M`);
+              console.log(`  buyer's ${buyerPicks.length} picks (best 5, seller perspective):`);
+              for (const v of valuedDesc.slice(0, 5)) {
+                console.log(`    R${v.pick.round} ${v.pick.seasonNumber === league.seasonNumber ? 'this yr' : `+${v.pick.seasonNumber - league.seasonNumber}yr`}: $${v.value.toFixed(2)}M`);
+              }
+              console.log(`  best 3-pick sum (seller perspective): $${bestSellerSum.toFixed(2)}M  vs target $${sellerVetValue.toFixed(2)}M`);
+              console.log(`  best 3-pick sum (buyer perspective) : $${bestBuyerSum.toFixed(2)}M  vs buyerVet $${buyerVet.toFixed(2)}M`);
+              console.log(`  ALL picks sum  (seller perspective): $${allSellerSum.toFixed(2)}M`);
+              console.log(`  ALL picks sum  (buyer perspective) : $${allBuyerSum.toFixed(2)}M`);
+            }
+            continue;
+          }
+          // Evaluate
+          const buyerEval = evaluateTradePackage(buyer, [acquire], [], league, { outgoing: chosen });
+          if (buyerEval.netValue <= 0) {
+            reject.buyerNetNeg++;
+            continue;
+          }
+          const sellerEval = evaluateTradePackage(seller, [], [acquire], league, { incoming: chosen });
+          if (sellerEval.netValue <= 0) {
+            reject.sellerNetNeg++;
+            continue;
+          }
+          reject.passed++;
+        }
+      }
+    }
+
+    console.log(`\nTotal pairings considered (buyer-window valid): ${pairings}`);
+    console.log('Rejection by gate:');
+    for (const [gate, count] of Object.entries(reject)) {
+      console.log(`  ${gate.padEnd(20)}: ${count}`);
+    }
+    expect(true).toBe(true);
   });
 });

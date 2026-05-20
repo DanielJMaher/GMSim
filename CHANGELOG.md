@@ -16,6 +16,47 @@ _Nothing yet._
 
 ---
 
+## [0.58.1] — 2026-05-20
+
+### Added — Diagnostic instruments for v0.58 calibration
+
+Three `describe.skip`'d instrument tests in `proactive-trades.test.ts`
+that diagnose whether the v0.58 trade-deadline urgency modifier
+actually moves trade volume at full-season scale:
+
+- `instrument: trade volume per regular-season week` — per-week
+  histogram across 3 seeds × 1 measured season after a 4-season
+  warm-up. Output identifies whether deadline week (Week 8) sits
+  above or near the baseline.
+- `instrument: firesale gate funnel` — counts the seller / buyer /
+  pick population at a mid-season snapshot + a direct
+  `runProactiveTrades` call to see how many trades emerge.
+- `instrument: per-gate rejection counts` — walks all 1140
+  seller × vet × buyer pairings at the deadline tick, tallying
+  rejections by gate (cap-safety, no-deficit, offer-empty, etc.)
+  with a sample trace of the first failed pairing.
+
+### Investigation finding (not yet acted on)
+
+Running these revealed that `runProactiveTrades` produces ~0 trades
+per full year at scale; the v0.58 deadline modifier is plumbing-only
+until the underlying system fires. Binding constraint:
+`buildFireSaleOffer` sorts ascending (smallest picks first) with a
+3-pick cap — for a $25M STAR vet target, the buyer's three cheapest
+picks (typically late-round + 3-year-future) can't clear it, and even
+all 17 of a buyer's picks total only ~$22M from the seller's
+perspective.
+
+Initial fix attempts (descending sort + cap 5) made trades fire but
+broke 4 existing tests that documented the prior gating decisions —
+properly reconciling them is multi-slice work. Diagnostic
+instruments are preserved (skipped) for the future investigator.
+
+See `memory/project_proactive_trade_volume_issue.md` for the full
+write-up and recommended approach when revisiting.
+
+---
+
 ## [0.58.0] — 2026-05-19
 
 ### Added — Trade-deadline urgency modifier
