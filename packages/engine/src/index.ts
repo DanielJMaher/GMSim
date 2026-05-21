@@ -149,6 +149,27 @@ export {
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 
+// Media (v0.62)
+export { generateMediaOutlets } from './media/generate.js';
+export {
+  generateWeeklyMediaReports,
+  generatePlayoffRoundMediaReports,
+} from './media/reports.js';
+export type {
+  MediaOutlet,
+  MediaTier,
+  MediaFocus,
+  MediaMarket,
+  MediaTone,
+  MediaReport,
+  MediaReportBase,
+  TeamWeekReport,
+  PlayerTakeReport,
+  ProspectBoardReport,
+  NarrativeReport,
+} from './types/media.js';
+export type { MediaOutletId, MediaReportId } from './types/ids.js';
+
 // Roster transactions
 export {
   releasePlayer,

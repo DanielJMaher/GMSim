@@ -17,7 +17,8 @@ import type {
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
-import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ScoutId, ContractId } from './ids.js';
+import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ScoutId, ContractId, MediaOutletId } from './ids.js';
+import type { MediaOutlet, MediaReport } from './media.js';
 
 /**
  * Top-level engine state. The entire simulation lives behind this single
@@ -231,6 +232,25 @@ export interface LeagueState {
    * to null.
    */
   currentWeek: number | null;
+
+  /**
+   * Media outlets that cover this league (v0.62+). ~50 entities
+   * generated at league creation: national insiders, beat reporters,
+   * team-local columnists, sports radio, blog tier — plus college-
+   * focused outlets reserved for the future college-season slice.
+   * Stable across league lifespan; no birth/death yet.
+   */
+  mediaOutlets: Readonly<Record<MediaOutletId, MediaOutlet>>;
+
+  /**
+   * Append-only stream of media reports (v0.62+). Each lifecycle tick
+   * that has news fires one or more reports per relevant outlet.
+   * Reports are filed at the tick when they fire and never mutate.
+   * Used by the inspector beat-reporter feed and (future) by college-
+   * season aggregators that derive media big boards / Heisman race
+   * state from the stream.
+   */
+  mediaReports: readonly MediaReport[];
 }
 
 export type LeaguePhase =

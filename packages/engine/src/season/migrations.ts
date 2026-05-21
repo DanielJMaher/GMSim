@@ -13,6 +13,7 @@ import { runCombine } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
 import { generateInitialDraftPicks } from '../draft/picks.js';
 import type { DraftBoardEntry, CombineMeasurables, ProDayAttendanceRecord } from '../types/college.js';
+import { generateMediaOutlets as generateMediaOutletsForMigration } from '../media/generate.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -272,6 +273,24 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
   const legacyPhase = next.lifecyclePhase as unknown as string;
   if (legacyPhase === 'REGULAR_SEASON') {
     next = { ...next, lifecyclePhase: 'REGULAR_SEASON_WEEK' as const };
+  }
+
+  // v0.62.0 media ecosystem. Pre-v0.62 saves had no outlets or reports.
+  // Backfill: generate the canonical outlet set from a deterministic
+  // backfill seed (does NOT use the original season prng — older saves
+  // weren't generated with media-outlets in their fork tree, so a
+  // separate namespace keeps things tidy). Empty reports stream — the
+  // historical reports for past weeks can't be reconstructed.
+  if (!(next as unknown as { mediaOutlets?: unknown }).mediaOutlets) {
+    const teamArr = Object.values(next.teams);
+    next = {
+      ...next,
+      mediaOutlets: generateMediaOutletsForMigration(
+        new Prng(`${next.seed}::media-outlets::backfill`),
+        teamArr,
+      ),
+      mediaReports: [],
+    } as LeagueState;
   }
 
   // v0.56.0 currentWeek field. Backfill from the played schedule:

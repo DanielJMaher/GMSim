@@ -70,7 +70,7 @@ import {
   formatCalendarDate,
   TRADE_DEADLINE_WEEK_INDEX,
 } from '@gmsim/engine';
-import type { LifecyclePhase, CalendarDate } from '@gmsim/engine';
+import type { LifecyclePhase, CalendarDate, MediaReport } from '@gmsim/engine';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -6556,6 +6556,7 @@ const OFFSEASON_PHASES: readonly LifecyclePhase[] = [
 
 interface TickAnchor {
   transactionLogLen: number;
+  mediaReportLen: number;
   phase: LifecyclePhase;
   currentWeek: number | null;
   seasonNumber: number;
@@ -6580,6 +6581,7 @@ function LifecyclePanel({
   // a step button.
   const anchorRef = useRef<TickAnchor>({
     transactionLogLen: league.transactionLog.length,
+    mediaReportLen: league.mediaReports.length,
     phase: league.lifecyclePhase,
     currentWeek: league.currentWeek,
     seasonNumber: league.seasonNumber,
@@ -6588,6 +6590,7 @@ function LifecyclePanel({
   function snapshot(): TickAnchor {
     return {
       transactionLogLen: league.transactionLog.length,
+      mediaReportLen: league.mediaReports.length,
       phase: league.lifecyclePhase,
       currentWeek: league.currentWeek,
       seasonNumber: league.seasonNumber,
@@ -6815,7 +6818,25 @@ function computeTickEvents(league: LeagueState, anchor: TickAnchor): TickEvent[]
     if (ev) out.push(ev);
   }
 
+  // ─ Media reports fired this tick (v0.62) ────────────────────────────
+  const newMedia = league.mediaReports.slice(anchor.mediaReportLen);
+  for (const report of newMedia) {
+    const ev = mediaReportToEvent(report, league);
+    if (ev) out.push(ev);
+  }
+
   return out;
+}
+
+function mediaReportToEvent(report: MediaReport, league: LeagueState): TickEvent | null {
+  const outlet = league.mediaOutlets[report.outletId];
+  const outletName = outlet?.name ?? 'Unknown outlet';
+  const toneTag = report.tone === 'POSITIVE' ? '' : report.tone === 'CRITICAL' ? ' [critical]' : report.tone === 'SPECULATIVE' ? ' [speculative]' : '';
+  return {
+    section: 'Media',
+    icon: '📰',
+    text: `${outletName}: ${report.headline}${toneTag}`,
+  };
 }
 
 type ScheduledGameLike = NonNullable<LeagueState['schedule']>['regularSeason'][number][number];

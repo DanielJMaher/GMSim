@@ -78,6 +78,10 @@ import {
   playConferenceRound,
   playSuperBowlRound,
 } from './playoffs.js';
+import {
+  generateWeeklyMediaReports,
+  generatePlayoffRoundMediaReports,
+} from '../media/reports.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
 
@@ -442,7 +446,7 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
 
   const isLastRegSeasonWeek = weekIdx >= schedule.regularSeason.length - 1;
 
-  return {
+  const nextLeagueBase: LeagueState = {
     ...league,
     players: playersDuringSeason as typeof league.players,
     teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
@@ -461,6 +465,20 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
     // the next tick fires WILD_CARD.
     phase: isLastRegSeasonWeek ? 'PLAYOFFS' : 'REGULAR_SEASON',
     lifecyclePhase: 'REGULAR_SEASON_WEEK',
+  };
+
+  // v0.62 media reports — fire AFTER all per-week subsystems so the
+  // streak detector + headline templates see the just-played game's
+  // result against the rest of the season.
+  const mediaReports = generateWeeklyMediaReports(
+    seasonPrng.fork(`media-week-${weekIdx + 1}`),
+    nextLeagueBase,
+    weekIdx,
+    currentTick,
+  );
+  return {
+    ...nextLeagueBase,
+    mediaReports: [...nextLeagueBase.mediaReports, ...mediaReports],
   };
 }
 
@@ -484,7 +502,7 @@ function applyWildCard(league: LeagueState, prng: PrngClass): LeagueState {
     superBowl: [],
     championId: null,
   };
-  return {
+  const next: LeagueState = {
     ...league,
     players: r.players as typeof league.players,
     schedule: { ...league.schedule, playoffs },
@@ -492,6 +510,7 @@ function applyWildCard(league: LeagueState, prng: PrngClass): LeagueState {
     phase: 'PLAYOFFS',
     lifecyclePhase: 'WILD_CARD',
   };
+  return appendMediaReports(next, mediaPrngForPlayoffs(league).fork('wild-card'), r.games, 'WILD_CARD');
 }
 
 function applyDivisional(league: LeagueState, prng: PrngClass): LeagueState {
@@ -500,12 +519,13 @@ function applyDivisional(league: LeagueState, prng: PrngClass): LeagueState {
   }
   const r = playDivisionalRound(prng, league);
   const playoffs: PlayoffsState = { ...league.schedule.playoffs, divisional: r.games };
-  return {
+  const next: LeagueState = {
     ...league,
     players: r.players as typeof league.players,
     schedule: { ...league.schedule, playoffs },
     lifecyclePhase: 'DIVISIONAL',
   };
+  return appendMediaReports(next, mediaPrngForPlayoffs(league).fork('divisional'), r.games, 'DIVISIONAL');
 }
 
 function applyConference(league: LeagueState, prng: PrngClass): LeagueState {
@@ -514,12 +534,13 @@ function applyConference(league: LeagueState, prng: PrngClass): LeagueState {
   }
   const r = playConferenceRound(prng, league);
   const playoffs: PlayoffsState = { ...league.schedule.playoffs, conference: r.games };
-  return {
+  const next: LeagueState = {
     ...league,
     players: r.players as typeof league.players,
     schedule: { ...league.schedule, playoffs },
     lifecyclePhase: 'CONFERENCE',
   };
+  return appendMediaReports(next, mediaPrngForPlayoffs(league).fork('conference'), r.games, 'CONFERENCE');
 }
 
 function applySuperBowl(league: LeagueState, prng: PrngClass): LeagueState {
@@ -532,12 +553,27 @@ function applySuperBowl(league: LeagueState, prng: PrngClass): LeagueState {
     superBowl: r.games,
     championId: r.championId,
   };
-  return {
+  const next: LeagueState = {
     ...league,
     players: r.players as typeof league.players,
     schedule: { ...league.schedule, playoffs },
     lifecyclePhase: 'SUPER_BOWL',
   };
+  return appendMediaReports(next, mediaPrngForPlayoffs(league).fork('super-bowl'), r.games, 'SUPER_BOWL');
+}
+
+function mediaPrngForPlayoffs(league: LeagueState): PrngClass {
+  return new PrngClass(`${league.seed}::season-${league.seasonNumber}::media-playoffs`);
+}
+
+function appendMediaReports(
+  league: LeagueState,
+  prng: PrngClass,
+  games: readonly import('../types/game.js').ScheduledGame[],
+  phase: LifecyclePhase,
+): LeagueState {
+  const reports = generatePlayoffRoundMediaReports(prng, league, phase, games, league.tick);
+  return { ...league, mediaReports: [...league.mediaReports, ...reports] };
 }
 
 function applyIrMoves(

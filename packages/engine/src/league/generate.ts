@@ -36,6 +36,7 @@ import { runCombine } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
 import { runCoachVisits } from '../draft/coach-visits.js';
 import { generateInitialDraftPicks } from '../draft/picks.js';
+import { generateMediaOutlets } from '../media/generate.js';
 import type {
   CollegeScout,
   CollegePlayerObservation,
@@ -246,6 +247,10 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     tradeUpHistory: [],
     lifecyclePhase: 'REGULAR_SEASON_WEEK' as const,
     currentWeek: null,
+    // v0.62 media ecosystem — outlets generated at creation, stream
+    // populates on each lifecycle tick that has news.
+    mediaOutlets: generateMediaOutlets(rootPrng.fork('media-outlets'), Object.values(teams)),
+    mediaReports: [],
   };
 
   // Initial boards first (we need them so pro-day attendance can

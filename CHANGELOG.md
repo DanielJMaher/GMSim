@@ -16,6 +16,143 @@ _Nothing yet._
 
 ---
 
+## [0.62.0] — 2026-05-21
+
+### Added — Media ecosystem (foundation)
+
+Third intel stream alongside scouts (per-team ground truth) and head
+coaches (per-team narrow-and-tight). Media outlets generate **league-
+wide narrative** that may or may not match reality. Foundation for
+future Heisman race tracking, mock-draft big boards, and
+"false-flag" college prospect hype that scouts must penetrate.
+
+**~47 outlets per league** generated at creation, stable across the
+league's lifespan:
+
+- 10 national outlets — `Pro Football Insider`, `Gridiron Wire`,
+  `Pro Football Weekly`, `Football Outsiders`, `The Front Office`,
+  `Down & Distance`, `Gridiron Monthly`, `National Football Radio`,
+  `The Blitz Show`, `Two-Minute Drill`
+- 5 college-focused outlets — reserved for the future
+  college-season slice (`College Football Insider`, `Campus
+  Pressbox`, `Recruiting 247`, `Saturday Stories`, `Gameday Radio`)
+- 32 team-locals — one per franchise, drawn from a weighted pool of
+  beat reporters / columnists / sports radio / fan blogs.
+  `The Buffalo Beat`, `Sports Talk Dallas`, `Inside the Kansas City
+  Locker`, etc.
+
+Each outlet has tier (INSIDER / BEAT / COLUMNIST / RADIO / BLOG),
+focus (NFL / COLLEGE / BOTH), market (NATIONAL or team-local), and
+1–10 spectrums for **accuracy** and **hype**. Insiders are right;
+sports-radio outlets create dramatic narratives that may diverge
+from ground truth (the engine for future false-flag prospect hype).
+
+### Added — Weekly + playoff-round media reports
+
+Fires during every `REGULAR_SEASON_WEEK` tick + each playoff round
+tick. National coverage **scales with phase**:
+
+| Phase                | Nationals per game |
+| -------------------- | ------------------ |
+| REGULAR_SEASON_WEEK  | 1                  |
+| WILD_CARD            | 3                  |
+| DIVISIONAL           | 5                  |
+| CONFERENCE           | 7                  |
+| SUPER_BOWL           | ALL (10)           |
+
+Beat writers stay team-local (correct — they only cover their own
+team's games). The Super Bowl saturates with ~12 reports for the one
+game; lesser rounds scale between.
+
+### Added — Headliner-driven templates (NFL-feel slice)
+
+Real player names drive headlines when a genuine outlier performance
+exists. Examples (real engine output):
+
+- *"Mendoza throws for 421 as Raiders steamroll Patriots"*
+- *"Bailey terrorizes the backfield in Bills' 24-17 win"*
+- *"3 picks for Murray as Bears fall to Lions"*
+- *"Maye leads anemic Patriots offense in 31-6 loss to Bills"*
+
+**Two gates** ensure only impressive performances qualify:
+
+1. **Static threshold** — 300+ pass yds, 400+ for monster, 110+
+   rush, 110+ rec, 3+ sacks, 2+ defensive picks, 3+ INTs thrown for
+   "blame loss", ≤10 team points for "anemic offense" angle.
+2. **Week-relative leader gate** — player must be in the week's
+   top-3 in that stat category. Adapts to whatever the stat
+   distribution is — a 280-yard passer in a quiet week is the
+   league's top passer but won't fire the headline; the static floor
+   prevents trivial "leader" status.
+
+Notable-incident kinds (QB 3+ INTs, ≤10-point offense) are
+threshold-only — a 4-INT game is news whether other QBs threw for
+200 or 350.
+
+About 60% of game reports use a player-driven template when a
+matching headliner exists; the other 40% stay team-action for
+variety so the feed doesn't read like all-player every line.
+
+### Added — Per-tick phrase uniqueness
+
+Every template carries a `signature` tag for its distinctive verb
+(`dismantle`, `grind`, `gut-check`, `throttle`, `steamroll`, ...).
+The first template to use a signature blocks all others with that
+signature for the rest of the tick. In a single week you'll see at
+most ONE "grind out" headline, ONE "steamroll", etc.
+
+### Added — Vocabulary expansion (~3x per pool)
+
+Each headline pool went from 7-10 templates to 13-20+. Added verbs:
+`maul`, `thump`, `bury`, `cruise`, `pulverized`, `swept aside`,
+`roughshod`, `squeak by`, `photo finish`, `clip`, `best`, `stymied`,
+`sent packing`, `quiet day`. Player-driven pool gained: `carves up`,
+`airs it out`, `torches`, `bulldozes`, `gashes`, `wrecks the pocket`,
+`lights it up`, `keeps connecting`, `solo act`, `masterpiece`,
+`workhorse`, `ball-hawks`, `jumps everything`.
+
+### Inspector — 📰 Media section in event log
+
+Lifecycle event log now surfaces media reports filed each tick:
+`📰 Pro Football Insider: Bills dismantle Patriots 31-7`. Per-outlet
+attribution; critical-tone reports tagged `[critical]`.
+
+### Plumbing
+
+- New `engine/src/types/media.ts` — `MediaOutlet`, `MediaReport`
+  discriminated union (TeamWeekReport now; PlayerTakeReport,
+  ProspectBoardReport, NarrativeReport defined for future
+  college-season work)
+- New `engine/src/media/` module — `generate.ts`, `templates.ts`,
+  `reports.ts`, `headliners.ts`
+- `LeagueState` gains `mediaOutlets` + `mediaReports`. Migration
+  backfills outlets from `${seed}::media-outlets::backfill` + empty
+  report stream for pre-v0.62 saves.
+- Lifecycle handlers (`applyRegularSeasonWeek` + 4 playoff handlers)
+  generate reports at the end of each tick and append to
+  `league.mediaReports`.
+- Inspector `TickEventLog` adds `mediaReportLen` to `TickAnchor` and
+  renders the 📰 Media section.
+
+### Tests
+
+14 new `media.test.ts` cases covering outlet generation determinism,
+spectrum ranges, tier coverage, college-outlet presence, weekly
+report firing, growth across season, FK validity against outlets,
+headline references to real teams, kind shape, playoff-round
+coverage, end-to-end determinism, and Super Bowl coverage. Full
+engine suite: 707 + 14 = **721 passing, 4 skipped**.
+
+### NFL-feel filter
+
+This slice is anchored in the
+`feedback_nfl_feel_paramount.md` directive. Outlet naming, headline
+voice, and per-tick variety all serve the goal of the league reading
+like real NFL teams + real NFL players rather than generic
+spreadsheet football.
+
+---
+
 ## [0.61.0] — 2026-05-20
 
 ### Added — Position-specific roster-state modifier (Doc 5)
