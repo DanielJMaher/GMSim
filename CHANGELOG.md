@@ -16,6 +16,79 @@ _Nothing yet._
 
 ---
 
+## [0.61.0] — 2026-05-20
+
+### Added — Position-specific roster-state modifier (Doc 5)
+
+The 5-factor `evaluatePlayerValue` becomes a 6-factor evaluator: a new
+`rosterState` factor models the Doc 5 directive that *"a team with a
+gaping hole at a premium position inflates value of picks and players
+at that specific position."*
+
+**Mechanism**
+
+`rosterStateFactor(team, player, league)` looks up the team's
+`computeTeamNeeds(team, league)` score at `player.position` (v0.55
+calibration). Score maps linearly to a multiplier, clamped to a
+sensible band:
+
+- **Catastrophic vacancy** (score ≈ +3, e.g. no STAR/STARTER LT plus
+  aging starter) → **×1.30** — team would massively over-pay
+- **Moderate need** (score ≈ +1) → **×1.10**
+- **Balanced depth** (score ≈ 0) → **×1.00**
+- **Mild surplus** (score ≈ -1, stacked starters) → **×0.90**
+- **Hard surplus** (score = -2, just-drafted-QB-on-rookie scenario)
+  → **×0.80** — team only pays for upgrade at discount
+
+Formula: `clamp(1 + score × 0.10, 0.8, 1.5)`. Multiplies into the
+total alongside ability / schemeFit / ageContract / positional /
+timing.
+
+**Per-position effect** (using the v0.55 hand-tuned starter-slot
+table):
+
+- QB hole → ×1.10 inflation on incoming QB
+- Gaping LT hole + aging starter → up to ×1.30 inflation
+- WR depth surplus (4 STAR WRs) → ~×0.80 discount on incoming WR
+- Locked-in rookie QB scenario → ×0.80 discount on incoming QB
+
+This is the Doc 5 "aging franchise QB → next-year R1 QB inflated"
+archetype, the "just-drafted-QB deflation" pattern, and the "stacked
+position discount" all in one calibrated lever.
+
+### Per North Star
+
+The modifier surfaces only through observable NPC behavior. A
+contender with a QB hole spends bigger on incoming QBs; a contender
+locked in at QB ships incoming QBs cheap. The player learns each
+team's chart through observation — never a labeled number.
+
+### Test additions
+
+4 new `value.test.ts` cases:
+
+- LT-hole team inflates value of incoming STAR LT (multiplier > 1.0)
+- WR-surplus team discounts value of incoming STAR WR (multiplier < 1.0)
+- Same team values player higher when its own roster has a hole vs.
+  is stacked (isolated comparison — same scheme, same window, same
+  player; only roster shape varies)
+- Multiplier stays inside [0.8, 1.5] across every canonical position
+
+Existing 17 evaluatePlayerValue / evaluatePickValue / evaluateTradePackage
+tests stay green with no expected-value churn.
+
+### Files touched
+
+- `packages/engine/src/trade/value.ts` — new `rosterStateFactor`;
+  6-factor compose; `PlayerValueBreakdown.factors.rosterState` added
+- `packages/engine/src/trade/value.test.ts` — 4 new cases
+
+### Engine-only slice
+
+No UI changes. Engine suite stays green.
+
+---
+
 ## [0.60.0] — 2026-05-20
 
 ### Added — Per-tick event log on the Lifecycle panel

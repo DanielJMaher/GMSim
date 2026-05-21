@@ -3,8 +3,9 @@ import { createLeague } from '../league/generate.js';
 import { evaluatePlayerValue, evaluateTradePackage, evaluatePickValue } from './value.js';
 import { CompetitiveWindow, Position } from '../types/enums.js';
 import type { LeagueState } from '../types/league.js';
-import type { Player } from '../types/player.js';
+import type { Player, PlayerId } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
+import type { TeamId } from '../types/ids.js';
 import type { DraftPickAsset } from '../types/college.js';
 
 describe('evaluatePlayerValue', () => {
@@ -118,6 +119,100 @@ describe('evaluatePlayerValue', () => {
     expect(vA.total).toBe(vB.total);
     expect(vA.factors.ability.multiplier).toBe(vB.factors.ability.multiplier);
     expect(vA.factors.schemeFit.multiplier).toBe(vB.factors.schemeFit.multiplier);
+  });
+});
+
+describe('rosterStateFactor (v0.61)', () => {
+  // For each test we strip vs stack the team's roster at the player's
+  // position, then evaluate the same incoming player from both
+  // perspectives. The factor should inflate for need and discount for
+  // surplus, surfacing in both the per-factor multiplier and the
+  // total value.
+
+  function stripPosition(league: LeagueState, teamId: TeamId, pos: Position): LeagueState {
+    const team = league.teams[teamId]!;
+    return {
+      ...league,
+      teams: {
+        ...league.teams,
+        [teamId]: {
+          ...team,
+          rosterIds: team.rosterIds.filter((id) => league.players[id]?.position !== pos),
+        },
+      } as LeagueState['teams'],
+    };
+  }
+
+  it('inflates value when team has a gaping hole at the player position', () => {
+    const league = createLeague({ seed: 'rs-hole' });
+    const teamId = Object.keys(league.teams)[0]! as TeamId;
+    const stripped = stripPosition(league, teamId, Position.LT);
+    const team = stripped.teams[teamId]!;
+    const incoming = makeSynthetic(league, { tier: 'STAR', position: Position.LT });
+    const v = evaluatePlayerValue(team, incoming, stripped);
+    expect(v.factors.rosterState.multiplier).toBeGreaterThan(1.0);
+    expect(v.factors.rosterState.rationale).toMatch(/roster need at LT/);
+  });
+
+  it('discounts value when team is stacked at the player position', () => {
+    // Stack: synthesize 4 STAR WRs on the team's roster (above WR
+    // starterSlots=3 baseline). Their qse will swamp the slot target,
+    // producing a negative need score.
+    const league = createLeague({ seed: 'rs-surplus' });
+    const teamId = Object.keys(league.teams)[0]! as TeamId;
+    let working: LeagueState = league;
+    const stars: PlayerId[] = [];
+    for (let i = 0; i < 4; i++) {
+      const star = makeSynthetic(working, { tier: 'STAR', position: Position.WR });
+      working = {
+        ...working,
+        players: { ...working.players, [star.id]: star },
+      } as LeagueState;
+      stars.push(star.id);
+    }
+    const team = working.teams[teamId]!;
+    working = {
+      ...working,
+      teams: {
+        ...working.teams,
+        [teamId]: { ...team, rosterIds: [...team.rosterIds, ...stars] },
+      } as LeagueState['teams'],
+    };
+    const incoming = makeSynthetic(working, { tier: 'STAR', position: Position.WR });
+    const v = evaluatePlayerValue(working.teams[teamId]!, incoming, working);
+    expect(v.factors.rosterState.multiplier).toBeLessThan(1.0);
+    expect(v.factors.rosterState.rationale).toMatch(/WR depth surplus/);
+  });
+
+  it('same team values incoming player more when its own roster has a hole at that position', () => {
+    // Hold the team perspective constant; only mutate the roster.
+    // This isolates rosterState from scheme-fit + competitive-window
+    // differences that would otherwise mask the comparison.
+    const baseline = createLeague({ seed: 'rs-asymmetry' });
+    const teamId = Object.keys(baseline.teams)[0]! as TeamId;
+    const needyLeague = stripPosition(baseline, teamId, Position.QB);
+    const incoming = makeSynthetic(baseline, { tier: 'STAR', position: Position.QB });
+
+    const valueIfHole = evaluatePlayerValue(needyLeague.teams[teamId]!, incoming, needyLeague);
+    const valueIfStacked = evaluatePlayerValue(baseline.teams[teamId]!, incoming, baseline);
+
+    expect(valueIfHole.factors.rosterState.multiplier).toBeGreaterThan(
+      valueIfStacked.factors.rosterState.multiplier,
+    );
+    expect(valueIfHole.total).toBeGreaterThan(valueIfStacked.total);
+  });
+
+  it('multiplier stays inside the documented [0.8, 1.5] band on any roster shape', () => {
+    const league = createLeague({ seed: 'rs-clamp' });
+    const team = Object.values(league.teams)[0]!;
+    // Sample a player at every canonical position; each call goes
+    // through computeTeamNeeds and the clamp.
+    for (const pos of Object.values(Position)) {
+      const player = makeSynthetic(league, { tier: 'STAR', position: pos });
+      const v = evaluatePlayerValue(team, player, league);
+      expect(v.factors.rosterState.multiplier).toBeGreaterThanOrEqual(0.8);
+      expect(v.factors.rosterState.multiplier).toBeLessThanOrEqual(1.5);
+    }
   });
 });
 

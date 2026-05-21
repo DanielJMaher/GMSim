@@ -13,6 +13,7 @@ import {
   pickValueForTeam,
 } from '../draft/chart-modifiers.js';
 import { isTradeDeadlineWeek } from '../season/calendar.js';
+import { computeTeamNeeds } from '../draft/team-needs.js';
 
 /**
  * Doc 14 five-factor trade-value evaluator.
@@ -56,6 +57,13 @@ export interface PlayerValueBreakdown {
     ageContract: ValueFactor;
     positional: ValueFactor;
     timing: ValueFactor;
+    /**
+     * Position-specific roster-state modifier (v0.61). A team with a
+     * gaping hole at the player's position values the player higher;
+     * a team stacked at that position values them lower. Composed
+     * multiplicatively with the other factors.
+     */
+    rosterState: ValueFactor;
   };
 }
 
@@ -203,19 +211,21 @@ export function evaluatePlayerValue(
   const schemeFit = schemeFitFactor(team, player, league);
   const ageContract = ageContractFactor(player, league);
   const timing = timingFactor(team, player);
+  const rosterState = rosterStateFactor(team, player, league);
 
   const combined =
     ability.multiplier *
     schemeFit.multiplier *
     ageContract.multiplier *
     positional.multiplier *
-    timing.multiplier;
+    timing.multiplier *
+    rosterState.multiplier;
   const total = tierBase * combined;
 
   return {
     total,
     totalDollars: total * 1_000_000,
-    factors: { ability, schemeFit, ageContract, positional, timing },
+    factors: { ability, schemeFit, ageContract, positional, timing, rosterState },
   };
 }
 
@@ -475,6 +485,58 @@ function expectedY1HitFor(tier: TalentTier): number {
  * rebuilders pay premiums for young STARs/STARTERs and discount old
  * vets they don't fit into the rebuild.
  */
+/**
+ * Doc 5 position-specific roster-state modifier (v0.61).
+ *
+ * A team with a gaping hole at a premium position inflates the value
+ * of incoming players at that position; a team stacked at the position
+ * discounts incoming players. Reuses the v0.55 `computeTeamNeeds`
+ * score as the calibration input — high score = need, low (or
+ * negative) = surplus.
+ *
+ * Mapping: each unit of need score = ±10% on the multiplier, clamped
+ * to a sensible band. Concrete examples (assuming roster shape that
+ * produces each score):
+ *
+ *   Catastrophic vacancy (score ≈ +3, e.g. no STAR/STARTER LT + aging  starter)
+ *       → ×1.30  (team would massively over-pay for an LT)
+ *   Moderate need        (score ≈ +1, e.g. 1 STARTER WR, want 3)
+ *       → ×1.10
+ *   Balanced             (score ≈  0)
+ *       → ×1.00
+ *   Mild surplus         (score ≈ -1, stacked starters)
+ *       → ×0.90
+ *   Hard surplus         (score = -2, score floor — just-drafted-QB-on-rookie scenario)
+ *       → ×0.80  (team would only pay for an upgrade at a discount)
+ *
+ * Per North Star, this surfaces in NPC behavior (a contender with a
+ * QB hole spends bigger for a QB; a contender locked in at QB ships
+ * incoming QBs cheap) — not as a visible "modifier value" label.
+ */
+function rosterStateFactor(
+  team: TeamState,
+  player: Player,
+  league: LeagueState,
+): ValueFactor {
+  const needs = computeTeamNeeds(team, league);
+  const need = needs.find((n) => n.position === player.position);
+  const score = need?.score ?? 0;
+  const raw = 1 + score * 0.1;
+  const multiplier = Math.max(0.8, Math.min(1.5, raw));
+  let label: string;
+  if (score >= 0.5) {
+    label = `roster need at ${player.position} (score ${score.toFixed(2)})`;
+  } else if (score <= -0.5) {
+    label = `${player.position} depth surplus (score ${score.toFixed(2)})`;
+  } else {
+    label = `${player.position} depth balanced`;
+  }
+  return {
+    multiplier: Math.round(multiplier * 100) / 100,
+    rationale: `${label} ×${multiplier.toFixed(2)}`,
+  };
+}
+
 function timingFactor(team: TeamState, player: Player): ValueFactor {
   const win = team.competitiveWindow;
   const isYoung = player.tier !== 'FRINGE' && estimateYoung(player);
