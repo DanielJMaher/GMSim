@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   createLeague,
   getArchetypeById,
@@ -6554,6 +6554,13 @@ const OFFSEASON_PHASES: readonly LifecyclePhase[] = [
   'READY_FOR_NEXT_SEASON',
 ];
 
+interface TickAnchor {
+  transactionLogLen: number;
+  phase: LifecyclePhase;
+  currentWeek: number | null;
+  seasonNumber: number;
+}
+
 function LifecyclePanel({
   league,
   onLeagueChange,
@@ -6566,15 +6573,34 @@ function LifecyclePanel({
   const label = phaseCalendarLabel(phase, currentWeek);
   const date = phaseCalendarDate(phase, currentWeek, league.seasonNumber);
 
+  // Snapshot of league state immediately BEFORE the last tick fired.
+  // The "events fired this tick" diff is taken against this anchor.
+  // Initialized at mount to current state, so the first render shows
+  // an empty event list — events appear once the user actually clicks
+  // a step button.
+  const anchorRef = useRef<TickAnchor>({
+    transactionLogLen: league.transactionLog.length,
+    phase: league.lifecyclePhase,
+    currentWeek: league.currentWeek,
+    seasonNumber: league.seasonNumber,
+  });
+
+  function snapshot(): TickAnchor {
+    return {
+      transactionLogLen: league.transactionLog.length,
+      phase: league.lifecyclePhase,
+      currentWeek: league.currentWeek,
+      seasonNumber: league.seasonNumber,
+    };
+  }
+
   function step() {
+    anchorRef.current = snapshot();
     onLeagueChange(tickPhase(league));
   }
 
   function stepToNextPhase() {
-    // Walk ticks until lifecyclePhase changes. REGULAR_SEASON_WEEK
-    // self-loops via currentWeek; this skips through the remaining
-    // weeks to land on the next distinct phase (typically WILD_CARD).
-    // Safety cap covers a full year (28 ticks) + slack.
+    anchorRef.current = snapshot();
     let l = league;
     const startPhase = l.lifecyclePhase;
     for (let i = 0; i < 50; i++) {
@@ -6587,7 +6613,7 @@ function LifecyclePanel({
   }
 
   function stepFullYear() {
-    // 28 ticks = full annual cycle. Safety-cap slightly higher.
+    anchorRef.current = snapshot();
     let l = league;
     for (let i = 0; i < 40; i++) {
       const next = tickPhase(l);
@@ -6629,6 +6655,8 @@ function LifecyclePanel({
         </button>
       </div>
 
+      <TickEventLog league={league} anchor={anchorRef.current} />
+
       <LifecycleTimeline
         phase={phase}
         currentWeek={currentWeek}
@@ -6644,6 +6672,374 @@ function LifecyclePanel({
       </p>
     </section>
   );
+}
+
+// ─── Tick event log — beat-reporter view ────────────────────────────────
+//
+// Renders what happened during the most recent step (or steps, if the
+// user clicked "Step to next phase" / "Step a full year"). Goal: read
+// like a beat reporter's notes for the league week, not a transaction
+// log dump. Names, positions, teams, dollar amounts, narrative tone.
+
+function TickEventLog({
+  league,
+  anchor,
+}: {
+  league: LeagueState;
+  anchor: TickAnchor;
+}) {
+  const events = useMemo(() => computeTickEvents(league, anchor), [league, anchor]);
+  if (events.length === 0) {
+    return (
+      <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-500">
+        Click a step button to advance the league and see what happens.
+      </div>
+    );
+  }
+  const grouped = groupBy(events, (e) => e.section);
+  return (
+    <div className="mt-4 rounded border border-zinc-800 bg-zinc-950/40 p-3">
+      <div className="mb-2 flex items-baseline gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-rose-300">
+          Events this tick
+        </h3>
+        <span className="font-mono text-[10px] text-zinc-500">{events.length} items</span>
+      </div>
+      {grouped.map(([section, items]) => (
+        <div key={section} className="mb-3 last:mb-0">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">
+            {section}
+          </div>
+          <ul className="space-y-0.5">
+            {items.slice(0, 30).map((ev, idx) => (
+              <li key={`${section}-${idx}`} className="font-mono text-xs text-zinc-300">
+                <span className="mr-2 text-zinc-600">{ev.icon}</span>
+                {ev.text}
+              </li>
+            ))}
+            {items.length > 30 && (
+              <li className="font-mono text-xs text-zinc-500">
+                ... + {items.length - 30} more
+              </li>
+            )}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface TickEvent {
+  section: string;
+  icon: string;
+  text: string;
+}
+
+function computeTickEvents(league: LeagueState, anchor: TickAnchor): TickEvent[] {
+  const out: TickEvent[] = [];
+
+  // ─ Phase-specific narrative ─────────────────────────────────────────
+  const phase = league.lifecyclePhase;
+
+  // Regular-season weeks: show games + injuries from this week.
+  if (phase === 'REGULAR_SEASON_WEEK' && league.currentWeek !== null && league.schedule) {
+    const week = league.schedule.regularSeason[league.currentWeek];
+    if (week) {
+      for (const game of week) {
+        if (!game.result) continue;
+        out.push(gameToEvent(game, league));
+      }
+    }
+  }
+
+  // Playoff rounds: show that round's games.
+  if (
+    (phase === 'WILD_CARD' ||
+      phase === 'DIVISIONAL' ||
+      phase === 'CONFERENCE' ||
+      phase === 'SUPER_BOWL') &&
+    league.schedule?.playoffs
+  ) {
+    const round = playoffRoundForPhase(phase, league.schedule.playoffs);
+    for (const game of round) {
+      if (!game.result) continue;
+      out.push(gameToEvent(game, league));
+    }
+    if (phase === 'SUPER_BOWL' && league.schedule.playoffs.championId) {
+      const champ = league.teams[league.schedule.playoffs.championId];
+      if (champ) {
+        out.push({
+          section: 'Championship',
+          icon: '🏆',
+          text: `${champ.identity.fullName} are Super Bowl champions of Season ${league.seasonNumber}.`,
+        });
+      }
+    }
+  }
+
+  // POST_SEASON_FINALIZE: awards announced this tick.
+  if (phase === 'POST_SEASON_FINALIZE') {
+    // seasonAwards reads the played schedule + season stats; since
+    // POST_SEASON_FINALIZE leaves the schedule populated until
+    // COLLEGE_CYCLE clears it, this still works mid-offseason.
+    try {
+      const awards = seasonAwards(league);
+      for (const awd of awardsAsEvents(awards, league)) out.push(awd);
+    } catch {
+      // Defensive — if awards derivation fails for a partial state, skip.
+    }
+  }
+
+  // DRAFT tick: this season's draft picks (top N for brevity).
+  if (phase === 'DRAFT') {
+    const picks = league.draftHistory.filter((p) => p.seasonNumber === league.seasonNumber);
+    for (const pick of picks) {
+      out.push(draftPickToEvent(pick, league));
+    }
+  }
+
+  // READY_FOR_NEXT_SEASON: flavor line.
+  if (phase === 'READY_FOR_NEXT_SEASON') {
+    out.push({
+      section: 'Offseason wraps',
+      icon: '🏁',
+      text: `League ready for kickoff of Season ${league.seasonNumber}. Step to begin Week 1.`,
+    });
+  }
+
+  // ─ Generic transaction diff ─────────────────────────────────────────
+  // Everything fired since the anchor, regardless of phase.
+  const newTransactions = league.transactionLog.slice(anchor.transactionLogLen);
+  for (const tx of newTransactions) {
+    const ev = transactionToEvent(tx, league);
+    if (ev) out.push(ev);
+  }
+
+  return out;
+}
+
+type ScheduledGameLike = NonNullable<LeagueState['schedule']>['regularSeason'][number][number];
+
+function playoffRoundForPhase(
+  phase: LifecyclePhase,
+  playoffs: NonNullable<NonNullable<LeagueState['schedule']>['playoffs']>,
+): readonly ScheduledGameLike[] {
+  switch (phase) {
+    case 'WILD_CARD':
+      return playoffs.wildCard;
+    case 'DIVISIONAL':
+      return playoffs.divisional;
+    case 'CONFERENCE':
+      return playoffs.conference;
+    case 'SUPER_BOWL':
+      return playoffs.superBowl;
+    default:
+      return [];
+  }
+}
+
+function gameToEvent(game: ScheduledGameLike, league: LeagueState): TickEvent {
+  const result = game.result!;
+  const home = league.teams[game.homeTeamId];
+  const away = league.teams[game.awayTeamId];
+  const homeAbbr = home?.identity.abbreviation ?? game.homeTeamId;
+  const awayAbbr = away?.identity.abbreviation ?? game.awayTeamId;
+  const homeWon = result.homeScore > result.awayScore;
+  const winner = homeWon ? homeAbbr : awayAbbr;
+  const loser = homeWon ? awayAbbr : homeAbbr;
+  const winnerScore = homeWon ? result.homeScore : result.awayScore;
+  const loserScore = homeWon ? result.awayScore : result.homeScore;
+  const injuryNote =
+    result.injuries.length > 0
+      ? ` · ${result.injuries.length} inj${result.injuries.length === 1 ? '' : 's'}`
+      : '';
+  return {
+    section: gameSectionLabel(game.kind),
+    icon: '🏈',
+    text: `${winner} ${winnerScore}, ${loser} ${loserScore}${injuryNote}`,
+  };
+}
+
+function gameSectionLabel(kind: string): string {
+  switch (kind) {
+    case 'REGULAR':
+      return 'Games';
+    case 'WILD_CARD':
+      return 'Wild Card';
+    case 'DIVISIONAL':
+      return 'Divisional';
+    case 'CONFERENCE':
+      return 'Conference Championships';
+    case 'SUPER_BOWL':
+      return 'Super Bowl';
+    default:
+      return 'Games';
+  }
+}
+
+function awardsAsEvents(awards: SeasonAwards, league: LeagueState): TickEvent[] {
+  const out: TickEvent[] = [];
+  const playerAwards: ReadonlyArray<readonly [string, SeasonAwards['mvp']]> = [
+    ['MVP', awards.mvp],
+    ['Offensive POY', awards.opoy],
+    ['Defensive POY', awards.dpoy],
+    ['Offensive ROY', awards.oroy],
+    ['Defensive ROY', awards.droy],
+  ];
+  for (const [name, award] of playerAwards) {
+    if (!award) continue;
+    const player = league.players[award.playerId];
+    if (!player) continue;
+    const team = player.teamId ? league.teams[player.teamId] : null;
+    const teamLabel = team ? team.identity.abbreviation : '?';
+    out.push({
+      section: 'Season Awards',
+      icon: '🏅',
+      text: `${name}: ${player.firstName} ${player.lastName} (${teamLabel}, ${player.position})`,
+    });
+  }
+  if (awards.coy) {
+    const coach = league.coaches[awards.coy.coachId];
+    const team = league.teams[awards.coy.teamId];
+    if (coach && team) {
+      out.push({
+        section: 'Season Awards',
+        icon: '🏅',
+        text: `Coach of the Year: ${coach.name} (${team.identity.abbreviation})`,
+      });
+    }
+  }
+  return out;
+}
+
+function draftPickToEvent(pick: DraftPickRecord, league: LeagueState): TickEvent {
+  const team = league.teams[pick.teamId];
+  const teamAbbr = team?.identity.abbreviation ?? pick.teamId;
+  const player = league.players[pick.promotedPlayerId];
+  const pos = player?.position ?? '?';
+  const name = player ? `${player.firstName} ${player.lastName}` : pick.promotedPlayerId;
+  return {
+    section: `Draft (Season ${pick.seasonNumber})`,
+    icon: '📋',
+    text: `R${pick.round} #${pick.overallPick} — ${teamAbbr} selects ${name} (${pos})`,
+  };
+}
+
+function transactionToEvent(tx: Transaction, league: LeagueState): TickEvent | null {
+  switch (tx.kind) {
+    case 'trade': {
+      const teamA = league.teams[tx.teamAId];
+      const teamB = league.teams[tx.teamBId];
+      const aAbbr = teamA?.identity.abbreviation ?? tx.teamAId;
+      const bAbbr = teamB?.identity.abbreviation ?? tx.teamBId;
+      const aToB = [...tx.playersAToB.map((id) => playerLabel(id, league)), ...formatPickList(tx.picksAToB, league)];
+      const bToA = [...tx.playersBToA.map((id) => playerLabel(id, league)), ...formatPickList(tx.picksBToA, league)];
+      const sourceLabel = tx.source ? ` [${tx.source}]` : '';
+      return {
+        section: 'Trades',
+        icon: '🔄',
+        text: `${aAbbr} ↔ ${bAbbr}: ${aAbbr} sends ${aToB.join(', ') || '(nothing)'} for ${bToA.join(', ') || '(nothing)'}${sourceLabel}`,
+      };
+    }
+    case 'release': {
+      const team = league.teams[tx.teamId];
+      const dead = tx.deadMoney > 0 ? ` — dead $${formatMillions(tx.deadMoney)}M` : '';
+      return {
+        section: 'Releases',
+        icon: '✂️',
+        text: `${team?.identity.abbreviation ?? tx.teamId} releases ${playerLabel(tx.playerId, league)}${dead}`,
+      };
+    }
+    case 'fa-sign': {
+      const team = league.teams[tx.teamId];
+      const market = tx.marketContract ? '' : ' (vet-min)';
+      return {
+        section: 'Free Agency',
+        icon: '✍️',
+        text: `${team?.identity.abbreviation ?? tx.teamId} signs ${playerLabel(tx.playerId, league)} — yr1 $${formatMillions(tx.yearOneCapHit)}M${market}`,
+      };
+    }
+    case 'ir-move': {
+      const team = league.teams[tx.teamId];
+      return {
+        section: 'Injuries',
+        icon: '🏥',
+        text: `${team?.identity.abbreviation ?? tx.teamId} places ${playerLabel(tx.playerId, league)} on IR — ${tx.weeksOut} wks (${tx.injurySeverity})`,
+      };
+    }
+    case 'ps-promotion': {
+      const signing = league.teams[tx.signingTeamId];
+      const origin = league.teams[tx.originTeamId];
+      const fromLabel = tx.ownPromotion ? 'from own PS' : `from ${origin?.identity.abbreviation ?? tx.originTeamId} PS`;
+      return {
+        section: 'Roster moves',
+        icon: '⬆️',
+        text: `${signing?.identity.abbreviation ?? tx.signingTeamId} promotes ${playerLabel(tx.playerId, league)} ${fromLabel}`,
+      };
+    }
+    case 'cap-cut': {
+      const team = league.teams[tx.teamId];
+      return {
+        section: 'Cap moves',
+        icon: '💰',
+        text: `${team?.identity.abbreviation ?? tx.teamId} cuts ${playerLabel(tx.playerId, league)} — cap saving $${formatMillions(tx.capSaving)}M`,
+      };
+    }
+    case 'contract-expiration': {
+      const team = league.teams[tx.teamId];
+      return {
+        section: 'Contract expirations',
+        icon: '📄',
+        text: `${team?.identity.abbreviation ?? tx.teamId}: ${playerLabel(tx.playerId, league)} hits FA`,
+      };
+    }
+    case 'trade-request':
+    case 'mood-shift':
+      // These exist on the transaction union but are noisy for tick log.
+      return null;
+    default:
+      return null;
+  }
+}
+
+function playerLabel(playerId: PlayerId, league: LeagueState): string {
+  const p = league.players[playerId];
+  if (!p) return playerId;
+  return `${p.firstName} ${p.lastName} (${p.position})`;
+}
+
+function formatPickList(
+  picks: readonly string[] | undefined,
+  league: LeagueState,
+): string[] {
+  if (!picks) return [];
+  return picks.map((pickId) => {
+    const pick = league.draftPicks.find((p) => p.id === pickId);
+    if (!pick) return pickId;
+    const yearLabel =
+      pick.seasonNumber === league.seasonNumber
+        ? `${pick.seasonNumber} R${pick.round}`
+        : `${pick.seasonNumber} R${pick.round}`;
+    return yearLabel;
+  });
+}
+
+function formatMillions(cents: number): string {
+  return (cents / 1_000_000).toFixed(1);
+}
+
+function groupBy<T, K extends string>(items: readonly T[], key: (t: T) => K): Array<[K, T[]]> {
+  const map = new Map<K, T[]>();
+  for (const item of items) {
+    const k = key(item);
+    let bucket = map.get(k);
+    if (!bucket) {
+      bucket = [];
+      map.set(k, bucket);
+    }
+    bucket.push(item);
+  }
+  return Array.from(map.entries());
 }
 
 function CurrentPhaseBadge({

@@ -16,6 +16,70 @@ _Nothing yet._
 
 ---
 
+## [0.60.0] — 2026-05-20
+
+### Added — Per-tick event log on the Lifecycle panel
+
+The Lifecycle panel now shows **what just happened** on each tick, not
+just where you are. A new "Events this tick" section sits between the
+step controls and the timeline. Written as beat-reporter notes —
+names, positions, teams, dollars, narrative tone — not transaction-log
+dumps.
+
+**What surfaces per phase**
+
+- **REGULAR_SEASON_WEEK** — that week's 16 game results with score +
+  injury count (`🏈 BUF 24, NE 17 · 2 injs`).
+- **WILD_CARD / DIVISIONAL / CONFERENCE / SUPER_BOWL** — that round's
+  playoff games. Super Bowl tick also fires a `🏆 Championship` line
+  with the winning franchise's full name.
+- **POST_SEASON_FINALIZE** — season awards (`🏅 MVP: First Last (KC, QB)`)
+  for MVP, OPOY, DPOY, OROY, DROY, COY.
+- **DRAFT** — all 224 picks rendered as
+  `📋 R1 #1 — KC selects First Last (QB)`. Capped at 30 visible per
+  section with "+ N more" tail.
+- **READY_FOR_NEXT_SEASON** — flavor line: "League ready for kickoff
+  of Season N. Step to begin Week 1."
+
+**Generic transaction diff** runs alongside every phase, surfacing
+new entries from `league.transactionLog` since the previous tick:
+
+- 🔄 Trades (`MIA ↔ LAR: MIA sends Star Smith (WR), 2027 R1 for 2027 R1, 2027 R3`)
+- ✂️ Releases (`DAL releases Smith (WR) — dead $4.2M`)
+- ✍️ Free-agent signings (`BUF signs Smith (WR) — yr1 $15M`)
+- 🏥 IR moves (`PHI places Smith (RB) on IR — 8 wks (MAJOR)`)
+- ⬆️ Practice-squad promotions
+- 💰 Cap cuts
+- 📄 Contract expirations
+
+### Plumbing
+
+- `LifecyclePanel` captures a `TickAnchor` ref
+  (`{ transactionLogLen, phase, currentWeek, seasonNumber }`) before
+  each step button fires, so the diff is taken against the pre-tick
+  state. `useRef` (not `useState`) — the snapshot doesn't need to
+  trigger re-renders, only to be read at the next render.
+- `TickEventLog` + `computeTickEvents` derive the event list inside
+  a `useMemo` keyed on `(league, anchor)`. Pure derivation; no engine
+  changes.
+- Events are grouped by section in render (games, free agency, etc.)
+  so multi-tick steps (Step to next phase / Step a full year) stay
+  readable.
+
+### Engine-only filter (none)
+
+This is a pure UI slice — no engine changes. Engine suite stays at
+703 passing + 4 skipped (no regressions).
+
+### Acknowledging the NFL-feel directive
+
+This slice and all future work prioritize **NFL-feel**: that the
+league reads like real NFL teams and real NFL players, not generic
+spreadsheet football. Beat-reporter tone, real terminology, names +
+context wherever possible. See `memory/feedback_nfl_feel_paramount.md`.
+
+---
+
 ## [0.59.0] — 2026-05-20
 
 ### Added — Lifecycle step-through inspector
