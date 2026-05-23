@@ -85,11 +85,21 @@ describe('weekly media reports (v0.62)', () => {
   it('grows monotonically across the regular season', () => {
     let league: LeagueState = createLeague({ seed: 'media-weekly-growth' });
     let prevCount = 0;
-    for (let i = 0; i < 5; i++) {
+    // v0.63: NFL REGULAR_SEASON_WEEK interleaves with COLLEGE_WEEK
+    // ticks; college ticks don't emit NFL media reports. Pump ticks
+    // until we've seen 5 NFL weeks fire and check the count grew on
+    // each of those.
+    let nflWeeksSeen = 0;
+    for (let i = 0; i < 20; i++) {
       league = tickPhase(league);
-      expect(league.mediaReports.length).toBeGreaterThan(prevCount);
-      prevCount = league.mediaReports.length;
+      if (league.lifecyclePhase === 'REGULAR_SEASON_WEEK') {
+        expect(league.mediaReports.length).toBeGreaterThan(prevCount);
+        prevCount = league.mediaReports.length;
+        nflWeeksSeen++;
+        if (nflWeeksSeen >= 5) break;
+      }
     }
+    expect(nflWeeksSeen).toBe(5);
   });
 
   it('reports reference real outlet ids that exist in mediaOutlets', () => {

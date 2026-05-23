@@ -71,6 +71,7 @@ import {
   TRADE_DEADLINE_WEEK_INDEX,
 } from '@gmsim/engine';
 import type { LifecyclePhase, CalendarDate, MediaReport } from '@gmsim/engine';
+import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsim/engine/types';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -6554,11 +6555,25 @@ const OFFSEASON_PHASES: readonly LifecyclePhase[] = [
   'READY_FOR_NEXT_SEASON',
 ];
 
+const COLLEGE_REG_SEASON_WEEKS = 12;
+
+const COLLEGE_POSTSEASON_PHASES: readonly LifecyclePhase[] = [
+  'COLLEGE_CONFERENCE_CHAMPIONSHIPS',
+  'HEISMAN_CEREMONY',
+  'COLLEGE_BOWL_GAMES',
+  'CFP_FIRST_ROUND',
+  'CFP_QUARTERFINALS',
+  'CFP_SEMIFINALS',
+  'CFP_FINAL',
+];
+
 interface TickAnchor {
   transactionLogLen: number;
   mediaReportLen: number;
   phase: LifecyclePhase;
   currentWeek: number | null;
+  collegeCurrentWeek: number | null;
+  collegeGameStatsLen: number;
   seasonNumber: number;
 }
 
@@ -6571,8 +6586,9 @@ function LifecyclePanel({
 }) {
   const phase = league.lifecyclePhase;
   const currentWeek = league.currentWeek;
-  const label = phaseCalendarLabel(phase, currentWeek);
-  const date = phaseCalendarDate(phase, currentWeek, league.seasonNumber);
+  const collegeCurrentWeek = league.collegeCurrentWeek;
+  const label = phaseCalendarLabel(phase, currentWeek, collegeCurrentWeek);
+  const date = phaseCalendarDate(phase, currentWeek, league.seasonNumber, collegeCurrentWeek);
 
   // Snapshot of league state immediately BEFORE the last tick fired.
   // The "events fired this tick" diff is taken against this anchor.
@@ -6584,6 +6600,8 @@ function LifecyclePanel({
     mediaReportLen: league.mediaReports.length,
     phase: league.lifecyclePhase,
     currentWeek: league.currentWeek,
+    collegeCurrentWeek: league.collegeCurrentWeek,
+    collegeGameStatsLen: league.collegeGameStats.length,
     seasonNumber: league.seasonNumber,
   });
 
@@ -6593,6 +6611,8 @@ function LifecyclePanel({
       mediaReportLen: league.mediaReports.length,
       phase: league.lifecyclePhase,
       currentWeek: league.currentWeek,
+      collegeCurrentWeek: league.collegeCurrentWeek,
+      collegeGameStatsLen: league.collegeGameStats.length,
       seasonNumber: league.seasonNumber,
     };
   }
@@ -6633,6 +6653,7 @@ function LifecyclePanel({
       <CurrentPhaseBadge
         phase={phase}
         currentWeek={currentWeek}
+        collegeCurrentWeek={collegeCurrentWeek}
         label={label}
         date={date}
       />
@@ -6663,8 +6684,11 @@ function LifecyclePanel({
       <LifecycleTimeline
         phase={phase}
         currentWeek={currentWeek}
+        collegeCurrentWeek={collegeCurrentWeek}
         seasonNumber={league.seasonNumber}
       />
+
+      <CollegeSeasonSection league={league} />
 
       <p className="mt-3 text-xs text-zinc-500">
         Bulk <code className="text-zinc-300">simulateSeason</code> +{' '}
@@ -6751,6 +6775,87 @@ function computeTickEvents(league: LeagueState, anchor: TickAnchor): TickEvent[]
       for (const game of week) {
         if (!game.result) continue;
         out.push(gameToEvent(game, league));
+      }
+    }
+  }
+
+  // College week (v0.63) — emit ALL college games played this tick.
+  // The schedule has all weeks; we show only the one corresponding to
+  // the just-played `collegeCurrentWeek`.
+  if (
+    phase === 'COLLEGE_WEEK' &&
+    league.collegeCurrentWeek !== null &&
+    league.collegeSchedule
+  ) {
+    const week = league.collegeSchedule.regularSeason[league.collegeCurrentWeek];
+    if (week) {
+      // For 50+ games per week, cap the visible set so the panel
+      // doesn't overflow; emit a "+N more" line via the standard
+      // grouped render.
+      for (const game of week) {
+        if (!game.result) continue;
+        out.push(collegeGameToEvent(game));
+      }
+    }
+  }
+
+  // College postseason phases — emit games from the corresponding
+  // section of the schedule.
+  if (phase === 'COLLEGE_CONFERENCE_CHAMPIONSHIPS' && league.collegeSchedule) {
+    for (const g of league.collegeSchedule.conferenceChampionships) {
+      if (!g.result) continue;
+      out.push(collegeGameToEvent(g));
+    }
+  }
+  if (phase === 'HEISMAN_CEREMONY') {
+    const leader = topCollegePassingLeader(league);
+    if (leader) {
+      out.push({
+        section: 'Heisman watch',
+        icon: '🎓',
+        text: `Stat-leader spotlight: ${leader}. (Real Heisman selection lands in a later slice.)`,
+      });
+    } else {
+      out.push({
+        section: 'Heisman watch',
+        icon: '🎓',
+        text: `Heisman ceremony — winner selection logic ships in a later slice.`,
+      });
+    }
+  }
+  if (phase === 'COLLEGE_BOWL_GAMES' && league.collegeSchedule) {
+    for (const g of league.collegeSchedule.bowls) {
+      if (!g.result) continue;
+      out.push(collegeGameToEvent(g));
+    }
+  }
+  if (
+    (phase === 'CFP_FIRST_ROUND' ||
+      phase === 'CFP_QUARTERFINALS' ||
+      phase === 'CFP_SEMIFINALS' ||
+      phase === 'CFP_FINAL') &&
+    league.collegeSchedule?.cfp
+  ) {
+    const round =
+      phase === 'CFP_FIRST_ROUND'
+        ? league.collegeSchedule.cfp.firstRound
+        : phase === 'CFP_QUARTERFINALS'
+          ? league.collegeSchedule.cfp.quarterfinals
+          : phase === 'CFP_SEMIFINALS'
+            ? league.collegeSchedule.cfp.semifinals
+            : league.collegeSchedule.cfp.final;
+    for (const g of round) {
+      if (!g.result) continue;
+      out.push(collegeGameToEvent(g));
+    }
+    if (phase === 'CFP_FINAL' && league.collegeSchedule.cfp.championSchoolId) {
+      const champ = getSchoolById(league.collegeSchedule.cfp.championSchoolId);
+      if (champ) {
+        out.push({
+          section: 'CFP Champion',
+          icon: '🏆',
+          text: `${champ.name} are national champions of Season ${league.seasonNumber}.`,
+        });
       }
     }
   }
@@ -6896,6 +7001,70 @@ function gameSectionLabel(kind: string): string {
     default:
       return 'Games';
   }
+}
+
+function collegeGameToEvent(game: CollegeGame): TickEvent {
+  const result = game.result!;
+  const home = getSchoolById(game.homeSchoolId);
+  const away = getSchoolById(game.awaySchoolId);
+  const homeName = home?.name ?? game.homeSchoolId;
+  const awayName = away?.name ?? game.awaySchoolId;
+  const homeWon = result.homeScore > result.awayScore;
+  const winner = homeWon ? homeName : awayName;
+  const loser = homeWon ? awayName : homeName;
+  const winnerScore = homeWon ? result.homeScore : result.awayScore;
+  const loserScore = homeWon ? result.awayScore : result.homeScore;
+  const bowlNote = game.bowlName ? ` · ${game.bowlName}` : '';
+  return {
+    section: collegeGameSectionLabel(game.kind),
+    icon: '🎓',
+    text: `${winner} ${winnerScore}, ${loser} ${loserScore}${bowlNote}`,
+  };
+}
+
+function collegeGameSectionLabel(kind: CollegeGameKind): string {
+  switch (kind) {
+    case 'REGULAR':
+      return 'College Games';
+    case 'CONFERENCE_CHAMPIONSHIP':
+      return 'College Conference Championships';
+    case 'BOWL':
+      return 'Bowl Games';
+    case 'CFP_FIRST_ROUND':
+      return 'CFP First Round';
+    case 'CFP_QUARTERFINAL':
+      return 'CFP Quarterfinals';
+    case 'CFP_SEMIFINAL':
+      return 'CFP Semifinals';
+    case 'CFP_FINAL':
+      return 'CFP National Championship';
+  }
+}
+
+/**
+ * Find the highest passing-yards prospect in this season's college
+ * game stats. Slice 1 Heisman placeholder uses this as a flavor line
+ * until the full stat-aggregation + media-buzz logic ships.
+ */
+function topCollegePassingLeader(league: LeagueState): string | null {
+  const sums = new Map<string, number>();
+  for (const s of league.collegeGameStats) {
+    if (s.passingYards <= 0) continue;
+    sums.set(s.playerId, (sums.get(s.playerId) ?? 0) + s.passingYards);
+  }
+  let bestId: string | null = null;
+  let bestYards = 0;
+  for (const [id, yds] of sums) {
+    if (yds > bestYards) {
+      bestId = id;
+      bestYards = yds;
+    }
+  }
+  if (!bestId) return null;
+  const prospect = league.collegePool.find((p) => p.id === bestId);
+  if (!prospect) return null;
+  const school = getSchoolById(prospect.schoolId);
+  return `${prospect.firstName} ${prospect.lastName} (QB, ${school?.name ?? prospect.schoolId}) — ${bestYards} passing yards`;
 }
 
 function awardsAsEvents(awards: SeasonAwards, league: LeagueState): TickEvent[] {
@@ -7066,11 +7235,13 @@ function groupBy<T, K extends string>(items: readonly T[], key: (t: T) => K): Ar
 function CurrentPhaseBadge({
   phase,
   currentWeek,
+  collegeCurrentWeek,
   label,
   date,
 }: {
   phase: LifecyclePhase;
   currentWeek: number | null;
+  collegeCurrentWeek: number | null;
   label: string;
   date: CalendarDate | null;
 }) {
@@ -7096,8 +7267,14 @@ function CurrentPhaseBadge({
       )}
       {currentWeek !== null && (
         <div>
-          <span className="text-[10px] uppercase tracking-wide text-zinc-500">currentWeek</span>
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500">NFL week</span>
           <span className="ml-2 font-mono text-xs text-zinc-300">{currentWeek}</span>
+        </div>
+      )}
+      {collegeCurrentWeek !== null && (
+        <div>
+          <span className="text-[10px] uppercase tracking-wide text-zinc-500">🎓 college week</span>
+          <span className="ml-2 font-mono text-xs text-emerald-300">{collegeCurrentWeek}</span>
         </div>
       )}
       {isDeadlineWeek && (
@@ -7112,15 +7289,17 @@ function CurrentPhaseBadge({
 function LifecycleTimeline({
   phase,
   currentWeek,
+  collegeCurrentWeek,
   seasonNumber,
 }: {
   phase: LifecyclePhase;
   currentWeek: number | null;
+  collegeCurrentWeek: number | null;
   seasonNumber: number;
 }) {
   return (
     <div className="mt-5 space-y-4">
-      <TimelineGroup title="Regular Season">
+      <TimelineGroup title="NFL Regular Season">
         <div className="grid grid-cols-9 gap-1 sm:grid-cols-[repeat(17,minmax(0,1fr))]">
           {Array.from({ length: REG_SEASON_WEEKS }, (_, i) => {
             const isCurrent =
@@ -7140,7 +7319,38 @@ function LifecycleTimeline({
         </div>
       </TimelineGroup>
 
-      <TimelineGroup title="Playoffs">
+      <TimelineGroup title="🎓 College Football">
+        <div className="grid grid-cols-6 gap-1 sm:grid-cols-[repeat(12,minmax(0,1fr))]">
+          {Array.from({ length: COLLEGE_REG_SEASON_WEEKS }, (_, i) => {
+            const isCurrent =
+              phase === 'COLLEGE_WEEK' && collegeCurrentWeek === i;
+            const cellDate = phaseCalendarDate('COLLEGE_WEEK', null, seasonNumber, i);
+            return (
+              <TimelineCell
+                key={`cw${i}`}
+                isCurrent={isCurrent}
+                label={`W${i + 1}`}
+                sub={cellDate ? `${cellDate.month}/${cellDate.day}` : ''}
+                accent="rose"
+              />
+            );
+          })}
+        </div>
+        <div className="mt-1 grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-7">
+          {COLLEGE_POSTSEASON_PHASES.map((p) => (
+            <TimelineCell
+              key={p}
+              isCurrent={phase === p}
+              label={collegePostseasonShortLabel(p)}
+              sub={formatDateOrEmpty(phaseCalendarDate(p, null, seasonNumber))}
+              accent="rose"
+              wide
+            />
+          ))}
+        </div>
+      </TimelineGroup>
+
+      <TimelineGroup title="NFL Playoffs">
         <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
           {PLAYOFF_PHASES.map((p) => (
             <TimelineCell
@@ -7171,6 +7381,155 @@ function LifecycleTimeline({
       </TimelineGroup>
     </div>
   );
+}
+
+function collegePostseasonShortLabel(phase: LifecyclePhase): string {
+  switch (phase) {
+    case 'COLLEGE_CONFERENCE_CHAMPIONSHIPS':
+      return 'Conf Champs';
+    case 'HEISMAN_CEREMONY':
+      return 'Heisman';
+    case 'COLLEGE_BOWL_GAMES':
+      return 'Bowls';
+    case 'CFP_FIRST_ROUND':
+      return 'CFP R1';
+    case 'CFP_QUARTERFINALS':
+      return 'CFP QF';
+    case 'CFP_SEMIFINALS':
+      return 'CFP SF';
+    case 'CFP_FINAL':
+      return 'CFP Final';
+    default:
+      return phase;
+  }
+}
+
+/**
+ * Live college-season snapshot — shows last completed week's
+ * standings + a top-stats mini-board. Reads `league.collegeGameStats`
+ * to compute season totals at-a-glance for the user.
+ */
+function CollegeSeasonSection({ league }: { league: LeagueState }) {
+  const schedule = league.collegeSchedule;
+  const collegeCurrentWeek = league.collegeCurrentWeek;
+  const champ = schedule?.cfp?.championSchoolId
+    ? getSchoolById(schedule.cfp.championSchoolId)
+    : null;
+
+  const passingLeaders = useMemo(
+    () => topCollegeStatLeaders(league.collegeGameStats, 'passing', league),
+    [league.collegeGameStats, league],
+  );
+  const rushingLeaders = useMemo(
+    () => topCollegeStatLeaders(league.collegeGameStats, 'rushing', league),
+    [league.collegeGameStats, league],
+  );
+  const receivingLeaders = useMemo(
+    () => topCollegeStatLeaders(league.collegeGameStats, 'receiving', league),
+    [league.collegeGameStats, league],
+  );
+
+  if (!schedule || (collegeCurrentWeek === null && league.collegeGameStats.length === 0)) {
+    return (
+      <section className="mt-6 rounded border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs text-zinc-400">
+        🎓 College season hasn't started yet — step into a `COLLEGE_WEEK` tick to begin.
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 rounded border border-emerald-500/30 bg-emerald-500/5 p-3">
+      <h3 className="mb-2 text-sm font-semibold text-emerald-200">
+        🎓 College Football — Season {schedule.seasonNumber}
+        {collegeCurrentWeek !== null && (
+          <span className="ml-2 font-mono text-xs text-emerald-300">
+            Week {collegeCurrentWeek + 1}
+          </span>
+        )}
+        {champ && (
+          <span className="ml-3 font-mono text-xs text-amber-200">
+            🏆 Champion: {champ.name}
+          </span>
+        )}
+      </h3>
+
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        <CollegeLeaderList
+          title="Passing yards"
+          items={passingLeaders}
+        />
+        <CollegeLeaderList
+          title="Rushing yards"
+          items={rushingLeaders}
+        />
+        <CollegeLeaderList
+          title="Receiving yards"
+          items={receivingLeaders}
+        />
+      </div>
+    </section>
+  );
+}
+
+function CollegeLeaderList({
+  title,
+  items,
+}: {
+  title: string;
+  items: ReadonlyArray<{ name: string; school: string; value: number }>;
+}) {
+  return (
+    <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+      <div className="mb-1 text-[10px] uppercase tracking-wide text-zinc-500">{title}</div>
+      {items.length === 0 ? (
+        <div className="font-mono text-xs text-zinc-600">No qualifying prospects yet.</div>
+      ) : (
+        <ol className="space-y-0.5">
+          {items.map((it, i) => (
+            <li key={i} className="flex items-baseline justify-between font-mono text-xs text-zinc-300">
+              <span className="truncate">
+                <span className="text-zinc-500">{i + 1}.</span> {it.name}{' '}
+                <span className="text-zinc-500">({it.school})</span>
+              </span>
+              <span className="ml-2 tabular-nums text-emerald-300">{it.value}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  );
+}
+
+function topCollegeStatLeaders(
+  stream: readonly CollegePlayerGameStats[],
+  kind: 'passing' | 'rushing' | 'receiving',
+  league: LeagueState,
+): Array<{ name: string; school: string; value: number }> {
+  const sums = new Map<string, { yards: number; schoolId: string }>();
+  for (const s of stream) {
+    const yards =
+      kind === 'passing'
+        ? s.passingYards
+        : kind === 'rushing'
+          ? s.rushingYards
+          : s.receivingYards;
+    if (yards <= 0) continue;
+    const existing = sums.get(s.playerId) ?? { yards: 0, schoolId: s.schoolId };
+    existing.yards += yards;
+    sums.set(s.playerId, existing);
+  }
+  const ranked = [...sums.entries()]
+    .sort((a, b) => b[1].yards - a[1].yards)
+    .slice(0, 5);
+  return ranked.map(([playerId, { yards, schoolId }]) => {
+    const prospect = league.collegePool.find((p) => p.id === playerId);
+    const school = getSchoolById(schoolId);
+    return {
+      name: prospect ? `${prospect.firstName} ${prospect.lastName}` : playerId,
+      school: school?.name ?? schoolId,
+      value: yards,
+    };
+  });
 }
 
 function TimelineGroup({

@@ -251,6 +251,11 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     // populates on each lifecycle tick that has news.
     mediaOutlets: generateMediaOutlets(rootPrng.fork('media-outlets'), Object.values(teams)),
     mediaReports: [],
+    // v0.63 college football season — schedule generated on the first
+    // COLLEGE_WEEK tick of each season.
+    collegeSchedule: null,
+    collegeCurrentWeek: null,
+    collegeGameStats: [],
   };
 
   // Initial boards first (we need them so pro-day attendance can

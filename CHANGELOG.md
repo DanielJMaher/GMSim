@@ -16,6 +16,95 @@ _Nothing yet._
 
 ---
 
+## [0.63.0] — 2026-05-23
+
+### Added — College Football Season foundation
+
+Full parallel college-football runtime alongside the NFL season.
+Slice 1 ships the complete NCAA structure — regular season,
+conference championships, bowl slate, and 12-team College Football
+Playoff — plus per-prospect game stats that feed the future
+Heisman / media big-board / false-flag prospect-hype slices.
+
+**Regular season schedule** — 12 weeks of FBS games (POWER +
+GROUP_OF_5 conferences, ~117 schools). Conference-mate pairings
+preferred (~70%), no rematches, deterministic for a given seed.
+
+**Game runner** — light logistic outcome model (team strength +
+variance, no per-position units, no injuries) tuned to college
+upset rates and scoring distributions. Home-field advantage 4.0
+(higher than NFL).
+
+**Per-prospect game stats** — `CollegePlayerGameStats` (modeled on
+NFL `PlayerGameStats` but a separate type so both can diverge).
+Distributed from team totals across the school's CollegePlayer
+cohort (QB1 carries pass volume, RBs split carries, top WRs/TEs
+split targets). Stats accumulate on `LeagueState.collegeGameStats`
+as an append-only stream the eventual scouting layer can read.
+
+**Postseason chain (7 new lifecycle phases)**:
+
+- `COLLEGE_CONFERENCE_CHAMPIONSHIPS` — top-2 by conference record
+  in each FBS conference play for the title (9 games)
+- `HEISMAN_CEREMONY` — placeholder; surfaces the season's leading
+  passer as a flavor line. Real selection logic in Slice 2.
+- `COLLEGE_BOWL_GAMES` — 15 named bowls fill with the top non-CFP
+  schools that hit 6+ wins
+- `CFP_FIRST_ROUND` — 12-team bracket, top 4 conference champions
+  bye, 4 first-round games (5v12, 6v11, 7v10, 8v9), higher seed hosts
+- `CFP_QUARTERFINALS` / `CFP_SEMIFINALS` / `CFP_FINAL` — neutral-site
+  bowl-game venues, full bracket through national championship
+
+**Interleaved lifecycle ticks** — `COLLEGE_WEEK` alternates with NFL
+`REGULAR_SEASON_WEEK` so the inspector can step through both leagues
+one game-day at a time. The college postseason chain fires as a
+contiguous block once the college regular season completes; NFL
+weeks 13-17 then continue before NFL playoffs.
+
+**Inspector additions** (Lifecycle tab):
+
+- 🎓 College Football timeline group — 12 reg-season cells + 7
+  postseason chips, current phase highlighted
+- Per-tick event log adds college game scores, conference
+  championship results, bowl game scores, CFP round results, and
+  a champion banner when CFP_FINAL completes
+- New "College Football — Season N" section with passing /
+  rushing / receiving yards leaders, refreshed on every tick
+
+### Architecture notes
+
+- New module: `packages/engine/src/college-season/` (strength,
+  schedule, outcome, stats, records, postseason, public index)
+- New types: `CollegeGame`, `CollegeGameResult`,
+  `CollegeTeamGameStats`, `CollegePlayerGameStats`,
+  `CollegeSeasonSchedule`, `CfpBracket`, `CollegeTeamRecord`
+- `LeagueState` gains `collegeSchedule`, `collegeCurrentWeek`,
+  `collegeGameStats`
+- 8 new `LifecyclePhase` variants, all integrated into
+  `LIFECYCLE_ORDER` and `nextPhaseAfter`; `tickPhase` dispatch
+  has custom logic for the NFL ↔ college week alternation and
+  the postseason-chain return-to-NFL transition
+- New calendar anchors for college kickoff, conference
+  championships, Heisman ceremony, bowl season, and CFP rounds
+- New engine subpath export: `@gmsim/engine/college-season`
+
+### Not in this slice (Slice 2+)
+
+- Media reports about college games (newspaper / radio / blog
+  coverage of college games)
+- Real Heisman race logic (stat + media-buzz accumulation, weekly
+  candidate update, December winner selection)
+- Media-driven mock-draft big boards (each outlet's evolving
+  prospect rankings; consensus board replaces the v0.51
+  `leagueAggregateByProspect` proxy)
+- False-flag prospect hype (sensationalist outlets inflating
+  prospect stock; scouts that trust ground truth penetrating
+  the noise)
+- College polls / rankings
+- Bowl-payout tiers, conference tie-ins, pre-bowl opt-outs
+
+---
+
 ## [0.62.0] — 2026-05-21
 
 ### Added — Media ecosystem (foundation)

@@ -74,6 +74,22 @@ export const CALENDAR_ANCHORS = {
   draftDayThree: { month: 4, day: 27 },
   /** UDFA signing window opens minutes after the draft ends. */
   udfaSigning: { month: 4, day: 28 },
+  /** College Week 1 kickoff — Saturday after Labor Day, late August. */
+  collegeWeekOneKickoff: { month: 8, day: 30 },
+  /** Conference championship weekend — first Saturday of December. */
+  collegeConferenceChampionships: { month: 12, day: 6 },
+  /** Heisman Trophy ceremony — second Saturday of December. */
+  heismanCeremony: { month: 12, day: 13 },
+  /** Bowl season runs Dec 20 – Jan 1; anchor at the front. */
+  collegeBowls: { month: 12, day: 20 },
+  /** CFP First Round — third Saturday of December. */
+  cfpFirstRound: { month: 12, day: 20 },
+  /** CFP Quarterfinals — New Year's Day. */
+  cfpQuarterfinals: { month: 1, day: 1 },
+  /** CFP Semifinals — first weekend of January. */
+  cfpSemifinals: { month: 1, day: 9 },
+  /** CFP National Championship — third Monday of January. */
+  cfpFinal: { month: 1, day: 19 },
 } as const;
 
 /**
@@ -89,12 +105,30 @@ export const CALENDAR_ANCHORS = {
 export function phaseCalendarLabel(
   phase: LifecyclePhase,
   currentWeek: number | null = null,
+  collegeCurrentWeek: number | null = null,
 ): string {
   switch (phase) {
     case 'REGULAR_SEASON_WEEK':
       if (currentWeek === null) return 'Preseason';
       // currentWeek is 0-indexed; display as 1-indexed.
       return `Week ${currentWeek + 1}`;
+    case 'COLLEGE_WEEK':
+      if (collegeCurrentWeek === null) return '🎓 College Week 1';
+      return `🎓 College Week ${collegeCurrentWeek + 1}`;
+    case 'COLLEGE_CONFERENCE_CHAMPIONSHIPS':
+      return '🎓 Early December · Conference Championships';
+    case 'HEISMAN_CEREMONY':
+      return '🎓 Mid-December · Heisman Ceremony';
+    case 'COLLEGE_BOWL_GAMES':
+      return '🎓 Late December · Bowl Season';
+    case 'CFP_FIRST_ROUND':
+      return '🎓 Late December · CFP First Round';
+    case 'CFP_QUARTERFINALS':
+      return '🎓 New Year’s Day · CFP Quarterfinals';
+    case 'CFP_SEMIFINALS':
+      return '🎓 Early January · CFP Semifinals';
+    case 'CFP_FINAL':
+      return '🎓 Mid-January · CFP National Championship';
     case 'WILD_CARD':
       return 'Wild Card Round';
     case 'DIVISIONAL':
@@ -139,6 +173,7 @@ export function phaseCalendarDate(
   phase: LifecyclePhase,
   currentWeek: number | null,
   seasonNumber: number,
+  collegeCurrentWeek: number | null = null,
 ): CalendarDate | null {
   const kickoffYear = SEASON_ONE_ANCHOR_YEAR + seasonNumber - 1;
   const offseasonYear = kickoffYear + 1;
@@ -153,6 +188,29 @@ export function phaseCalendarDate(
       };
       return addDays(base, weekIdx * 7);
     }
+    case 'COLLEGE_WEEK': {
+      const weekIdx = collegeCurrentWeek ?? 0;
+      const base: CalendarDate = {
+        year: kickoffYear,
+        month: CALENDAR_ANCHORS.collegeWeekOneKickoff.month,
+        day: CALENDAR_ANCHORS.collegeWeekOneKickoff.day,
+      };
+      return addDays(base, weekIdx * 7);
+    }
+    case 'COLLEGE_CONFERENCE_CHAMPIONSHIPS':
+      return { year: kickoffYear, ...CALENDAR_ANCHORS.collegeConferenceChampionships };
+    case 'HEISMAN_CEREMONY':
+      return { year: kickoffYear, ...CALENDAR_ANCHORS.heismanCeremony };
+    case 'COLLEGE_BOWL_GAMES':
+      return { year: kickoffYear, ...CALENDAR_ANCHORS.collegeBowls };
+    case 'CFP_FIRST_ROUND':
+      return { year: kickoffYear, ...CALENDAR_ANCHORS.cfpFirstRound };
+    case 'CFP_QUARTERFINALS':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.cfpQuarterfinals };
+    case 'CFP_SEMIFINALS':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.cfpSemifinals };
+    case 'CFP_FINAL':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.cfpFinal };
     case 'WILD_CARD':
       return { year: offseasonYear, ...CALENDAR_ANCHORS.wildCard };
     case 'DIVISIONAL':

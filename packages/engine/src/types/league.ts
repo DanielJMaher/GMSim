@@ -19,6 +19,7 @@ import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
 import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ScoutId, ContractId, MediaOutletId } from './ids.js';
 import type { MediaOutlet, MediaReport } from './media.js';
+import type { CollegeSeasonSchedule, CollegePlayerGameStats } from './college-season.js';
 
 /**
  * Top-level engine state. The entire simulation lives behind this single
@@ -251,6 +252,36 @@ export interface LeagueState {
    * state from the stream.
    */
   mediaReports: readonly MediaReport[];
+
+  /**
+   * College football season schedule (v0.63+). Mirrors NFL `schedule`
+   * but with the broader college postseason structure (conference
+   * championships → bowls → 12-team CFP). Generated on the first
+   * COLLEGE_WEEK tick of each season, cleared at end-of-cycle.
+   *
+   * Null before the first COLLEGE_WEEK tick of a season and after
+   * cleanup at the end of the cycle.
+   */
+  collegeSchedule: CollegeSeasonSchedule | null;
+
+  /**
+   * Zero-indexed college regular-season week most recently played
+   * (v0.63+). Parallel to `currentWeek` for NFL, but tracks the
+   * interleaved college calendar. `null` before the first college
+   * week ticks each year; advances per `COLLEGE_WEEK` tick. After
+   * the last college regular-season week, transitions to the
+   * postseason chain.
+   */
+  collegeCurrentWeek: number | null;
+
+  /**
+   * Append-only stream of per-prospect college game stats (v0.63+).
+   * One entry per (prospect, game) pair where the prospect recorded
+   * non-zero output. Future scouting / Heisman / media-big-board
+   * slices aggregate this stream to derive season totals and rolling
+   * narratives.
+   */
+  collegeGameStats: readonly CollegePlayerGameStats[];
 }
 
 export type LeaguePhase =

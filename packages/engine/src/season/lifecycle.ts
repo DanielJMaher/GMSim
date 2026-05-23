@@ -82,6 +82,29 @@ import {
   generateWeeklyMediaReports,
   generatePlayoffRoundMediaReports,
 } from '../media/reports.js';
+import {
+  COLLEGE_REGULAR_SEASON_WEEKS,
+  generateCollegeRegularSeason,
+  bucketProspectsBySchool,
+  collegeTeamStrength,
+  simulateCollegeGame,
+  deriveCollegeGamePlayerStats,
+  computeCollegeRecords,
+  buildConferenceChampionships,
+  buildCfpBracket,
+  buildCfpQuarterfinals,
+  buildCfpSemifinals,
+  buildCfpFinal,
+  buildBowlSlate,
+} from '../college-season/index.js';
+import type {
+  CollegeGame,
+  CollegeSeasonSchedule,
+  CollegePlayerGameStats,
+  CfpBracket,
+} from '../types/college-season.js';
+import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
+import type { CollegePlayer, CollegeSchool } from '../types/college.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
 
@@ -101,6 +124,14 @@ const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
  */
 export type LifecyclePhase =
   | 'REGULAR_SEASON_WEEK'
+  | 'COLLEGE_WEEK'
+  | 'COLLEGE_CONFERENCE_CHAMPIONSHIPS'
+  | 'HEISMAN_CEREMONY'
+  | 'COLLEGE_BOWL_GAMES'
+  | 'CFP_FIRST_ROUND'
+  | 'CFP_QUARTERFINALS'
+  | 'CFP_SEMIFINALS'
+  | 'CFP_FINAL'
   | 'WILD_CARD'
   | 'DIVISIONAL'
   | 'CONFERENCE'
@@ -117,9 +148,27 @@ export type LifecyclePhase =
  * Ordered phase sequence. `tickPhase` consults this to know what
  * comes after a given phase. `READY_FOR_NEXT_SEASON` wraps back to
  * `REGULAR_SEASON_WEEK` for the next year's schedule generation.
+ *
+ * v0.63 inserted the college-football block between
+ * `REGULAR_SEASON_WEEK` and `WILD_CARD`. REGULAR_SEASON_WEEK and
+ * COLLEGE_WEEK interleave during the regular-season window — the
+ * tickPhase dispatch decides which fires next based on how many
+ * weeks of each remain. The 7-phase college postseason block
+ * (COLLEGE_CONFERENCE_CHAMPIONSHIPS through CFP_FINAL) fires as a
+ * contiguous run once the college regular season completes, then
+ * dispatch returns to whichever NFL weeks remain before
+ * `WILD_CARD`.
  */
 export const LIFECYCLE_ORDER: readonly LifecyclePhase[] = [
   'REGULAR_SEASON_WEEK',
+  'COLLEGE_WEEK',
+  'COLLEGE_CONFERENCE_CHAMPIONSHIPS',
+  'HEISMAN_CEREMONY',
+  'COLLEGE_BOWL_GAMES',
+  'CFP_FIRST_ROUND',
+  'CFP_QUARTERFINALS',
+  'CFP_SEMIFINALS',
+  'CFP_FINAL',
   'WILD_CARD',
   'DIVISIONAL',
   'CONFERENCE',
@@ -165,17 +214,7 @@ export function nextPhaseAfter(phase: LifecyclePhase): LifecyclePhase {
  * repeated `tickPhase` calls are deterministic.
  */
 export function tickPhase(league: LeagueState): LeagueState {
-  const current = league.lifecyclePhase;
-
-  // Decide which work to apply on this tick.
-  let target: LifecyclePhase;
-  if (current === 'REGULAR_SEASON_WEEK') {
-    target = regularSeasonHasWeeksLeft(league) ? 'REGULAR_SEASON_WEEK' : 'WILD_CARD';
-  } else if (current === 'READY_FOR_NEXT_SEASON') {
-    target = 'REGULAR_SEASON_WEEK';
-  } else {
-    target = nextPhaseAfter(current);
-  }
+  const target = decideTickTarget(league);
 
   // PRNG namespace: REGULAR_SEASON_WEEK derives from the season root
   // (same as runner.ts pre-v0.56) so per-week / per-game streams stay
@@ -200,6 +239,22 @@ export function tickPhase(league: LeagueState): LeagueState {
   }
   const phasePrng = new PrngClass(`${league.seed}::lifecycle::${league.seasonNumber}::${target}`);
   switch (target) {
+    case 'COLLEGE_WEEK':
+      return applyCollegeWeek(league, phasePrng);
+    case 'COLLEGE_CONFERENCE_CHAMPIONSHIPS':
+      return applyCollegeConferenceChampionships(league, phasePrng);
+    case 'HEISMAN_CEREMONY':
+      return applyHeismanCeremony(league);
+    case 'COLLEGE_BOWL_GAMES':
+      return applyCollegeBowls(league, phasePrng);
+    case 'CFP_FIRST_ROUND':
+      return applyCfpFirstRound(league, phasePrng);
+    case 'CFP_QUARTERFINALS':
+      return applyCfpQuarterfinals(league, phasePrng);
+    case 'CFP_SEMIFINALS':
+      return applyCfpSemifinals(league, phasePrng);
+    case 'CFP_FINAL':
+      return applyCfpFinal(league, phasePrng);
     case 'POST_SEASON_FINALIZE':
       return applyPostSeasonFinalize(league, phasePrng);
     case 'OFFSEASON_TRANSACTIONS':
@@ -215,6 +270,70 @@ export function tickPhase(league: LeagueState): LeagueState {
     case 'READY_FOR_NEXT_SEASON':
       return { ...league, lifecyclePhase: 'READY_FOR_NEXT_SEASON' };
   }
+}
+
+/**
+ * Decide what phase to apply on this tick based on the league's
+ * current `lifecyclePhase` and pending in-progress sub-state.
+ *
+ * Most phases just walk `LIFECYCLE_ORDER` linearly. The special
+ * cases are:
+ *
+ *   - **REGULAR_SEASON_WEEK** + **COLLEGE_WEEK** interleave during
+ *     the regular-season window (v0.63). After an NFL week tick,
+ *     dispatch to a college week if any remain; vice versa. When
+ *     one's season ends mid-interleave the other continues solo
+ *     until both are exhausted.
+ *   - When the college regular season finishes, the dispatch
+ *     enters the 7-phase college postseason chain (conference
+ *     championships → Heisman → bowls → CFP rounds), then returns
+ *     to whichever NFL weeks remain before `WILD_CARD`.
+ *   - **READY_FOR_NEXT_SEASON** wraps to `REGULAR_SEASON_WEEK`.
+ */
+function decideTickTarget(league: LeagueState): LifecyclePhase {
+  const current = league.lifecyclePhase;
+
+  if (current === 'REGULAR_SEASON_WEEK') {
+    // After playing the first NFL week, kick off the college season
+    // interleave. The `currentWeek !== null` guard ensures the very
+    // first tick of a fresh league still plays an NFL week (matches
+    // the existing v0.56 behavior, so per-week PRNG streams remain
+    // byte-for-byte identical to pre-v0.63 for the first NFL week).
+    if (league.currentWeek !== null && collegeRegularSeasonHasWeeksLeft(league)) {
+      return 'COLLEGE_WEEK';
+    }
+    if (regularSeasonHasWeeksLeft(league)) return 'REGULAR_SEASON_WEEK';
+    return 'WILD_CARD';
+  }
+
+  if (current === 'COLLEGE_WEEK') {
+    if (collegeRegularSeasonHasWeeksLeft(league)) {
+      // More college weeks left — alternate back to NFL if any.
+      if (regularSeasonHasWeeksLeft(league)) return 'REGULAR_SEASON_WEEK';
+      return 'COLLEGE_WEEK';
+    }
+    // College regular season done — kick off postseason chain.
+    return 'COLLEGE_CONFERENCE_CHAMPIONSHIPS';
+  }
+
+  if (current === 'CFP_FINAL') {
+    // College postseason finished — resume NFL where we left off.
+    if (regularSeasonHasWeeksLeft(league)) return 'REGULAR_SEASON_WEEK';
+    return 'WILD_CARD';
+  }
+
+  if (current === 'READY_FOR_NEXT_SEASON') return 'REGULAR_SEASON_WEEK';
+
+  return nextPhaseAfter(current);
+}
+
+/**
+ * True while there are college regular-season weeks remaining to
+ * play. Matches the NFL `regularSeasonHasWeeksLeft` shape.
+ */
+function collegeRegularSeasonHasWeeksLeft(league: LeagueState): boolean {
+  if (league.collegeCurrentWeek === null) return true;
+  return league.collegeCurrentWeek < COLLEGE_REGULAR_SEASON_WEEKS - 1;
 }
 
 /**
@@ -956,6 +1075,12 @@ function applyCollegeCycle(league: LeagueState, prng: PrngClass): LeagueState {
     // Clear the played schedule at the end of the cycle (DRAFT
     // needed it for slot-order records; nothing further does).
     schedule: null,
+    // v0.63: clear the college-season schedule too so the next year
+    // generates a fresh one on its first COLLEGE_WEEK tick. Stats
+    // stream is intentionally preserved — it's append-only across
+    // all seasons.
+    collegeSchedule: null,
+    collegeCurrentWeek: null,
     // v0.59: stamp this phase's own name (was 'READY_FOR_NEXT_SEASON'
     // pre-v0.59, which made COLLEGE_CYCLE invisible in step-through —
     // the inspector skipped past it directly to the terminal marker).
@@ -1068,4 +1193,287 @@ function updateCompetitiveWindow(
   if (winPct >= 0.4) return CompetitiveWindow.RETOOLING;
   if (winPct >= 0.25) return CompetitiveWindow.STAGNANT;
   return CompetitiveWindow.REBUILDING;
+}
+
+// ─── College Football Season phases (v0.63) ─────────────────────────────
+//
+// COLLEGE_WEEK plays one regular-season college week. The first
+// college tick of a season also generates the schedule. All
+// downstream postseason phases (conf champs, bowls, CFP rounds)
+// reuse the same `collegeSchedule` slot.
+
+const COLLEGE_TIER_BY_SCHOOL = new Map<string, CollegeSchool['tier']>(
+  COLLEGE_SCHOOLS.map((s) => [s.id, s.tier] as const),
+);
+
+function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
+  // First tick of the season: generate the schedule (regular only;
+  // postseason rounds populate during their own phases).
+  let schedule: CollegeSeasonSchedule;
+  if (league.collegeSchedule === null) {
+    const reg = generateCollegeRegularSeason(
+      prng.fork('schedule'),
+      league.seasonNumber,
+    );
+    schedule = {
+      seasonNumber: league.seasonNumber,
+      regularSeason: reg,
+      conferenceChampionships: [],
+      bowls: [],
+      cfp: null,
+    };
+  } else {
+    schedule = league.collegeSchedule;
+  }
+
+  const weekIdx = league.collegeCurrentWeek === null ? 0 : league.collegeCurrentWeek + 1;
+  const week = schedule.regularSeason[weekIdx] ?? [];
+  const weekPrng = prng.fork(`week-${weekIdx + 1}`);
+
+  const bucketed = bucketProspectsBySchool(league.collegePool);
+  const playedGames = playCollegeWeek(weekPrng, week, bucketed);
+  const newStats = collectCollegeStats(playedGames, bucketed, league.tick);
+
+  const updatedRegularSeason = schedule.regularSeason.map((w, i) =>
+    i === weekIdx ? playedGames : w,
+  );
+  const nextSchedule: CollegeSeasonSchedule = {
+    ...schedule,
+    regularSeason: updatedRegularSeason,
+  };
+
+  return {
+    ...league,
+    collegeSchedule: nextSchedule,
+    collegeCurrentWeek: weekIdx,
+    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    lifecyclePhase: 'COLLEGE_WEEK',
+  };
+}
+
+function applyCollegeConferenceChampionships(
+  league: LeagueState,
+  prng: PrngClass,
+): LeagueState {
+  if (!league.collegeSchedule) {
+    throw new Error('applyCollegeConferenceChampionships requires a generated schedule');
+  }
+  const records = computeCollegeRecords(league.collegeSchedule.regularSeason);
+  const matchups = buildConferenceChampionships(records, league.seasonNumber);
+  const bucketed = bucketProspectsBySchool(league.collegePool);
+  const played = playCollegeGames(prng.fork('conf-champs'), matchups, bucketed, true);
+  const newStats = collectCollegeStats(played, bucketed, league.tick);
+
+  return {
+    ...league,
+    collegeSchedule: {
+      ...league.collegeSchedule,
+      conferenceChampionships: played,
+    },
+    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    lifecyclePhase: 'COLLEGE_CONFERENCE_CHAMPIONSHIPS',
+  };
+}
+
+/**
+ * Heisman ceremony — Slice 1 placeholder. The lifecycle phase
+ * exists so future media + Heisman-race slices can hook in here.
+ * For now the phase is a tick marker that just records the
+ * advancement; the actual winner selection lands when stat
+ * aggregators + media buzz tracking are wired up.
+ */
+function applyHeismanCeremony(league: LeagueState): LeagueState {
+  return { ...league, lifecyclePhase: 'HEISMAN_CEREMONY' };
+}
+
+function applyCollegeBowls(league: LeagueState, prng: PrngClass): LeagueState {
+  if (!league.collegeSchedule) {
+    throw new Error('applyCollegeBowls requires a generated schedule');
+  }
+  const records = computeCollegeRecords(league.collegeSchedule.regularSeason);
+  // Build CFP bracket first so we know which schools are excluded
+  // from the bowl pool. The CFP bracket itself is built in CFP_FIRST_ROUND;
+  // here we only need to know which schools would be IN the bracket.
+  const cfpBracket = buildCfpBracket(
+    records,
+    league.collegeSchedule.conferenceChampionships,
+    league.seasonNumber,
+  );
+  const cfpSchools = new Set(cfpBracket.seeds);
+  const bowlMatchups = buildBowlSlate(records, cfpSchools, league.seasonNumber);
+
+  const bucketed = bucketProspectsBySchool(league.collegePool);
+  const played = playCollegeGames(prng.fork('bowls'), bowlMatchups, bucketed, true);
+  const newStats = collectCollegeStats(played, bucketed, league.tick);
+
+  return {
+    ...league,
+    collegeSchedule: {
+      ...league.collegeSchedule,
+      bowls: played,
+    },
+    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    lifecyclePhase: 'COLLEGE_BOWL_GAMES',
+  };
+}
+
+function applyCfpFirstRound(league: LeagueState, prng: PrngClass): LeagueState {
+  if (!league.collegeSchedule) {
+    throw new Error('applyCfpFirstRound requires a generated schedule');
+  }
+  const records = computeCollegeRecords(league.collegeSchedule.regularSeason);
+  const bracket = buildCfpBracket(
+    records,
+    league.collegeSchedule.conferenceChampionships,
+    league.seasonNumber,
+  );
+  const bucketed = bucketProspectsBySchool(league.collegePool);
+  // Higher seeds host first-round games (real CFP rule) → not
+  // neutral-site, so HFA applies.
+  const playedFirstRound = playCollegeGames(
+    prng.fork('cfp-r1'),
+    bracket.firstRound,
+    bucketed,
+    false,
+  );
+  const newStats = collectCollegeStats(playedFirstRound, bucketed, league.tick);
+  const nextBracket: CfpBracket = { ...bracket, firstRound: playedFirstRound };
+
+  return {
+    ...league,
+    collegeSchedule: {
+      ...league.collegeSchedule,
+      cfp: nextBracket,
+    },
+    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    lifecyclePhase: 'CFP_FIRST_ROUND',
+  };
+}
+
+function applyCfpQuarterfinals(league: LeagueState, prng: PrngClass): LeagueState {
+  if (!league.collegeSchedule || !league.collegeSchedule.cfp) {
+    throw new Error('applyCfpQuarterfinals requires CFP first round to be populated');
+  }
+  const matchups = buildCfpQuarterfinals(league.collegeSchedule.cfp, league.seasonNumber);
+  const bucketed = bucketProspectsBySchool(league.collegePool);
+  // Quarterfinals are bowl-site games — neutral, no HFA.
+  const played = playCollegeGames(prng.fork('cfp-qf'), matchups, bucketed, true);
+  const newStats = collectCollegeStats(played, bucketed, league.tick);
+
+  return {
+    ...league,
+    collegeSchedule: {
+      ...league.collegeSchedule,
+      cfp: { ...league.collegeSchedule.cfp, quarterfinals: played },
+    },
+    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    lifecyclePhase: 'CFP_QUARTERFINALS',
+  };
+}
+
+function applyCfpSemifinals(league: LeagueState, prng: PrngClass): LeagueState {
+  if (!league.collegeSchedule || !league.collegeSchedule.cfp) {
+    throw new Error('applyCfpSemifinals requires CFP quarterfinals to be populated');
+  }
+  const matchups = buildCfpSemifinals(league.collegeSchedule.cfp, league.seasonNumber);
+  const bucketed = bucketProspectsBySchool(league.collegePool);
+  const played = playCollegeGames(prng.fork('cfp-sf'), matchups, bucketed, true);
+  const newStats = collectCollegeStats(played, bucketed, league.tick);
+
+  return {
+    ...league,
+    collegeSchedule: {
+      ...league.collegeSchedule,
+      cfp: { ...league.collegeSchedule.cfp, semifinals: played },
+    },
+    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    lifecyclePhase: 'CFP_SEMIFINALS',
+  };
+}
+
+function applyCfpFinal(league: LeagueState, prng: PrngClass): LeagueState {
+  if (!league.collegeSchedule || !league.collegeSchedule.cfp) {
+    throw new Error('applyCfpFinal requires CFP semifinals to be populated');
+  }
+  const matchups = buildCfpFinal(league.collegeSchedule.cfp, league.seasonNumber);
+  const bucketed = bucketProspectsBySchool(league.collegePool);
+  const played = playCollegeGames(prng.fork('cfp-final'), matchups, bucketed, true);
+  const newStats = collectCollegeStats(played, bucketed, league.tick);
+  const champion =
+    played[0]?.result
+      ? played[0].result.homeScore > played[0].result.awayScore
+        ? played[0].homeSchoolId
+        : played[0].awaySchoolId
+      : null;
+
+  return {
+    ...league,
+    collegeSchedule: {
+      ...league.collegeSchedule,
+      cfp: { ...league.collegeSchedule.cfp, final: played, championSchoolId: champion },
+    },
+    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    lifecyclePhase: 'CFP_FINAL',
+  };
+}
+
+/**
+ * Play every game in `games` against the current college pool.
+ * Per-game PRNGs are forked off the round's prng using the game id
+ * so a single round's games stay deterministic and order-independent.
+ */
+function playCollegeGames(
+  prng: PrngClass,
+  games: readonly CollegeGame[],
+  bucketed: ReadonlyMap<string, readonly CollegePlayer[]>,
+  neutralSite: boolean,
+): CollegeGame[] {
+  const played: CollegeGame[] = [];
+  for (const game of games) {
+    played.push(simulateCollegeGameWithStrengths(prng.fork(game.id), game, bucketed, neutralSite));
+  }
+  return played;
+}
+
+function playCollegeWeek(
+  weekPrng: PrngClass,
+  games: readonly CollegeGame[],
+  bucketed: ReadonlyMap<string, readonly CollegePlayer[]>,
+): CollegeGame[] {
+  const played: CollegeGame[] = [];
+  for (const game of games) {
+    played.push(simulateCollegeGameWithStrengths(weekPrng.fork(game.id), game, bucketed, false));
+  }
+  return played;
+}
+
+function simulateCollegeGameWithStrengths(
+  prng: PrngClass,
+  game: CollegeGame,
+  bucketed: ReadonlyMap<string, readonly CollegePlayer[]>,
+  neutralSite: boolean,
+): CollegeGame {
+  const homeTier = COLLEGE_TIER_BY_SCHOOL.get(game.homeSchoolId) ?? 'GROUP_OF_5';
+  const awayTier = COLLEGE_TIER_BY_SCHOOL.get(game.awaySchoolId) ?? 'GROUP_OF_5';
+  const homeStrength = collegeTeamStrength(game.homeSchoolId, homeTier, bucketed);
+  const awayStrength = collegeTeamStrength(game.awaySchoolId, awayTier, bucketed);
+  return simulateCollegeGame(prng, {
+    game,
+    homeStrength,
+    awayStrength,
+    neutralSite,
+  });
+}
+
+function collectCollegeStats(
+  games: readonly CollegeGame[],
+  bucketed: ReadonlyMap<string, readonly CollegePlayer[]>,
+  playedOnTick: number,
+): CollegePlayerGameStats[] {
+  const stats: CollegePlayerGameStats[] = [];
+  for (const game of games) {
+    if (!game.result) continue;
+    stats.push(...deriveCollegeGamePlayerStats(game, bucketed, playedOnTick));
+  }
+  return stats;
 }

@@ -328,6 +328,27 @@ export type {
   RollCollegeStatsOptions,
 } from './draft/index.js';
 
+// College Football Season — v0.63
+//   slice 1: full NCAA structure (regular season + conf champs + bowls + CFP)
+export {
+  collegeTeamStrength,
+  bucketProspectsBySchool,
+  generateCollegeRegularSeason,
+  COLLEGE_REGULAR_SEASON_WEEKS,
+  simulateCollegeGame,
+  deriveCollegeGamePlayerStats,
+  computeCollegeRecords,
+  sortCollegeSchoolsByRecord,
+  buildConferenceChampionships,
+  conferenceChampions,
+  buildCfpBracket,
+  buildCfpQuarterfinals,
+  buildCfpSemifinals,
+  buildCfpFinal,
+  buildBowlSlate,
+} from './college-season/index.js';
+export type { SimulateCollegeGameOptions } from './college-season/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';

@@ -115,35 +115,105 @@ describe('simulateSeason', () => {
       expect(stepped.transactionLog).toEqual(bulk.transactionLog);
     });
 
-    it('regular season takes 17 ticks; playoffs take 4 ticks', () => {
+    it('reaches Super Bowl in the expected number of ticks (v0.63: NFL + college interleave)', () => {
+      // v0.63 cycle:
+      //   17 NFL regular-season weeks (interleaved with 12 college
+      //   weeks during the first 12 of them)
+      // + 12 college regular-season weeks
+      // + 7 college postseason phases (conf champs, Heisman,
+      //   bowls, CFP first round, QF, SF, final)
+      // + 4 NFL playoff rounds (WC, DIV, CONF, SB)
+      // = 40 ticks total to reach SUPER_BOWL.
       let league = createLeague({ seed: 'tick-count' });
       let regSeasonTicks = 0;
-      let playoffTicks = 0;
+      let collegeRegTicks = 0;
+      let collegePostseasonTicks = 0;
+      let nflPlayoffTicks = 0;
       for (let i = 0; i < 100; i++) {
         if (league.lifecyclePhase === 'SUPER_BOWL') break;
         league = tickPhase(league);
-        if (league.lifecyclePhase === 'REGULAR_SEASON_WEEK') regSeasonTicks++;
-        else playoffTicks++;
+        const p = league.lifecyclePhase;
+        if (p === 'REGULAR_SEASON_WEEK') regSeasonTicks++;
+        else if (p === 'COLLEGE_WEEK') collegeRegTicks++;
+        else if (
+          p === 'COLLEGE_CONFERENCE_CHAMPIONSHIPS' ||
+          p === 'HEISMAN_CEREMONY' ||
+          p === 'COLLEGE_BOWL_GAMES' ||
+          p === 'CFP_FIRST_ROUND' ||
+          p === 'CFP_QUARTERFINALS' ||
+          p === 'CFP_SEMIFINALS' ||
+          p === 'CFP_FINAL'
+        ) {
+          collegePostseasonTicks++;
+        } else {
+          nflPlayoffTicks++;
+        }
       }
       expect(regSeasonTicks).toBe(17);
-      expect(playoffTicks).toBe(4);
+      expect(collegeRegTicks).toBe(12);
+      expect(collegePostseasonTicks).toBe(7);
+      expect(nflPlayoffTicks).toBe(4);
     });
 
-    it('currentWeek progresses 0..16 during regular season then resets to null', () => {
+    it('NFL currentWeek progresses 0..16 across the interleaved cycle', () => {
       let league = createLeague({ seed: 'tick-week' });
-      const weeks: (number | null)[] = [];
-      // Play through 17 regular-season weeks one at a time.
-      for (let i = 0; i < 17; i++) {
+      const observedWeeks: number[] = [];
+      // Pump ticks; record currentWeek only when an NFL week just
+      // fired. Need enough ticks to cover the interleaved NFL+college
+      // cycle plus the postseason chain.
+      for (let i = 0; i < 50; i++) {
         league = tickPhase(league);
-        weeks.push(league.currentWeek);
+        if (
+          league.lifecyclePhase === 'REGULAR_SEASON_WEEK' &&
+          league.currentWeek !== null
+        ) {
+          // Push only when we see a NEW week (the same week reads
+          // would repeat across COLLEGE_WEEK ticks if we sampled
+          // every tick).
+          if (observedWeeks[observedWeeks.length - 1] !== league.currentWeek) {
+            observedWeeks.push(league.currentWeek);
+          }
+        }
+        if (observedWeeks.length === 17 && league.lifecyclePhase === 'REGULAR_SEASON_WEEK') break;
       }
-      expect(weeks).toEqual(Array.from({ length: 17 }, (_, i) => i));
-      expect(league.lifecyclePhase).toBe('REGULAR_SEASON_WEEK');
+      expect(observedWeeks).toEqual(Array.from({ length: 17 }, (_, i) => i));
 
       // Next tick transitions to WILD_CARD and resets currentWeek.
       league = tickPhase(league);
       expect(league.lifecyclePhase).toBe('WILD_CARD');
       expect(league.currentWeek).toBeNull();
+    });
+
+    it('college regular season is 12 weeks; college pool stats accumulate', () => {
+      let league = createLeague({ seed: 'tick-college' });
+      const observedCollegeWeeks: number[] = [];
+      for (let i = 0; i < 60; i++) {
+        league = tickPhase(league);
+        if (
+          league.lifecyclePhase === 'COLLEGE_WEEK' &&
+          league.collegeCurrentWeek !== null
+        ) {
+          if (
+            observedCollegeWeeks[observedCollegeWeeks.length - 1] !==
+            league.collegeCurrentWeek
+          ) {
+            observedCollegeWeeks.push(league.collegeCurrentWeek);
+          }
+        }
+        if (
+          observedCollegeWeeks.length === 12 &&
+          league.lifecyclePhase === 'COLLEGE_WEEK'
+        ) {
+          break;
+        }
+      }
+      expect(observedCollegeWeeks).toEqual(Array.from({ length: 12 }, (_, i) => i));
+      // College schedule should be populated and have a regular
+      // season with 12 weeks of games.
+      expect(league.collegeSchedule).not.toBeNull();
+      expect(league.collegeSchedule!.regularSeason.length).toBe(12);
+      // Some per-prospect stats should have accumulated.
+      expect(league.collegeGameStats.length).toBeGreaterThan(0);
     });
   });
 });
