@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.64.0] — 2026-05-24
+
 ### Added — recognizable calendar phases (combine, pro days, top-30, markers)
 
 The offseason was a thin set of phases with the combine, pro days, and
