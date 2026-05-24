@@ -58,6 +58,8 @@ export interface TimelineStep {
  * the wrap marker (no calendar date), handled directly by the dispatch.
  */
 const SINGLE_SHOT_PHASES: readonly LifecyclePhase[] = [
+  'PRESEASON',
+  'TRADE_DEADLINE',
   'COLLEGE_CONFERENCE_CHAMPIONSHIPS',
   'HEISMAN_CEREMONY',
   'COLLEGE_BOWL_GAMES',
@@ -70,7 +72,10 @@ const SINGLE_SHOT_PHASES: readonly LifecyclePhase[] = [
   'CONFERENCE',
   'SUPER_BOWL',
   'POST_SEASON_FINALIZE',
+  'COMBINE',
   'OFFSEASON_TRANSACTIONS',
+  'PRO_DAYS',
+  'TOP_30_VISITS',
   'PRE_DRAFT',
   'DRAFT',
   'POST_DRAFT_ROSTER',

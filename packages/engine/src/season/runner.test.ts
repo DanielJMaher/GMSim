@@ -115,28 +115,33 @@ describe('simulateSeason', () => {
       expect(stepped.transactionLog).toEqual(bulk.transactionLog);
     });
 
-    it('reaches Super Bowl in the expected number of ticks (v0.63: NFL + college interleave)', () => {
-      // v0.63.1 unified-calendar cycle — phases fire in true calendar
-      // date order (see season/timeline.ts):
-      //   17 NFL regular-season weeks (Sept–Dec), interleaved with
+    it('reaches Super Bowl in the expected number of ticks (v0.64: full calendar)', () => {
+      // v0.64 unified-calendar cycle — phases fire in true calendar
+      // date order (see season/timeline.ts). To reach SUPER_BOWL:
+      //   1 PRESEASON (late Aug)
+      // + 17 NFL regular-season weeks (Sept–Dec), interleaved with
       // + 12 college regular-season weeks (late Aug–Nov)
-      // + 7 college postseason phases (conf champs Dec 6 → Heisman →
-      //   bowls → CFP rounds, the CFP final landing mid-January)
+      // + 1 TRADE_DEADLINE marker (late Oct)
+      // + 7 college postseason phases (conf champs → Heisman → bowls →
+      //   CFP rounds, the CFP final landing mid-January)
       // + 4 NFL playoff rounds (WC, DIV, CONF, SB)
-      // The college postseason is spread across the late NFL season +
-      // playoff window rather than firing as one block, but the tick
-      // COUNTS are unchanged: 40 ticks total to reach SUPER_BOWL.
+      // The pre-draft beats (Combine, Pro Days, Top-30) fire AFTER the
+      // Super Bowl, so they don't count here.
       let league = createLeague({ seed: 'tick-count' });
+      let preseasonTicks = 0;
       let regSeasonTicks = 0;
       let collegeRegTicks = 0;
+      let tradeDeadlineTicks = 0;
       let collegePostseasonTicks = 0;
       let nflPlayoffTicks = 0;
       for (let i = 0; i < 100; i++) {
         if (league.lifecyclePhase === 'SUPER_BOWL') break;
         league = tickPhase(league);
         const p = league.lifecyclePhase;
-        if (p === 'REGULAR_SEASON_WEEK') regSeasonTicks++;
+        if (p === 'PRESEASON') preseasonTicks++;
+        else if (p === 'REGULAR_SEASON_WEEK') regSeasonTicks++;
         else if (p === 'COLLEGE_WEEK') collegeRegTicks++;
+        else if (p === 'TRADE_DEADLINE') tradeDeadlineTicks++;
         else if (
           p === 'COLLEGE_CONFERENCE_CHAMPIONSHIPS' ||
           p === 'HEISMAN_CEREMONY' ||
@@ -151,8 +156,10 @@ describe('simulateSeason', () => {
           nflPlayoffTicks++;
         }
       }
+      expect(preseasonTicks).toBe(1);
       expect(regSeasonTicks).toBe(17);
       expect(collegeRegTicks).toBe(12);
+      expect(tradeDeadlineTicks).toBe(1);
       expect(collegePostseasonTicks).toBe(7);
       expect(nflPlayoffTicks).toBe(4);
     });

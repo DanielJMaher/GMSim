@@ -6744,6 +6744,46 @@ function computeTickEvents(league: LeagueState, anchor: TickAnchor): TickEvent[]
   // ─ Phase-specific narrative ─────────────────────────────────────────
   const phase = league.lifecyclePhase;
 
+  // v0.64 calendar beats — combine / pro days / top-30 visits / markers.
+  if (phase === 'PRESEASON') {
+    out.push({
+      section: 'Preseason',
+      icon: '🏈',
+      text: 'Training camp wraps — 53-man rosters set. Regular season kicks off next.',
+    });
+  }
+  if (phase === 'TRADE_DEADLINE') {
+    out.push({
+      section: 'Trade Deadline',
+      icon: '⏰',
+      text: 'The in-season trade deadline has passed — rosters are locked for contenders.',
+    });
+  }
+  if (phase === 'COMBINE') {
+    const n = Object.keys(league.combineResults).length;
+    out.push({
+      section: 'Scouting Combine',
+      icon: '📋',
+      text: `Combine measurables recorded for ${n} draft-eligible prospects.`,
+    });
+  }
+  if (phase === 'PRO_DAYS') {
+    const n = Object.keys(league.proDayAttendance).length;
+    out.push({
+      section: 'Pro Days',
+      icon: '🏟️',
+      text: `Pro-day workouts logged across ${n} prospects' campuses.`,
+    });
+  }
+  if (phase === 'TOP_30_VISITS') {
+    const n = league.coachVisitObservations.length;
+    out.push({
+      section: 'Top-30 Visits',
+      icon: '🤝',
+      text: `Pre-draft top-30 visits complete — ${n} coach/scout observations on file. Boards finalized for the draft.`,
+    });
+  }
+
   // Regular-season weeks: show games + injuries from this week.
   if (phase === 'REGULAR_SEASON_WEEK' && league.currentWeek !== null && league.schedule) {
     const week = league.schedule.regularSeason[league.currentWeek];
@@ -7340,10 +7380,20 @@ function isStepCurrent(
 
 function timelineStepLabel(step: TimelineStep): string {
   switch (step.phase) {
+    case 'PRESEASON':
+      return 'Preseason';
     case 'REGULAR_SEASON_WEEK':
       return `NFL W${(step.weekIndex ?? 0) + 1}`;
     case 'COLLEGE_WEEK':
       return `CFB W${(step.weekIndex ?? 0) + 1}`;
+    case 'TRADE_DEADLINE':
+      return 'Trade Deadline';
+    case 'COMBINE':
+      return 'Combine';
+    case 'PRO_DAYS':
+      return 'Pro Days';
+    case 'TOP_30_VISITS':
+      return 'Top-30 Visits';
     case 'WILD_CARD':
       return 'Wild Card';
     case 'DIVISIONAL':
@@ -7374,6 +7424,10 @@ function timelineStepLabel(step: TimelineStep): string {
 
 function timelineStepAccent(step: TimelineStep): 'rose' | 'amber' | 'emerald' | 'zinc' {
   switch (step.phase) {
+    case 'PRESEASON':
+      return 'rose';
+    case 'TRADE_DEADLINE':
+      return 'amber';
     case 'REGULAR_SEASON_WEEK':
       return step.weekIndex === TRADE_DEADLINE_WEEK_INDEX ? 'amber' : 'rose';
     case 'COLLEGE_WEEK':

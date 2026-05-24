@@ -12,6 +12,37 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Added — recognizable calendar phases (combine, pro days, top-30, markers)
+
+The offseason was a thin set of phases with the combine, pro days, and
+top-30 visits all crammed into a single mislabeled July `COLLEGE_CYCLE`
+tick that ran *after* the draft. v0.64 breaks the annual cycle into the
+recognizable NFL/college calendar beats, each its own dated, steppable
+lifecycle phase:
+
+- **`PRESEASON`** (late Aug) — training-camp / rosters-set beat that
+  opens each season's timeline.
+- **`TRADE_DEADLINE`** (late Oct) — the deadline now shows as its own
+  beat in the step-through (the week-8 trade-pressure modifier is
+  unchanged).
+- **`COMBINE`** (late Feb) — scouting-combine measurables, now run in
+  the spring on the current draft class.
+- **`PRO_DAYS`** (March) — pro-day attendance.
+- **`TOP_30_VISITS`** (April) — college scouting cycle + coach/top-30
+  visits + the final pre-draft board regeneration, on the current
+  class right before the draft.
+
+`COLLEGE_CYCLE` is slimmed to its cross-year housekeeping (advance the
+pool into next year's class, roll the pick horizon, clear schedules).
+Because the board is now regenerated in the spring on the actual draft
+class rather than the prior summer on the aged class, draft results
+shift slightly (re-baselined; all invariants hold). The inspector
+ribbon and per-tick event log render the new beats. `buildSeasonTimeline`
+slots them by date automatically.
+
+Deferred to a later slice (need design review): Senior/Shrine all-star
+showcases with scouting effects, and actual preseason games.
+
 ### Added — test-suite monitor
 
 `pnpm test:monitor` (root or engine) runs Vitest through a custom

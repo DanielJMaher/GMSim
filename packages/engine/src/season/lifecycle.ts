@@ -123,8 +123,10 @@ const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
  * that plays the final regular-season week.
  */
 export type LifecyclePhase =
+  | 'PRESEASON'
   | 'REGULAR_SEASON_WEEK'
   | 'COLLEGE_WEEK'
+  | 'TRADE_DEADLINE'
   | 'COLLEGE_CONFERENCE_CHAMPIONSHIPS'
   | 'HEISMAN_CEREMONY'
   | 'COLLEGE_BOWL_GAMES'
@@ -137,7 +139,10 @@ export type LifecyclePhase =
   | 'CONFERENCE'
   | 'SUPER_BOWL'
   | 'POST_SEASON_FINALIZE'
+  | 'COMBINE'
   | 'OFFSEASON_TRANSACTIONS'
+  | 'PRO_DAYS'
+  | 'TOP_30_VISITS'
   | 'PRE_DRAFT'
   | 'DRAFT'
   | 'POST_DRAFT_ROSTER'
@@ -159,8 +164,10 @@ export type LifecyclePhase =
  * firing as one contiguous block.
  */
 export const LIFECYCLE_ORDER: readonly LifecyclePhase[] = [
+  'PRESEASON',
   'REGULAR_SEASON_WEEK',
   'COLLEGE_WEEK',
+  'TRADE_DEADLINE',
   'COLLEGE_CONFERENCE_CHAMPIONSHIPS',
   'HEISMAN_CEREMONY',
   'COLLEGE_BOWL_GAMES',
@@ -173,7 +180,10 @@ export const LIFECYCLE_ORDER: readonly LifecyclePhase[] = [
   'CONFERENCE',
   'SUPER_BOWL',
   'POST_SEASON_FINALIZE',
+  'COMBINE',
   'OFFSEASON_TRANSACTIONS',
+  'PRO_DAYS',
+  'TOP_30_VISITS',
   'PRE_DRAFT',
   'DRAFT',
   'POST_DRAFT_ROSTER',
@@ -238,6 +248,16 @@ export function tickPhase(league: LeagueState): LeagueState {
   }
   const phasePrng = new PrngClass(`${league.seed}::lifecycle::${league.seasonNumber}::${target}`);
   switch (target) {
+    case 'PRESEASON':
+      return applyPreseason(league);
+    case 'TRADE_DEADLINE':
+      return applyTradeDeadline(league);
+    case 'COMBINE':
+      return applyCombine(league, phasePrng);
+    case 'PRO_DAYS':
+      return applyProDays(league, phasePrng);
+    case 'TOP_30_VISITS':
+      return applyTop30Visits(league, phasePrng);
     case 'COLLEGE_WEEK':
       return applyCollegeWeek(league, phasePrng);
     case 'COLLEGE_CONFERENCE_CHAMPIONSHIPS':
@@ -996,11 +1016,103 @@ function applyPostDraftRoster(
   return { ...offseason, lifecyclePhase: 'POST_DRAFT_ROSTER' };
 }
 
-// ─── Phase 6: COLLEGE_CYCLE ────────────────────────────────────────────
+// ─── Pre-draft scouting beats (v0.64) ──────────────────────────────────
 //
-// College pool advance → college scouting → board regen → combine →
-// pro days → coach visits → pick horizon roll. Leaves the league
-// ready for the next regular season's `simulateSeason` call.
+// v0.63 and earlier bundled combine + pro days + coach visits + board
+// regeneration into a single mislabeled `COLLEGE_CYCLE` tick dated to
+// July, running AFTER the draft. v0.64 splits them into their own
+// recognizable, correctly-dated phases that fire in the spring BEFORE
+// the draft (late Feb → April), operating on the current draft class:
+//
+//   COMBINE (late Feb)  → measurables (display state; not consumed by
+//                         board regen, so this phase is result-neutral)
+//   PRO_DAYS (March)    → pro-day attendance (display state; reads the
+//                         working board, also result-neutral)
+//   TOP_30_VISITS (Apr) → college scouting cycle + coach/top-30 visits
+//                         (observations) + FINAL board regen on the
+//                         current class, right before the draft.
+//
+// The summer `COLLEGE_CYCLE` now only does the cross-year housekeeping:
+// age the pool into next year's class, roll the pick horizon, and clear
+// the played schedules.
+
+/** COMBINE — measurables for the current draft class (display-only). */
+function applyCombine(league: LeagueState, prng: PrngClass): LeagueState {
+  const combineResults = runCombine(prng.fork('combine'), league.collegePool, league.tick);
+  return { ...league, combineResults, lifecyclePhase: 'COMBINE' };
+}
+
+/** PRO_DAYS — per-team pro-day attendance against the working board. */
+function applyProDays(league: LeagueState, prng: PrngClass): LeagueState {
+  const proDayAttendance = runProDays(
+    prng.fork('pro-days'),
+    league.teams,
+    league.collegePool,
+    league.draftBoards,
+  );
+  return { ...league, proDayAttendance, lifecyclePhase: 'PRO_DAYS' };
+}
+
+/**
+ * TOP_30_VISITS — the last scouting beat before the draft. Runs the
+ * college scouting cycle, the coach/top-30 visits (both add
+ * observations), then regenerates every team's draft board from the
+ * accumulated observations of the CURRENT draft class. This is the
+ * board the draft will actually use.
+ */
+function applyTop30Visits(league: LeagueState, prng: PrngClass): LeagueState {
+  let offseason = advanceCollegeScoutingCycle(
+    prng.fork('college-scouting-cycle'),
+    league,
+    league.tick,
+  );
+
+  // Regenerate boards on the current draft class FIRST, so the
+  // top-30 visits target each team's actual current top prospects
+  // (a stale board would point at last year's now-graduated cohort
+  // and yield zero visits). This mirrors the pre-v0.64 order
+  // (scouting → regen → coach visits); the visit observations feed
+  // the next cycle's board, as before.
+  const refreshedBoards = regenerateDraftBoardsForLeague({
+    teams: offseason.teams,
+    collegeScouts: offseason.collegeScouts,
+    coaches: offseason.coaches,
+    players: offseason.players,
+    collegePool: offseason.collegePool,
+    observations: offseason.collegeObservations,
+    addedOnTick: offseason.tick,
+  });
+  offseason = { ...offseason, draftBoards: refreshedBoards };
+
+  const coachVisits = runCoachVisits(prng.fork('coach-visits'), offseason, {
+    observedOnTick: offseason.tick,
+  });
+  offseason = applyCoachVisits(offseason, coachVisits);
+
+  return { ...offseason, lifecyclePhase: 'TOP_30_VISITS' };
+}
+
+// ─── Trade deadline + preseason markers (v0.64) ────────────────────────
+//
+// Recognizable calendar beats with no state mutation of their own — the
+// trade-deadline pressure is applied as a week-8 modifier during the
+// regular-season tick, and roster-set logic still lives in
+// POST_DRAFT_ROSTER. These phases exist so the step-through surfaces
+// them as their own dated events (late October, late August).
+
+function applyTradeDeadline(league: LeagueState): LeagueState {
+  return { ...league, lifecyclePhase: 'TRADE_DEADLINE' };
+}
+
+function applyPreseason(league: LeagueState): LeagueState {
+  return { ...league, lifecyclePhase: 'PRESEASON' };
+}
+
+// ─── COLLEGE_CYCLE — cross-year housekeeping (v0.64 slimmed) ────────────
+//
+// Age the college pool into next year's class, roll the pick horizon,
+// and clear the played schedules. The pre-draft scouting beats that
+// used to live here moved to COMBINE / PRO_DAYS / TOP_30_VISITS.
 
 function applyCollegeCycle(league: LeagueState, prng: PrngClass): LeagueState {
   const collegeAdvance = advanceCollegePool(
@@ -1011,72 +1123,22 @@ function applyCollegeCycle(league: LeagueState, prng: PrngClass): LeagueState {
       freshmanIdPrefix: `S${league.seasonNumber}`,
     },
   );
-  let offseason: LeagueState = {
+
+  const teamIds = Object.values(league.teams).map((t) => t.identity.id);
+  return {
     ...league,
     collegePool: collegeAdvance.nextPool,
-  };
-
-  offseason = advanceCollegeScoutingCycle(
-    prng.fork('college-scouting-cycle'),
-    offseason,
-    offseason.tick,
-  );
-
-  const refreshedBoards = regenerateDraftBoardsForLeague({
-    teams: offseason.teams,
-    collegeScouts: offseason.collegeScouts,
-    coaches: offseason.coaches,
-    players: offseason.players,
-    collegePool: offseason.collegePool,
-    observations: offseason.collegeObservations,
-    addedOnTick: offseason.tick,
-  });
-
-  const combineResults = runCombine(
-    prng.fork('combine'),
-    offseason.collegePool,
-    offseason.tick,
-  );
-  const proDayAttendance = runProDays(
-    prng.fork('pro-days'),
-    offseason.teams,
-    offseason.collegePool,
-    refreshedBoards,
-  );
-
-  offseason = {
-    ...offseason,
-    draftBoards: refreshedBoards,
-    combineResults,
-    proDayAttendance,
-  };
-
-  const coachVisits = runCoachVisits(prng.fork('coach-visits'), offseason, {
-    observedOnTick: offseason.tick,
-  });
-  offseason = applyCoachVisits(offseason, coachVisits);
-
-  const teamIds = Object.values(offseason.teams).map((t) => t.identity.id);
-  offseason = {
-    ...offseason,
-    draftPicks: advancePickHorizon(offseason.draftPicks, offseason.seasonNumber, teamIds),
-    // Clear the played schedule at the end of the cycle (DRAFT
-    // needed it for slot-order records; nothing further does).
+    draftPicks: advancePickHorizon(league.draftPicks, league.seasonNumber, teamIds),
+    // Clear the played schedule (DRAFT needed it for slot-order
+    // records; nothing further does).
     schedule: null,
-    // v0.63: clear the college-season schedule too so the next year
-    // generates a fresh one on its first COLLEGE_WEEK tick. Stats
-    // stream is intentionally preserved — it's append-only across
-    // all seasons.
+    // Clear the college-season schedule so the next year generates a
+    // fresh one on its first COLLEGE_WEEK tick. The stats stream is
+    // intentionally preserved — it's append-only across all seasons.
     collegeSchedule: null,
     collegeCurrentWeek: null,
-    // v0.59: stamp this phase's own name (was 'READY_FOR_NEXT_SEASON'
-    // pre-v0.59, which made COLLEGE_CYCLE invisible in step-through —
-    // the inspector skipped past it directly to the terminal marker).
-    // The next tickPhase advances to READY_FOR_NEXT_SEASON via the
-    // dispatch table.
     lifecyclePhase: 'COLLEGE_CYCLE',
   };
-  return offseason;
 }
 
 // ─── Helpers (private; were inline in advance.ts pre-v0.54) ─────────────

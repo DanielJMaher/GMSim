@@ -125,15 +125,20 @@ describe('combine integration with createLeague + advanceSeason', () => {
     expect(Object.keys(league.combineResults).length).toBe(eligibleCount);
   });
 
-  it('advanceSeason refreshes combineResults for the new draft-eligible cohort', () => {
-    const league = createLeague({ seed: 'cAdv' });
-    const initialKeys = new Set(Object.keys(league.combineResults));
-    const played = simulateSeason(league);
-    const after = advanceSeason(played);
-    const newKeys = new Set(Object.keys(after.combineResults));
+  it('refreshes combineResults as the draft-eligible cohort turns over', () => {
+    // v0.64: the COMBINE phase runs in the spring on the CURRENT draft
+    // class (pre-pool-advance), so on the first offseason it measures
+    // the same initial class createLeague seeded. The cohort turns over
+    // a year later (the prior class graduates, new juniors arrive), so
+    // the combine key set differs between consecutive offseasons.
+    let league = createLeague({ seed: 'cAdv' });
+    league = advanceSeason(simulateSeason(league));
+    const yr1Keys = new Set(Object.keys(league.combineResults));
+    league = advanceSeason(simulateSeason(league));
+    const yr2Keys = new Set(Object.keys(league.combineResults));
     // Some prospects from year 1 (now graduated SR) won't be in the
     // new combine; some new juniors will be — keys differ.
-    expect(newKeys).not.toEqual(initialKeys);
+    expect(yr2Keys).not.toEqual(yr1Keys);
   });
 
   it('migration backfills combineResults on a save without them', () => {

@@ -60,14 +60,18 @@ export const CALENDAR_ANCHORS = {
   conference: { month: 1, day: 28 },
   /** Super Bowl, second Sunday of February. */
   superBowl: { month: 2, day: 11 },
-  /** Combine — last week of February / first week of March. */
-  combine: { month: 3, day: 1 },
+  /** Combine — last week of February. */
+  combine: { month: 2, day: 26 },
   /** Legal tampering window opens two days before FA. */
   faLegalTampering: { month: 3, day: 11 },
   /** Free agency opens — new league year. */
   freeAgencyOpens: { month: 3, day: 13 },
   /** Pro days span all of March + early April; anchor is mid-March. */
   proDays: { month: 3, day: 20 },
+  /** Top-30 pre-draft visits — early-to-mid April. */
+  topThirtyVisits: { month: 4, day: 15 },
+  /** Preseason / training-camp roster set — late August, before kickoff. */
+  preseason: { month: 8, day: 20 },
   /** Draft Day 1 (Round 1) — last Thursday of April. */
   draftDayOne: { month: 4, day: 25 },
   /** Draft Day 3 (Rounds 4-7) — Saturday of draft weekend. */
@@ -108,10 +112,20 @@ export function phaseCalendarLabel(
   collegeCurrentWeek: number | null = null,
 ): string {
   switch (phase) {
+    case 'PRESEASON':
+      return 'Late August · Preseason — Rosters Set';
     case 'REGULAR_SEASON_WEEK':
       if (currentWeek === null) return 'Preseason';
       // currentWeek is 0-indexed; display as 1-indexed.
       return `Week ${currentWeek + 1}`;
+    case 'TRADE_DEADLINE':
+      return 'Late October · Trade Deadline';
+    case 'COMBINE':
+      return 'Late February · Scouting Combine';
+    case 'PRO_DAYS':
+      return 'March · Pro Days';
+    case 'TOP_30_VISITS':
+      return 'April · Top-30 Visits';
     case 'COLLEGE_WEEK':
       if (collegeCurrentWeek === null) return '🎓 College Week 1';
       return `🎓 College Week ${collegeCurrentWeek + 1}`;
@@ -179,6 +193,8 @@ export function phaseCalendarDate(
   const offseasonYear = kickoffYear + 1;
 
   switch (phase) {
+    case 'PRESEASON':
+      return { year: kickoffYear, ...CALENDAR_ANCHORS.preseason };
     case 'REGULAR_SEASON_WEEK': {
       const weekIdx = currentWeek ?? 0;
       const base: CalendarDate = {
@@ -188,6 +204,14 @@ export function phaseCalendarDate(
       };
       return addDays(base, weekIdx * 7);
     }
+    case 'TRADE_DEADLINE':
+      return { year: kickoffYear, ...CALENDAR_ANCHORS.tradeDeadline };
+    case 'COMBINE':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.combine };
+    case 'PRO_DAYS':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.proDays };
+    case 'TOP_30_VISITS':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.topThirtyVisits };
     case 'COLLEGE_WEEK': {
       const weekIdx = collegeCurrentWeek ?? 0;
       const base: CalendarDate = {
