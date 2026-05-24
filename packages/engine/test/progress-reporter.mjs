@@ -147,17 +147,26 @@ export default class ProgressReporter {
 
   estimateEtaMs(base, doneBaseline, done, total, elapsed) {
     if (total > 0 && done >= total) return 0;
-    if (base) {
+    if (base && this.expectedMs != null) {
       const totalBaseline = Object.values(base).reduce((a, b) => a + (b || 0), 0);
-      if (totalBaseline > 0 && doneBaseline > 0) {
-        // Work-weighted: project total wall time from the fraction of
-        // historical file-time already completed.
+      if (totalBaseline > 0) {
+        // Work-weighted progress: fraction of historical file-time done.
         const fracWork = Math.min(0.999, doneBaseline / totalBaseline);
-        const projectedTotal = elapsed / fracWork;
-        return Math.max(0, projectedTotal - elapsed);
+        // Anchor the remaining time to the baseline wall-clock total —
+        // stable from the very start (no wild early over-extrapolation).
+        const baselineRemaining = this.expectedMs * (1 - fracWork);
+        // Once there's real signal (>10% of work done), pace-correct by
+        // how this run's elapsed compares to the baseline-expected
+        // elapsed for the same fraction of work.
+        if (fracWork > 0.1) {
+          const expectedElapsedSoFar = this.expectedMs * fracWork;
+          const pace = expectedElapsedSoFar > 0 ? elapsed / expectedElapsedSoFar : 1;
+          return Math.max(0, baselineRemaining * pace);
+        }
+        return Math.max(0, baselineRemaining);
       }
     }
-    // Linear fallback by file count.
+    // Linear fallback by file count (no baseline yet).
     if (done > 0) return (elapsed / done) * (total - done);
     return this.expectedMs;
   }
