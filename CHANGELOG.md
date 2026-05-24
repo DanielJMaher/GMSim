@@ -12,7 +12,39 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — draft all-star showcases (Senior Bowl + Shrine Bowl)
+
+Two new pre-draft lifecycle phases model the all-star weeks, the biggest
+concentrated scouting event of the offseason:
+
+- **`SHRINE_BOWL`** (late Jan) — invites the next tier of declared
+  draft-eligible prospects (East vs West).
+- **`SENIOR_BOWL`** (early Feb) — invites the top tier (American vs
+  National).
+
+Both fire on the current draft class (before the season rolls over) and
+run a **focused, higher-accuracy scouting sweep on their invitees** —
+every team's scouts get a concentrated look, sharpening each team's read
+(and therefore its board) ahead of the spring board regeneration. So a
+strong all-star week genuinely moves a prospect's draft stock. Roster
+selection ranks the declared draft class by a talent proxy; the Senior
+Bowl takes the top ~100, the Shrine Bowl the next ~100.
+
+New `college-season/all-star.ts` (`runAllStarShowcase`,
+`prospectTalentScore`); `AllStarGame` type; `LeagueState.allStarGames`
+(cleared each cycle alongside the college schedule, migration-backfilled).
+`generateInitialCollegeObservations` / `generateCollegeObservation` gain
+an optional accuracy-bonus parameter. The inspector ribbon + per-tick
+event log render the bowls.
+
+Because the showcases add observations that feed the pre-draft board
+regeneration, draft results shift; affected integration tests
+re-baselined, all invariants hold.
+
+Tuning knobs (in `lifecycle.ts`): per-bowl invite count, the talent-tier
+offset between the two bowls, and the scouting accuracy bonus.
+
+Still deferred: actual preseason games (PRESEASON remains a marker beat).
 
 ---
 

@@ -27,3 +27,12 @@ export {
   buildCfpFinal,
   buildBowlSlate,
 } from './postseason.js';
+
+export {
+  runAllStarShowcase,
+  prospectTalentScore,
+} from './all-star.js';
+export type {
+  AllStarShowcaseOptions,
+  AllStarShowcaseResult,
+} from './all-star.js';

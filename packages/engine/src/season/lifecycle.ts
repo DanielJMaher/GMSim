@@ -95,6 +95,7 @@ import {
   buildCfpSemifinals,
   buildCfpFinal,
   buildBowlSlate,
+  runAllStarShowcase,
 } from '../college-season/index.js';
 import type {
   CollegeGame,
@@ -134,6 +135,8 @@ export type LifecyclePhase =
   | 'CFP_QUARTERFINALS'
   | 'CFP_SEMIFINALS'
   | 'CFP_FINAL'
+  | 'SHRINE_BOWL'
+  | 'SENIOR_BOWL'
   | 'WILD_CARD'
   | 'DIVISIONAL'
   | 'CONFERENCE'
@@ -175,6 +178,8 @@ export const LIFECYCLE_ORDER: readonly LifecyclePhase[] = [
   'CFP_QUARTERFINALS',
   'CFP_SEMIFINALS',
   'CFP_FINAL',
+  'SHRINE_BOWL',
+  'SENIOR_BOWL',
   'WILD_CARD',
   'DIVISIONAL',
   'CONFERENCE',
@@ -252,6 +257,10 @@ export function tickPhase(league: LeagueState): LeagueState {
       return applyPreseason(league);
     case 'TRADE_DEADLINE':
       return applyTradeDeadline(league);
+    case 'SHRINE_BOWL':
+      return applyShrineBowl(league, phasePrng);
+    case 'SENIOR_BOWL':
+      return applySeniorBowl(league, phasePrng);
     case 'COMBINE':
       return applyCombine(league, phasePrng);
     case 'PRO_DAYS':
@@ -1108,6 +1117,52 @@ function applyPreseason(league: LeagueState): LeagueState {
   return { ...league, lifecyclePhase: 'PRESEASON' };
 }
 
+// ─── Draft all-star showcases (v0.65) ──────────────────────────────────
+//
+// Senior Bowl + Shrine Bowl fire in late Jan / early Feb on the current
+// draft class (before POST_SEASON_FINALIZE rolls the season number, so
+// the pool is still this year's class). Each runs a boosted scouting
+// sweep on its invitees — sharpening every team's read ahead of the
+// spring board regeneration — and records the rosters for display.
+// Tuning knobs: invite counts, the talent-tier offset (skipTop) that
+// separates the two bowls, and the accuracy bonus.
+
+function applyShrineBowl(league: LeagueState, prng: PrngClass): LeagueState {
+  const { game, observations } = runAllStarShowcase(prng, league, {
+    name: 'Shrine Bowl',
+    squadAName: 'East',
+    squadBName: 'West',
+    count: 100,
+    skipTop: 100,
+    accuracyBonus: 0.1,
+    observedOnTick: league.tick,
+  });
+  return {
+    ...league,
+    allStarGames: [...league.allStarGames, game],
+    collegeObservations: [...league.collegeObservations, ...observations],
+    lifecyclePhase: 'SHRINE_BOWL',
+  };
+}
+
+function applySeniorBowl(league: LeagueState, prng: PrngClass): LeagueState {
+  const { game, observations } = runAllStarShowcase(prng, league, {
+    name: 'Senior Bowl',
+    squadAName: 'American',
+    squadBName: 'National',
+    count: 100,
+    skipTop: 0,
+    accuracyBonus: 0.12,
+    observedOnTick: league.tick,
+  });
+  return {
+    ...league,
+    allStarGames: [...league.allStarGames, game],
+    collegeObservations: [...league.collegeObservations, ...observations],
+    lifecyclePhase: 'SENIOR_BOWL',
+  };
+}
+
 // ─── COLLEGE_CYCLE — cross-year housekeeping (v0.64 slimmed) ────────────
 //
 // Age the college pool into next year's class, roll the pick horizon,
@@ -1137,6 +1192,8 @@ function applyCollegeCycle(league: LeagueState, prng: PrngClass): LeagueState {
     // intentionally preserved — it's append-only across all seasons.
     collegeSchedule: null,
     collegeCurrentWeek: null,
+    // Clear the all-star rosters too — next cycle's bowls repopulate.
+    allStarGames: [],
     lifecyclePhase: 'COLLEGE_CYCLE',
   };
 }

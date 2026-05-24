@@ -133,6 +133,7 @@ describe('simulateSeason', () => {
       let collegeRegTicks = 0;
       let tradeDeadlineTicks = 0;
       let collegePostseasonTicks = 0;
+      let allStarTicks = 0;
       let nflPlayoffTicks = 0;
       for (let i = 0; i < 100; i++) {
         if (league.lifecyclePhase === 'SUPER_BOWL') break;
@@ -142,6 +143,7 @@ describe('simulateSeason', () => {
         else if (p === 'REGULAR_SEASON_WEEK') regSeasonTicks++;
         else if (p === 'COLLEGE_WEEK') collegeRegTicks++;
         else if (p === 'TRADE_DEADLINE') tradeDeadlineTicks++;
+        else if (p === 'SHRINE_BOWL' || p === 'SENIOR_BOWL') allStarTicks++;
         else if (
           p === 'COLLEGE_CONFERENCE_CHAMPIONSHIPS' ||
           p === 'HEISMAN_CEREMONY' ||
@@ -161,6 +163,7 @@ describe('simulateSeason', () => {
       expect(collegeRegTicks).toBe(12);
       expect(tradeDeadlineTicks).toBe(1);
       expect(collegePostseasonTicks).toBe(7);
+      expect(allStarTicks).toBe(2);
       expect(nflPlayoffTicks).toBe(4);
     });
 

@@ -71,6 +71,8 @@ describe('buildSeasonTimeline', () => {
       'CFP_QUARTERFINALS',
       'CFP_SEMIFINALS',
       'CFP_FINAL',
+      'SHRINE_BOWL',
+      'SENIOR_BOWL',
       'WILD_CARD',
       'DIVISIONAL',
       'CONFERENCE',
@@ -89,8 +91,17 @@ describe('buildSeasonTimeline', () => {
     }
     // READY_FOR_NEXT_SEASON is the wrap marker — not a dated step.
     expect(counts.get('READY_FOR_NEXT_SEASON')).toBeUndefined();
-    // 17 NFL weeks + 12 college weeks + 22 single-shot phases.
-    expect(timeline.length).toBe(17 + 12 + 22);
+    // 17 NFL weeks + 12 college weeks + 24 single-shot phases.
+    expect(timeline.length).toBe(17 + 12 + 24);
+  });
+
+  it('places the all-star bowls in late Jan / early Feb, before the combine', () => {
+    const idxOf = (p: LifecyclePhase) => timeline.findIndex((s) => s.phase === p);
+    expect(formatCalendarDate(timeline[idxOf('SHRINE_BOWL')]!.date)).toBe('2027-01-30');
+    expect(formatCalendarDate(timeline[idxOf('SENIOR_BOWL')]!.date)).toBe('2027-02-03');
+    expect(idxOf('SHRINE_BOWL')).toBeLessThan(idxOf('SENIOR_BOWL'));
+    expect(idxOf('SENIOR_BOWL')).toBeLessThan(idxOf('SUPER_BOWL'));
+    expect(idxOf('SENIOR_BOWL')).toBeLessThan(idxOf('COMBINE'));
   });
 
   it('breaks the Dec-20 tie with bowls before the CFP first round', () => {

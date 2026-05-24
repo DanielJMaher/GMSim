@@ -349,8 +349,14 @@ export {
   buildCfpSemifinals,
   buildCfpFinal,
   buildBowlSlate,
+  runAllStarShowcase,
+  prospectTalentScore,
 } from './college-season/index.js';
-export type { SimulateCollegeGameOptions } from './college-season/index.js';
+export type {
+  SimulateCollegeGameOptions,
+  AllStarShowcaseOptions,
+  AllStarShowcaseResult,
+} from './college-season/index.js';
 
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';

@@ -52,6 +52,13 @@ export function generateInitialCollegeObservations(
   scoutsByTeam: Readonly<Record<TeamId, readonly CollegeScout[]>>,
   collegePool: readonly CollegePlayer[],
   observedOnTick: number,
+  /**
+   * Extra per-skill accuracy added to every observation in this sweep
+   * (0..1, clamped). 0 for a normal scouting cycle; the all-star
+   * showcases pass a positive bonus because every team's scouts get
+   * a concentrated, hands-on look at the participants.
+   */
+  accuracyBonus = 0,
 ): CollegePlayerObservation[] {
   const observations: CollegePlayerObservation[] = [];
 
@@ -80,6 +87,7 @@ export function generateInitialCollegeObservations(
             scout,
             target,
             observedOnTick,
+            accuracyBonus,
           ),
         );
       }
@@ -94,11 +102,12 @@ export function generateCollegeObservation(
   scout: CollegeScout,
   prospect: CollegePlayer,
   observedOnTick: number,
+  accuracyBonus = 0,
 ): CollegePlayerObservation {
   const projectedGroup = positionGroupFor(prospect.nflProjectedPosition);
   const baseAccuracy = scout.trueAccuracy[projectedGroup] ?? 0.4;
   const regionalBonus = regionalBonusForProspect(scout.preferredRegion, prospect);
-  const accuracy = clampUnit(baseAccuracy + regionalBonus);
+  const accuracy = clampUnit(baseAccuracy + regionalBonus + accuracyBonus);
 
   const skills: Partial<Record<keyof PlayerSkills, number>> = {};
   const confidence: Partial<Record<keyof PlayerSkills, number>> = {};

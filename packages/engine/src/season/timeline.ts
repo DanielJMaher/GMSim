@@ -67,6 +67,8 @@ const SINGLE_SHOT_PHASES: readonly LifecyclePhase[] = [
   'CFP_QUARTERFINALS',
   'CFP_SEMIFINALS',
   'CFP_FINAL',
+  'SHRINE_BOWL',
+  'SENIOR_BOWL',
   'WILD_CARD',
   'DIVISIONAL',
   'CONFERENCE',

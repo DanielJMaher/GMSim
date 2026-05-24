@@ -208,6 +208,27 @@ export interface CollegeSeasonSchedule {
 }
 
 /**
+ * A draft all-star showcase (Senior Bowl, Shrine Bowl). Models the
+ * pre-draft all-star weeks: a set of the top draft-eligible prospects
+ * split into two squads. The substance is the scouting exposure — every
+ * NFL team's scouts get a concentrated look — recorded as a boosted
+ * observation sweep on the participants (see `runAllStarShowcase`); the
+ * squads are flavor for the inspector. Stored per-season on
+ * `LeagueState.allStarGames`, cleared each year alongside the college
+ * schedule.
+ */
+export interface AllStarGame {
+  id: string;
+  /** Display name, e.g. "Senior Bowl". */
+  name: string;
+  squadAName: string;
+  squadBName: string;
+  /** Participant `CollegePlayer` ids on each squad. */
+  squadA: readonly PlayerId[];
+  squadB: readonly PlayerId[];
+}
+
+/**
  * One school's regular-season record. Derived on demand from the
  * played weeks; not stored on `LeagueState`. The conference
  * championship selector + CFP seeder consume this.

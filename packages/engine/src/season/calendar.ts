@@ -94,6 +94,10 @@ export const CALENDAR_ANCHORS = {
   cfpSemifinals: { month: 1, day: 9 },
   /** CFP National Championship — third Monday of January. */
   cfpFinal: { month: 1, day: 19 },
+  /** Shrine Bowl (East–West) — late January draft all-star showcase. */
+  shrineBowl: { month: 1, day: 30 },
+  /** Senior Bowl — early February draft all-star showcase. */
+  seniorBowl: { month: 2, day: 3 },
 } as const;
 
 /**
@@ -143,6 +147,10 @@ export function phaseCalendarLabel(
       return '🎓 Early January · CFP Semifinals';
     case 'CFP_FINAL':
       return '🎓 Mid-January · CFP National Championship';
+    case 'SHRINE_BOWL':
+      return '🎓 Late January · Shrine Bowl';
+    case 'SENIOR_BOWL':
+      return '🎓 Early February · Senior Bowl';
     case 'WILD_CARD':
       return 'Wild Card Round';
     case 'DIVISIONAL':
@@ -235,6 +243,10 @@ export function phaseCalendarDate(
       return { year: offseasonYear, ...CALENDAR_ANCHORS.cfpSemifinals };
     case 'CFP_FINAL':
       return { year: offseasonYear, ...CALENDAR_ANCHORS.cfpFinal };
+    case 'SHRINE_BOWL':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.shrineBowl };
+    case 'SENIOR_BOWL':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.seniorBowl };
     case 'WILD_CARD':
       return { year: offseasonYear, ...CALENDAR_ANCHORS.wildCard };
     case 'DIVISIONAL':

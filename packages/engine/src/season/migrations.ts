@@ -204,6 +204,12 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, coachVisitObservations: [] };
   }
 
+  // v0.65.0 draft all-star showcases (Senior/Shrine bowls). Empty until
+  // the next cycle's SENIOR_BOWL / SHRINE_BOWL phases populate them.
+  if (!next.allStarGames) {
+    next = { ...next, allStarGames: [] };
+  }
+
   // v0.44.0 draft pick assets. Backfill: each team owns its own picks
   // for next 3 years (no trade history reconstructable).
   if (!next.draftPicks) {

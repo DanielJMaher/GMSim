@@ -19,7 +19,7 @@ import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
 import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ScoutId, ContractId, MediaOutletId } from './ids.js';
 import type { MediaOutlet, MediaReport } from './media.js';
-import type { CollegeSeasonSchedule, CollegePlayerGameStats } from './college-season.js';
+import type { CollegeSeasonSchedule, CollegePlayerGameStats, AllStarGame } from './college-season.js';
 
 /**
  * Top-level engine state. The entire simulation lives behind this single
@@ -282,6 +282,14 @@ export interface LeagueState {
    * narratives.
    */
   collegeGameStats: readonly CollegePlayerGameStats[];
+  /**
+   * Draft all-star showcases (Senior Bowl, Shrine Bowl) for the current
+   * cycle (v0.65+). Populated by the SENIOR_BOWL / SHRINE_BOWL phases,
+   * cleared each year alongside `collegeSchedule`. The scouting boost
+   * the showcases produce lives in `collegeObservations`, not here —
+   * these entries are the rosters for inspector display.
+   */
+  allStarGames: readonly AllStarGame[];
 }
 
 export type LeaguePhase =

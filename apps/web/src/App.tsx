@@ -6783,6 +6783,18 @@ function computeTickEvents(league: LeagueState, anchor: TickAnchor): TickEvent[]
       text: `Pre-draft top-30 visits complete — ${n} coach/scout observations on file. Boards finalized for the draft.`,
     });
   }
+  if (phase === 'SHRINE_BOWL' || phase === 'SENIOR_BOWL') {
+    const name = phase === 'SHRINE_BOWL' ? 'Shrine Bowl' : 'Senior Bowl';
+    const game = league.allStarGames.find((g) => g.name === name);
+    if (game) {
+      const n = game.squadA.length + game.squadB.length;
+      out.push({
+        section: name,
+        icon: '⭐',
+        text: `${name} — ${n} draft prospects showcased (${game.squadAName} vs ${game.squadBName}); every team's scouts got a sharpened look.`,
+      });
+    }
+  }
 
   // Regular-season weeks: show games + injuries from this week.
   if (phase === 'REGULAR_SEASON_WEEK' && league.currentWeek !== null && league.schedule) {
@@ -7394,6 +7406,10 @@ function timelineStepLabel(step: TimelineStep): string {
       return 'Pro Days';
     case 'TOP_30_VISITS':
       return 'Top-30 Visits';
+    case 'SHRINE_BOWL':
+      return 'Shrine Bowl';
+    case 'SENIOR_BOWL':
+      return 'Senior Bowl';
     case 'WILD_CARD':
       return 'Wild Card';
     case 'DIVISIONAL':
@@ -7438,6 +7454,8 @@ function timelineStepAccent(step: TimelineStep): 'rose' | 'amber' | 'emerald' | 
     case 'CFP_QUARTERFINALS':
     case 'CFP_SEMIFINALS':
     case 'CFP_FINAL':
+    case 'SHRINE_BOWL':
+    case 'SENIOR_BOWL':
       return 'emerald';
     case 'WILD_CARD':
     case 'DIVISIONAL':
