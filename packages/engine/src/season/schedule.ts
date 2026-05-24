@@ -3,7 +3,10 @@ import type { TeamState } from '../types/team.js';
 import type { ScheduledGame, SeasonSchedule } from '../types/game.js';
 import type { Prng } from '../prng/index.js';
 
-const REGULAR_SEASON_WEEKS = 17;
+/** Number of NFL regular-season weeks. Exported so the unified
+ * season timeline (`season/timeline.ts`) can enumerate week steps
+ * without hard-coding the count. */
+export const REGULAR_SEASON_WEEKS = 17;
 
 /**
  * Generate a regular-season schedule. Phase 2 takes a deliberately

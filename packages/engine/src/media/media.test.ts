@@ -71,11 +71,18 @@ describe('weekly media reports (v0.62)', () => {
   it('fires reports during regular-season ticks', () => {
     let league: LeagueState = createLeague({ seed: 'media-weekly-fires' });
     expect(league.mediaReports.length).toBe(0);
-    // First REGULAR_SEASON_WEEK tick plays week 1.
-    league = tickPhase(league);
+    // v0.63.1: the unified calendar opens with college weeks (late
+    // August) before NFL Week 1 (Sept 7), and college ticks emit no
+    // NFL media reports. Pump until the first NFL regular-season week
+    // fires.
+    for (let i = 0; i < 10; i++) {
+      league = tickPhase(league);
+      if (league.lifecyclePhase === 'REGULAR_SEASON_WEEK') break;
+    }
+    expect(league.lifecyclePhase).toBe('REGULAR_SEASON_WEEK');
     expect(league.mediaReports.length).toBeGreaterThan(0);
-    // All week-1 reports should be from REGULAR_SEASON_WEEK phase
-    // with weekNumber === 1.
+    // All reports so far should be from the NFL Week 1 tick:
+    // REGULAR_SEASON_WEEK phase with weekNumber === 1.
     for (const r of league.mediaReports) {
       expect(r.lifecyclePhase).toBe('REGULAR_SEASON_WEEK');
       expect(r.weekNumber).toBe(1);

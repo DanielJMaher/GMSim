@@ -83,7 +83,6 @@ import {
   generatePlayoffRoundMediaReports,
 } from '../media/reports.js';
 import {
-  COLLEGE_REGULAR_SEASON_WEEKS,
   generateCollegeRegularSeason,
   bucketProspectsBySchool,
   collegeTeamStrength,
@@ -105,6 +104,7 @@ import type {
 } from '../types/college-season.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import type { CollegePlayer, CollegeSchool } from '../types/college.js';
+import { buildSeasonTimeline, type TimelineStep } from './timeline.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
 
@@ -149,15 +149,14 @@ export type LifecyclePhase =
  * comes after a given phase. `READY_FOR_NEXT_SEASON` wraps back to
  * `REGULAR_SEASON_WEEK` for the next year's schedule generation.
  *
- * v0.63 inserted the college-football block between
- * `REGULAR_SEASON_WEEK` and `WILD_CARD`. REGULAR_SEASON_WEEK and
- * COLLEGE_WEEK interleave during the regular-season window — the
- * tickPhase dispatch decides which fires next based on how many
- * weeks of each remain. The 7-phase college postseason block
- * (COLLEGE_CONFERENCE_CHAMPIONSHIPS through CFP_FINAL) fires as a
- * contiguous run once the college regular season completes, then
- * dispatch returns to whichever NFL weeks remain before
- * `WILD_CARD`.
+ * NOTE (v0.63.1): this array is no longer the dispatch order. It's
+ * kept as a stable *enumeration* of every phase (used by the calendar
+ * display layer + tests). The actual tick order is the date-sorted
+ * `buildSeasonTimeline` (see `season/timeline.ts` and
+ * `decideTickTarget`): NFL and college weeks interleave by real
+ * calendar date, and the college postseason rounds are spread across
+ * late-December NFL weeks and the NFL playoff window rather than
+ * firing as one contiguous block.
  */
 export const LIFECYCLE_ORDER: readonly LifecyclePhase[] = [
   'REGULAR_SEASON_WEEK',
@@ -273,80 +272,69 @@ export function tickPhase(league: LeagueState): LeagueState {
 }
 
 /**
- * Decide what phase to apply on this tick based on the league's
- * current `lifecyclePhase` and pending in-progress sub-state.
+ * Decide what phase to apply on this tick by walking the unified,
+ * date-ordered season timeline (`buildSeasonTimeline`).
  *
- * Most phases just walk `LIFECYCLE_ORDER` linearly. The special
- * cases are:
+ * The timeline lists every phase as a dated step, sorted by calendar
+ * date. We locate the league's *most-recently-completed* step from its
+ * current `lifecyclePhase` + week counters, then return the phase of
+ * the next step. This is what makes NFL and college weeks interleave
+ * in true calendar order (College Week 1 on Aug 30 before NFL Week 1
+ * on Sept 7) and spreads the college postseason across the late NFL
+ * regular season + playoff window.
  *
- *   - **REGULAR_SEASON_WEEK** + **COLLEGE_WEEK** interleave during
- *     the regular-season window (v0.63). After an NFL week tick,
- *     dispatch to a college week if any remain; vice versa. When
- *     one's season ends mid-interleave the other continues solo
- *     until both are exhausted.
- *   - When the college regular season finishes, the dispatch
- *     enters the 7-phase college postseason chain (conference
- *     championships → Heisman → bowls → CFP rounds), then returns
- *     to whichever NFL weeks remain before `WILD_CARD`.
- *   - **READY_FOR_NEXT_SEASON** wraps to `REGULAR_SEASON_WEEK`.
+ *   - A fresh season (`REGULAR_SEASON_WEEK`, `currentWeek === null`,
+ *     nothing played) has no completed step → fire the earliest step,
+ *     which is College Week 1.
+ *   - Past the final step → `READY_FOR_NEXT_SEASON` (the wrap marker;
+ *     it has no calendar date so it isn't in the timeline itself).
+ *   - `READY_FOR_NEXT_SEASON` wraps to the first step of the next
+ *     season's timeline.
+ *
+ * The apply functions still derive their own week index from
+ * `currentWeek` / `collegeCurrentWeek` (+1 each tick); the timeline
+ * only decides *which* phase fires next, never re-deriving the week.
  */
 function decideTickTarget(league: LeagueState): LifecyclePhase {
-  const current = league.lifecyclePhase;
+  const timeline = buildSeasonTimeline(league.seasonNumber);
 
-  if (current === 'REGULAR_SEASON_WEEK') {
-    // After playing the first NFL week, kick off the college season
-    // interleave. The `currentWeek !== null` guard ensures the very
-    // first tick of a fresh league still plays an NFL week (matches
-    // the existing v0.56 behavior, so per-week PRNG streams remain
-    // byte-for-byte identical to pre-v0.63 for the first NFL week).
-    if (league.currentWeek !== null && collegeRegularSeasonHasWeeksLeft(league)) {
-      return 'COLLEGE_WEEK';
-    }
-    if (regularSeasonHasWeeksLeft(league)) return 'REGULAR_SEASON_WEEK';
-    return 'WILD_CARD';
+  if (league.lifecyclePhase === 'READY_FOR_NEXT_SEASON') {
+    // Wrap forward into the next season (seasonNumber already advanced
+    // in POST_SEASON_FINALIZE) — fire its earliest dated step.
+    return timeline[0]!.phase;
   }
 
-  if (current === 'COLLEGE_WEEK') {
-    if (collegeRegularSeasonHasWeeksLeft(league)) {
-      // More college weeks left — alternate back to NFL if any.
-      if (regularSeasonHasWeeksLeft(league)) return 'REGULAR_SEASON_WEEK';
-      return 'COLLEGE_WEEK';
-    }
-    // College regular season done — kick off postseason chain.
-    return 'COLLEGE_CONFERENCE_CHAMPIONSHIPS';
-  }
-
-  if (current === 'CFP_FINAL') {
-    // College postseason finished — resume NFL where we left off.
-    if (regularSeasonHasWeeksLeft(league)) return 'REGULAR_SEASON_WEEK';
-    return 'WILD_CARD';
-  }
-
-  if (current === 'READY_FOR_NEXT_SEASON') return 'REGULAR_SEASON_WEEK';
-
-  return nextPhaseAfter(current);
+  const idx = currentTimelineIndex(league, timeline);
+  if (idx < 0) return timeline[0]!.phase;
+  if (idx >= timeline.length - 1) return 'READY_FOR_NEXT_SEASON';
+  return timeline[idx + 1]!.phase;
 }
 
 /**
- * True while there are college regular-season weeks remaining to
- * play. Matches the NFL `regularSeasonHasWeeksLeft` shape.
+ * Index into `timeline` of the league's most-recently-completed step.
+ * Returns -1 when nothing has been played yet (fresh season).
+ *
+ * Week-grained phases match on their week counter; single-shot phases
+ * match on the phase name alone (each appears exactly once).
  */
-function collegeRegularSeasonHasWeeksLeft(league: LeagueState): boolean {
-  if (league.collegeCurrentWeek === null) return true;
-  return league.collegeCurrentWeek < COLLEGE_REGULAR_SEASON_WEEKS - 1;
-}
-
-/**
- * True while there are regular-season weeks remaining to play. The
- * first regular-season tick of a season has `currentWeek === null`
- * (schedule not yet generated) — always more weeks to play. After
- * `currentWeek === schedule.regularSeason.length - 1`, the regular
- * season is done.
- */
-function regularSeasonHasWeeksLeft(league: LeagueState): boolean {
-  if (league.currentWeek === null) return true;
-  if (!league.schedule) return true;
-  return league.currentWeek < league.schedule.regularSeason.length - 1;
+function currentTimelineIndex(
+  league: LeagueState,
+  timeline: readonly TimelineStep[],
+): number {
+  const phase = league.lifecyclePhase;
+  if (phase === 'REGULAR_SEASON_WEEK') {
+    if (league.currentWeek === null) return -1;
+    return timeline.findIndex(
+      (s) => s.phase === 'REGULAR_SEASON_WEEK' && s.weekIndex === league.currentWeek,
+    );
+  }
+  if (phase === 'COLLEGE_WEEK') {
+    if (league.collegeCurrentWeek === null) return -1;
+    return timeline.findIndex(
+      (s) => s.phase === 'COLLEGE_WEEK' && s.weekIndex === league.collegeCurrentWeek,
+    );
+  }
+  return timeline.findIndex((s) => s.phase === phase);
 }
 
 // ─── Phase 0: REGULAR_SEASON_WEEK ───────────────────────────────────────

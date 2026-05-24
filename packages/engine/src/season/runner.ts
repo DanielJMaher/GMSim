@@ -18,8 +18,11 @@ export interface SimulateSeasonOptions {
  * v0.56+ this is a thin loop over `tickPhase`. Each per-week tick
  * fires one regular-season week (including poach + mid-season FA +
  * mood + NPC trades + proactive trades for that week); each playoff
- * round is one further tick. The loop terminates after the Super Bowl
- * fires (or when the league has already reached `SUPER_BOWL`).
+ * round is one further tick. v0.63.1: because the unified calendar
+ * interleaves the NFL season with the college season, this loop also
+ * advances the college season + postseason as it walks the timeline
+ * to the Super Bowl. The loop terminates after the Super Bowl fires
+ * (or when the league has already reached `SUPER_BOWL`).
  *
  * Determinism: same input league → identical output. Every PRNG fork
  * derives from the league seed + season number, so step-through via
@@ -30,22 +33,27 @@ export function simulateSeason(
   _options: SimulateSeasonOptions = {},
 ): LeagueState {
   let league = migrateLeagueForward(leagueIn);
-  // Loop until we've played the Super Bowl. tickPhase self-loops on
-  // REGULAR_SEASON_WEEK while regular-season weeks remain; otherwise
-  // advances through WILD_CARD → DIVISIONAL → CONFERENCE → SUPER_BOWL.
-  // Defensive iteration cap: ~17 regular weeks + 4 playoff rounds = 21
-  // ticks per season; 100 is a comfortable safety margin.
+  // Loop until we've played the Super Bowl. tickPhase walks the unified
+  // season timeline (NFL + college weeks interleaved by date, then the
+  // postseason rounds). Defensive iteration cap: 17 NFL weeks + 12
+  // college weeks + 7 college postseason + 4 NFL playoff rounds = 40
+  // ticks to SUPER_BOWL; 100 is a comfortable safety margin.
   for (let i = 0; i < 100; i++) {
     if (league.lifecyclePhase === 'SUPER_BOWL') break;
-    const before = league.lifecyclePhase;
+    const beforePhase = league.lifecyclePhase;
     const beforeWeek = league.currentWeek;
+    const beforeCollegeWeek = league.collegeCurrentWeek;
     league = tickPhase(league);
-    // Progress check: REGULAR_SEASON_WEEK is allowed to self-loop, but
-    // currentWeek must advance each tick. Any non-self-loop phase that
-    // doesn't transition is a bug — bail rather than spin forever.
-    if (league.lifecyclePhase === before) {
-      if (before !== 'REGULAR_SEASON_WEEK') break;
-      if (league.currentWeek === beforeWeek) break;
+    // Progress check: a tick must advance the phase OR one of the
+    // week counters (REGULAR_SEASON_WEEK / COLLEGE_WEEK each repeat
+    // their phase while their counter climbs). If nothing moved at
+    // all, bail rather than spin forever.
+    if (
+      league.lifecyclePhase === beforePhase &&
+      league.currentWeek === beforeWeek &&
+      league.collegeCurrentWeek === beforeCollegeWeek
+    ) {
+      break;
     }
   }
   return league;

@@ -107,6 +107,8 @@ export {
   tickPhase,
   nextPhaseAfter,
   LIFECYCLE_ORDER,
+  buildSeasonTimeline,
+  REGULAR_SEASON_WEEKS,
   phaseCalendarLabel,
   phaseCalendarDate,
   formatCalendarDate,
@@ -146,6 +148,7 @@ export {
   type NewsFeedOptions,
   type CalendarDate,
   type LifecyclePhase,
+  type TimelineStep,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 

@@ -68,9 +68,10 @@ import {
   phaseCalendarLabel,
   phaseCalendarDate,
   formatCalendarDate,
+  buildSeasonTimeline,
   TRADE_DEADLINE_WEEK_INDEX,
 } from '@gmsim/engine';
-import type { LifecyclePhase, CalendarDate, MediaReport } from '@gmsim/engine';
+import type { LifecyclePhase, CalendarDate, TimelineStep, MediaReport } from '@gmsim/engine';
 import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsim/engine/types';
 
 /**
@@ -6529,43 +6530,15 @@ function formatCoachAward(
   return `${coach.name} (${team.identity.abbreviation}) — ${award.summary}`;
 }
 
-// ─── Lifecycle step-through panel (v0.59) ───────────────────────────────
+// ─── Lifecycle step-through panel (v0.59; v0.63.1 unified calendar) ──────
 //
-// Pays off the v0.54 + v0.56 + v0.57 substrate: a single timeline of the
-// 28 lifecycle ticks (17 regular-season weeks + 4 playoff rounds + 7
-// offseason phases) with the current position highlighted, calendar
-// labels + approximate dates, and step controls (one tick / one phase).
-
-const REG_SEASON_WEEKS = 17;
-
-const PLAYOFF_PHASES: readonly LifecyclePhase[] = [
-  'WILD_CARD',
-  'DIVISIONAL',
-  'CONFERENCE',
-  'SUPER_BOWL',
-];
-
-const OFFSEASON_PHASES: readonly LifecyclePhase[] = [
-  'POST_SEASON_FINALIZE',
-  'OFFSEASON_TRANSACTIONS',
-  'PRE_DRAFT',
-  'DRAFT',
-  'POST_DRAFT_ROSTER',
-  'COLLEGE_CYCLE',
-  'READY_FOR_NEXT_SEASON',
-];
-
-const COLLEGE_REG_SEASON_WEEKS = 12;
-
-const COLLEGE_POSTSEASON_PHASES: readonly LifecyclePhase[] = [
-  'COLLEGE_CONFERENCE_CHAMPIONSHIPS',
-  'HEISMAN_CEREMONY',
-  'COLLEGE_BOWL_GAMES',
-  'CFP_FIRST_ROUND',
-  'CFP_QUARTERFINALS',
-  'CFP_SEMIFINALS',
-  'CFP_FINAL',
-];
+// Pays off the v0.54 + v0.56 + v0.57 substrate: a single date-ordered
+// timeline of every lifecycle tick — NFL and college weeks interleaved
+// by real calendar date, then the postseason rounds and offseason
+// chain — with the current position highlighted, calendar labels +
+// approximate dates, and step controls (one tick / one phase). The
+// ribbon is built straight from the engine's `buildSeasonTimeline`, so
+// what you step through matches what you see.
 
 interface TickAnchor {
   transactionLogLen: number;
@@ -6638,7 +6611,10 @@ function LifecyclePanel({
   function stepFullYear() {
     anchorRef.current = snapshot();
     let l = league;
-    for (let i = 0; i < 40; i++) {
+    // A full unified-calendar year is ~47 ticks (17 NFL weeks + 12
+    // college weeks + 7 college postseason + 4 NFL playoff + 7
+    // offseason/wrap). 80 is a comfortable margin.
+    for (let i = 0; i < 80; i++) {
       const next = tickPhase(l);
       if (next === l) break;
       l = next;
@@ -7297,90 +7273,126 @@ function LifecycleTimeline({
   collegeCurrentWeek: number | null;
   seasonNumber: number;
 }) {
+  // One unified, date-ordered ribbon — the same `buildSeasonTimeline`
+  // the engine dispatches off, so the visual order is exactly the tick
+  // order. NFL (rose) and college (emerald) weeks interleave by date;
+  // the offseason chain (zinc) trails the Super Bowl.
+  const timeline = useMemo(() => buildSeasonTimeline(seasonNumber), [seasonNumber]);
+
   return (
-    <div className="mt-5 space-y-4">
-      <TimelineGroup title="NFL Regular Season">
-        <div className="grid grid-cols-9 gap-1 sm:grid-cols-[repeat(17,minmax(0,1fr))]">
-          {Array.from({ length: REG_SEASON_WEEKS }, (_, i) => {
-            const isCurrent =
-              phase === 'REGULAR_SEASON_WEEK' && currentWeek === i;
-            const cellDate = phaseCalendarDate('REGULAR_SEASON_WEEK', i, seasonNumber);
-            const isDeadline = i === TRADE_DEADLINE_WEEK_INDEX;
-            return (
-              <TimelineCell
-                key={`w${i}`}
-                isCurrent={isCurrent}
-                label={`W${i + 1}`}
-                sub={cellDate ? `${cellDate.month}/${cellDate.day}` : ''}
-                accent={isDeadline ? 'amber' : 'rose'}
-              />
-            );
-          })}
-        </div>
-      </TimelineGroup>
-
-      <TimelineGroup title="🎓 College Football">
-        <div className="grid grid-cols-6 gap-1 sm:grid-cols-[repeat(12,minmax(0,1fr))]">
-          {Array.from({ length: COLLEGE_REG_SEASON_WEEKS }, (_, i) => {
-            const isCurrent =
-              phase === 'COLLEGE_WEEK' && collegeCurrentWeek === i;
-            const cellDate = phaseCalendarDate('COLLEGE_WEEK', null, seasonNumber, i);
-            return (
-              <TimelineCell
-                key={`cw${i}`}
-                isCurrent={isCurrent}
-                label={`W${i + 1}`}
-                sub={cellDate ? `${cellDate.month}/${cellDate.day}` : ''}
-                accent="rose"
-              />
-            );
-          })}
-        </div>
-        <div className="mt-1 grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-7">
-          {COLLEGE_POSTSEASON_PHASES.map((p) => (
+    <TimelineGroup title="Season Calendar — every tick, in date order">
+      <div className="mb-2 flex flex-wrap gap-x-3 gap-y-1 text-[9px] uppercase tracking-wide text-zinc-500">
+        <LegendDot accent="rose" label="NFL" />
+        <LegendDot accent="emerald" label="College" />
+        <LegendDot accent="amber" label="Trade deadline" />
+        <LegendDot accent="zinc" label="Offseason" />
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {timeline.map((step, i) => (
+          <div key={i} className="w-[4.25rem]">
             <TimelineCell
-              key={p}
-              isCurrent={phase === p}
-              label={collegePostseasonShortLabel(p)}
-              sub={formatDateOrEmpty(phaseCalendarDate(p, null, seasonNumber))}
-              accent="rose"
-              wide
+              isCurrent={isStepCurrent(step, phase, currentWeek, collegeCurrentWeek)}
+              label={timelineStepLabel(step)}
+              sub={formatDateOrEmpty(step.date)}
+              accent={timelineStepAccent(step)}
             />
-          ))}
-        </div>
-      </TimelineGroup>
-
-      <TimelineGroup title="NFL Playoffs">
-        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4">
-          {PLAYOFF_PHASES.map((p) => (
-            <TimelineCell
-              key={p}
-              isCurrent={phase === p}
-              label={phaseCalendarLabel(p, null)}
-              sub={formatDateOrEmpty(phaseCalendarDate(p, null, seasonNumber))}
-              accent="rose"
-              wide
-            />
-          ))}
-        </div>
-      </TimelineGroup>
-
-      <TimelineGroup title="Offseason">
-        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-7">
-          {OFFSEASON_PHASES.map((p) => (
-            <TimelineCell
-              key={p}
-              isCurrent={phase === p}
-              label={phaseCalendarLabel(p, null)}
-              sub={formatDateOrEmpty(phaseCalendarDate(p, null, seasonNumber))}
-              accent="rose"
-              wide
-            />
-          ))}
-        </div>
-      </TimelineGroup>
-    </div>
+          </div>
+        ))}
+      </div>
+    </TimelineGroup>
   );
+}
+
+function LegendDot({
+  accent,
+  label,
+}: {
+  accent: 'rose' | 'emerald' | 'amber' | 'zinc';
+  label: string;
+}) {
+  const dot =
+    accent === 'rose'
+      ? 'bg-rose-400'
+      : accent === 'emerald'
+        ? 'bg-emerald-400'
+        : accent === 'amber'
+          ? 'bg-amber-400'
+          : 'bg-zinc-500';
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className={`inline-block h-2 w-2 rounded-full ${dot}`} />
+      {label}
+    </span>
+  );
+}
+
+function isStepCurrent(
+  step: TimelineStep,
+  phase: LifecyclePhase,
+  currentWeek: number | null,
+  collegeCurrentWeek: number | null,
+): boolean {
+  if (step.phase !== phase) return false;
+  if (phase === 'REGULAR_SEASON_WEEK') return step.weekIndex === currentWeek;
+  if (phase === 'COLLEGE_WEEK') return step.weekIndex === collegeCurrentWeek;
+  return true;
+}
+
+function timelineStepLabel(step: TimelineStep): string {
+  switch (step.phase) {
+    case 'REGULAR_SEASON_WEEK':
+      return `NFL W${(step.weekIndex ?? 0) + 1}`;
+    case 'COLLEGE_WEEK':
+      return `CFB W${(step.weekIndex ?? 0) + 1}`;
+    case 'WILD_CARD':
+      return 'Wild Card';
+    case 'DIVISIONAL':
+      return 'Divisional';
+    case 'CONFERENCE':
+      return 'NFL Conf';
+    case 'SUPER_BOWL':
+      return 'Super Bowl';
+    case 'POST_SEASON_FINALIZE':
+      return 'Season Wrap';
+    case 'OFFSEASON_TRANSACTIONS':
+      return 'Free Agency';
+    case 'PRE_DRAFT':
+      return 'Jr Declares';
+    case 'DRAFT':
+      return 'NFL Draft';
+    case 'POST_DRAFT_ROSTER':
+      return 'UDFA · Cuts';
+    case 'COLLEGE_CYCLE':
+      return 'College Cycle';
+    case 'READY_FOR_NEXT_SEASON':
+      return 'Kickoff';
+    default:
+      // College postseason phases.
+      return collegePostseasonShortLabel(step.phase);
+  }
+}
+
+function timelineStepAccent(step: TimelineStep): 'rose' | 'amber' | 'emerald' | 'zinc' {
+  switch (step.phase) {
+    case 'REGULAR_SEASON_WEEK':
+      return step.weekIndex === TRADE_DEADLINE_WEEK_INDEX ? 'amber' : 'rose';
+    case 'COLLEGE_WEEK':
+    case 'COLLEGE_CONFERENCE_CHAMPIONSHIPS':
+    case 'HEISMAN_CEREMONY':
+    case 'COLLEGE_BOWL_GAMES':
+    case 'CFP_FIRST_ROUND':
+    case 'CFP_QUARTERFINALS':
+    case 'CFP_SEMIFINALS':
+    case 'CFP_FINAL':
+      return 'emerald';
+    case 'WILD_CARD':
+    case 'DIVISIONAL':
+    case 'CONFERENCE':
+    case 'SUPER_BOWL':
+      return 'rose';
+    default:
+      return 'zinc'; // offseason chain
+  }
 }
 
 function collegePostseasonShortLabel(phase: LifecyclePhase): string {
@@ -7549,6 +7561,16 @@ function TimelineGroup({
   );
 }
 
+const ACCENT_CLASSES: Record<
+  'rose' | 'amber' | 'emerald' | 'zinc',
+  string
+> = {
+  rose: 'border-rose-500/25 bg-rose-500/5 text-rose-300',
+  amber: 'border-amber-500/40 bg-amber-500/10 text-amber-300',
+  emerald: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
+  zinc: 'border-zinc-700 bg-zinc-900/40 text-zinc-400',
+};
+
 function TimelineCell({
   isCurrent,
   label,
@@ -7559,18 +7581,12 @@ function TimelineCell({
   isCurrent: boolean;
   label: string;
   sub?: string;
-  accent: 'rose' | 'amber';
+  accent: 'rose' | 'amber' | 'emerald' | 'zinc';
   wide?: boolean;
 }) {
-  const accentBorder =
-    accent === 'amber' ? 'border-amber-500/30' : 'border-zinc-700';
-  const accentBg =
-    accent === 'amber' ? 'bg-amber-500/5' : 'bg-zinc-900/40';
-  const accentText =
-    accent === 'amber' ? 'text-amber-300' : 'text-zinc-400';
   const currentClasses = isCurrent
-    ? 'border-rose-400 bg-rose-500/15 text-rose-100 ring-1 ring-rose-400/40'
-    : `${accentBorder} ${accentBg} ${accentText}`;
+    ? 'border-rose-300 bg-rose-500/20 text-rose-50 ring-2 ring-rose-400/50'
+    : ACCENT_CLASSES[accent];
   return (
     <div
       className={`flex flex-col items-center justify-center rounded border px-1.5 py-1 text-center transition-colors ${currentClasses} ${wide ? 'min-h-[3rem]' : 'min-h-[2.25rem]'}`}

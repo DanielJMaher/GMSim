@@ -116,14 +116,16 @@ describe('simulateSeason', () => {
     });
 
     it('reaches Super Bowl in the expected number of ticks (v0.63: NFL + college interleave)', () => {
-      // v0.63 cycle:
-      //   17 NFL regular-season weeks (interleaved with 12 college
-      //   weeks during the first 12 of them)
-      // + 12 college regular-season weeks
-      // + 7 college postseason phases (conf champs, Heisman,
-      //   bowls, CFP first round, QF, SF, final)
+      // v0.63.1 unified-calendar cycle — phases fire in true calendar
+      // date order (see season/timeline.ts):
+      //   17 NFL regular-season weeks (Sept–Dec), interleaved with
+      // + 12 college regular-season weeks (late Aug–Nov)
+      // + 7 college postseason phases (conf champs Dec 6 → Heisman →
+      //   bowls → CFP rounds, the CFP final landing mid-January)
       // + 4 NFL playoff rounds (WC, DIV, CONF, SB)
-      // = 40 ticks total to reach SUPER_BOWL.
+      // The college postseason is spread across the late NFL season +
+      // playoff window rather than firing as one block, but the tick
+      // COUNTS are unchanged: 40 ticks total to reach SUPER_BOWL.
       let league = createLeague({ seed: 'tick-count' });
       let regSeasonTicks = 0;
       let collegeRegTicks = 0;
@@ -178,10 +180,24 @@ describe('simulateSeason', () => {
       }
       expect(observedWeeks).toEqual(Array.from({ length: 17 }, (_, i) => i));
 
-      // Next tick transitions to WILD_CARD and resets currentWeek.
-      league = tickPhase(league);
+      // v0.63.1: after the last NFL regular-season week (Dec 28), the
+      // next dated events are the CFP quarterfinals (Jan 1) and
+      // semifinals (Jan 9) BEFORE the NFL Wild Card (Jan 13). Pump
+      // until Wild Card and confirm we passed through those CFP rounds
+      // first, with currentWeek cleared once the playoffs begin.
+      const phasesUntilWildCard: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        league = tickPhase(league);
+        phasesUntilWildCard.push(league.lifecyclePhase);
+        if (league.lifecyclePhase === 'WILD_CARD') break;
+      }
       expect(league.lifecyclePhase).toBe('WILD_CARD');
       expect(league.currentWeek).toBeNull();
+      expect(phasesUntilWildCard).toContain('CFP_QUARTERFINALS');
+      expect(phasesUntilWildCard).toContain('CFP_SEMIFINALS');
+      expect(phasesUntilWildCard.indexOf('CFP_SEMIFINALS')).toBeLessThan(
+        phasesUntilWildCard.indexOf('WILD_CARD'),
+      );
     });
 
     it('college regular season is 12 weeks; college pool stats accumulate', () => {

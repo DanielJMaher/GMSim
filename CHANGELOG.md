@@ -12,7 +12,43 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed — unified season calendar (tick ordering)
+
+v0.63 interleaved the NFL and college lifecycles by *alternating*
+phases, which produced a chronologically wrong tick order: NFL Week 1
+(Sept 7) fired before College Week 1 (Aug 30), the two leagues
+ping-ponged regardless of date, and the college postseason was forced
+to run as one contiguous block instead of spreading across the late
+NFL regular season and playoff window.
+
+**`season/timeline.ts`** — a single date-ordered timeline. Every
+lifecycle phase becomes a dated step (dates from the existing
+`phaseCalendarDate` layer); the steps are sorted by calendar date and
+`tickPhase` walks them in order. The dispatch (`decideTickTarget`) now
+locates the league's most-recently-completed step and fires the next
+one — no more ad-hoc interleave rules.
+
+Result, in true calendar order: College Weeks 1–2 (Aug 30, Sept 6)
+before NFL Week 1 (Sept 7); college conference championships (Dec 6)
+among the late NFL regular-season weeks; the CFP quarterfinals (Jan 1)
+and semifinals (Jan 9) before the NFL Wild Card (Jan 13); and the CFP
+National Championship (Jan 19) between the NFL Wild Card and Divisional
+rounds — exactly as the real calendars overlap.
+
+Determinism is preserved: every phase's PRNG stream is namespaced by
+phase + season + week-index, never by tick order, so reordering when a
+phase fires changes only the *sequence* of identical results, not the
+results themselves.
+
+**Inspector** — the Lifecycle panel's four separate competition rows
+are replaced with one date-ordered "Season Calendar" ribbon built
+straight from `buildSeasonTimeline`, so what you step through is what
+you see (NFL rose, college emerald, trade deadline amber, offseason
+zinc). `buildSeasonTimeline` + `TimelineStep` are now part of the
+engine's public surface; `REGULAR_SEASON_WEEKS` is exported.
+
+Also fixed `simulateSeason`'s progress guard, which bailed early once
+two consecutive college weeks could open a season.
 
 ---
 

@@ -17,6 +17,8 @@ export {
   LIFECYCLE_ORDER,
   type LifecyclePhase,
 } from './lifecycle.js';
+export { buildSeasonTimeline, type TimelineStep } from './timeline.js';
+export { REGULAR_SEASON_WEEKS } from './schedule.js';
 export {
   phaseCalendarLabel,
   phaseCalendarDate,
