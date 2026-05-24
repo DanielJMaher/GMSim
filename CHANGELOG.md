@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.65.0] — 2026-05-24
+
 ### Added — draft all-star showcases (Senior Bowl + Shrine Bowl)
 
 Two new pre-draft lifecycle phases model the all-star weeks, the biggest
