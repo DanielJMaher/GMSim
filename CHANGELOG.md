@@ -12,6 +12,17 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Added — test-suite monitor
+
+`pnpm test:monitor` (root or engine) runs Vitest through a custom
+reporter that shows a live progress bar with elapsed time, an expected
+total (from the previous run's saved baseline), and a work-weighted
+ETA that accounts for the college-season suites dominating runtime.
+Progress is mirrored to `packages/engine/.vitest-progress.txt` every
+tick, so the current position is readable mid-run even when stdout is
+buffered (tool/CI launches). Per-run timings persist to
+`.vitest-timings.json` (gitignored) as the next run's baseline.
+
 ### Fixed — unified season calendar (tick ordering)
 
 v0.63 interleaved the NFL and college lifecycles by *alternating*

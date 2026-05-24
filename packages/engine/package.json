@@ -25,6 +25,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "test:monitor": "vitest run --reporter=./test/progress-reporter.mjs",
     "test:watch": "vitest",
     "lint": "echo 'lint placeholder — wire up eslint in Phase 1'",
     "clean": "rimraf dist .turbo"

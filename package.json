@@ -8,6 +8,7 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "test": "turbo run test",
+    "test:monitor": "pnpm --filter @gmsim/engine test:monitor",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rimraf node_modules",
     "version:check": "node scripts/sync-versions.mjs",

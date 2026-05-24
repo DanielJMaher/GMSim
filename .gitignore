@@ -10,3 +10,7 @@ coverage/
 .vscode/
 .idea/
 *.tsbuildinfo
+
+# Test-suite monitor artifacts (machine-specific timings)
+.vitest-timings.json
+.vitest-progress.txt
