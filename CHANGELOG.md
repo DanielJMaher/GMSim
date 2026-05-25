@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.70.0] — 2026-05-25
+
 ### Added — media scouting reports, slice 1: the media's read on the class
 
 The media now evaluates the draft class, using the agreed model: each
