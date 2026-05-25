@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.67.0] — 2026-05-24
+
 ### Added — college season-stat aggregation + a real Heisman race
 
 **Season-stat aggregation (the read layer over the college stat
