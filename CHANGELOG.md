@@ -16,6 +16,19 @@ _Nothing yet._
 
 ---
 
+## [0.69.0] — 2026-05-25
+
+### Changed — Step Tick moved to the header
+
+"Step Tick" now lives in the global header, so you can advance the
+lifecycle one event at a time from any tab (not just Lifecycle) — handy
+for watching the Draft Shift tab update tick-by-tick. Removed the
+redundant "Step to next phase" button (under the unified calendar it
+just micro-stepped). "Step a full year" stays on the Lifecycle panel.
+The event-log anchor moved to app level alongside the control.
+
+---
+
 ## [0.68.0] — 2026-05-25
 
 ### Added — scout sleepers (two-channel) + combine measurables now matter

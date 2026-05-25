@@ -214,6 +214,26 @@ export function App() {
     setLeague(advanceSeason(league));
   }
 
+  // Tick stepping lives at App level so "Step Tick" can sit in the
+  // header and work from every tab. The anchor captures the pre-tick
+  // snapshot the lifecycle event log diffs against.
+  const tickAnchorRef = useRef<TickAnchor>(snapshotAnchor(league));
+  function stepTick() {
+    tickAnchorRef.current = snapshotAnchor(league);
+    setLeague(tickPhase(league));
+  }
+  function stepFullYear() {
+    tickAnchorRef.current = snapshotAnchor(league);
+    let l = league;
+    // ~47 ticks in a full unified-calendar year; 80 is a safe margin.
+    for (let i = 0; i < 80; i++) {
+      const next = tickPhase(l);
+      if (next === l) break;
+      l = next;
+    }
+    setLeague(l);
+  }
+
   /**
    * Run N full year-cycles. Each iteration ensures the current season
    * is simulated (if not already), then advances. We reverse the order
@@ -299,6 +319,22 @@ export function App() {
               </button>
             ))}
           </div>
+          {/* Step Tick lives in the header so it's available on every tab. */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={stepTick}
+              className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-sm text-rose-200 hover:bg-rose-500/20"
+            >
+              Step Tick
+            </button>
+            <span className="font-mono text-[10px] leading-tight text-zinc-500">
+              {phaseCalendarLabel(
+                league.lifecyclePhase,
+                league.currentWeek,
+                league.collegeCurrentWeek,
+              )}
+            </span>
+          </div>
         </div>
       </header>
 
@@ -369,7 +405,11 @@ export function App() {
       )}
 
       {activeTab === 'lifecycle' && (
-        <LifecyclePanel league={league} onLeagueChange={setLeague} />
+        <LifecyclePanel
+          league={league}
+          anchor={tickAnchorRef.current}
+          onStepFullYear={stepFullYear}
+        />
       )}
 
       {/* TeamDetail modal renders over the active tab. */}
@@ -6614,25 +6654,14 @@ interface TickAnchor {
   seasonNumber: number;
 }
 
-function LifecyclePanel({
-  league,
-  onLeagueChange,
-}: {
-  league: LeagueState;
-  onLeagueChange: (l: LeagueState) => void;
-}) {
-  const phase = league.lifecyclePhase;
-  const currentWeek = league.currentWeek;
-  const collegeCurrentWeek = league.collegeCurrentWeek;
-  const label = phaseCalendarLabel(phase, currentWeek, collegeCurrentWeek);
-  const date = phaseCalendarDate(phase, currentWeek, league.seasonNumber, collegeCurrentWeek);
-
-  // Snapshot of league state immediately BEFORE the last tick fired.
-  // The "events fired this tick" diff is taken against this anchor.
-  // Initialized at mount to current state, so the first render shows
-  // an empty event list — events appear once the user actually clicks
-  // a step button.
-  const anchorRef = useRef<TickAnchor>({
+/**
+ * Snapshot of league state used as the "before this tick" anchor for the
+ * event log. Lives at App level now (the Step Tick control moved to the
+ * header so it's available on every tab); the lifecycle panel just reads
+ * the current anchor.
+ */
+function snapshotAnchor(league: LeagueState): TickAnchor {
+  return {
     transactionLogLen: league.transactionLog.length,
     mediaReportLen: league.mediaReports.length,
     phase: league.lifecyclePhase,
@@ -6640,51 +6669,23 @@ function LifecyclePanel({
     collegeCurrentWeek: league.collegeCurrentWeek,
     collegeGameStatsLen: league.collegeGameStats.length,
     seasonNumber: league.seasonNumber,
-  });
+  };
+}
 
-  function snapshot(): TickAnchor {
-    return {
-      transactionLogLen: league.transactionLog.length,
-      mediaReportLen: league.mediaReports.length,
-      phase: league.lifecyclePhase,
-      currentWeek: league.currentWeek,
-      collegeCurrentWeek: league.collegeCurrentWeek,
-      collegeGameStatsLen: league.collegeGameStats.length,
-      seasonNumber: league.seasonNumber,
-    };
-  }
-
-  function step() {
-    anchorRef.current = snapshot();
-    onLeagueChange(tickPhase(league));
-  }
-
-  function stepToNextPhase() {
-    anchorRef.current = snapshot();
-    let l = league;
-    const startPhase = l.lifecyclePhase;
-    for (let i = 0; i < 50; i++) {
-      const next = tickPhase(l);
-      if (next === l) break;
-      l = next;
-      if (l.lifecyclePhase !== startPhase) break;
-    }
-    onLeagueChange(l);
-  }
-
-  function stepFullYear() {
-    anchorRef.current = snapshot();
-    let l = league;
-    // A full unified-calendar year is ~47 ticks (17 NFL weeks + 12
-    // college weeks + 7 college postseason + 4 NFL playoff + 7
-    // offseason/wrap). 80 is a comfortable margin.
-    for (let i = 0; i < 80; i++) {
-      const next = tickPhase(l);
-      if (next === l) break;
-      l = next;
-    }
-    onLeagueChange(l);
-  }
+function LifecyclePanel({
+  league,
+  anchor,
+  onStepFullYear,
+}: {
+  league: LeagueState;
+  anchor: TickAnchor;
+  onStepFullYear: () => void;
+}) {
+  const phase = league.lifecyclePhase;
+  const currentWeek = league.currentWeek;
+  const collegeCurrentWeek = league.collegeCurrentWeek;
+  const label = phaseCalendarLabel(phase, currentWeek, collegeCurrentWeek);
+  const date = phaseCalendarDate(phase, currentWeek, league.seasonNumber, collegeCurrentWeek);
 
   return (
     <section className="mt-6 rounded border border-zinc-800 bg-zinc-900/40 p-4">
@@ -6700,26 +6701,14 @@ function LifecyclePanel({
 
       <div className="mt-4 flex flex-wrap gap-2">
         <button
-          onClick={step}
-          className="rounded border border-rose-500/40 bg-rose-500/10 px-3 py-1 text-sm text-rose-200 hover:bg-rose-500/20"
-        >
-          Step tick
-        </button>
-        <button
-          onClick={stepToNextPhase}
-          className="rounded border border-rose-500/30 bg-rose-500/5 px-3 py-1 text-sm text-rose-300 hover:bg-rose-500/10"
-        >
-          Step to next phase
-        </button>
-        <button
-          onClick={stepFullYear}
+          onClick={onStepFullYear}
           className="rounded border border-zinc-700 bg-zinc-900 px-3 py-1 text-sm text-zinc-300 hover:border-rose-500/40 hover:text-rose-200"
         >
           Step a full year
         </button>
       </div>
 
-      <TickEventLog league={league} anchor={anchorRef.current} />
+      <TickEventLog league={league} anchor={anchor} />
 
       <LifecycleTimeline
         phase={phase}
@@ -6731,11 +6720,11 @@ function LifecyclePanel({
       <CollegeSeasonSection league={league} />
 
       <p className="mt-3 text-xs text-zinc-500">
+        Use <code className="text-zinc-300">Step Tick</code> in the header to
+        advance one event at a time from any tab, or step a full year here.
         Bulk <code className="text-zinc-300">simulateSeason</code> +{' '}
-        <code className="text-zinc-300">advanceSeason</code> (header buttons)
-        still work — they're just <code className="text-zinc-300">tickPhase</code>{' '}
-        loops under the hood. Use this panel to scrub through a year one
-        tick at a time and watch the engine state advance.
+        <code className="text-zinc-300">advanceSeason</code> (header) are just{' '}
+        <code className="text-zinc-300">tickPhase</code> loops under the hood.
       </p>
     </section>
   );
