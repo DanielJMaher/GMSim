@@ -165,3 +165,11 @@ export type { ChartModifiers } from './chart-modifiers.js';
 // v0.55: positional team-needs scorer (inspector + future AI input)
 export { computeTeamNeeds } from './team-needs.js';
 export type { PositionNeed } from './team-needs.js';
+
+// v0.68: scout sleepers (tape + measurables channels) — board divergence
+export {
+  buildSleeperProfiles,
+  selectScoutSleepers,
+  SLEEPER_CONFIDENCE_BONUS,
+} from './sleepers.js';
+export type { SleeperProfile, SleeperPick, SleeperChannel } from './sleepers.js';

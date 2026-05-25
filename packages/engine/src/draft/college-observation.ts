@@ -103,6 +103,13 @@ export function generateCollegeObservation(
   prospect: CollegePlayer,
   observedOnTick: number,
   accuracyBonus = 0,
+  /**
+   * Positive optimism shift (skill points) added to every observed
+   * value — the scout's "love" for a sleeper. 0 for a normal read.
+   * Whether the optimism pans out still rides on the scout's accuracy
+   * (the noise term is unchanged), so a low-accuracy believer overshoots.
+   */
+  biasShift = 0,
 ): CollegePlayerObservation {
   const projectedGroup = positionGroupFor(prospect.nflProjectedPosition);
   const baseAccuracy = scout.trueAccuracy[projectedGroup] ?? 0.4;
@@ -122,7 +129,7 @@ export function generateCollegeObservation(
     const playerLike = collegeProspectAsPlayerLike(prospect);
     const quirk = composedQuirkEffect(scout.quirks, playerLike, skill);
     const noiseStdev = BASE_NOISE_STDEV * (1 - accuracy) * quirk.noiseMultiplier;
-    const observed = clampSkill(trueValue + prng.normal(0, noiseStdev) + quirk.bias);
+    const observed = clampSkill(trueValue + prng.normal(0, noiseStdev) + quirk.bias + biasShift);
     const skillConfidence = clampUnit(accuracy + quirk.confidenceDelta);
     skills[skill] = Math.round(observed);
     confidence[skill] = Number(skillConfidence.toFixed(2));

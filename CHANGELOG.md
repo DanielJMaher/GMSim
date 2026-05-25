@@ -12,7 +12,34 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — scout sleepers (two-channel) + combine measurables now matter
+
+Each college scout now rolls **3–5 personal "sleepers"** every pre-draft
+cycle and files optimistic, high-conviction observations of them — the
+mechanic behind real board divergence (each team's board diverges on who
+its scouts are high on). Two channels feed the roll, both gated by a
+*real* signal so conviction is earned:
+
+- **Tape** — a genuinely good player overlooked for a small school / low
+  profile (high true talent + production, low visibility).
+- **Measurables** — an elite combine/pro-day workout even when the
+  production wasn't there (top-percentile athletic measures + thin
+  production). This **finally gives `combineResults` a mechanical
+  effect** — it was write-only display state before. Higher bust risk:
+  whether the athleticism translates rides on the scout's accuracy, so a
+  low-accuracy believer produces the workout-warrior bust / false-flag.
+
+The "love" (optimism bias) is bounded by the winning signal's strength,
+so a limited prospect can't be inflated into a blue-chipper, and
+selection is weighted by `worthiness` so scrubs are essentially never
+picked. New `draft/sleepers.ts` (`buildSleeperProfiles`,
+`selectScoutSleepers`); `generateCollegeObservation` gains a `biasShift`
+(optimism) parameter. Sleepers surface as per-team risers in the Draft
+Shift tab at the top-30 / scouting-cycle tick (toggle the team picker to
+see front offices diverge). Draft results shift from the new
+observations; affected tests re-baselined, invariants hold.
+
+This is a shared scout trait — the media-evaluator lane will inherit it.
 
 ---
 
