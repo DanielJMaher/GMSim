@@ -216,6 +216,12 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, heismanHistory: [] };
   }
 
+  // v0.70.0 media prospect-evaluation stream. Empty — populated by the
+  // pre-draft scouting cycle.
+  if (!next.mediaCollegeObservations) {
+    next = { ...next, mediaCollegeObservations: [] };
+  }
+
   // v0.44.0 draft pick assets. Backfill: each team owns its own picks
   // for next 3 years (no trade history reconstructable).
   if (!next.draftPicks) {

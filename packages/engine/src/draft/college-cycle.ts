@@ -12,6 +12,7 @@ import {
   SLEEPER_CONFIDENCE_BONUS,
 } from './sleepers.js';
 import { aggregateCollegeSeasonStats } from '../college-season/season-stats.js';
+import { generateMediaCollegeObservations } from '../media/prospect-evaluators.js';
 
 /**
  * Run one college-scouting cycle: every college scout produces a
@@ -90,8 +91,17 @@ export function advanceCollegeScoutingCycle(
     }
   }
 
+  // ── Media's read on the class (separate stream) ───────────────────
+  const mediaObs = generateMediaCollegeObservations(
+    prng.fork('media-cobs'),
+    league.mediaOutlets,
+    league.collegePool,
+    observedOnTick,
+  );
+
   return {
     ...league,
     collegeObservations: [...league.collegeObservations, ...sweep, ...sleeperObs],
+    mediaCollegeObservations: [...league.mediaCollegeObservations, ...mediaObs],
   };
 }

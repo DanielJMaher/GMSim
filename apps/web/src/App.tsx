@@ -148,7 +148,12 @@ export function App() {
 
   useEffect(() => {
     const sig = draftShiftTickSig(league);
-    const obs = league.collegeObservations.length;
+    // Watch the observation stream that feeds the current view — the
+    // media view advances on its own stream.
+    const obs =
+      draftShiftPicker === 'MEDIA'
+        ? league.mediaCollegeObservations.length
+        : league.collegeObservations.length;
     // Reset the tracker on first run, a re-roll (seed change), or a
     // picker change — re-baseline against the current ranking, clear the
     // log, and don't emit a spurious "everything moved" event.
@@ -7720,7 +7725,7 @@ function formatDateOrEmpty(date: CalendarDate | null): string {
 // observations; a team view uses only that team's scouts', so different
 // front offices see different risers/fallers (Doc 3's "32 boards").
 
-type DraftShiftPicker = 'LEAGUE' | TeamId;
+type DraftShiftPicker = 'LEAGUE' | 'MEDIA' | TeamId;
 
 type ShiftKind = 'big-up' | 'up' | 'down' | 'big-down' | 'new';
 
@@ -7774,22 +7779,25 @@ function observationGrade(
 }
 
 /**
- * Rank every observed prospect by confidence-weighted observed grade,
- * using either the whole league's observations or one team's scouts'.
- * Returns playerId → 1-based rank.
+ * Rank every observed prospect by confidence-weighted observed grade.
+ * Source is the league team-scout stream (all teams, or one team's
+ * scouts) — or, for the MEDIA view, the separate media-evaluator stream
+ * (its consensus). Returns playerId → 1-based rank.
  */
 function rankProspectsByGrade(
   league: LeagueState,
   picker: DraftShiftPicker,
 ): Map<string, number> {
+  const source =
+    picker === 'MEDIA' ? league.mediaCollegeObservations : league.collegeObservations;
   let scoutFilter: Set<string> | null = null;
-  if (picker !== 'LEAGUE') {
+  if (picker !== 'LEAGUE' && picker !== 'MEDIA') {
     const team = league.teams[picker];
     scoutFilter = new Set<string>(team ? [...team.collegeScoutIds] : []);
   }
 
   const agg = new Map<string, { wsum: number; csum: number }>();
-  for (const obs of league.collegeObservations) {
+  for (const obs of source) {
     if (scoutFilter && !scoutFilter.has(obs.scoutId)) continue;
     const { overall, conf } = observationGrade(
       obs.skills as Record<string, number | undefined>,
@@ -7909,7 +7917,8 @@ function DraftShiftPanel({
             onChange={(e) => onPickerChange(e.target.value as DraftShiftPicker)}
             className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-200 focus:border-cyan-500 focus:outline-none"
           >
-            <option value="LEAGUE">League consensus</option>
+            <option value="LEAGUE">League consensus (team scouts)</option>
+            <option value="MEDIA">Media consensus</option>
             {teams.map((t) => (
               <option key={t.identity.id} value={t.identity.id}>
                 {t.identity.abbreviation} — {t.identity.location}
@@ -7922,8 +7931,12 @@ function DraftShiftPanel({
       <p className="mb-3 text-xs text-zinc-500">
         Confidence-weighted scouting stock, ranked across the field. A new
         chiclet is added each tick a scouting event moves the board (the
-        all-star bowls, the top-30 / scouting sweep). Switching the view
-        re-baselines and clears the log.
+        all-star bowls, the top-30 / scouting sweep). <strong>League</strong>
+        {' '}and <strong>team</strong> views read team-scout reports;{' '}
+        <strong>Media consensus</strong> reads the outlets' separate
+        evaluator stream — compare them to see where the media diverges
+        (it hypes flashy names). Switching the view re-baselines + clears
+        the log.
       </p>
 
       <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-500">

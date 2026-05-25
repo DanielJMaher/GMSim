@@ -12,7 +12,31 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — media scouting reports, slice 1: the media's read on the class
+
+The media now evaluates the draft class, using the agreed model: each
+college outlet is backed by **N behind-the-scenes evaluators** (by tier
+— an INSIDER desk has a staff of 6, a BLOG is the lone streamer with 1),
+reusing the same attributed-observation shape team scouts use. Two knobs
+come straight off the `MediaOutlet`:
+
+- **`accuracySpectrum`** → evaluator read noise.
+- **`hypeSpectrum`** → a directional optimism bias toward *flashy*
+  prospects (blue-blood schools, raw talent). High-hype outlets inflate
+  the big names — the **false-flag seed** — and aggregating more
+  evaluators (a bigger outlet) yields a steadier read than a lone blog.
+
+Output lands in a **separate `mediaCollegeObservations` stream** so it
+never contaminates the 32 team boards. The **Draft Shift** tab gains a
+**"Media consensus"** view (alongside League and per-team) — compare
+them to watch the media diverge from the scouting room and over-rate the
+flashy names. `media/prospect-evaluators.ts`
+(`generateMediaCollegeObservations`); generated during the pre-draft
+scouting cycle. Engine-additive — separate stream, so no draft/roster
+results change.
+
+Next media slices: media sleeper-alert *takes* (narrative text), per-
+outlet mock boards, and weekly in-season hype.
 
 ---
 

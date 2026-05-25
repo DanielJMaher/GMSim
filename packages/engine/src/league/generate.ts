@@ -226,6 +226,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     collegePool,
     collegeScouts: collegeScouts as Readonly<Record<ScoutId, CollegeScout>>,
     collegeObservations,
+    mediaCollegeObservations: [],
     // Initial draft boards — pure derivation from teams + college
     // scouts' observations + scheme + roster need. Built inline so
     // the assembled league is self-consistent before

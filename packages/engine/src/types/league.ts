@@ -125,6 +125,15 @@ export interface LeagueState {
   collegeObservations: readonly CollegePlayerObservation[];
 
   /**
+   * Media's read on the draft class (v0.70+) — a separate attributed
+   * observation stream produced by each outlet's behind-the-scenes
+   * evaluators (see `media/prospect-evaluators.ts`). Kept apart from
+   * `collegeObservations` so it never contaminates the 32 team boards;
+   * the media-consensus board aggregates this stream. Append-only.
+   */
+  mediaCollegeObservations: readonly CollegePlayerObservation[];
+
+  /**
    * Per-team internal draft boards. Built from each team's own
    * college-scout reports + their scheme + their positional needs.
    * Per Doc 3 every team maintains a unique board — overlap is
