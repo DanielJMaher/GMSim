@@ -20,6 +20,7 @@ _Nothing yet._
 
 ### Changed — Step Tick moved to the header
 
+
 "Step Tick" now lives in the global header, so you can advance the
 lifecycle one event at a time from any tab (not just Lifecycle) — handy
 for watching the Draft Shift tab update tick-by-tick. Removed the
