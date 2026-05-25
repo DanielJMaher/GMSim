@@ -12,7 +12,29 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — college season-stat aggregation + a real Heisman race
+
+**Season-stat aggregation (the read layer over the college stat
+stream).** `collegeGameStats` was written every week but consumed by
+nothing in the engine. New `college-season/season-stats.ts` rolls the
+per-game stream into per-prospect season totals
+(`aggregateCollegeSeasonStats`) and national leaderboards
+(`collegeStatLeaders`), grouping by `playedOnTick` so each season is
+isolated (defaults to the latest). This is the shared input for the
+Heisman race, the inspector's stat leaders, and future media production
+takes. The inspector's ad-hoc summing is replaced by this canonical
+aggregator.
+
+**A real Heisman race.** The `HEISMAN_CEREMONY` phase is no longer a
+placeholder — `college-season/awards.ts` scores the aggregated season
+production (passing-weighted, like the real award's QB bias, with paths
+for elite rushers/receivers/defenders) and crowns a winner + finalists.
+Results append to `LeagueState.heismanHistory` (append-only league
+history, migration-backfilled). The inspector surfaces the winner +
+finalists in the lifecycle event log and the College Football panel.
+
+Engine-additive: the Heisman phase only writes `heismanHistory`, so no
+draft/roster results change.
 
 ---
 

@@ -36,3 +36,11 @@ export type {
   AllStarShowcaseOptions,
   AllStarShowcaseResult,
 } from './all-star.js';
+
+export {
+  aggregateCollegeSeasonStats,
+  collegeStatLeaders,
+  latestCollegeSeasonTick,
+} from './season-stats.js';
+
+export { heismanScore, selectHeisman } from './awards.js';

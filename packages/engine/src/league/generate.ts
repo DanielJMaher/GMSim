@@ -257,6 +257,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     collegeCurrentWeek: null,
     collegeGameStats: [],
     allStarGames: [],
+    heismanHistory: [],
   };
 
   // Initial boards first (we need them so pro-day attendance can

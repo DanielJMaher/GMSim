@@ -351,6 +351,11 @@ export {
   buildBowlSlate,
   runAllStarShowcase,
   prospectTalentScore,
+  aggregateCollegeSeasonStats,
+  collegeStatLeaders,
+  latestCollegeSeasonTick,
+  heismanScore,
+  selectHeisman,
 } from './college-season/index.js';
 export type {
   SimulateCollegeGameOptions,

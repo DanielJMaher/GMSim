@@ -229,6 +229,67 @@ export interface AllStarGame {
 }
 
 /**
+ * Per-prospect aggregated season stat line, summed from the
+ * `CollegePlayerGameStats` stream for one college season. Produced by
+ * `aggregateCollegeSeasonStats`; consumed by the Heisman race, the
+ * inspector's stat leaders, and (later) media production takes.
+ */
+export interface CollegeSeasonStatLine {
+  playerId: PlayerId;
+  schoolId: string;
+  /** Distinct games this prospect recorded production in. */
+  games: number;
+
+  passAttempts: number;
+  passCompletions: number;
+  passingYards: number;
+  passingTds: number;
+  interceptionsThrown: number;
+
+  rushingAttempts: number;
+  rushingYards: number;
+  rushingTds: number;
+
+  targets: number;
+  receptions: number;
+  receivingYards: number;
+  receivingTds: number;
+
+  tackles: number;
+  sacks: number;
+  interceptions: number;
+}
+
+/** Stat categories the leaderboard helper can rank by. */
+export type CollegeStatCategory =
+  | 'passingYards'
+  | 'passingTds'
+  | 'rushingYards'
+  | 'rushingTds'
+  | 'receivingYards'
+  | 'receivingTds'
+  | 'tackles'
+  | 'sacks'
+  | 'interceptions';
+
+/**
+ * Result of one season's Heisman race. Stored append-only on
+ * `LeagueState.heismanHistory` so the award persists as league history
+ * (media + draft narratives reference past winners). `finalists` is the
+ * top handful by Heisman score, in descending order (index 0 = winner).
+ */
+export interface HeismanResult {
+  seasonNumber: number;
+  winnerId: PlayerId;
+  winnerSchoolId: string;
+  finalists: ReadonlyArray<{
+    playerId: PlayerId;
+    schoolId: string;
+    score: number;
+  }>;
+}
+
+/**
  * One school's regular-season record. Derived on demand from the
  * played weeks; not stored on `LeagueState`. The conference
  * championship selector + CFP seeder consume this.

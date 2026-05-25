@@ -61,7 +61,8 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders } from '@gmsim/engine';
+import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
 import type { PositionNeed } from '@gmsim/engine';
 import {
   tickPhase,
@@ -72,7 +73,7 @@ import {
   TRADE_DEADLINE_WEEK_INDEX,
 } from '@gmsim/engine';
 import type { LifecyclePhase, CalendarDate, TimelineStep, MediaReport } from '@gmsim/engine';
-import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsim/engine/types';
+import type { CollegeGame, CollegeGameKind } from '@gmsim/engine/types';
 
 /**
  * Phase 1 dev inspector. NOT player-facing — this surface intentionally
@@ -6899,18 +6900,27 @@ function computeTickEvents(league: LeagueState, anchor: TickAnchor): TickEvent[]
     }
   }
   if (phase === 'HEISMAN_CEREMONY') {
-    const leader = topCollegePassingLeader(league);
-    if (leader) {
+    const heisman = league.heismanHistory[league.heismanHistory.length - 1];
+    if (heisman && heisman.seasonNumber === league.seasonNumber) {
+      const winnerName = collegeProspectName(league, heisman.winnerId);
+      const school = getSchoolById(heisman.winnerSchoolId)?.name ?? heisman.winnerSchoolId;
       out.push({
-        section: 'Heisman watch',
-        icon: '🎓',
-        text: `Stat-leader spotlight: ${leader}. (Real Heisman selection lands in a later slice.)`,
+        section: 'Heisman',
+        icon: '🏆',
+        text: `${winnerName} (${school}) wins the Heisman.`,
       });
+      for (const f of heisman.finalists.slice(1, 4)) {
+        out.push({
+          section: 'Heisman finalists',
+          icon: '🎓',
+          text: `${collegeProspectName(league, f.playerId)} (${getSchoolById(f.schoolId)?.name ?? f.schoolId})`,
+        });
+      }
     } else {
       out.push({
-        section: 'Heisman watch',
+        section: 'Heisman',
         icon: '🎓',
-        text: `Heisman ceremony — winner selection logic ships in a later slice.`,
+        text: 'Heisman ceremony — no qualifying production this season.',
       });
     }
   }
@@ -7132,30 +7142,10 @@ function collegeGameSectionLabel(kind: CollegeGameKind): string {
   }
 }
 
-/**
- * Find the highest passing-yards prospect in this season's college
- * game stats. Slice 1 Heisman placeholder uses this as a flavor line
- * until the full stat-aggregation + media-buzz logic ships.
- */
-function topCollegePassingLeader(league: LeagueState): string | null {
-  const sums = new Map<string, number>();
-  for (const s of league.collegeGameStats) {
-    if (s.passingYards <= 0) continue;
-    sums.set(s.playerId, (sums.get(s.playerId) ?? 0) + s.passingYards);
-  }
-  let bestId: string | null = null;
-  let bestYards = 0;
-  for (const [id, yds] of sums) {
-    if (yds > bestYards) {
-      bestId = id;
-      bestYards = yds;
-    }
-  }
-  if (!bestId) return null;
-  const prospect = league.collegePool.find((p) => p.id === bestId);
-  if (!prospect) return null;
-  const school = getSchoolById(prospect.schoolId);
-  return `${prospect.firstName} ${prospect.lastName} (QB, ${school?.name ?? prospect.schoolId}) — ${bestYards} passing yards`;
+/** Resolve a college prospect's display name from their id. */
+function collegeProspectName(league: LeagueState, playerId: string): string {
+  const prospect = league.collegePool.find((p) => p.id === playerId);
+  return prospect ? `${prospect.firstName} ${prospect.lastName}` : playerId;
 }
 
 function awardsAsEvents(awards: SeasonAwards, league: LeagueState): TickEvent[] {
@@ -7562,18 +7552,25 @@ function CollegeSeasonSection({ league }: { league: LeagueState }) {
   const champ = schedule?.cfp?.championSchoolId
     ? getSchoolById(schedule.cfp.championSchoolId)
     : null;
+  const heisman = league.heismanHistory[league.heismanHistory.length - 1] ?? null;
 
+  // Engine aggregation over the per-game stream — the canonical source
+  // now shared with the Heisman selector (no more ad-hoc UI summing).
+  const seasonLines = useMemo(
+    () => aggregateCollegeSeasonStats(league.collegeGameStats),
+    [league.collegeGameStats],
+  );
   const passingLeaders = useMemo(
-    () => topCollegeStatLeaders(league.collegeGameStats, 'passing', league),
-    [league.collegeGameStats, league],
+    () => collegeLeaderItems(seasonLines, 'passingYards', league),
+    [seasonLines, league],
   );
   const rushingLeaders = useMemo(
-    () => topCollegeStatLeaders(league.collegeGameStats, 'rushing', league),
-    [league.collegeGameStats, league],
+    () => collegeLeaderItems(seasonLines, 'rushingYards', league),
+    [seasonLines, league],
   );
   const receivingLeaders = useMemo(
-    () => topCollegeStatLeaders(league.collegeGameStats, 'receiving', league),
-    [league.collegeGameStats, league],
+    () => collegeLeaderItems(seasonLines, 'receivingYards', league),
+    [seasonLines, league],
   );
 
   if (!schedule || (collegeCurrentWeek === null && league.collegeGameStats.length === 0)) {
@@ -7600,22 +7597,33 @@ function CollegeSeasonSection({ league }: { league: LeagueState }) {
         )}
       </h3>
 
+      {heisman && (
+        <div className="mb-2 font-mono text-xs text-amber-200">
+          🏆 Heisman (S{heisman.seasonNumber}):{' '}
+          {collegeProspectName(league, heisman.winnerId)} (
+          {getSchoolById(heisman.winnerSchoolId)?.name ?? heisman.winnerSchoolId})
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <CollegeLeaderList
-          title="Passing yards"
-          items={passingLeaders}
-        />
-        <CollegeLeaderList
-          title="Rushing yards"
-          items={rushingLeaders}
-        />
-        <CollegeLeaderList
-          title="Receiving yards"
-          items={receivingLeaders}
-        />
+        <CollegeLeaderList title="Passing yards" items={passingLeaders} />
+        <CollegeLeaderList title="Rushing yards" items={rushingLeaders} />
+        <CollegeLeaderList title="Receiving yards" items={receivingLeaders} />
       </div>
     </section>
   );
+}
+
+function collegeLeaderItems(
+  lines: readonly CollegeSeasonStatLine[],
+  category: CollegeStatCategory,
+  league: LeagueState,
+): Array<{ name: string; school: string; value: number }> {
+  return collegeStatLeaders(lines, category, 5).map((l) => ({
+    name: collegeProspectName(league, l.playerId),
+    school: getSchoolById(l.schoolId)?.name ?? l.schoolId,
+    value: l[category],
+  }));
 }
 
 function CollegeLeaderList({
@@ -7645,38 +7653,6 @@ function CollegeLeaderList({
       )}
     </div>
   );
-}
-
-function topCollegeStatLeaders(
-  stream: readonly CollegePlayerGameStats[],
-  kind: 'passing' | 'rushing' | 'receiving',
-  league: LeagueState,
-): Array<{ name: string; school: string; value: number }> {
-  const sums = new Map<string, { yards: number; schoolId: string }>();
-  for (const s of stream) {
-    const yards =
-      kind === 'passing'
-        ? s.passingYards
-        : kind === 'rushing'
-          ? s.rushingYards
-          : s.receivingYards;
-    if (yards <= 0) continue;
-    const existing = sums.get(s.playerId) ?? { yards: 0, schoolId: s.schoolId };
-    existing.yards += yards;
-    sums.set(s.playerId, existing);
-  }
-  const ranked = [...sums.entries()]
-    .sort((a, b) => b[1].yards - a[1].yards)
-    .slice(0, 5);
-  return ranked.map(([playerId, { yards, schoolId }]) => {
-    const prospect = league.collegePool.find((p) => p.id === playerId);
-    const school = getSchoolById(schoolId);
-    return {
-      name: prospect ? `${prospect.firstName} ${prospect.lastName}` : playerId,
-      school: school?.name ?? schoolId,
-      value: yards,
-    };
-  });
 }
 
 function TimelineGroup({

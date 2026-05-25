@@ -96,6 +96,8 @@ import {
   buildCfpFinal,
   buildBowlSlate,
   runAllStarShowcase,
+  aggregateCollegeSeasonStats,
+  selectHeisman,
 } from '../college-season/index.js';
 import type {
   CollegeGame,
@@ -1383,14 +1385,21 @@ function applyCollegeConferenceChampionships(
 }
 
 /**
- * Heisman ceremony — Slice 1 placeholder. The lifecycle phase
- * exists so future media + Heisman-race slices can hook in here.
- * For now the phase is a tick marker that just records the
- * advancement; the actual winner selection lands when stat
- * aggregators + media buzz tracking are wired up.
+ * Heisman ceremony (v0.67) — aggregate the season's college production
+ * and crown a winner. Fires mid-December, after the conference
+ * championships and before POST_SEASON_FINALIZE rolls the season, so it
+ * judges the current draft class's just-completed season. The result is
+ * appended to `heismanHistory` (append-only league history); a season
+ * with no recorded production leaves the history untouched.
  */
 function applyHeismanCeremony(league: LeagueState): LeagueState {
-  return { ...league, lifecyclePhase: 'HEISMAN_CEREMONY' };
+  const lines = aggregateCollegeSeasonStats(league.collegeGameStats);
+  const result = selectHeisman(lines, league.seasonNumber);
+  return {
+    ...league,
+    heismanHistory: result ? [...league.heismanHistory, result] : league.heismanHistory,
+    lifecyclePhase: 'HEISMAN_CEREMONY',
+  };
 }
 
 function applyCollegeBowls(league: LeagueState, prng: PrngClass): LeagueState {

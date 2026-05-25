@@ -19,7 +19,12 @@ import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
 import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ScoutId, ContractId, MediaOutletId } from './ids.js';
 import type { MediaOutlet, MediaReport } from './media.js';
-import type { CollegeSeasonSchedule, CollegePlayerGameStats, AllStarGame } from './college-season.js';
+import type {
+  CollegeSeasonSchedule,
+  CollegePlayerGameStats,
+  AllStarGame,
+  HeismanResult,
+} from './college-season.js';
 
 /**
  * Top-level engine state. The entire simulation lives behind this single
@@ -290,6 +295,13 @@ export interface LeagueState {
    * these entries are the rosters for inspector display.
    */
   allStarGames: readonly AllStarGame[];
+  /**
+   * Append-only Heisman history (v0.67+), one entry per season the
+   * award has been decided. Persists as league history (unlike the
+   * per-cycle college schedule) — media + draft narratives reference
+   * past winners. Latest entry = most recent winner.
+   */
+  heismanHistory: readonly HeismanResult[];
 }
 
 export type LeaguePhase =

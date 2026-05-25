@@ -210,6 +210,12 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, allStarGames: [] };
   }
 
+  // v0.67.0 Heisman history. Empty — accumulates forward as the award
+  // is decided each season.
+  if (!next.heismanHistory) {
+    next = { ...next, heismanHistory: [] };
+  }
+
   // v0.44.0 draft pick assets. Backfill: each team owns its own picks
   // for next 3 years (no trade history reconstructable).
   if (!next.draftPicks) {
