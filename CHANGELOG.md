@@ -12,7 +12,22 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — Draft Shift inspector tab
+
+A new **Draft Shift** tab tracks how prospects' scouting stock moves
+tick-to-tick — making the all-star bowls' (and top-30 visits') scouting
+effect visible. Stock is a confidence-weighted "observed grade" derived
+from the college observation stream, ranked across the field, so it
+shifts whenever a scouting event adds observations. Each such tick adds
+a collapsible chiclet listing the movers with magnitude/direction arrows
+(`⇈` big rise / `↑` rise / `↓` fall / `⇊` big fall / `✦` new to board)
+and the rank change. A **team picker** switches the ranking source
+between league-wide and a single team's scouts — so different front
+offices show different risers/fallers (matters more once the full
+scouting system is integrated). Tracking lives at the app level, so it
+records every lifecycle step regardless of the active tab.
+
+Inspector-only (no engine changes).
 
 ---
 

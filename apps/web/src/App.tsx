@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createLeague,
   getArchetypeById,
@@ -86,7 +86,7 @@ import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsi
  */
 const DEFAULT_SEED = 'phase-2-season';
 
-type InspectorTab = 'league' | 'draft' | 'free-agency' | 'news' | 'lifecycle';
+type InspectorTab = 'league' | 'draft' | 'draft-shift' | 'free-agency' | 'news' | 'lifecycle';
 
 interface TabDef {
   id: InspectorTab;
@@ -105,6 +105,11 @@ const TAB_DEFS: readonly TabDef[] = [
     id: 'draft',
     label: 'Draft',
     activeClasses: 'border-violet-400 bg-violet-500/10 text-violet-200',
+  },
+  {
+    id: 'draft-shift',
+    label: 'Draft Shift',
+    activeClasses: 'border-cyan-400 bg-cyan-500/10 text-cyan-200',
   },
   {
     id: 'free-agency',
@@ -128,6 +133,53 @@ export function App() {
   const [league, setLeague] = useState<LeagueState>(() => createLeague({ seed: DEFAULT_SEED }));
   const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
   const [activeTab, setActiveTab] = useState<InspectorTab>('league');
+
+  // ─ Draft Shift tracking ─ Records, per tick, how prospects' scouting
+  // stock moved. Lives at App level (via an effect on `league`) so it
+  // captures every step regardless of which tab is active.
+  const [draftShiftPicker, setDraftShiftPicker] = useState<DraftShiftPicker>('LEAGUE');
+  const [draftShiftLog, setDraftShiftLog] = useState<DraftShiftEvent[]>([]);
+  const dsBaselineRef = useRef<Map<string, number>>(new Map());
+  const dsSigRef = useRef<string | null>(null);
+  const dsObsRef = useRef<number>(-1);
+  const dsPickerRef = useRef<DraftShiftPicker>('LEAGUE');
+  const dsSeedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const sig = draftShiftTickSig(league);
+    const obs = league.collegeObservations.length;
+    // Reset the tracker on first run, a re-roll (seed change), or a
+    // picker change — re-baseline against the current ranking, clear the
+    // log, and don't emit a spurious "everything moved" event.
+    const isReset =
+      dsSigRef.current === null ||
+      dsSeedRef.current !== league.seed ||
+      dsPickerRef.current !== draftShiftPicker;
+    if (isReset) {
+      dsBaselineRef.current = rankProspectsByGrade(league, draftShiftPicker);
+      dsSigRef.current = sig;
+      dsObsRef.current = obs;
+      dsPickerRef.current = draftShiftPicker;
+      dsSeedRef.current = league.seed;
+      setDraftShiftLog([]);
+      return;
+    }
+    // A genuine tick advanced the lifecycle. Rankings can only move when
+    // the observation stream grew (a scouting event), so skip otherwise.
+    if (sig !== dsSigRef.current) {
+      if (obs !== dsObsRef.current) {
+        const next = rankProspectsByGrade(league, draftShiftPicker);
+        const movers = diffProspectRanks(dsBaselineRef.current, next, league);
+        if (movers.length > 0) {
+          const event = buildDraftShiftEvent(league, movers);
+          setDraftShiftLog((logs) => [event, ...logs].slice(0, 80));
+        }
+        dsBaselineRef.current = next;
+      }
+      dsSigRef.current = sig;
+      dsObsRef.current = obs;
+    }
+  }, [league, draftShiftPicker]);
 
   const seasonSimmed = league.schedule !== null;
   const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
@@ -295,6 +347,15 @@ export function App() {
         </>
       )}
 
+      {activeTab === 'draft-shift' && (
+        <DraftShiftPanel
+          picker={draftShiftPicker}
+          onPickerChange={setDraftShiftPicker}
+          log={draftShiftLog}
+          teams={teams}
+        />
+      )}
+
       {activeTab === 'free-agency' && (
         <FreeAgentPoolPanel league={league} />
       )}
@@ -347,6 +408,8 @@ function TabNav({
       case 'news':
         return leagueCounts.recentTransactions;
       case 'league':
+        return null;
+      case 'draft-shift':
         return null;
       case 'lifecycle':
         return null;
@@ -7680,4 +7743,292 @@ function TimelineCell({
 function formatDateOrEmpty(date: CalendarDate | null): string {
   if (!date) return '';
   return `${date.month}/${date.day}`;
+}
+
+// ─── Draft Shift tab (v0.65) ────────────────────────────────────────────
+//
+// Tracks how prospects' scouting stock moves tick-to-tick. Stock is a
+// confidence-weighted "observed grade" derived from the college
+// observation stream, ranked across the field — so it shifts whenever a
+// scouting event adds observations (the all-star bowls, the top-30
+// visit + scouting-cycle sweep). The League view uses every team's
+// observations; a team view uses only that team's scouts', so different
+// front offices see different risers/fallers (Doc 3's "32 boards").
+
+type DraftShiftPicker = 'LEAGUE' | TeamId;
+
+type ShiftKind = 'big-up' | 'up' | 'down' | 'big-down' | 'new';
+
+interface ProspectShift {
+  playerId: string;
+  name: string;
+  school: string;
+  oldRank: number | null;
+  newRank: number;
+  delta: number; // > 0 = climbed toward #1
+  kind: ShiftKind;
+}
+
+interface DraftShiftEvent {
+  key: string;
+  phase: LifecyclePhase;
+  label: string;
+  dateLabel: string;
+  movers: ProspectShift[];
+}
+
+/** Rank-delta magnitude that counts as a "big" move (double arrow). */
+const DRAFT_SHIFT_BIG = 10;
+const DRAFT_SHIFT_MAX_MOVERS = 60;
+
+function draftShiftTickSig(league: LeagueState): string {
+  return `${league.lifecyclePhase}|${league.currentWeek}|${league.collegeCurrentWeek}|${league.seasonNumber}`;
+}
+
+function observationGrade(
+  skills: Readonly<Record<string, number | undefined>>,
+  confidence: Readonly<Record<string, number | undefined>>,
+): { overall: number; conf: number } {
+  let sSum = 0;
+  let sN = 0;
+  let cSum = 0;
+  let cN = 0;
+  for (const v of Object.values(skills)) {
+    if (typeof v === 'number') {
+      sSum += v;
+      sN += 1;
+    }
+  }
+  for (const v of Object.values(confidence)) {
+    if (typeof v === 'number') {
+      cSum += v;
+      cN += 1;
+    }
+  }
+  return { overall: sN > 0 ? sSum / sN : 0, conf: cN > 0 ? cSum / cN : 0 };
+}
+
+/**
+ * Rank every observed prospect by confidence-weighted observed grade,
+ * using either the whole league's observations or one team's scouts'.
+ * Returns playerId → 1-based rank.
+ */
+function rankProspectsByGrade(
+  league: LeagueState,
+  picker: DraftShiftPicker,
+): Map<string, number> {
+  let scoutFilter: Set<string> | null = null;
+  if (picker !== 'LEAGUE') {
+    const team = league.teams[picker];
+    scoutFilter = new Set<string>(team ? [...team.collegeScoutIds] : []);
+  }
+
+  const agg = new Map<string, { wsum: number; csum: number }>();
+  for (const obs of league.collegeObservations) {
+    if (scoutFilter && !scoutFilter.has(obs.scoutId)) continue;
+    const { overall, conf } = observationGrade(
+      obs.skills as Record<string, number | undefined>,
+      obs.confidence as Record<string, number | undefined>,
+    );
+    if (conf <= 0) continue;
+    const cur = agg.get(obs.collegePlayerId) ?? { wsum: 0, csum: 0 };
+    cur.wsum += overall * conf;
+    cur.csum += conf;
+    agg.set(obs.collegePlayerId, cur);
+  }
+
+  const graded: Array<[string, number]> = [];
+  for (const [id, { wsum, csum }] of agg) {
+    if (csum > 0) graded.push([id, wsum / csum]);
+  }
+  graded.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+
+  const rank = new Map<string, number>();
+  graded.forEach(([id], i) => rank.set(id, i + 1));
+  return rank;
+}
+
+function diffProspectRanks(
+  prev: Map<string, number>,
+  next: Map<string, number>,
+  league: LeagueState,
+): ProspectShift[] {
+  const poolById = new Map(league.collegePool.map((cp) => [cp.id, cp]));
+  const movers: ProspectShift[] = [];
+  for (const [id, newRank] of next) {
+    const oldRank = prev.get(id) ?? null;
+    let kind: ShiftKind;
+    let delta = 0;
+    if (oldRank === null) {
+      kind = 'new';
+    } else {
+      delta = oldRank - newRank;
+      if (delta === 0) continue; // neutral — omit from the list
+      if (delta >= DRAFT_SHIFT_BIG) kind = 'big-up';
+      else if (delta > 0) kind = 'up';
+      else if (delta <= -DRAFT_SHIFT_BIG) kind = 'big-down';
+      else kind = 'down';
+    }
+    const cp = poolById.get(id as never);
+    movers.push({
+      playerId: id,
+      name: cp ? `${cp.firstName} ${cp.lastName}` : id,
+      school: cp ? getSchoolById(cp.schoolId)?.name ?? cp.schoolId : '',
+      oldRank,
+      newRank,
+      delta,
+      kind,
+    });
+  }
+  movers.sort((a, b) => draftShiftWeight(b) - draftShiftWeight(a));
+  return movers.slice(0, DRAFT_SHIFT_MAX_MOVERS);
+}
+
+function draftShiftWeight(s: ProspectShift): number {
+  // New entrants sort by how high they debuted; movers by magnitude.
+  if (s.kind === 'new') return 100000 - s.newRank;
+  return Math.abs(s.delta);
+}
+
+function buildDraftShiftEvent(league: LeagueState, movers: ProspectShift[]): DraftShiftEvent {
+  const date = phaseCalendarDate(
+    league.lifecyclePhase,
+    league.currentWeek,
+    league.seasonNumber,
+    league.collegeCurrentWeek,
+  );
+  return {
+    key: `${draftShiftTickSig(league)}|${league.collegeObservations.length}`,
+    phase: league.lifecyclePhase,
+    label: phaseCalendarLabel(league.lifecyclePhase, league.currentWeek, league.collegeCurrentWeek),
+    dateLabel: formatDateOrEmpty(date),
+    movers,
+  };
+}
+
+function DraftShiftArrow({ kind }: { kind: ShiftKind }) {
+  const map: Record<ShiftKind, { glyph: string; cls: string }> = {
+    'big-up': { glyph: '⇈', cls: 'text-emerald-400' },
+    up: { glyph: '↑', cls: 'text-emerald-300/80' },
+    down: { glyph: '↓', cls: 'text-rose-300/80' },
+    'big-down': { glyph: '⇊', cls: 'text-rose-400' },
+    new: { glyph: '✦', cls: 'text-cyan-300' },
+  };
+  const { glyph, cls } = map[kind];
+  return <span className={`font-mono ${cls}`}>{glyph}</span>;
+}
+
+function DraftShiftPanel({
+  picker,
+  onPickerChange,
+  log,
+  teams,
+}: {
+  picker: DraftShiftPicker;
+  onPickerChange: (p: DraftShiftPicker) => void;
+  log: readonly DraftShiftEvent[];
+  teams: readonly { identity: { id: TeamId; abbreviation: string; location: string } }[];
+}) {
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const toggle = (key: string) =>
+    setCollapsed((c) => ({ ...c, [key]: !c[key] }));
+
+  return (
+    <section className="mt-6 rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-4">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-cyan-200">Draft Shift</h2>
+        <label className="flex items-center gap-2 text-xs text-zinc-400">
+          view
+          <select
+            value={picker}
+            onChange={(e) => onPickerChange(e.target.value as DraftShiftPicker)}
+            className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-200 focus:border-cyan-500 focus:outline-none"
+          >
+            <option value="LEAGUE">League consensus</option>
+            {teams.map((t) => (
+              <option key={t.identity.id} value={t.identity.id}>
+                {t.identity.abbreviation} — {t.identity.location}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <p className="mb-3 text-xs text-zinc-500">
+        Confidence-weighted scouting stock, ranked across the field. A new
+        chiclet is added each tick a scouting event moves the board (the
+        all-star bowls, the top-30 / scouting sweep). Switching the view
+        re-baselines and clears the log.
+      </p>
+
+      <div className="mb-3 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-zinc-500">
+        <span><span className="font-mono text-emerald-400">⇈</span> big rise</span>
+        <span><span className="font-mono text-emerald-300/80">↑</span> rise</span>
+        <span><span className="font-mono text-rose-300/80">↓</span> fall</span>
+        <span><span className="font-mono text-rose-400">⇊</span> big fall</span>
+        <span><span className="font-mono text-cyan-300">✦</span> new to board</span>
+      </div>
+
+      {log.length === 0 ? (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-500">
+          No board movement yet. Step through the lifecycle (Lifecycle tab)
+          — the Senior/Shrine bowls and the top-30 visits will move
+          prospects' stock here.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {log.map((ev) => {
+            const isCollapsed = collapsed[ev.key];
+            return (
+              <div
+                key={ev.key}
+                className="rounded border border-zinc-800 bg-zinc-950/40"
+              >
+                <button
+                  onClick={() => toggle(ev.key)}
+                  className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-zinc-900/40"
+                >
+                  <span className="flex items-center gap-2 text-sm">
+                    <span className="font-mono text-[10px] text-zinc-500">
+                      {isCollapsed ? '▸' : '▾'}
+                    </span>
+                    <span className="text-cyan-200">{ev.label}</span>
+                    {ev.dateLabel && (
+                      <span className="font-mono text-[10px] text-zinc-500">
+                        {ev.dateLabel}
+                      </span>
+                    )}
+                  </span>
+                  <span className="font-mono text-[10px] text-zinc-500">
+                    {ev.movers.length} mover{ev.movers.length === 1 ? '' : 's'}
+                  </span>
+                </button>
+                {!isCollapsed && (
+                  <ul className="border-t border-zinc-800 px-3 py-1.5">
+                    {ev.movers.map((m) => (
+                      <li
+                        key={m.playerId}
+                        className="flex items-baseline justify-between gap-2 py-0.5 font-mono text-xs"
+                      >
+                        <span className="flex items-baseline gap-1.5 truncate">
+                          <DraftShiftArrow kind={m.kind} />
+                          <span className="truncate text-zinc-300">{m.name}</span>
+                          <span className="truncate text-zinc-600">({m.school})</span>
+                        </span>
+                        <span className="shrink-0 tabular-nums text-zinc-500">
+                          {m.oldRank === null
+                            ? `NEW → #${m.newRank}`
+                            : `#${m.oldRank} → #${m.newRank} (${m.delta > 0 ? '+' : ''}${m.delta})`}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
 }
