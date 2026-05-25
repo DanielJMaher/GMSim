@@ -95,3 +95,36 @@ vitest summary line shows zero failures BEFORE any `git push`. This
 applies whether the user says "fire it off," "push," or any other push
 trigger. If tests are failing — even unrelated to the slice — fix or
 revert until the suite is green, then push.
+
+## Inspector refresh (after every slice)
+
+The inspector at `localhost:5173` must show the **current** build after
+every slice — do this automatically, don't wait to be told it's stale.
+
+Vite's HMR is **not** reliable here for two reasons:
+
+1. **Engine changes don't hot-update.** Vite pre-bundles the linked
+   `@gmsim/engine` workspace (optimizeDeps), so edits to
+   `packages/engine/src` are served from a stale pre-bundle even after a
+   browser refresh. Only `apps/web` source (e.g. `App.tsx`) hot-reloads.
+2. **The version badge is baked at server start.** `__APP_VERSION__` is
+   a Vite `define` read from `package.json` when the dev server boots, so
+   after a `pnpm version:sync` the badge keeps showing the old version
+   until the server is restarted.
+
+So a plain long-lived `pnpm dev` will misreport the version and run stale
+engine code. **After any slice that touches engine source or bumps the
+version (i.e. essentially every slice), relaunch the inspector clean:**
+
+1. Kill anything listening on ports 5173–5190 (Vite auto-increments, and
+   stale older-version servers on 5174+ confuse eyeball verification).
+2. Delete the Vite dep cache: `apps/web/node_modules/.vite`.
+3. Relaunch `pnpm dev` from the repo root (run it in the background).
+4. Confirm it bound `localhost:5173` and reports the expected version.
+
+Launch `pnpm dev` from the **repo root** (a background shell may land
+elsewhere — `cd` to the root first), and never kill by "all node
+processes" (that takes the test runner down too) — target the port
+listeners only. The Vite dep-cache wipe is the part that actually forces
+the engine to re-bundle from current source; skipping it is why a
+refresh alone keeps showing the old build.
