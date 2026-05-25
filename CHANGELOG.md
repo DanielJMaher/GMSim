@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.66.0] — 2026-05-24
+
 ### Added — Draft Shift inspector tab
 
 A new **Draft Shift** tab tracks how prospects' scouting stock moves
