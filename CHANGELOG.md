@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.68.0] — 2026-05-25
+
 ### Added — scout sleepers (two-channel) + combine measurables now matter
 
 Each college scout now rolls **3–5 personal "sleepers"** every pre-draft
