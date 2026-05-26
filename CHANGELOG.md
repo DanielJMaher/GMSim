@@ -12,7 +12,29 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — media scouting reports, slice 3: mock draft boards
+
+The "32 mocks, no global consensus" output. Each college outlet now has
+its own mock draft board — its evaluators' confidence-weighted read of
+the class ranked into projected overall picks — plus a media-consensus
+board pooling every outlet. Because each outlet's hype bias is baked
+into its observations (slice 1), the boards genuinely **diverge**: a
+high-hype blog reaches on the flashy names while a sharp insider stays
+grounded.
+
+- Engine: `media/mock-boards.ts` — `computeOutletMockBoard`,
+  `computeMediaConsensusBoard` (pure, derived on demand from the media
+  observation stream; no new state).
+- Reports: each outlet publishes its top-3 picks as `ProspectBoardReport`
+  headlines ("{Outlet} mock: X — No. 1 overall") into the feed.
+- Inspector: a **Media Mock Boards** panel on the Draft tab — consensus
+  order with a column per outlet, divergence vs consensus color-coded
+  (green = an outlet reaching ahead of consensus, red = fading) so the
+  hype is visible at a glance.
+
+Engine-additive — no draft/roster drift.
+
+Next: weekly in-season hype (Heisman-race narrative thread).
 
 ---
 

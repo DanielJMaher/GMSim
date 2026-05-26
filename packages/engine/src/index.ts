@@ -157,6 +157,11 @@ export { generateMediaOutlets } from './media/generate.js';
 export { generateMediaCollegeObservations } from './media/prospect-evaluators.js';
 export { buildProspectSleeperTake } from './media/prospect-takes.js';
 export {
+  computeOutletMockBoard,
+  computeMediaConsensusBoard,
+} from './media/mock-boards.js';
+export type { MockBoardEntry } from './media/mock-boards.js';
+export {
   generateWeeklyMediaReports,
   generatePlayoffRoundMediaReports,
 } from './media/reports.js';

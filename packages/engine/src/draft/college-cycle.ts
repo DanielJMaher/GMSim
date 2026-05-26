@@ -13,7 +13,8 @@ import {
 } from './sleepers.js';
 import { aggregateCollegeSeasonStats } from '../college-season/season-stats.js';
 import { generateMediaCollegeObservations } from '../media/prospect-evaluators.js';
-import { buildProspectSleeperTake } from '../media/prospect-takes.js';
+import { buildProspectSleeperTake, buildMockBoardReport } from '../media/prospect-takes.js';
+import { computeOutletMockBoard } from '../media/mock-boards.js';
 import type { MediaReport } from '../types/media.js';
 
 /**
@@ -137,10 +138,33 @@ export function advanceCollegeScoutingCycle(
     }
   }
 
+  // ── Mock-board headlines (top picks per outlet) ───────────────────
+  // The full per-outlet + consensus boards are computed on demand from
+  // the media stream; here each outlet publishes its premium picks.
+  const updatedMediaStream = [...league.mediaCollegeObservations, ...mediaObs];
+  for (const outlet of Object.values(league.mediaOutlets)) {
+    if (outlet.focus !== 'COLLEGE') continue;
+    const board = computeOutletMockBoard(updatedMediaStream, outlet.id, 3);
+    for (const entry of board) {
+      const prospect = poolById.get(entry.prospectId);
+      if (!prospect) continue;
+      takes.push(
+        buildMockBoardReport({
+          outlet,
+          prospect,
+          projectedOverallPick: entry.projectedOverallPick,
+          filedOnTick: observedOnTick,
+          seasonNumber: league.seasonNumber,
+          lifecyclePhase: 'TOP_30_VISITS',
+        }),
+      );
+    }
+  }
+
   return {
     ...league,
     collegeObservations: [...league.collegeObservations, ...sweep, ...sleeperObs],
-    mediaCollegeObservations: [...league.mediaCollegeObservations, ...mediaObs],
+    mediaCollegeObservations: updatedMediaStream,
     mediaReports: [...league.mediaReports, ...takes],
   };
 }

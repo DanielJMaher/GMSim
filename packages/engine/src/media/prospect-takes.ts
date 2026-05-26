@@ -104,3 +104,39 @@ export function buildProspectSleeperTake(
     subjectIsCollegeProspect: true,
   };
 }
+
+/**
+ * One outlet's mock-board headline for a top projected pick — a
+ * `ProspectBoardReport` carrying the projected slot. Published for an
+ * outlet's premium picks so "[Outlet] mock: X at No. 1" shows in the
+ * feed; the full board is computed on demand (see media/mock-boards.ts).
+ */
+export function buildMockBoardReport(
+  args: {
+    outlet: MediaOutlet;
+    prospect: CollegePlayer;
+    projectedOverallPick: number;
+    filedOnTick: number;
+    seasonNumber: number;
+    lifecyclePhase: LifecyclePhase;
+  },
+): MediaReport {
+  const { outlet, prospect, projectedOverallPick } = args;
+  const school = SCHOOL_NAME_BY_ID.get(prospect.schoolId) ?? prospect.schoolId;
+  const headline = `${outlet.name} mock: ${prospect.firstName} ${prospect.lastName} (${prospect.nflProjectedPosition}, ${school}) — No. ${projectedOverallPick} overall.`;
+  return {
+    id: MediaReportId(
+      `CMOCK_S${args.seasonNumber}_${outlet.id}_${prospect.id}`,
+    ),
+    outletId: outlet.id,
+    filedOnTick: args.filedOnTick,
+    seasonNumber: args.seasonNumber,
+    weekNumber: null,
+    lifecyclePhase: args.lifecyclePhase,
+    tone: 'NEUTRAL',
+    headline,
+    kind: 'prospect-board',
+    subjectPlayerId: prospect.id,
+    projectedOverallPick,
+  };
+}

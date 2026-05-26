@@ -61,7 +61,7 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
 import type { PositionNeed } from '@gmsim/engine';
 import {
@@ -383,6 +383,7 @@ export function App() {
         <>
           <CollegePoolPanel league={league} />
           <DraftBoardsPanel league={league} />
+          <MediaMockBoardsPanel league={league} />
           <DraftReplayPanel league={league} />
           <DraftTradesPanel league={league} />
           <DraftResultsPanel league={league} />
@@ -7877,6 +7878,128 @@ function buildDraftShiftEvent(league: LeagueState, movers: ProspectShift[]): Dra
     dateLabel: formatDateOrEmpty(date),
     movers,
   };
+}
+
+// ─── Media Mock Boards (v0.72) ──────────────────────────────────────────
+//
+// The media-consensus mock board next to each outlet's own — so you can
+// see where the hot-take blog reaches and the sharp insider stays
+// grounded (divergence vs consensus is color-coded).
+
+function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
+  const DEPTH = 20;
+  const collegeOutlets = useMemo(
+    () =>
+      Object.values(league.mediaOutlets)
+        .filter((o) => o.focus === 'COLLEGE')
+        .sort((a, b) => b.accuracySpectrum - a.accuracySpectrum),
+    [league.mediaOutlets],
+  );
+
+  const consensus = useMemo(
+    () => computeMediaConsensusBoard(league.mediaCollegeObservations, DEPTH),
+    [league.mediaCollegeObservations],
+  );
+
+  const outletPicks = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    for (const o of collegeOutlets) {
+      const board = computeOutletMockBoard(league.mediaCollegeObservations, o.id, 60);
+      const byProspect = new Map<string, number>();
+      for (const e of board) byProspect.set(e.prospectId, e.projectedOverallPick);
+      map.set(o.id, byProspect);
+    }
+    return map;
+  }, [league.mediaCollegeObservations, collegeOutlets]);
+
+  if (consensus.length === 0) {
+    return (
+      <section className="mt-6 rounded border border-fuchsia-500/20 bg-fuchsia-500/[0.03] p-3 text-xs text-zinc-500">
+        🎙️ Media mock boards — empty until the pre-draft media cycle runs
+        (step through Top-30 Visits, or simulate + advance a season).
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 rounded border border-fuchsia-500/25 bg-fuchsia-500/[0.04] p-4">
+      <h2 className="mb-1 text-lg font-semibold text-fuchsia-200">Media Mock Boards</h2>
+      <p className="mb-3 text-xs text-zinc-500">
+        Consensus order vs each outlet's own mock (cols sorted by outlet
+        accuracy, sharpest first). A cell is green when an outlet has the
+        prospect well ahead of consensus, red when well behind — that gap
+        is the hype talking.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="text-left text-zinc-500">
+              <th className="px-2 py-1 font-medium">#</th>
+              <th className="px-2 py-1 font-medium">Prospect</th>
+              {collegeOutlets.map((o) => (
+                <th key={o.id} className="px-2 py-1 text-center font-medium" title={o.name}>
+                  {abbreviateOutlet(o.name)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {consensus.map((entry) => {
+              const cp = league.collegePool.find((p) => p.id === entry.prospectId);
+              const name = cp ? `${cp.firstName} ${cp.lastName}` : entry.prospectId;
+              const school = cp ? getSchoolById(cp.schoolId)?.name ?? cp.schoolId : '';
+              return (
+                <tr key={entry.prospectId} className="border-t border-zinc-800/60">
+                  <td className="px-2 py-1 font-mono tabular-nums text-fuchsia-300">
+                    {entry.projectedOverallPick}
+                  </td>
+                  <td className="px-2 py-1">
+                    <span className="text-zinc-200">{name}</span>{' '}
+                    <span className="text-zinc-600">({school})</span>
+                  </td>
+                  {collegeOutlets.map((o) => {
+                    const pick = outletPicks.get(o.id)?.get(entry.prospectId);
+                    return (
+                      <td
+                        key={o.id}
+                        className={`px-2 py-1 text-center font-mono tabular-nums ${mockCellClass(
+                          pick,
+                          entry.projectedOverallPick,
+                        )}`}
+                      >
+                        {pick ?? '—'}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function abbreviateOutlet(name: string): string {
+  // Short column header — first word + any capitals, capped.
+  const compact = name.replace(/[^A-Za-z0-9 ]/g, '');
+  if (compact.length <= 10) return compact;
+  return compact
+    .split(' ')
+    .map((w) => w[0]?.toUpperCase() ?? '')
+    .join('')
+    .slice(0, 5);
+}
+
+function mockCellClass(pick: number | undefined, consensusPick: number): string {
+  if (pick === undefined) return 'text-zinc-700';
+  const delta = consensusPick - pick; // > 0 = outlet has him earlier (likes more)
+  if (delta >= 8) return 'text-emerald-400';
+  if (delta >= 3) return 'text-emerald-300/70';
+  if (delta <= -8) return 'text-rose-400';
+  if (delta <= -3) return 'text-rose-300/70';
+  return 'text-zinc-400';
 }
 
 function DraftShiftArrow({ kind }: { kind: ShiftKind }) {
