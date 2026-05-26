@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.73.0] — 2026-05-26
+
 ### Added — media scouting reports, slice 4: the in-season Heisman race
 
 The media now tells a *story* across the season. From mid-season
