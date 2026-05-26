@@ -155,6 +155,7 @@ export type { SimulateSeasonOptions } from './season/index.js';
 // Media (v0.62)
 export { generateMediaOutlets } from './media/generate.js';
 export { generateMediaCollegeObservations } from './media/prospect-evaluators.js';
+export { buildProspectSleeperTake } from './media/prospect-takes.js';
 export {
   generateWeeklyMediaReports,
   generatePlayoffRoundMediaReports,

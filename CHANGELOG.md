@@ -12,7 +12,29 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — media scouting reports, slice 2: sleeper-alert takes
+
+The media now has a *voice*. Each college outlet champions a couple of
+sleepers (loud outlets a few more) and publishes a `player-take` report
+— the narrative on top of slice 1's numeric read. Flavor is driven by
+the sleeper channel and the outlet's hype:
+
+- **Tape** sleeper → "don't sleep on this small-school gem" / "the kind
+  of guy who plays 15 years without a Pro Bowl."
+- **Measurables** sleeper → "freak workout, production questions — a
+  reach waiting to happen."
+- **High-hype** outlet → loud and speculative ("steal of the draft!");
+  **measured** outlet → grounded ("quietly pro-ready").
+
+Selection reuses the shared sleeper machinery (so the same engine that
+moves team boards drives the media's darlings); the takes are
+`PlayerTakeReport`s (`subjectIsCollegeProspect`) appended to the
+existing `mediaReports` stream and rendered in the lifecycle event log
+at the pre-draft scouting tick. New `media/prospect-takes.ts`
+(`buildProspectSleeperTake`). Engine-additive — no draft/roster drift.
+
+Next: per-outlet mock boards as a first-class entity, and weekly
+in-season hype.
 
 ---
 

@@ -13,6 +13,8 @@ import {
 } from './sleepers.js';
 import { aggregateCollegeSeasonStats } from '../college-season/season-stats.js';
 import { generateMediaCollegeObservations } from '../media/prospect-evaluators.js';
+import { buildProspectSleeperTake } from '../media/prospect-takes.js';
+import type { MediaReport } from '../types/media.js';
 
 /**
  * Run one college-scouting cycle: every college scout produces a
@@ -64,11 +66,12 @@ export function advanceCollegeScoutingCycle(
     seasonStats,
   );
 
+  const poolById = new Map<PlayerId, CollegePlayer>(
+    league.collegePool.map((cp) => [cp.id, cp]),
+  );
+
   const sleeperObs: CollegePlayerObservation[] = [];
   if (profiles.size > 0) {
-    const poolById = new Map<PlayerId, CollegePlayer>(
-      league.collegePool.map((cp) => [cp.id, cp]),
-    );
     const sleeperPrng = prng.fork('sleepers');
     for (const teamId of Object.keys(scoutsByTeam) as TeamId[]) {
       for (const scout of scoutsByTeam[teamId] ?? []) {
@@ -99,9 +102,45 @@ export function advanceCollegeScoutingCycle(
     observedOnTick,
   );
 
+  // ── Media sleeper-alert takes (narrative) ─────────────────────────
+  // Each college outlet champions a couple of sleepers (loud outlets a
+  // few more). Selection reuses the shared sleeper machinery; flavor is
+  // driven by the channel + the outlet's hype.
+  const takes: MediaReport[] = [];
+  if (profiles.size > 0) {
+    const takePrng = prng.fork('media-takes');
+    // Generalist stand-in: no specialty, so sleeper selection is pure
+    // worthiness (no position nudge). selectScoutSleepers only reads
+    // `knownSpecialty`.
+    const generalist = { knownSpecialty: '' } as unknown as CollegeScout;
+    for (const outlet of Object.values(league.mediaOutlets)) {
+      if (outlet.focus !== 'COLLEGE') continue;
+      const outletPrng = takePrng.fork(`outlet:${outlet.id}`);
+      const picks = selectScoutSleepers(outletPrng.fork('pick'), generalist, profiles).slice(
+        0,
+        outlet.hypeSpectrum >= 6 ? 3 : 2,
+      );
+      for (const pick of picks) {
+        const prospect = poolById.get(pick.prospectId);
+        if (!prospect) continue;
+        takes.push(
+          buildProspectSleeperTake(outletPrng.fork(`take:${pick.prospectId}`), {
+            outlet,
+            prospect,
+            channel: pick.channel,
+            filedOnTick: observedOnTick,
+            seasonNumber: league.seasonNumber,
+            lifecyclePhase: 'TOP_30_VISITS',
+          }),
+        );
+      }
+    }
+  }
+
   return {
     ...league,
     collegeObservations: [...league.collegeObservations, ...sweep, ...sleeperObs],
     mediaCollegeObservations: [...league.mediaCollegeObservations, ...mediaObs],
+    mediaReports: [...league.mediaReports, ...takes],
   };
 }
