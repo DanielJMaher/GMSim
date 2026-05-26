@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.74.0] — 2026-05-26
+
 ### Changed — media mock boards: living, year-round, named correctly
 
 Three fixes to the mock-board system:
