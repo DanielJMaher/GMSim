@@ -12,7 +12,24 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — sticky controls + perceived-vs-real grades on every board
+
+- **Sticky control bar.** Step Tick (+ phase), Simulate/Advance, Skip
+  Years, and Re-Roll now live in a bar that freezes to the top on scroll
+  (merged with the tab nav), so you can step ticks while scrolled
+  anywhere in the inspector.
+- **0-100 grade on every board.** Each board now shows a **perceived /
+  real** grade pair: the perceived grade is what the evaluators believe
+  (team board → that team's observed-skill score; media board →
+  observed consensus; consensus big board → league-mean observed skill),
+  and the real grade is the prospect's true overall (mean of current
+  skills). The cell tints by the gap — amber = inflated (hype), cyan =
+  slept on, green = honest read — so you can see at a glance whether the
+  scouting/media/board layer aligns with reality. Added to the team
+  draft boards, the consensus big board (college pool), and the media
+  mock boards.
+
+Inspector-only — no engine changes.
 
 ---
 

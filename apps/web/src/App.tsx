@@ -256,7 +256,7 @@ export function App() {
 
   return (
     <main className="min-h-screen p-6 lg:p-10">
-      <header className="mb-8 flex flex-wrap items-end justify-between gap-4">
+      <header className="mb-4">
         <div>
           <h1 className="text-3xl font-semibold tracking-tight">
             GMSim{' '}
@@ -273,6 +273,11 @@ export function App() {
             Not player-facing.
           </p>
         </div>
+      </header>
+
+      {/* Sticky control + tab bar — frozen to the top so you can step
+          ticks while scrolled anywhere in the inspector. */}
+      <div className="sticky top-0 z-30 mb-6 -mx-6 border-b border-zinc-800 bg-zinc-950/95 px-6 py-2 backdrop-blur lg:-mx-10 lg:px-10">
         <div className="flex flex-wrap items-center gap-2">
           <form
             className="flex items-center gap-2"
@@ -341,17 +346,16 @@ export function App() {
             </span>
           </div>
         </div>
-      </header>
-
-      <TabNav
-        active={activeTab}
-        onChange={setActiveTab}
-        leagueCounts={{
-          collegeProspects: league.collegePool.length,
-          freeAgents: Object.values(league.players).filter((p) => p.teamId === null).length,
-          recentTransactions: league.transactionLog.length,
-        }}
-      />
+        <TabNav
+          active={activeTab}
+          onChange={setActiveTab}
+          leagueCounts={{
+            collegeProspects: league.collegePool.length,
+            freeAgents: Object.values(league.players).filter((p) => p.teamId === null).length,
+            recentTransactions: league.transactionLog.length,
+          }}
+        />
+      </div>
 
       {activeTab === 'league' && (
         <>
@@ -463,7 +467,7 @@ function TabNav({
     }
   };
   return (
-    <nav className="sticky top-0 z-20 mb-6 -mx-6 border-b border-zinc-800 bg-zinc-950/90 px-6 py-2 backdrop-blur lg:-mx-10 lg:px-10">
+    <nav className="mt-2">
       <div className="flex flex-wrap gap-1">
         {TAB_DEFS.map((tab) => {
           const isActive = tab.id === active;
@@ -620,6 +624,9 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
     [league.draftBoards],
   );
   const consensusRanks = useMemo(() => consensusRankIndex(consensus), [consensus]);
+  // League's perceived grade per prospect (mean observed-skill across the
+  // 32 boards) — shown vs the prospect's real overall on each row.
+  const perceivedGrades = useMemo(() => consensusPerceivedGrades(league), [league]);
 
   const classCounts = useMemo(() => {
     const counts = new Map<ClassYear, number>();
@@ -742,6 +749,7 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-left">School</th>
               <th className="px-2 py-1 text-left">Pos</th>
               <th className="px-2 py-1 text-left">NFL proj</th>
+              <th className="px-2 py-1 text-right" title="perceived (league avg observed) / real overall">Grade</th>
               <th className="px-2 py-1 text-center" title="Teams (of 32) with this prospect on their top-50 board">Boards</th>
               <th className="px-2 py-1 text-center" title="Mean priority across teams that carry the prospect">Avg pri</th>
               <th className="px-2 py-1 text-center" title="Mean board rank across teams that carry the prospect">Avg rk</th>
@@ -765,6 +773,7 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
                     reportCount={observationsByProspect.get(cp.id) ?? 0}
                     consensusRank={consRank}
                     consensusEntry={consEntry}
+                    perceivedGrade={perceivedGrades.get(cp.id) ?? null}
                     isOpen={isOpen}
                     onClick={() =>
                       setExpandedProspectId(isOpen ? null : cp.id)
@@ -773,7 +782,7 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
                   />
                   {isOpen && (
                     <tr className="border-t border-zinc-800 bg-zinc-950/60">
-                      <td colSpan={14} className="px-3 py-3">
+                      <td colSpan={15} className="px-3 py-3">
                         <CollegeProspectDetail prospect={cp} league={league} />
                       </td>
                     </tr>
@@ -809,6 +818,7 @@ function CollegeProspectRow({
   combine,
   consensusRank,
   consensusEntry,
+  perceivedGrade,
   isOpen,
   onClick,
 }: {
@@ -817,6 +827,7 @@ function CollegeProspectRow({
   combine?: CombineMeasurables;
   consensusRank: number | null;
   consensusEntry: { appearances: number; averagePriority: number; averageRank: number } | null;
+  perceivedGrade: number | null;
   isOpen: boolean;
   onClick: () => void;
 }) {
@@ -879,6 +890,12 @@ function CollegeProspectRow({
         </span>
         {conversionTag}
         {misreadTag}
+      </td>
+      <td className="px-2 py-1 text-right">
+        <GradeCell
+          perceived={perceivedGrade}
+          real={prospectRealGradeFromCp(prospect)}
+        />
       </td>
       <td className="px-2 py-1 text-center font-mono text-zinc-300">
         {consensusEntry ? (
@@ -1736,7 +1753,7 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-left">School</th>
               <th className="px-2 py-1 text-left">NFL proj</th>
               <th className="px-2 py-1 text-right">Priority</th>
-              <th className="px-2 py-1 text-right">Skill</th>
+              <th className="px-2 py-1 text-right" title="perceived / real overall">Grade</th>
               <th className="px-2 py-1 text-right">Fit</th>
               <th className="px-2 py-1 text-right">Conf</th>
               <th className="px-2 py-1 text-center">N</th>
@@ -1819,7 +1836,12 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
                     </span>
                   </td>
                   <td className="px-2 py-1 text-right font-mono text-amber-300">{entry.priority.toFixed(1)}</td>
-                  <td className="px-2 py-1 text-right font-mono text-zinc-300">{entry.observedSkillScore.toFixed(1)}</td>
+                  <td className="px-2 py-1 text-right">
+                    <GradeCell
+                      perceived={Math.round(entry.observedSkillScore)}
+                      real={prospectRealGrade(league, entry.collegePlayerId)}
+                    />
+                  </td>
                   <td className="px-2 py-1 text-right font-mono text-zinc-300">{entry.schemeFit.toFixed(2)}</td>
                   <td className="px-2 py-1 text-right font-mono text-zinc-300">{entry.meanConfidence.toFixed(2)}</td>
                   <td className="px-2 py-1 text-center font-mono text-zinc-400">{entry.observationCount}</td>
@@ -7880,6 +7902,64 @@ function buildDraftShiftEvent(league: LeagueState, movers: ProspectShift[]): Dra
   };
 }
 
+// ─── Prospect grades: perceived vs real (v0.75) ─────────────────────────
+//
+// Every board shows a 0-100 PERCEIVED grade (what the scouts/media
+// believe — observed) next to the REAL grade (ground truth: the mean of
+// the prospect's true current skills). The gap is the whole story —
+// amber = inflated (hype), cyan = slept on, green = the read is honest.
+
+/** Real overall (0-100): mean of a prospect's true current skills. */
+function prospectRealGradeFromCp(cp: CollegePlayer): number | null {
+  const vals = Object.values(cp.current) as number[];
+  if (vals.length === 0) return null;
+  return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+}
+
+/** Real overall by id. null if the prospect isn't in the pool anymore
+ * (e.g. already drafted). */
+function prospectRealGrade(league: LeagueState, prospectId: string): number | null {
+  const cp = league.collegePool.find((p) => p.id === prospectId);
+  return cp ? prospectRealGradeFromCp(cp) : null;
+}
+
+/** League's perceived grade per prospect — mean of teams' observed-skill
+ * scores across the 32 boards (the consensus big-board belief). */
+function consensusPerceivedGrades(league: LeagueState): Map<string, number> {
+  const agg = new Map<string, { s: number; n: number }>();
+  for (const board of Object.values(league.draftBoards)) {
+    for (const e of board) {
+      const cur = agg.get(e.collegePlayerId) ?? { s: 0, n: 0 };
+      cur.s += e.observedSkillScore;
+      cur.n += 1;
+      agg.set(e.collegePlayerId, cur);
+    }
+  }
+  const m = new Map<string, number>();
+  for (const [id, { s, n }] of agg) m.set(id, Math.round(s / n));
+  return m;
+}
+
+function GradeCell({
+  perceived,
+  real,
+}: {
+  perceived: number | null;
+  real: number | null;
+}) {
+  let cls = 'text-zinc-300';
+  if (perceived !== null && real !== null) {
+    const d = perceived - real;
+    cls = d > 5 ? 'text-amber-300' : d < -5 ? 'text-cyan-300' : 'text-emerald-300';
+  }
+  return (
+    <span className="font-mono tabular-nums" title="perceived / real">
+      <span className={cls}>{perceived ?? '—'}</span>
+      <span className="text-zinc-600">/{real ?? '—'}</span>
+    </span>
+  );
+}
+
 // ─── Media Mock Boards (v0.72) ──────────────────────────────────────────
 //
 // The media-consensus mock board next to each outlet's own — so you can
@@ -7961,6 +8041,7 @@ function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
             <tr className="text-left text-zinc-500">
               <th className="px-2 py-1 font-medium">#</th>
               <th className="px-2 py-1 font-medium">Prospect</th>
+              <th className="px-2 py-1 font-medium" title="perceived / real">Grade</th>
               {collegeOutlets.map((o) => (
                 <th key={o.id} className="px-2 py-1 text-center font-medium" title={o.name}>
                   {abbreviateOutlet(o.name)}
@@ -7981,6 +8062,12 @@ function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
                   <td className="px-2 py-1">
                     <span className="text-zinc-200">{name}</span>{' '}
                     <span className="text-zinc-600">({school})</span>
+                  </td>
+                  <td className="px-2 py-1">
+                    <GradeCell
+                      perceived={Math.round(entry.grade)}
+                      real={prospectRealGrade(league, entry.prospectId)}
+                    />
                   </td>
                   {collegeOutlets.map((o) => {
                     const pick = outletPicks.get(o.id)?.get(entry.prospectId);
