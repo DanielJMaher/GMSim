@@ -107,6 +107,7 @@ export function advanceCollegeScoutingCycle(
     league.collegePool,
     observedOnTick,
     mediaCoverageForLevel(1),
+    league.combineResults,
   );
 
   // ── Media sleeper-alert takes (narrative) ─────────────────────────

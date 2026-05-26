@@ -86,4 +86,76 @@ describe('generateMediaCollegeObservations', () => {
       expect(hi.sum / hi.n).toBeGreaterThan(lo.sum / lo.n);
     }
   });
+
+  // ── Combine reactivity (v0.76) ─────────────────────────────────────
+  function meanByOutlet(obs: ReturnType<typeof generateMediaCollegeObservations>) {
+    const sum = new Map<string, { sum: number; n: number }>();
+    for (const o of obs) {
+      const oid = outletIdOf(o.scoutId);
+      const cur = sum.get(oid) ?? { sum: 0, n: 0 };
+      cur.sum += meanObserved(o.skills as Record<string, number | undefined>);
+      cur.n += 1;
+      sum.set(oid, cur);
+    }
+    return sum;
+  }
+
+  it('combine data changes the read, but is a no-op with no combine results', () => {
+    const league = createLeague({ seed: 'media-combine-1' });
+    // No combine data → identical to the default (5-arg) call.
+    const baseline = generateMediaCollegeObservations(
+      new Prng('c'),
+      league.mediaOutlets,
+      league.collegePool,
+      0,
+    );
+    const empty = generateMediaCollegeObservations(
+      new Prng('c'),
+      league.mediaOutlets,
+      league.collegePool,
+      0,
+      {},
+      {},
+    );
+    expect(empty).toEqual(baseline);
+
+    // With the class's combine results, the read shifts (coverage + bias).
+    const reactive = generateMediaCollegeObservations(
+      new Prng('c'),
+      league.mediaOutlets,
+      league.collegePool,
+      0,
+      {},
+      league.combineResults,
+    );
+    expect(reactive).not.toEqual(baseline);
+  });
+
+  it('combine reactivity widens the hype gap — loud on hype boards, quiet on honest ones', () => {
+    const league = createLeague({ seed: 'media-combine-2' });
+    const collegeOutlets = Object.values(league.mediaOutlets).filter((o) => o.focus === 'COLLEGE');
+    const highest = collegeOutlets.reduce((a, b) => (b.hypeSpectrum > a.hypeSpectrum ? b : a));
+    const lowest = collegeOutlets.reduce((a, b) => (b.hypeSpectrum < a.hypeSpectrum ? b : a));
+    // Only meaningful when hype actually differs across the slate.
+    if (highest.hypeSpectrum <= lowest.hypeSpectrum) return;
+
+    const gapOf = (combine: typeof league.combineResults | Record<string, never>) => {
+      const obs = generateMediaCollegeObservations(
+        new Prng('g'),
+        league.mediaOutlets,
+        league.collegePool,
+        0,
+        {},
+        combine,
+      );
+      const means = meanByOutlet(obs);
+      const hi = means.get(highest.id as string)!;
+      const lo = means.get(lowest.id as string)!;
+      return hi.sum / hi.n - lo.sum / lo.n;
+    };
+
+    // The combine gives the hype outlet a new thing to overreact to (the
+    // workout warrior), so the high-vs-low-hype grade gap grows.
+    expect(gapOf(league.combineResults)).toBeGreaterThan(gapOf({}));
+  });
 });

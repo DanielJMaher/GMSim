@@ -26,12 +26,14 @@ import type { Prng } from '../prng/index.js';
 import type {
   CollegePlayer,
   CollegePlayerObservation,
+  CombineMeasurables,
   ConferenceTier,
 } from '../types/college.js';
 import type { MediaOutlet, MediaTier } from '../types/media.js';
 import type { PlayerSkills } from '../types/player.js';
 import { ScoutId } from '../types/ids.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
+import { computeCombineAthleticism } from '../draft/athleticism.js';
 
 // ── Tuning knobs ────────────────────────────────────────────────────────
 /** Evaluators per outlet by tier — a BLOG is the lone streamer. */
@@ -50,6 +52,21 @@ const NOTABLE_CLASS_SIZE = 120;
 const HYPE_MAX_BIAS = 12;
 /** Base read noise stdev at zero accuracy (mirrors the college scout base). */
 const BASE_NOISE_STDEV = 18;
+/**
+ * Combine reactivity (v0.76) — once a class has tested, athletic
+ * percentile feeds the media's read on two channels:
+ *   - COVERAGE: a freak workout pulls a prospect into the notable class
+ *     the media talks about (everyone saw the 4.3), weighted alongside
+ *     pedigree + talent. Outlet-independent — the combine is public.
+ *   - READ BIAS: a max-hype outlet inflates a max-athletic prospect by
+ *     up to this many skill points (the workout-warrior false flag);
+ *     low-hype outlets read the same freak near truth, so he rises
+ *     loudly on hype boards and only quietly elsewhere.
+ * Both terms are 0 before the combine (athleticism is 0 with no data),
+ * so this is fully backward-compatible pre-combine.
+ */
+const ATHLETIC_COVERAGE_WEIGHT = 0.35;
+const COMBINE_HYPE_BIAS = 10;
 
 const SCHOOL_PRESTIGE: Record<ConferenceTier, number> = {
   POWER: 1.0,
@@ -100,6 +117,11 @@ export interface MediaCoverageOptions {
  * v0.74: callers replace the media stream with each round, scaling
  * `readsPerEvaluator` + `accuracyBoost` by how close to the draft we
  * are — see `mediaCoverageForLevel`.
+ *
+ * v0.76: pass the class's `combineResults` to make the read combine-
+ * reactive — a workout warrior climbs onto the media's radar (coverage)
+ * and gets inflated on hype boards (read bias). Omit it (or pass `{}`)
+ * for a pre-combine, combine-agnostic read.
  */
 export function generateMediaCollegeObservations(
   prng: Prng,
@@ -107,6 +129,7 @@ export function generateMediaCollegeObservations(
   pool: readonly CollegePlayer[],
   observedOnTick: number,
   options: MediaCoverageOptions = {},
+  combineResults: Readonly<Record<string, CombineMeasurables>> = {},
 ): CollegePlayerObservation[] {
   const reads = options.readsPerEvaluator ?? READS_PER_EVALUATOR;
   const accuracyBoost = options.accuracyBoost ?? 0;
@@ -114,11 +137,22 @@ export function generateMediaCollegeObservations(
   const eligible = pool.filter((cp) => cp.isDraftEligible && cp.hasDeclared);
   if (eligible.length === 0) return [];
 
-  // The notable class: the prospects the media actually covers, by
-  // flashiness (pedigree + talent), capped.
+  // Athletic percentile within the declared field. All zero before the
+  // class has tested (no combine data) → combine reactivity is a no-op
+  // pre-combine.
+  const athleticism = computeCombineAthleticism(eligible, combineResults);
+
+  // The notable class: the prospects the media actually covers. Ranked by
+  // pedigree + talent (flashiness) AND combine athleticism — a freak
+  // workout pulls an under-the-radar prospect onto the media's radar.
   const notable = [...eligible]
-    .map((cp) => ({ cp, flash: flashiness(cp) }))
-    .sort((a, b) => b.flash - a.flash || (a.cp.id < b.cp.id ? -1 : 1))
+    .map((cp) => {
+      const flash = flashiness(cp);
+      const athletic = athleticism.get(cp.id) ?? 0;
+      const coverage = clamp(flash + ATHLETIC_COVERAGE_WEIGHT * athletic, 0, 1);
+      return { cp, flash, athletic, coverage };
+    })
+    .sort((a, b) => b.coverage - a.coverage || (a.cp.id < b.cp.id ? -1 : 1))
     .slice(0, NOTABLE_CLASS_SIZE);
 
   const observations: CollegePlayerObservation[] = [];
@@ -135,8 +169,11 @@ export function generateMediaCollegeObservations(
       // Each evaluator files on the top `reads` of the notable class —
       // the names the media obsesses over.
       const targets = notable.slice(0, reads);
-      for (const { cp, flash } of targets) {
-        const hypeBias = HYPE_MAX_BIAS * hype * flash;
+      for (const { cp, flash, athletic } of targets) {
+        // Hype inflates the big names (pedigree/talent) AND the combine
+        // freaks; both are hype-scaled, so an honest outlet reads near
+        // truth while a hype outlet crowns the workout warrior.
+        const hypeBias = hype * (HYPE_MAX_BIAS * flash + COMBINE_HYPE_BIAS * athletic);
         observations.push(
           generateMediaObservation(
             evalPrng.fork(`p:${cp.id}`),

@@ -1157,6 +1157,7 @@ function mediaCoverageRound(
     league.collegePool,
     league.tick,
     mediaCoverageForLevel(level),
+    league.combineResults,
   );
 }
 

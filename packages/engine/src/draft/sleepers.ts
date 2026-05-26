@@ -38,6 +38,7 @@ import type { CollegeSeasonStatLine } from '../types/college-season.js';
 import type { PlayerId } from '../types/ids.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { computeCombineAthleticism } from './athleticism.js';
 
 export type SleeperChannel = 'TAPE' | 'MEASURABLES';
 
@@ -113,75 +114,6 @@ function productionRaw(line: CollegeSeasonStatLine | undefined): number {
 }
 
 /**
- * Per-prospect athleticism, 0..1, as the mean drill percentile within
- * the combine field (lower-is-better drills inverted). Non-attendees
- * and prospects without combine data score 0.
- */
-function computeAthleticism(
-  eligible: readonly CollegePlayer[],
-  combine: Readonly<Record<string, CombineMeasurables>>,
-): Map<PlayerId, number> {
-  type Drill = { key: keyof CombineMeasurables; lowerBetter: boolean };
-  const drills: Drill[] = [
-    { key: 'fortyYardSeconds', lowerBetter: true },
-    { key: 'verticalInches', lowerBetter: false },
-    { key: 'broadJumpInches', lowerBetter: false },
-    { key: 'benchPress225Reps', lowerBetter: false },
-    { key: 'threeConeSeconds', lowerBetter: true },
-    { key: 'shuttleSeconds', lowerBetter: true },
-  ];
-
-  // Sorted value lists per drill (attendees only) for percentile lookup.
-  const sortedByDrill = new Map<string, number[]>();
-  for (const d of drills) {
-    const vals: number[] = [];
-    for (const cp of eligible) {
-      const m = combine[cp.id];
-      const v = m?.attended ? (m[d.key] as number | undefined) : undefined;
-      if (typeof v === 'number') vals.push(v);
-    }
-    vals.sort((a, b) => a - b);
-    sortedByDrill.set(d.key, vals);
-  }
-
-  const athleticism = new Map<PlayerId, number>();
-  for (const cp of eligible) {
-    const m = combine[cp.id];
-    if (!m?.attended) {
-      athleticism.set(cp.id, 0);
-      continue;
-    }
-    let sum = 0;
-    let n = 0;
-    for (const d of drills) {
-      const v = m[d.key] as number | undefined;
-      if (typeof v !== 'number') continue;
-      const sorted = sortedByDrill.get(d.key)!;
-      if (sorted.length < 2) continue;
-      // Percentile = fraction of the field this value beats.
-      const below = lowerBound(sorted, v);
-      let pct = below / (sorted.length - 1);
-      if (d.lowerBetter) pct = 1 - pct;
-      sum += clamp01(pct);
-      n += 1;
-    }
-    athleticism.set(cp.id, n > 0 ? sum / n : 0);
-  }
-  return athleticism;
-}
-
-function lowerBound(sorted: readonly number[], v: number): number {
-  let lo = 0;
-  let hi = sorted.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (sorted[mid]! < v) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-/**
  * Compute the league-wide sleeper profile for every draft-eligible,
  * declared prospect. Called once per pre-draft cycle; scouts then sample
  * from it.
@@ -203,7 +135,7 @@ export function buildSleeperProfiles(
     if (p > maxProd) maxProd = p;
   }
 
-  const athleticism = computeAthleticism(eligible, combineResults);
+  const athleticism = computeCombineAthleticism(eligible, combineResults);
 
   const profiles = new Map<PlayerId, SleeperProfile>();
   for (const cp of eligible) {

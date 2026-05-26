@@ -16,6 +16,34 @@ _Nothing yet._
 
 ---
 
+## [0.76.0] — 2026-05-26
+
+### Added — combine-reactive media reads
+
+- **The combine now moves the media board.** Once a draft class has
+  tested, the media's read (`generateMediaCollegeObservations`) is fed
+  the class's `combineResults` on two channels:
+  - **Coverage** — a freak athletic workout pulls an under-the-radar
+    prospect into the "notable" class the media talks about (everyone
+    saw the 4.3), weighted alongside pedigree + talent. Outlet-
+    independent, because the combine is public.
+  - **Read bias** — a high-hype outlet inflates the workout warrior
+    (the false-flag mechanic); honest, low-hype outlets read the same
+    freak near truth. So a combine riser shows up loudly on hype boards
+    and only quietly elsewhere — visible in the media mock boards and
+    the perceived-vs-real grade tint.
+- Both terms are **0 before a class tests** (athleticism is 0 with no
+  combine data), so coverage rounds that fire pre-combine (preseason,
+  the all-star bowls) are unchanged; the post-combine rounds (combine,
+  pro days, top-30) react.
+- Shared the combine-athleticism percentile primitive into
+  `draft/athleticism.ts` (`computeCombineAthleticism`), now used by both
+  the scout sleepers (MEASURABLES channel) and the media read — a freak
+  athlete rates the same to a scout and a media evaluator. Scout-sleeper
+  behavior is unchanged (identical logic, just extracted).
+
+---
+
 ## [0.75.0] — 2026-05-26
 
 ### Added — sticky controls + perceived-vs-real grades on every board
