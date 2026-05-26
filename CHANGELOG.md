@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.71.0] — 2026-05-25
+
 ### Added — media scouting reports, slice 2: sleeper-alert takes
 
 The media now has a *voice*. Each college outlet champions a couple of
