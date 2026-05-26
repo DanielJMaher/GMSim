@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.75.0] — 2026-05-26
+
 ### Added — sticky controls + perceived-vs-real grades on every board
 
 - **Sticky control bar.** Step Tick (+ phase), Simulate/Advance, Skip
