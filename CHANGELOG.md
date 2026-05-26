@@ -12,6 +12,12 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.72.0] — 2026-05-26
+
 ### Added — media scouting reports, slice 3: mock draft boards
 
 The "32 mocks, no global consensus" output. Each college outlet now has
