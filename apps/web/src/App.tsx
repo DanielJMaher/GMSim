@@ -7896,10 +7896,35 @@ function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
     [league.mediaOutlets],
   );
 
+  // Weight the consensus by outlet accuracy — sharper desks count more.
+  const outletWeights = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const o of collegeOutlets) m.set(o.id, o.accuracySpectrum / 10);
+    return m;
+  }, [collegeOutlets]);
+
   const consensus = useMemo(
-    () => computeMediaConsensusBoard(league.mediaCollegeObservations, DEPTH),
-    [league.mediaCollegeObservations],
+    () => computeMediaConsensusBoard(league.mediaCollegeObservations, DEPTH, outletWeights),
+    [league.mediaCollegeObservations, outletWeights],
   );
+
+  // Resolve prospect names — including prospects already drafted out of
+  // the pool (via draft history → promoted NFL player).
+  const nameById = useMemo(() => {
+    const m = new Map<string, { name: string; school: string }>();
+    for (const cp of league.collegePool) {
+      m.set(cp.id, {
+        name: `${cp.firstName} ${cp.lastName}`,
+        school: getSchoolById(cp.schoolId)?.name ?? cp.schoolId,
+      });
+    }
+    for (const pick of league.draftHistory) {
+      if (m.has(pick.collegePlayerId)) continue;
+      const p = league.players[pick.promotedPlayerId];
+      if (p) m.set(pick.collegePlayerId, { name: `${p.firstName} ${p.lastName}`, school: 'drafted' });
+    }
+    return m;
+  }, [league.collegePool, league.draftHistory, league.players]);
 
   const outletPicks = useMemo(() => {
     const map = new Map<string, Map<string, number>>();
@@ -7945,9 +7970,9 @@ function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
           </thead>
           <tbody>
             {consensus.map((entry) => {
-              const cp = league.collegePool.find((p) => p.id === entry.prospectId);
-              const name = cp ? `${cp.firstName} ${cp.lastName}` : entry.prospectId;
-              const school = cp ? getSchoolById(cp.schoolId)?.name ?? cp.schoolId : '';
+              const info = nameById.get(entry.prospectId);
+              const name = info?.name ?? entry.prospectId;
+              const school = info?.school ?? '';
               return (
                 <tr key={entry.prospectId} className="border-t border-zinc-800/60">
                   <td className="px-2 py-1 font-mono tabular-nums text-fuchsia-300">

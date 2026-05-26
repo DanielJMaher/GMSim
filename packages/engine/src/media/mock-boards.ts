@@ -56,15 +56,18 @@ function buildBoard(
   observations: readonly CollegePlayerObservation[],
   accept: (scoutId: string) => boolean,
   depth: number,
+  weightFor: (scoutId: string) => number = () => 1,
 ): MockBoardEntry[] {
   const agg = new Map<PlayerId, { wsum: number; csum: number }>();
   for (const obs of observations) {
     if (!accept(obs.scoutId)) continue;
     const { overall, conf } = observationOverall(obs);
     if (conf <= 0) continue;
+    const w = conf * weightFor(obs.scoutId);
+    if (w <= 0) continue;
     const cur = agg.get(obs.collegePlayerId) ?? { wsum: 0, csum: 0 };
-    cur.wsum += overall * conf;
-    cur.csum += conf;
+    cur.wsum += overall * w;
+    cur.csum += w;
     agg.set(obs.collegePlayerId, cur);
   }
 
@@ -95,10 +98,22 @@ export function computeOutletMockBoard(
   return buildBoard(mediaObservations, (scoutId) => scoutId.startsWith(prefix), depth);
 }
 
-/** The media-consensus board — every outlet's evaluators pooled. */
+function outletIdOf(scoutId: string): string {
+  return scoutId.split('::')[0] ?? scoutId;
+}
+
+/**
+ * The media-consensus board — every outlet's evaluators pooled. Pass
+ * `outletWeights` (e.g. outletId → accuracy) to weigh sharper outlets'
+ * reads more heavily; omit for a flat pool.
+ */
 export function computeMediaConsensusBoard(
   mediaObservations: readonly CollegePlayerObservation[],
   depth = 50,
+  outletWeights?: ReadonlyMap<string, number>,
 ): MockBoardEntry[] {
-  return buildBoard(mediaObservations, () => true, depth);
+  const weightFor = outletWeights
+    ? (scoutId: string) => outletWeights.get(outletIdOf(scoutId)) ?? 1
+    : undefined;
+  return buildBoard(mediaObservations, () => true, depth, weightFor);
 }

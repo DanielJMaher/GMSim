@@ -12,7 +12,29 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed — media mock boards: living, year-round, named correctly
+
+Three fixes to the mock-board system:
+
+- **Names, not ids.** The board no longer shows raw ids like
+  `CP_C0_SR_1236` at/after the draft. The media observation stream was
+  never cleared, so old (drafted/graduated) classes lingered with
+  unresolvable ids. Now the stream is **cleared at `COLLEGE_CYCLE`**
+  (class turnover), and the inspector resolves names through the draft
+  history (`collegePlayerId → promoted NFL player`) for prospects already
+  drafted out of the pool.
+- **A living board.** Media coverage now starts in the **preseason** and
+  re-grades the class through the year, **speeding up toward the draft**:
+  a round at preseason, every third college week, then **every draft-prep
+  tick** (Shrine Bowl, Senior Bowl, Combine, Pro Days, Top-30). Each
+  round replaces the stream with rising intensity (more reads, sharper
+  reads), so the board firms up as the draft nears — and the Draft Shift
+  "Media" view shows it move tick to tick.
+- **Accuracy-weighted consensus.** The media-consensus board now weighs
+  each outlet by its accuracy, so sharp insiders move the consensus more
+  than a clickbait blog.
+
+Engine-additive (separate media stream) — no draft/roster drift.
 
 ---
 

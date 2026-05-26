@@ -84,6 +84,10 @@ import {
 } from '../media/reports.js';
 import { generateHeismanRaceReports } from '../media/heisman-race.js';
 import {
+  generateMediaCollegeObservations,
+  mediaCoverageForLevel,
+} from '../media/prospect-evaluators.js';
+import {
   generateCollegeRegularSeason,
   bucketProspectsBySchool,
   collegeTeamStrength,
@@ -257,7 +261,7 @@ export function tickPhase(league: LeagueState): LeagueState {
   const phasePrng = new PrngClass(`${league.seed}::lifecycle::${league.seasonNumber}::${target}`);
   switch (target) {
     case 'PRESEASON':
-      return applyPreseason(league);
+      return applyPreseason(league, phasePrng);
     case 'TRADE_DEADLINE':
       return applyTradeDeadline(league);
     case 'SHRINE_BOWL':
@@ -1051,7 +1055,12 @@ function applyPostDraftRoster(
 /** COMBINE — measurables for the current draft class (display-only). */
 function applyCombine(league: LeagueState, prng: PrngClass): LeagueState {
   const combineResults = runCombine(prng.fork('combine'), league.collegePool, league.tick);
-  return { ...league, combineResults, lifecyclePhase: 'COMBINE' };
+  return {
+    ...league,
+    combineResults,
+    mediaCollegeObservations: mediaCoverageRound(league, prng, 0.82),
+    lifecyclePhase: 'COMBINE',
+  };
 }
 
 /** PRO_DAYS — per-team pro-day attendance against the working board. */
@@ -1062,7 +1071,12 @@ function applyProDays(league: LeagueState, prng: PrngClass): LeagueState {
     league.collegePool,
     league.draftBoards,
   );
-  return { ...league, proDayAttendance, lifecyclePhase: 'PRO_DAYS' };
+  return {
+    ...league,
+    proDayAttendance,
+    mediaCollegeObservations: mediaCoverageRound(league, prng, 0.9),
+    lifecyclePhase: 'PRO_DAYS',
+  };
 }
 
 /**
@@ -1116,8 +1130,34 @@ function applyTradeDeadline(league: LeagueState): LeagueState {
   return { ...league, lifecyclePhase: 'TRADE_DEADLINE' };
 }
 
-function applyPreseason(league: LeagueState): LeagueState {
-  return { ...league, lifecyclePhase: 'PRESEASON' };
+function applyPreseason(league: LeagueState, prng: PrngClass): LeagueState {
+  // Preseason opens the media's coverage of the draft class (low
+  // intensity — early whispers).
+  return {
+    ...league,
+    mediaCollegeObservations: mediaCoverageRound(league, prng, 0.25),
+    lifecyclePhase: 'PRESEASON',
+  };
+}
+
+/**
+ * One round of media coverage on the current draft class, REPLACING the
+ * media observation stream. Intensity (`level` 0..1) rises toward the
+ * draft, so the media board firms up over the year. The stream is reset
+ * each round (and cleared at COLLEGE_CYCLE when the class turns over).
+ */
+function mediaCoverageRound(
+  league: LeagueState,
+  prng: PrngClass,
+  level: number,
+): LeagueState['mediaCollegeObservations'] {
+  return generateMediaCollegeObservations(
+    prng.fork('media-coverage'),
+    league.mediaOutlets,
+    league.collegePool,
+    league.tick,
+    mediaCoverageForLevel(level),
+  );
 }
 
 // ─── Draft all-star showcases (v0.65) ──────────────────────────────────
@@ -1144,6 +1184,7 @@ function applyShrineBowl(league: LeagueState, prng: PrngClass): LeagueState {
     ...league,
     allStarGames: [...league.allStarGames, game],
     collegeObservations: [...league.collegeObservations, ...observations],
+    mediaCollegeObservations: mediaCoverageRound(league, prng, 0.7),
     lifecyclePhase: 'SHRINE_BOWL',
   };
 }
@@ -1162,6 +1203,7 @@ function applySeniorBowl(league: LeagueState, prng: PrngClass): LeagueState {
     ...league,
     allStarGames: [...league.allStarGames, game],
     collegeObservations: [...league.collegeObservations, ...observations],
+    mediaCollegeObservations: mediaCoverageRound(league, prng, 0.74),
     lifecyclePhase: 'SENIOR_BOWL',
   };
 }
@@ -1197,6 +1239,9 @@ function applyCollegeCycle(league: LeagueState, prng: PrngClass): LeagueState {
     collegeCurrentWeek: null,
     // Clear the all-star rosters too — next cycle's bowls repopulate.
     allStarGames: [],
+    // The class has turned over — drop the media's read on the old class
+    // so next year's board starts fresh in the preseason.
+    mediaCollegeObservations: [],
     lifecyclePhase: 'COLLEGE_CYCLE',
   };
 }
@@ -1353,23 +1398,33 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
   };
 
   const updatedStats = [...league.collegeGameStats, ...newStats];
+  const weekNumber = weekIdx + 1;
 
   // v0.73: weekly Heisman-race narrative (mid-season onward), driven by
-  // cumulative production through this week.
-  const heismanReports = generateHeismanRaceReports(prng.fork('heisman-race'), {
+  // cumulative production through this week. Week-forked so each week's
+  // narrative is independent (the COLLEGE_WEEK phase PRNG is shared).
+  const heismanReports = generateHeismanRaceReports(prng.fork(`heisman-${weekIdx}`), {
     outlets: league.mediaOutlets,
     statsLines: aggregateCollegeSeasonStats(updatedStats),
     pool: league.collegePool,
-    weekNumber: weekIdx + 1,
+    weekNumber,
     filedOnTick: league.tick,
     seasonNumber: league.seasonNumber,
   });
+
+  // v0.74: media re-grades the class every third week (rising
+  // intensity), so the mock board updates through the season.
+  const nextMediaObs =
+    weekNumber % 3 === 0
+      ? mediaCoverageRound(league, prng.fork(`wk${weekIdx}`), 0.3 + (weekNumber / 12) * 0.35)
+      : league.mediaCollegeObservations;
 
   return {
     ...league,
     collegeSchedule: nextSchedule,
     collegeCurrentWeek: weekIdx,
     collegeGameStats: updatedStats,
+    mediaCollegeObservations: nextMediaObs,
     mediaReports:
       heismanReports.length > 0
         ? [...league.mediaReports, ...heismanReports]

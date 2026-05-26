@@ -28,6 +28,14 @@ describe('computeMediaConsensusBoard', () => {
   it('is deterministic', () => {
     expect(computeMediaConsensusBoard(mediaObs, 25)).toEqual(computeMediaConsensusBoard(mediaObs, 25));
   });
+
+  it('all-equal outlet weights match the unweighted consensus', () => {
+    const weights = new Map<string, number>();
+    for (const o of collegeOutlets) weights.set(o.id, 1);
+    expect(computeMediaConsensusBoard(mediaObs, 25, weights)).toEqual(
+      computeMediaConsensusBoard(mediaObs, 25),
+    );
+  });
 });
 
 describe('computeOutletMockBoard', () => {

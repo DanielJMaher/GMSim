@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { generateMediaCollegeObservations } from './prospect-evaluators.js';
+import { generateMediaCollegeObservations, mediaCoverageForLevel } from './prospect-evaluators.js';
 import { createLeague } from '../league/generate.js';
 import { Prng } from '../prng/index.js';
 
@@ -43,6 +43,18 @@ describe('generateMediaCollegeObservations', () => {
     const b = generateMediaCollegeObservations(new Prng('x'), league.mediaOutlets, league.collegePool, 0);
     expect(a.length).toBe(b.length);
     expect(a).toEqual(b);
+  });
+
+  it('coverage intensity rises with level, and reads scale the volume', () => {
+    const low = mediaCoverageForLevel(0);
+    const high = mediaCoverageForLevel(1);
+    expect(high.readsPerEvaluator!).toBeGreaterThan(low.readsPerEvaluator!);
+    expect(high.accuracyBoost!).toBeGreaterThan(low.accuracyBoost!);
+
+    const league2 = createLeague({ seed: 'media-reads' });
+    const few = generateMediaCollegeObservations(new Prng('r'), league2.mediaOutlets, league2.collegePool, 0, { readsPerEvaluator: 10 });
+    const many = generateMediaCollegeObservations(new Prng('r'), league2.mediaOutlets, league2.collegePool, 0, { readsPerEvaluator: 40 });
+    expect(many.length).toBeGreaterThan(few.length);
   });
 
   it('high-hype outlets inflate prospects more than low-hype outlets', () => {

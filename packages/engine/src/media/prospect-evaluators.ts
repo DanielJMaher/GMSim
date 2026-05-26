@@ -84,17 +84,33 @@ function flashiness(cp: CollegePlayer): number {
   return clamp(0.6 * prestige + 0.4 * meanCurrent(cp), 0, 1);
 }
 
+export interface MediaCoverageOptions {
+  /** How many of the notable class each evaluator files on. */
+  readsPerEvaluator?: number;
+  /** Extra accuracy (0..1) on every read this round — coverage sharpens
+   * as the draft nears (more film, more sources). */
+  accuracyBoost?: number;
+}
+
 /**
- * Generate one cycle of media observations across every college-focused
+ * Generate one round of media observations across every college-focused
  * outlet. Each outlet's evaluators file on the top of the notable class
- * with the outlet's accuracy + hype bias.
+ * with the outlet's accuracy (+ a round-level boost) and hype bias.
+ *
+ * v0.74: callers replace the media stream with each round, scaling
+ * `readsPerEvaluator` + `accuracyBoost` by how close to the draft we
+ * are — see `mediaCoverageForLevel`.
  */
 export function generateMediaCollegeObservations(
   prng: Prng,
   outlets: Readonly<Record<string, MediaOutlet>>,
   pool: readonly CollegePlayer[],
   observedOnTick: number,
+  options: MediaCoverageOptions = {},
 ): CollegePlayerObservation[] {
+  const reads = options.readsPerEvaluator ?? READS_PER_EVALUATOR;
+  const accuracyBoost = options.accuracyBoost ?? 0;
+
   const eligible = pool.filter((cp) => cp.isDraftEligible && cp.hasDeclared);
   if (eligible.length === 0) return [];
 
@@ -108,7 +124,7 @@ export function generateMediaCollegeObservations(
   const observations: CollegePlayerObservation[] = [];
   for (const outlet of Object.values(outlets)) {
     if (outlet.focus !== 'COLLEGE') continue;
-    const accuracy = clamp(outlet.accuracySpectrum / 10, 0, 1);
+    const accuracy = clamp(outlet.accuracySpectrum / 10 + accuracyBoost, 0, 1);
     const hype = clamp(outlet.hypeSpectrum / 10, 0, 1);
     const evaluatorCount = EVALUATORS_BY_TIER[outlet.tier] ?? 2;
     const outletPrng = prng.fork(`outlet:${outlet.id}`);
@@ -116,9 +132,9 @@ export function generateMediaCollegeObservations(
     for (let e = 0; e < evaluatorCount; e++) {
       const evalPrng = outletPrng.fork(`e${e}`);
       const evaluatorId = ScoutId(`${outlet.id}::e${e}`);
-      // Each evaluator files on the top READS_PER_EVALUATOR of the
-      // notable class — the names the media obsesses over.
-      const targets = notable.slice(0, READS_PER_EVALUATOR);
+      // Each evaluator files on the top `reads` of the notable class —
+      // the names the media obsesses over.
+      const targets = notable.slice(0, reads);
       for (const { cp, flash } of targets) {
         const hypeBias = HYPE_MAX_BIAS * hype * flash;
         observations.push(
@@ -135,6 +151,19 @@ export function generateMediaCollegeObservations(
     }
   }
   return observations;
+}
+
+/**
+ * Map a coverage "level" (0 = preseason whispers, 1 = the final pre-draft
+ * sweep) to a round's reads + accuracy boost. Coverage broadens and
+ * sharpens as the draft nears, so the board firms up over the year.
+ */
+export function mediaCoverageForLevel(level: number): MediaCoverageOptions {
+  const l = clamp(level, 0, 1);
+  return {
+    readsPerEvaluator: Math.round(18 + l * 32), // 18 → 50
+    accuracyBoost: l * 0.12, // 0 → +0.12
+  };
 }
 
 function generateMediaObservation(

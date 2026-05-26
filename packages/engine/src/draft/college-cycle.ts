@@ -12,7 +12,10 @@ import {
   SLEEPER_CONFIDENCE_BONUS,
 } from './sleepers.js';
 import { aggregateCollegeSeasonStats } from '../college-season/season-stats.js';
-import { generateMediaCollegeObservations } from '../media/prospect-evaluators.js';
+import {
+  generateMediaCollegeObservations,
+  mediaCoverageForLevel,
+} from '../media/prospect-evaluators.js';
 import { buildProspectSleeperTake, buildMockBoardReport } from '../media/prospect-takes.js';
 import { computeOutletMockBoard } from '../media/mock-boards.js';
 import type { MediaReport } from '../types/media.js';
@@ -96,11 +99,14 @@ export function advanceCollegeScoutingCycle(
   }
 
   // ── Media's read on the class (separate stream) ───────────────────
+  // Top-30 is the final, fullest-intensity media round — it REPLACES the
+  // in-season stream with the definitive pre-draft board.
   const mediaObs = generateMediaCollegeObservations(
     prng.fork('media-cobs'),
     league.mediaOutlets,
     league.collegePool,
     observedOnTick,
+    mediaCoverageForLevel(1),
   );
 
   // ── Media sleeper-alert takes (narrative) ─────────────────────────
@@ -141,7 +147,7 @@ export function advanceCollegeScoutingCycle(
   // ── Mock-board headlines (top picks per outlet) ───────────────────
   // The full per-outlet + consensus boards are computed on demand from
   // the media stream; here each outlet publishes its premium picks.
-  const updatedMediaStream = [...league.mediaCollegeObservations, ...mediaObs];
+  const updatedMediaStream = mediaObs; // REPLACE — this is the final round
   for (const outlet of Object.values(league.mediaOutlets)) {
     if (outlet.focus !== 'COLLEGE') continue;
     const board = computeOutletMockBoard(updatedMediaStream, outlet.id, 3);
