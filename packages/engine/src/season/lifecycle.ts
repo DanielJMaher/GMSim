@@ -82,6 +82,7 @@ import {
   generateWeeklyMediaReports,
   generatePlayoffRoundMediaReports,
 } from '../media/reports.js';
+import { generateHeismanRaceReports } from '../media/heisman-race.js';
 import {
   generateCollegeRegularSeason,
   bucketProspectsBySchool,
@@ -1351,11 +1352,28 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
     regularSeason: updatedRegularSeason,
   };
 
+  const updatedStats = [...league.collegeGameStats, ...newStats];
+
+  // v0.73: weekly Heisman-race narrative (mid-season onward), driven by
+  // cumulative production through this week.
+  const heismanReports = generateHeismanRaceReports(prng.fork('heisman-race'), {
+    outlets: league.mediaOutlets,
+    statsLines: aggregateCollegeSeasonStats(updatedStats),
+    pool: league.collegePool,
+    weekNumber: weekIdx + 1,
+    filedOnTick: league.tick,
+    seasonNumber: league.seasonNumber,
+  });
+
   return {
     ...league,
     collegeSchedule: nextSchedule,
     collegeCurrentWeek: weekIdx,
-    collegeGameStats: [...league.collegeGameStats, ...newStats],
+    collegeGameStats: updatedStats,
+    mediaReports:
+      heismanReports.length > 0
+        ? [...league.mediaReports, ...heismanReports]
+        : league.mediaReports,
     lifecyclePhase: 'COLLEGE_WEEK',
   };
 }

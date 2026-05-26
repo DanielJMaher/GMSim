@@ -12,7 +12,25 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — media scouting reports, slice 4: the in-season Heisman race
+
+The media now tells a *story* across the season. From mid-season
+(college Week 5), outlets file a weekly **Heisman watch** — an evolving
+`NarrativeReport` thread (shared `threadId` `heisman-S{N}`) naming the
+current frontrunner off **cumulative season production**, scored with
+the same `heismanScore` that eventually crowns the winner. The
+frontrunner shifts week to week as stats pile up, so the thread reads as
+a developing race that pays off into the December ceremony. Hype dials
+the tone — a clickbait outlet declares it over, a measured one says he
+"leads the field"; the loudest outlet always chimes in.
+
+New `media/heisman-race.ts` (`generateHeismanRaceReports`); fired from
+the `COLLEGE_WEEK` tick into the existing `mediaReports` stream (shown
+in the lifecycle event log). Starts mid-season so it stays clear of the
+early-season NFL media reports. Engine-additive — no draft/roster drift.
+
+This completes the core media lane: read (1) → voice (2) → boards (3) →
+in-season story (4).
 
 ---
 

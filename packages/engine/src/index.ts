@@ -161,6 +161,7 @@ export {
   computeMediaConsensusBoard,
 } from './media/mock-boards.js';
 export type { MockBoardEntry } from './media/mock-boards.js';
+export { generateHeismanRaceReports, HEISMAN_WATCH_START_WEEK } from './media/heisman-race.js';
 export {
   generateWeeklyMediaReports,
   generatePlayoffRoundMediaReports,
