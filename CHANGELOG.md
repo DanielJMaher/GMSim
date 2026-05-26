@@ -16,6 +16,37 @@ _Nothing yet._
 
 ---
 
+## [0.77.0] — 2026-05-26
+
+### Changed — draft declarations move to mid-January (before the combine)
+
+- **New `DRAFT_DECLARATION` lifecycle phase**, dated the day after the
+  CFP National Championship (**Jan 20**). Underclassmen now declare for
+  the draft here — the real NFL deadline — instead of at `PRE_DRAFT`
+  (late April). Shows up as its own dated beat on the inspector timeline
+  ("🎓 Mid-January · NFL Draft Declarations").
+- **The combine attends only declared prospects.** Because declarations
+  now close in mid-January (before the late-February combine), an
+  underclassman who returns to school never tests — fixing the hole
+  where undeclared juniors attended the combine and then carried stale
+  combine measurables into the next year's class. `applyCombine` now
+  measures `collegePool.filter(isDraftEligible && hasDeclared)`.
+- The all-star bowls (Shrine, Senior — late Jan / early Feb) already
+  invited only declared prospects; moving declaration ahead of them
+  means they finally draw from the correct, freshly-declared class.
+- `applyCombine` also now feeds the media's combine-reactive read the
+  combine **just run**, instead of last year's leftover results.
+- `PRE_DRAFT` (late April) keeps only the board lock + snapshot; its
+  inspector label is now "Pre-Draft Board Lock" (was "Junior
+  Declarations").
+
+This shifts the declared draft class (declarations roll on a new PRNG
+stream), so per-seed draft outcomes differ — a one-time re-baseline of
+two seed-specific tests (a tick count and a single-seed reach-ratio
+bound); the engine's draft formulas are unchanged.
+
+---
+
 ## [0.76.0] — 2026-05-26
 
 ### Added — combine-reactive media reads

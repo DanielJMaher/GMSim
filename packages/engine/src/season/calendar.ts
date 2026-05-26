@@ -94,6 +94,10 @@ export const CALENDAR_ANCHORS = {
   cfpSemifinals: { month: 1, day: 9 },
   /** CFP National Championship — third Monday of January. */
   cfpFinal: { month: 1, day: 19 },
+  /** NFL Draft declaration deadline — the day after the CFP Championship.
+   * Underclassmen must declare here; only declared prospects go on to
+   * the combine / all-star bowls / pre-draft process. */
+  draftDeclaration: { month: 1, day: 20 },
   /** Shrine Bowl (East–West) — late January draft all-star showcase. */
   shrineBowl: { month: 1, day: 30 },
   /** Senior Bowl — early February draft all-star showcase. */
@@ -147,6 +151,8 @@ export function phaseCalendarLabel(
       return '🎓 Early January · CFP Semifinals';
     case 'CFP_FINAL':
       return '🎓 Mid-January · CFP National Championship';
+    case 'DRAFT_DECLARATION':
+      return '🎓 Mid-January · NFL Draft Declarations';
     case 'SHRINE_BOWL':
       return '🎓 Late January · Shrine Bowl';
     case 'SENIOR_BOWL':
@@ -164,7 +170,7 @@ export function phaseCalendarLabel(
     case 'OFFSEASON_TRANSACTIONS':
       return 'Mid-March · Free Agency';
     case 'PRE_DRAFT':
-      return 'Late April · Junior Declarations';
+      return 'Late April · Pre-Draft Board Lock';
     case 'DRAFT':
       return 'Late April · NFL Draft';
     case 'POST_DRAFT_ROSTER':
@@ -243,6 +249,8 @@ export function phaseCalendarDate(
       return { year: offseasonYear, ...CALENDAR_ANCHORS.cfpSemifinals };
     case 'CFP_FINAL':
       return { year: offseasonYear, ...CALENDAR_ANCHORS.cfpFinal };
+    case 'DRAFT_DECLARATION':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.draftDeclaration };
     case 'SHRINE_BOWL':
       return { year: offseasonYear, ...CALENDAR_ANCHORS.shrineBowl };
     case 'SENIOR_BOWL':

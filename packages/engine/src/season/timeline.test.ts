@@ -71,6 +71,7 @@ describe('buildSeasonTimeline', () => {
       'CFP_QUARTERFINALS',
       'CFP_SEMIFINALS',
       'CFP_FINAL',
+      'DRAFT_DECLARATION',
       'SHRINE_BOWL',
       'SENIOR_BOWL',
       'WILD_CARD',
@@ -91,8 +92,8 @@ describe('buildSeasonTimeline', () => {
     }
     // READY_FOR_NEXT_SEASON is the wrap marker — not a dated step.
     expect(counts.get('READY_FOR_NEXT_SEASON')).toBeUndefined();
-    // 17 NFL weeks + 12 college weeks + 24 single-shot phases.
-    expect(timeline.length).toBe(17 + 12 + 24);
+    // 17 NFL weeks + 12 college weeks + 25 single-shot phases.
+    expect(timeline.length).toBe(17 + 12 + 25);
   });
 
   it('places the all-star bowls in late Jan / early Feb, before the combine', () => {
@@ -102,6 +103,17 @@ describe('buildSeasonTimeline', () => {
     expect(idxOf('SHRINE_BOWL')).toBeLessThan(idxOf('SENIOR_BOWL'));
     expect(idxOf('SENIOR_BOWL')).toBeLessThan(idxOf('SUPER_BOWL'));
     expect(idxOf('SENIOR_BOWL')).toBeLessThan(idxOf('COMBINE'));
+  });
+
+  it('rolls draft declarations the day after the CFP final, before the bowls + combine', () => {
+    const idxOf = (p: LifecyclePhase) => timeline.findIndex((s) => s.phase === p);
+    expect(formatCalendarDate(timeline[idxOf('DRAFT_DECLARATION')]!.date)).toBe('2027-01-20');
+    // Day after the CFP National Championship (Jan 19).
+    expect(idxOf('DRAFT_DECLARATION')).toBeGreaterThan(idxOf('CFP_FINAL'));
+    // Declarations close before any pre-draft evaluation: bowls, combine.
+    expect(idxOf('DRAFT_DECLARATION')).toBeLessThan(idxOf('SHRINE_BOWL'));
+    expect(idxOf('DRAFT_DECLARATION')).toBeLessThan(idxOf('COMBINE'));
+    expect(idxOf('DRAFT_DECLARATION')).toBeLessThan(idxOf('PRE_DRAFT'));
   });
 
   it('breaks the Dec-20 tie with bowls before the CFP first round', () => {

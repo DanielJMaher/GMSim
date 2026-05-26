@@ -7476,6 +7476,8 @@ function timelineStepLabel(step: TimelineStep): string {
       return 'Pro Days';
     case 'TOP_30_VISITS':
       return 'Top-30 Visits';
+    case 'DRAFT_DECLARATION':
+      return 'Jr Declares';
     case 'SHRINE_BOWL':
       return 'Shrine Bowl';
     case 'SENIOR_BOWL':
@@ -7493,7 +7495,7 @@ function timelineStepLabel(step: TimelineStep): string {
     case 'OFFSEASON_TRANSACTIONS':
       return 'Free Agency';
     case 'PRE_DRAFT':
-      return 'Jr Declares';
+      return 'Board Lock';
     case 'DRAFT':
       return 'NFL Draft';
     case 'POST_DRAFT_ROSTER':
@@ -7524,6 +7526,7 @@ function timelineStepAccent(step: TimelineStep): 'rose' | 'amber' | 'emerald' | 
     case 'CFP_QUARTERFINALS':
     case 'CFP_SEMIFINALS':
     case 'CFP_FINAL':
+    case 'DRAFT_DECLARATION':
     case 'SHRINE_BOWL':
     case 'SENIOR_BOWL':
       return 'emerald';

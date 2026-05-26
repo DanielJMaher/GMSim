@@ -124,6 +124,7 @@ describe('simulateSeason', () => {
       // + 1 TRADE_DEADLINE marker (late Oct)
       // + 7 college postseason phases (conf champs → Heisman → bowls →
       //   CFP rounds, the CFP final landing mid-January)
+      // + 1 DRAFT_DECLARATION beat (Jan 20, day after the CFP final)
       // + 4 NFL playoff rounds (WC, DIV, CONF, SB)
       // The pre-draft beats (Combine, Pro Days, Top-30) fire AFTER the
       // Super Bowl, so they don't count here.
@@ -133,6 +134,7 @@ describe('simulateSeason', () => {
       let collegeRegTicks = 0;
       let tradeDeadlineTicks = 0;
       let collegePostseasonTicks = 0;
+      let declarationTicks = 0;
       let allStarTicks = 0;
       let nflPlayoffTicks = 0;
       for (let i = 0; i < 100; i++) {
@@ -143,6 +145,7 @@ describe('simulateSeason', () => {
         else if (p === 'REGULAR_SEASON_WEEK') regSeasonTicks++;
         else if (p === 'COLLEGE_WEEK') collegeRegTicks++;
         else if (p === 'TRADE_DEADLINE') tradeDeadlineTicks++;
+        else if (p === 'DRAFT_DECLARATION') declarationTicks++;
         else if (p === 'SHRINE_BOWL' || p === 'SENIOR_BOWL') allStarTicks++;
         else if (
           p === 'COLLEGE_CONFERENCE_CHAMPIONSHIPS' ||
@@ -163,6 +166,7 @@ describe('simulateSeason', () => {
       expect(collegeRegTicks).toBe(12);
       expect(tradeDeadlineTicks).toBe(1);
       expect(collegePostseasonTicks).toBe(7);
+      expect(declarationTicks).toBe(1);
       expect(allStarTicks).toBe(2);
       expect(nflPlayoffTicks).toBe(4);
     });

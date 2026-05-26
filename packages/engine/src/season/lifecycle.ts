@@ -142,6 +142,7 @@ export type LifecyclePhase =
   | 'CFP_QUARTERFINALS'
   | 'CFP_SEMIFINALS'
   | 'CFP_FINAL'
+  | 'DRAFT_DECLARATION'
   | 'SHRINE_BOWL'
   | 'SENIOR_BOWL'
   | 'WILD_CARD'
@@ -185,6 +186,7 @@ export const LIFECYCLE_ORDER: readonly LifecyclePhase[] = [
   'CFP_QUARTERFINALS',
   'CFP_SEMIFINALS',
   'CFP_FINAL',
+  'DRAFT_DECLARATION',
   'SHRINE_BOWL',
   'SENIOR_BOWL',
   'WILD_CARD',
@@ -290,6 +292,8 @@ export function tickPhase(league: LeagueState): LeagueState {
       return applyCfpSemifinals(league, phasePrng);
     case 'CFP_FINAL':
       return applyCfpFinal(league, phasePrng);
+    case 'DRAFT_DECLARATION':
+      return applyDraftDeclaration(league, phasePrng);
     case 'POST_SEASON_FINALIZE':
       return applyPostSeasonFinalize(league, phasePrng);
     case 'OFFSEASON_TRANSACTIONS':
@@ -924,19 +928,33 @@ function applyOffseasonTransactions(
   return offseason;
 }
 
+// ─── DRAFT_DECLARATION (v0.77) ─────────────────────────────────────────
+//
+// The day after the CFP National Championship (mid-January), every
+// underclassman decides whether to enter the draft. This is the real
+// NFL deadline: declarations close BEFORE the combine, so only declared
+// prospects go on to the all-star bowls, the combine, and the pre-draft
+// process. Previously this roll lived at PRE_DRAFT (late April, AFTER
+// the combine), which let undeclared juniors attend the combine and
+// then return to school — carrying stale combine data into the next
+// class. Moving it here closes that hole at the source.
+
+function applyDraftDeclaration(league: LeagueState, prng: PrngClass): LeagueState {
+  return {
+    ...league,
+    collegePool: rollJuniorDeclarations(prng.fork('jr-declarations'), league.collegePool),
+    lifecyclePhase: 'DRAFT_DECLARATION',
+  };
+}
+
 // ─── Phase 3: PRE_DRAFT ────────────────────────────────────────────────
 //
-// JR declarations roll; draftBoards filter out returning JRs; snapshot
-// the board state for the upcoming draft.
+// Declarations already rolled at DRAFT_DECLARATION (mid-January). Here
+// we just lock the board for the upcoming draft: filter out returning
+// JRs and snapshot the board state.
 
-function applyPreDraft(league: LeagueState, prng: PrngClass): LeagueState {
-  let offseason: LeagueState = {
-    ...league,
-    collegePool: rollJuniorDeclarations(
-      prng.fork('jr-declarations'),
-      league.collegePool,
-    ),
-  };
+function applyPreDraft(league: LeagueState, _prng: PrngClass): LeagueState {
+  let offseason: LeagueState = { ...league };
 
   const returningIds = new Set<PlayerId>();
   for (const cp of offseason.collegePool) {
@@ -1052,13 +1070,20 @@ function applyPostDraftRoster(
 // age the pool into next year's class, roll the pick horizon, and clear
 // the played schedules.
 
-/** COMBINE — measurables for the current draft class (display-only). */
+/**
+ * COMBINE — measurables for the current draft class. Only DECLARED
+ * prospects attend (declarations closed at DRAFT_DECLARATION in
+ * mid-January); an underclassman who returned to school never tests, so
+ * no stale combine data follows him into next year's class.
+ */
 function applyCombine(league: LeagueState, prng: PrngClass): LeagueState {
-  const combineResults = runCombine(prng.fork('combine'), league.collegePool, league.tick);
+  const declaredClass = league.collegePool.filter((cp) => cp.isDraftEligible && cp.hasDeclared);
+  const combineResults = runCombine(prng.fork('combine'), declaredClass, league.tick);
+  // React to the combine just run, not last year's leftover results.
+  const reacted: LeagueState = { ...league, combineResults };
   return {
-    ...league,
-    combineResults,
-    mediaCollegeObservations: mediaCoverageRound(league, prng, 0.82),
+    ...reacted,
+    mediaCollegeObservations: mediaCoverageRound(reacted, prng, 0.82),
     lifecyclePhase: 'COMBINE',
   };
 }
