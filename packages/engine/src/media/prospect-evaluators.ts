@@ -31,6 +31,7 @@ import type {
 } from '../types/college.js';
 import type { MediaOutlet, MediaTier } from '../types/media.js';
 import type { PlayerSkills } from '../types/player.js';
+import type { PlayerId } from '../types/ids.js';
 import { ScoutId } from '../types/ids.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import { computeCombineAthleticism } from '../draft/athleticism.js';
@@ -181,6 +182,101 @@ export function generateMediaCollegeObservations(
             cp,
             accuracy,
             hypeBias,
+            observedOnTick,
+          ),
+        );
+      }
+    }
+  }
+  return observations;
+}
+
+// ── Weekly in-season coverage (v0.81) ───────────────────────────────────
+/**
+ * How much positive season form (in skill points) puts a prospect fully
+ * on the media's radar — a breakout climbs onto the notable class even
+ * from a small school.
+ */
+const FORM_COVERAGE_FULL = 18;
+/** Coverage weight of form, alongside pedigree (flashiness). */
+const FORM_COVERAGE_WEIGHT = 0.45;
+/** Scales the public form signal into the read bias every outlet applies. */
+const FORM_READ_SCALE = 0.7;
+/** Extra skill points a max-hype outlet piles onto a max-hot-streak prospect. */
+const FORM_HYPE_AMP = 8;
+
+/**
+ * One round of WEEKLY in-season media observations (v0.81). Unlike the
+ * offseason rounds, the in-season media covers the draft-eligible field
+ * **before anyone has declared** — outlets project who'll come out — so
+ * this filters on `isDraftEligible && !hasReturnedToSchool`, not
+ * `hasDeclared`.
+ *
+ * The read is driven by `formBias` — each prospect's season-to-date,
+ * opponent-weighted over/under-performance (see `computeProspectFormBias`).
+ * Form moves the board two ways:
+ *   - COVERAGE: a hot streak pulls a prospect onto the notable class the
+ *     media talks about (a small-schooler balling out gets noticed).
+ *     Public production, so outlet-independent.
+ *   - READ: every outlet nudges its grade by the (scaled) form — a guy
+ *     who's been dominating grades up across the board — and a hype outlet
+ *     piles extra onto a hot streak (the buzz machine), so risers climb
+ *     loudly on hype boards and only quietly on honest ones.
+ *
+ * Pre-week-1 / quiet weeks (all form 0) reduce to a pedigree-only read.
+ */
+export function generateWeeklyMediaObservations(
+  prng: Prng,
+  outlets: Readonly<Record<string, MediaOutlet>>,
+  pool: readonly CollegePlayer[],
+  formBias: ReadonlyMap<PlayerId, number>,
+  observedOnTick: number,
+  options: MediaCoverageOptions = {},
+): CollegePlayerObservation[] {
+  const reads = options.readsPerEvaluator ?? READS_PER_EVALUATOR;
+  const accuracyBoost = options.accuracyBoost ?? 0;
+
+  const eligible = pool.filter((cp) => cp.isDraftEligible && !cp.hasReturnedToSchool);
+  if (eligible.length === 0) return [];
+
+  // Notable class: pedigree + how hot they've been. Positive form only —
+  // a slumping prospect drops in grade but doesn't earn extra coverage.
+  const notable = [...eligible]
+    .map((cp) => {
+      const flash = flashiness(cp);
+      const form = formBias.get(cp.id) ?? 0;
+      const formNorm = clamp(form / FORM_COVERAGE_FULL, 0, 1);
+      const coverage = clamp(flash + FORM_COVERAGE_WEIGHT * formNorm, 0, 1);
+      return { cp, flash, form, formNorm, coverage };
+    })
+    .sort((a, b) => b.coverage - a.coverage || (a.cp.id < b.cp.id ? -1 : 1))
+    .slice(0, NOTABLE_CLASS_SIZE);
+
+  const observations: CollegePlayerObservation[] = [];
+  for (const outlet of Object.values(outlets)) {
+    if (outlet.focus !== 'COLLEGE') continue;
+    const accuracy = clamp(outlet.accuracySpectrum / 10 + accuracyBoost, 0, 1);
+    const hype = clamp(outlet.hypeSpectrum / 10, 0, 1);
+    const evaluatorCount = EVALUATORS_BY_TIER[outlet.tier] ?? 2;
+    const outletPrng = prng.fork(`outlet:${outlet.id}`);
+
+    for (let e = 0; e < evaluatorCount; e++) {
+      const evalPrng = outletPrng.fork(`e${e}`);
+      const evaluatorId = ScoutId(`${outlet.id}::e${e}`);
+      const targets = notable.slice(0, reads);
+      for (const { cp, flash, form, formNorm } of targets) {
+        // Every outlet reflects the public production (scaled); hype outlets
+        // inflate the big names AND pile extra onto a hot streak.
+        const bias =
+          FORM_READ_SCALE * form +
+          hype * (HYPE_MAX_BIAS * flash + FORM_HYPE_AMP * formNorm);
+        observations.push(
+          generateMediaObservation(
+            evalPrng.fork(`p:${cp.id}`),
+            evaluatorId,
+            cp,
+            accuracy,
+            bias,
             observedOnTick,
           ),
         );

@@ -29,7 +29,7 @@ import type { Contract } from '../types/contract.js';
 import type { TeamState, TeamSeasonRecord } from '../types/team.js';
 import type { HeadCoach } from '../types/personnel.js';
 import type { DraftBoardEntry } from '../types/college.js';
-import type { TeamId, PlayerId, CoachId, ContractId as ContractIdType } from '../types/ids.js';
+import type { TeamId, PlayerId, GameId, CoachId, ContractId as ContractIdType } from '../types/ids.js';
 import type { CareerSeasonStats } from '../types/stats.js';
 import type { AwardKind } from '../types/awards.js';
 import type { ScheduledGame, SeasonSchedule, PlayoffsState } from '../types/game.js';
@@ -85,8 +85,10 @@ import {
 import { generateHeismanRaceReports } from '../media/heisman-race.js';
 import {
   generateMediaCollegeObservations,
+  generateWeeklyMediaObservations,
   mediaCoverageForLevel,
 } from '../media/prospect-evaluators.js';
+import { computeProspectFormBias } from '../draft/prospect-form.js';
 import {
   generateCollegeRegularSeason,
   bucketProspectsBySchool,
@@ -1205,6 +1207,59 @@ function mediaCoverageRound(
   );
 }
 
+/**
+ * One WEEKLY in-season media coverage round (v0.81). The media re-grades
+ * the draft-eligible field off season-to-date game results, weighted by
+ * who each prospect did it against — so stock moves every week and the Big
+ * Board stock-tracker comes alive during the college season.
+ *
+ * `seasonStats` is the full (append-only) college stat stream; it's scoped
+ * to the current season by keeping only lines whose game is in THIS year's
+ * schedule. Strength is computed per school from the current pool.
+ */
+function weeklyInSeasonMediaRound(
+  league: LeagueState,
+  schedule: CollegeSeasonSchedule,
+  bucketed: ReadonlyMap<string, readonly CollegePlayer[]>,
+  seasonStats: readonly CollegePlayerGameStats[],
+  prng: PrngClass,
+  weekNumber: number,
+): LeagueState['mediaCollegeObservations'] {
+  // This season's played regular-season games, keyed by id. Scopes the
+  // append-all-seasons stat stream to the current year and resolves each
+  // line's opponent.
+  const gamesById = new Map<GameId, CollegeGame>();
+  for (const wk of schedule.regularSeason) {
+    for (const g of wk) {
+      if (g.result) gamesById.set(g.id, g);
+    }
+  }
+  const strengthBySchool = new Map<string, number>();
+  for (const school of COLLEGE_SCHOOLS) {
+    strengthBySchool.set(school.id, collegeTeamStrength(school.id, school.tier, bucketed));
+  }
+
+  const eligible = league.collegePool.filter(
+    (cp) => cp.isDraftEligible && !cp.hasReturnedToSchool,
+  );
+  const formBias = computeProspectFormBias({
+    eligible,
+    gameStats: seasonStats.filter((l) => gamesById.has(l.gameId)),
+    gamesById,
+    strengthBySchool,
+  });
+
+  return generateWeeklyMediaObservations(
+    prng.fork('weekly-media'),
+    league.mediaOutlets,
+    league.collegePool,
+    formBias,
+    league.tick,
+    // Coverage broadens + sharpens as the season builds toward the draft.
+    mediaCoverageForLevel(0.3 + (weekNumber / 12) * 0.35),
+  );
+}
+
 // ─── Draft all-star showcases (v0.65) ──────────────────────────────────
 //
 // Senior Bowl + Shrine Bowl fire in late Jan / early Feb on the current
@@ -1457,12 +1512,20 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
     seasonNumber: league.seasonNumber,
   });
 
-  // v0.74: media re-grades the class every third week (rising
-  // intensity), so the mock board updates through the season.
-  const nextMediaObs =
-    weekNumber % 3 === 0
-      ? mediaCoverageRound(league, prng.fork(`wk${weekIdx}`), 0.3 + (weekNumber / 12) * 0.35)
-      : league.mediaCollegeObservations;
+  // v0.81: media re-grades the class EVERY week off game results, so the
+  // Big Board stock-tracker shows living weekly movement. The read is
+  // driven by season-to-date, opponent-weighted form (see
+  // `weeklyInSeasonMediaRound`). Replaces the v0.74 every-third-week round,
+  // which was a no-op in-season anyway (it filtered on `hasDeclared`, false
+  // until Jan 20).
+  const nextMediaObs = weeklyInSeasonMediaRound(
+    league,
+    nextSchedule,
+    bucketed,
+    updatedStats,
+    prng.fork(`wk${weekIdx}`),
+    weekNumber,
+  );
 
   return {
     ...league,

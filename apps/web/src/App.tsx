@@ -159,7 +159,7 @@ export function App() {
     const column: PerceivedColumn = {
       key: `${league.seasonNumber}:${roundTick}`,
       phase: league.lifecyclePhase,
-      label: bigBoardColumnLabel(league.lifecyclePhase),
+      label: bigBoardColumnLabel(league.lifecyclePhase, league.collegeCurrentWeek),
       dateLabel: formatDateOrEmpty(
         phaseCalendarDate(
           league.lifecyclePhase,
@@ -7733,8 +7733,10 @@ function formatDateOrEmpty(date: CalendarDate | null): string {
 // and fall through the season + draft process and gauge whether the
 // movement feels real — e.g. workout warriors jumping at the combine.
 
-/** Max coverage-round columns kept (≈ 2 seasons of rounds). */
-const BIG_BOARD_MAX_COLS = 14;
+/** Max coverage-round columns kept — a full season is ~12 weekly CFB
+ * rounds plus the offseason rounds (preseason → top-30), so 22 keeps the
+ * whole arc visible before older columns scroll off. */
+const BIG_BOARD_MAX_COLS = 22;
 /** Max prospect rows shown (by most-recent grade). */
 const BIG_BOARD_MAX_ROWS = 50;
 /** Grade delta (points) that counts as a "big" move for the tint. */
@@ -7790,8 +7792,12 @@ function mediaPerceivedScores(league: LeagueState): Map<string, number> {
 }
 
 /** Short column header for a coverage round's phase. */
-function bigBoardColumnLabel(phase: LifecyclePhase): string {
+function bigBoardColumnLabel(phase: LifecyclePhase, collegeWeek?: number | null): string {
   switch (phase) {
+    case 'COLLEGE_WEEK':
+      return collegeWeek === null || collegeWeek === undefined
+        ? 'CFB Wk'
+        : `CFB Wk ${collegeWeek + 1}`;
     case 'PRESEASON':
       return 'Preseason';
     case 'SHRINE_BOWL':
@@ -7831,6 +7837,10 @@ function bigBoardMoveReason(phase: LifecyclePhase, delta: number | null): string
       return `Preseason buzz (${mag})`;
     case 'DRAFT_DECLARATION':
       return `Declared for the draft (${mag})`;
+    case 'COLLEGE_WEEK':
+      return delta >= 0
+        ? `Game results — produced vs the schedule (${mag})`
+        : `Game results — quiet week / tough matchup (${mag})`;
     default:
       return `Stock ${delta > 0 ? 'rose' : delta < 0 ? 'fell' : 'held'} (${mag})`;
   }
