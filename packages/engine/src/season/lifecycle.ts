@@ -53,7 +53,7 @@ import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js
 import { advanceCollegePool } from '../draft/pool.js';
 import { advanceCollegeScoutingCycle } from '../draft/college-cycle.js';
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
-import { runCombine } from '../draft/combine.js';
+import { runCombine, selectCombineInvitees } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
 import { rollJuniorDeclarations } from '../draft/declaration.js';
 import { runDraft, applyDraftResult } from '../draft/event.js';
@@ -1077,8 +1077,11 @@ function applyPostDraftRoster(
  * no stale combine data follows him into next year's class.
  */
 function applyCombine(league: LeagueState, prng: PrngClass): LeagueState {
-  const declaredClass = league.collegePool.filter((cp) => cp.isDraftEligible && cp.hasDeclared);
-  const combineResults = runCombine(prng.fork('combine'), declaredClass, league.tick);
+  // Only the ~330 top declared prospects by current scouting stock are
+  // invited — all already on radar, so the combine refines known names
+  // rather than introducing unknowns to the board.
+  const invitees = selectCombineInvitees(league.collegePool, league.collegeObservations);
+  const combineResults = runCombine(prng.fork('combine'), invitees, league.tick);
   // React to the combine just run, not last year's leftover results.
   const reacted: LeagueState = { ...league, combineResults };
   // Regenerate every team's board with the (public) combine blended in,

@@ -128,3 +128,31 @@ processes" (that takes the test runner down too) — target the port
 listeners only. The Vite dep-cache wipe is the part that actually forces
 the engine to re-bundle from current source; skipping it is why a
 refresh alone keeps showing the old build.
+
+## Inspector & draft-scouting conventions
+
+These are durable rules, not one-off requests. Apply them anywhere they fit.
+
+1. **Perceived always shows real.** The inspector is the developer's
+   calibration lens. Anywhere it surfaces a *perceived* grade (a scouting
+   / media / board read), it must show the **real** (ground-truth) grade
+   right next to it — a `perceived / real` pair, or a dedicated "Real"
+   column. Daniel uses the gap to judge whether the perception layer
+   feels right; a perceived number with no reality check is useless to
+   him. (This is inspector-only; it does NOT violate the North Star — the
+   *game* UI still never reads ground truth.)
+
+2. **Scouting events refine known prospects; they do not discover
+   unknowns high on the board.** Real evaluators have a season of tape
+   before the offseason. Concretely:
+   - **The combine invites ~300–350 already-scouted prospects** (see
+     `COMBINE_INVITE_CAP` / `selectCombineInvitees`). A prospect with no
+     scouting reads is not invited and therefore cannot vault onto a
+     board off a workout. The combine **refines** known names — it never
+     introduces an unknown to the board ("Unknown → #75" is a bug).
+   - **Pro-day risers are allowed but bounded.** A pro day can move a
+     known prospect up, but it cannot lift a previously-unknown prospect
+     above roughly #200 on the big board.
+   - General principle for any new scouting beat: it adjusts the read on
+     prospects already in the evaluation funnel; the funnel only widens
+     gradually (small-school tape, all-star invites), never in one jump.

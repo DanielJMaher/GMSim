@@ -8068,6 +8068,9 @@ interface BigBoardMatrixRow {
   prospectId: string;
   name: string;
   position: string;
+  /** Ground-truth overall (mean of true current skills) — the reality
+   * check against the perceived grades. null if unresolved. */
+  real: number | null;
   cells: (BigBoardCell | null)[];
   /** Most-recent non-null score, for default sorting. */
   latest: number;
@@ -8084,10 +8087,36 @@ function DraftShiftPanel({
 }) {
   const [sort, setSort] = useState<BigBoardSort>('latest');
 
-  const poolById = useMemo(
-    () => new Map(league.collegePool.map((cp) => [cp.id as string, cp] as const)),
-    [league.collegePool],
-  );
+  // Resolve names/position/real grade for every prospect — including
+  // those already drafted out of the college pool (via draft history →
+  // promoted NFL player). Without the drafted-side lookup, older columns
+  // render raw CP_… ids once the class is drafted.
+  const resolve = useMemo(() => {
+    const m = new Map<string, { name: string; position: string; real: number | null }>();
+    const mean = (s: Record<string, number>) => {
+      const vals = Object.values(s);
+      return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+    };
+    for (const cp of league.collegePool) {
+      m.set(cp.id, {
+        name: `${cp.firstName} ${cp.lastName}`,
+        position: cp.nflProjectedPosition,
+        real: mean(cp.current as unknown as Record<string, number>),
+      });
+    }
+    for (const pick of league.draftHistory) {
+      if (m.has(pick.collegePlayerId)) continue;
+      const p = league.players[pick.promotedPlayerId];
+      if (p) {
+        m.set(pick.collegePlayerId, {
+          name: `${p.firstName} ${p.lastName}`,
+          position: p.position,
+          real: mean(p.current as unknown as Record<string, number>),
+        });
+      }
+    }
+    return m;
+  }, [league.collegePool, league.draftHistory, league.players]);
 
   const rows = useMemo<BigBoardMatrixRow[]>(() => {
     if (history.length === 0) return [];
@@ -8106,11 +8135,12 @@ function DraftShiftPanel({
         latest = s;
         return { score: s, delta };
       });
-      const cp = poolById.get(id);
+      const meta = resolve.get(id);
       built.push({
         prospectId: id,
-        name: cp ? `${cp.firstName} ${cp.lastName}` : id,
-        position: cp ? cp.nflProjectedPosition : '',
+        name: meta?.name ?? id,
+        position: meta?.position ?? '',
+        real: meta?.real ?? null,
         cells,
         latest,
       });
@@ -8124,7 +8154,7 @@ function DraftShiftPanel({
       return bv - av;
     });
     return built.slice(0, BIG_BOARD_MAX_ROWS);
-  }, [history, poolById, sort]);
+  }, [history, resolve, sort]);
 
   return (
     <section className="mt-6 rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-4">
@@ -8160,6 +8190,12 @@ function DraftShiftPanel({
                 >
                   Player ▾
                 </th>
+                <th
+                  className="whitespace-nowrap px-2 py-1.5 text-center font-medium text-zinc-400"
+                  title="ground-truth overall (what we really have on them)"
+                >
+                  Real
+                </th>
                 {history.map((col, i) => (
                   <th
                     key={col.key}
@@ -8179,6 +8215,9 @@ function DraftShiftPanel({
                   <td className="sticky left-0 z-10 bg-zinc-950/95 px-3 py-1 text-left">
                     <span className="text-zinc-200">{r.name}</span>
                     {r.position && <span className="ml-1.5 text-zinc-600">{r.position}</span>}
+                  </td>
+                  <td className="px-2 py-1 text-center font-mono tabular-nums text-zinc-400" title="ground-truth overall">
+                    {r.real ?? '—'}
                   </td>
                   {r.cells.map((cell, i) => (
                     <td key={history[i]!.key} className="px-1 py-0.5 text-center">

@@ -1,6 +1,70 @@
 import type { Prng } from '../prng/index.js';
-import type { CollegePlayer, CombineMeasurables, CharacterFlag } from '../types/college.js';
+import type {
+  CollegePlayer,
+  CollegePlayerObservation,
+  CombineMeasurables,
+  CharacterFlag,
+} from '../types/college.js';
 import type { PlayerId } from '../types/ids.js';
+
+/**
+ * NFL Combine invite cap. The real combine invites ~320-340 prospects
+ * each year, and every one of them is already on teams' radar — the
+ * combine refines the read on known prospects, it does NOT discover
+ * unknowns. So invitations go to the top declared prospects by current
+ * scouting stock; a prospect with no scouting reads isn't invited (and
+ * therefore can't vault onto a board off a workout alone).
+ */
+export const COMBINE_INVITE_CAP = 330;
+
+/**
+ * Pick the combine field: the top `max` declared, draft-eligible
+ * prospects ranked by confidence-weighted observed grade across all
+ * accumulated scouting observations. Prospects with zero reads are not
+ * invited. Deterministic (stable id tiebreak); pure.
+ */
+export function selectCombineInvitees(
+  collegePool: readonly CollegePlayer[],
+  observations: readonly CollegePlayerObservation[],
+  max: number = COMBINE_INVITE_CAP,
+): CollegePlayer[] {
+  const agg = new Map<PlayerId, { wsum: number; csum: number }>();
+  for (const obs of observations) {
+    let sSum = 0;
+    let sN = 0;
+    let cSum = 0;
+    let cN = 0;
+    for (const v of Object.values(obs.skills)) {
+      if (typeof v === 'number') {
+        sSum += v;
+        sN += 1;
+      }
+    }
+    for (const v of Object.values(obs.confidence)) {
+      if (typeof v === 'number') {
+        cSum += v;
+        cN += 1;
+      }
+    }
+    const overall = sN > 0 ? sSum / sN : 0;
+    const conf = cN > 0 ? cSum / cN : 0;
+    if (conf <= 0) continue;
+    const cur = agg.get(obs.collegePlayerId) ?? { wsum: 0, csum: 0 };
+    cur.wsum += overall * conf;
+    cur.csum += conf;
+    agg.set(obs.collegePlayerId, cur);
+  }
+
+  return collegePool
+    .filter((cp) => cp.isDraftEligible && cp.hasDeclared && (agg.get(cp.id)?.csum ?? 0) > 0)
+    .map((cp) => {
+      const a = agg.get(cp.id)!;
+      return { cp, grade: a.wsum / a.csum };
+    })
+    .sort((a, b) => b.grade - a.grade || (a.cp.id < b.cp.id ? -1 : a.cp.id > b.cp.id ? 1 : 0))
+    .slice(0, max)
+    .map((r) => r.cp);
+}
 
 /**
  * Per-drill measurement noise — combine is precisely measured, so

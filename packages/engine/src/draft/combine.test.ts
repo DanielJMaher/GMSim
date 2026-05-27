@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Prng } from '../prng/index.js';
-import { runCombine, rollCombineResults } from './combine.js';
+import { runCombine, rollCombineResults, selectCombineInvitees, COMBINE_INVITE_CAP } from './combine.js';
 import { generateCollegePlayer } from './generate-college-player.js';
 import { generateInitialCollegePool } from './pool.js';
 import { createLeague } from '../league/generate.js';
@@ -149,5 +149,30 @@ describe('combine integration with createLeague + advanceSeason', () => {
     delete stripped.combineResults;
     const played = simulateSeason(stripped as typeof league);
     expect(Object.keys(played.combineResults).length).toBeGreaterThan(0);
+  });
+});
+
+describe('selectCombineInvitees (v0.80 — combine invite cap)', () => {
+  it('caps the field and only invites scouted, declared, eligible prospects', () => {
+    const league = createLeague({ seed: 'combine-invites' });
+    const invitees = selectCombineInvitees(league.collegePool, league.collegeObservations);
+    expect(invitees.length).toBeGreaterThan(0);
+    expect(invitees.length).toBeLessThanOrEqual(COMBINE_INVITE_CAP);
+
+    const observedIds = new Set(league.collegeObservations.map((o) => o.collegePlayerId));
+    for (const cp of invitees) {
+      expect(cp.isDraftEligible).toBe(true);
+      expect(cp.hasDeclared).toBe(true);
+      // No combine invite for a prospect nobody has scouted.
+      expect(observedIds.has(cp.id)).toBe(true);
+    }
+  });
+
+  it('honors a smaller explicit cap and is ranked (deterministic)', () => {
+    const league = createLeague({ seed: 'combine-invites-2' });
+    const small = selectCombineInvitees(league.collegePool, league.collegeObservations, 25);
+    expect(small.length).toBeLessThanOrEqual(25);
+    const again = selectCombineInvitees(league.collegePool, league.collegeObservations, 25);
+    expect(again.map((c) => c.id)).toEqual(small.map((c) => c.id));
   });
 });

@@ -16,6 +16,36 @@ _Nothing yet._
 
 ---
 
+## [0.80.0] — 2026-05-27
+
+### Changed — combine invite cap; Big Board names + real grade
+
+- **The combine now invites only ~330 already-scouted prospects**
+  (`COMBINE_INVITE_CAP` / `selectCombineInvitees`), ranked by current
+  scouting stock. A prospect with no scouting reads isn't invited — so
+  the combine can no longer vault an unknown onto a board off a workout
+  ("Unknown → #75" is gone). Because `combineResults` now contains only
+  known prospects, this cleanly bounds both the scout-board read (v0.78)
+  and the media coverage read (v0.76): neither introduces unknowns.
+- **Big Board tracker — fixed prospect names.** Rows now resolve names
+  via the college pool AND draft history → promoted NFL player, so
+  columns from already-drafted classes show real names instead of raw
+  `CP_…` ids.
+- **Big Board tracker — added a Real column.** Every row shows the
+  prospect's ground-truth overall next to the per-round perceived grades,
+  so the perceived numbers always have a reality check (see the new
+  inspector convention in `CLAUDE.md`).
+
+### Docs
+
+- `CLAUDE.md` — added **Inspector & draft-scouting conventions**: (1) any
+  perceived grade in the inspector must show the real grade beside it;
+  (2) scouting events refine known prospects and never discover unknowns
+  high on the board (combine = ~300–350 scouted invitees; pro-day risers
+  bounded below ~#200).
+
+---
+
 ## [0.79.0] — 2026-05-26
 
 ### Changed — Big Board becomes a stock-movement tracker
