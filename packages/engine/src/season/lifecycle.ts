@@ -52,6 +52,7 @@ import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
 import { advanceCollegePool } from '../draft/pool.js';
 import { advanceCollegeScoutingCycle } from '../draft/college-cycle.js';
+import { pruneObservationsToPool } from '../draft/college-observation.js';
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
 import { runCombine, selectCombineInvitees } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
@@ -1339,6 +1340,15 @@ function applyCollegeCycle(league: LeagueState, prng: PrngClass): LeagueState {
     collegeCurrentWeek: null,
     // Clear the all-star rosters too — next cycle's bowls repopulate.
     allStarGames: [],
+    // Prune the append-only scout-observation stream to the prospects
+    // still in the pool — drafted / graduated prospects' reads are dead
+    // weight (board regen only ranks current-pool prospects). Keeps the
+    // stream O(current pool) instead of growing every season; the scale
+    // prerequisite for weekly in-season scout observations.
+    collegeObservations: pruneObservationsToPool(
+      collegeAdvance.nextPool,
+      league.collegeObservations,
+    ),
     // The class has turned over — drop the media's read on the old class
     // so next year's board starts fresh in the preseason.
     mediaCollegeObservations: [],

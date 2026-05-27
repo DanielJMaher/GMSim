@@ -3,7 +3,10 @@ import { Prng } from '../prng/index.js';
 import {
   generateCollegeObservation,
   generateInitialCollegeObservations,
+  pruneObservationsToPool,
 } from './college-observation.js';
+import type { CollegePlayer, CollegePlayerObservation } from '../types/college.js';
+import { PlayerId, ScoutId } from '../types/ids.js';
 import { generateCollegePlayer } from './generate-college-player.js';
 import { generateInitialCollegePool } from './pool.js';
 import { generateCollegeScout, generateTeamCollegeScouts } from './college-scout.js';
@@ -19,6 +22,30 @@ import { PositionGroup, Position } from '../types/enums.js';
 import { positionGroupFor } from '../players/position-group.js';
 
 const ALABAMA = getSchoolById('ALABAMA')!;
+
+describe('pruneObservationsToPool', () => {
+  const obs = (id: string): CollegePlayerObservation => ({
+    scoutId: ScoutId('SC_1'),
+    collegePlayerId: PlayerId(id),
+    observedOnTick: 0,
+    skills: { speed: 80 },
+    confidence: { speed: 0.5 },
+  });
+  const inPool = (id: string) => ({ id: PlayerId(id) }) as unknown as CollegePlayer;
+
+  it('keeps observations for pooled prospects and drops departed ones', () => {
+    const result = pruneObservationsToPool(
+      [inPool('CP_keep')],
+      [obs('CP_keep'), obs('CP_gone'), obs('CP_keep'), obs('CP_gone2')],
+    );
+    expect(result).toHaveLength(2);
+    expect(result.every((o) => o.collegePlayerId === PlayerId('CP_keep'))).toBe(true);
+  });
+
+  it('empties the stream when no prospects remain in the pool', () => {
+    expect(pruneObservationsToPool([], [obs('CP_a'), obs('CP_b')])).toHaveLength(0);
+  });
+});
 
 function owner(financialCommitment: number): Owner {
   return {

@@ -38,6 +38,27 @@ const PLAYER_SKILL_KEYS: readonly (keyof PlayerSkills)[] = [
 ];
 
 /**
+ * Prune the scout-observation stream to prospects still in the pool
+ * (v0.86). `collegeObservations` is append-only and was never pruned, so
+ * it grew without bound across seasons — observations for drafted /
+ * graduated prospects piled up forever. Board regeneration only ranks
+ * current-pool prospects, so those stale observations are dead weight:
+ * dropping them is behaviorally free and turns the stream's O(seasons)
+ * growth into an O(current pool) steady state.
+ *
+ * This is the scale prerequisite for filing weekly in-season scout
+ * observations (which would otherwise compound the unbounded growth at
+ * 32-team scale). Called at the season turnover, after the pool ages.
+ */
+export function pruneObservationsToPool(
+  pool: readonly CollegePlayer[],
+  observations: readonly CollegePlayerObservation[],
+): CollegePlayerObservation[] {
+  const ids = new Set<string>(pool.map((cp) => cp.id));
+  return observations.filter((o) => ids.has(o.collegePlayerId));
+}
+
+/**
  * Generate one league-wide sweep of college observations. Every
  * scout on every team produces ~`OBSERVATIONS_PER_SCOUT` reports
  * on prospects whose **projected NFL position group** matches the
