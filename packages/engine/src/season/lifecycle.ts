@@ -1081,8 +1081,22 @@ function applyCombine(league: LeagueState, prng: PrngClass): LeagueState {
   const combineResults = runCombine(prng.fork('combine'), declaredClass, league.tick);
   // React to the combine just run, not last year's leftover results.
   const reacted: LeagueState = { ...league, combineResults };
+  // Regenerate every team's board with the (public) combine blended in,
+  // so workout warriors climb and poor testers slide the moment the
+  // numbers post — the combine visibly moves the consensus board.
+  const draftBoards = regenerateDraftBoardsForLeague({
+    teams: reacted.teams,
+    collegeScouts: reacted.collegeScouts,
+    coaches: reacted.coaches,
+    players: reacted.players,
+    collegePool: reacted.collegePool,
+    observations: reacted.collegeObservations,
+    addedOnTick: reacted.tick,
+    combineResults: reacted.combineResults,
+  });
   return {
     ...reacted,
+    draftBoards,
     mediaCollegeObservations: mediaCoverageRound(reacted, prng, 0.82),
     lifecyclePhase: 'COMBINE',
   };
@@ -1132,6 +1146,8 @@ function applyTop30Visits(league: LeagueState, prng: PrngClass): LeagueState {
     collegePool: offseason.collegePool,
     observations: offseason.collegeObservations,
     addedOnTick: offseason.tick,
+    // Keep the combine read in the final pre-draft board.
+    combineResults: offseason.combineResults,
   });
   offseason = { ...offseason, draftBoards: refreshedBoards };
 

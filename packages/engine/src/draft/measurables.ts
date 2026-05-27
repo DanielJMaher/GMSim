@@ -241,6 +241,66 @@ export function rollMeasurables(prng: Prng, options: RollMeasurablesOptions): Me
   };
 }
 
+/**
+ * Combine → athletic-skill read (v0.78).
+ *
+ * The inverse of `rollMeasurables`: given a prospect's *measured* combine
+ * numbers, estimate the athletic skills a scout would read off them,
+ * relative to the prospect's position. Each drill becomes a position
+ * z-score (how many stdevs above/below the positional average), mapped to
+ * a bounded skill value around 70. Because measurables are only ~30%
+ * correlated to true skill (see the note above), this read deliberately
+ * diverges from a prospect's true skill — a workout warrior tests (and so
+ * reads) athletic; a tape star who runs slow reads down. That gap, fed
+ * into the draft board, is the combine moving stock.
+ *
+ * Only the four measured athletic skills are returned (speed, strength,
+ * acceleration, agility) — the combine says nothing about football skill
+ * (technique, IQ, hands), so those are left to tape/scouting.
+ */
+const COMBINE_Z_TO_SKILL = 10; // skill points per positional stdev
+// Generation stdevs for the drills the baselines don't carry one for
+// (rollMeasurables used these fixed spreads). Kept in sync with the
+// noise terms in rollMeasurables above.
+const DRILL_SD = { vert: 2, broad: 4, cone: 0.1, shuttle: 0.07 } as const;
+
+export function combineAthleticSkills(
+  position: Position,
+  m: {
+    fortyYardSeconds?: number;
+    benchPress225Reps?: number;
+    verticalInches?: number;
+    broadJumpInches?: number;
+    threeConeSeconds?: number;
+    shuttleSeconds?: number;
+  },
+): Partial<Pick<PlayerSkills, 'speed' | 'strength' | 'acceleration' | 'agility'>> {
+  const b = POSITION_BASELINES[position];
+  const out: Partial<Pick<PlayerSkills, 'speed' | 'strength' | 'acceleration' | 'agility'>> = {};
+  const toSkill = (z: number) => clamp(Math.round(70 + z * COMBINE_Z_TO_SKILL), 30, 99);
+
+  // 40-yard dash → speed (lower is faster, so flip).
+  if (typeof m.fortyYardSeconds === 'number') {
+    out.speed = toSkill((b.forty - m.fortyYardSeconds) / b.fortySd);
+  }
+  // Bench reps → strength (vs the positional average).
+  if (typeof m.benchPress225Reps === 'number') {
+    out.strength = toSkill((m.benchPress225Reps - b.bench) / b.benchSd);
+  }
+  // Vertical + broad → acceleration/explosiveness.
+  const accZ: number[] = [];
+  if (typeof m.verticalInches === 'number') accZ.push((m.verticalInches - b.vert) / DRILL_SD.vert);
+  if (typeof m.broadJumpInches === 'number') accZ.push((m.broadJumpInches - b.broad) / DRILL_SD.broad);
+  if (accZ.length > 0) out.acceleration = toSkill(accZ.reduce((a, c) => a + c, 0) / accZ.length);
+  // 3-cone + shuttle → agility (lower is quicker, so flip).
+  const agZ: number[] = [];
+  if (typeof m.threeConeSeconds === 'number') agZ.push((b.cone - m.threeConeSeconds) / DRILL_SD.cone);
+  if (typeof m.shuttleSeconds === 'number') agZ.push((b.shuttle - m.shuttleSeconds) / DRILL_SD.shuttle);
+  if (agZ.length > 0) out.agility = toSkill(agZ.reduce((a, c) => a + c, 0) / agZ.length);
+
+  return out;
+}
+
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }

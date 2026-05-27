@@ -16,6 +16,40 @@ _Nothing yet._
 
 ---
 
+## [0.78.0] — 2026-05-26
+
+### Changed — the combine moves the draft board; Draft Shift → Big Board
+
+- **The combine now moves the scout boards, not just the media board.**
+  The combine is a public event, so its measurables are folded into
+  every team's board regeneration as a league-wide synthetic read of the
+  four athletic skills (`combineAthleticSkills` inverts the position
+  baselines `rollMeasurables` generates from). Because measurables are
+  only loosely correlated to true skill, this read deliberately diverges
+  from a prospect's tape — a **workout warrior climbs, a poor tester
+  slides**. The boards now regenerate at the COMBINE phase, so stepping
+  through the combine visibly re-ranks them.
+  - The effect is naturally targeted: a heavily-scouted blue-chip barely
+    moves (the combine just confirms the tape), while an under-the-radar
+    small-school freak — few tape reports — feels it hardest.
+  - Scaled by archetype: the combine pulls hardest on prospects whose
+    archetype values athletic skills (a deep threat's 40 matters; a
+    possession receiver's less so). Tuning knobs: `COMBINE_OBS_CONFIDENCE`,
+    `COMBINE_Z_TO_SKILL`.
+  - Public, so it converges rather than scatters: combine reads enter
+    each board the same way (and the shared league aggregate), so they
+    don't manufacture team-to-team divergence the draft would read as
+    reaches.
+- **Draft Shift tab → "Big Board."** Replaced the confusing tick-by-tick
+  stock-movement log (which surfaced opaque "NEW → #1" entries for
+  first-time-scouted prospects) with a clean summary of the current
+  consensus board: every prospect ranked, with the v0.75 perceived/real
+  grade pair and a teams-carrying count. LEAGUE / MEDIA / per-team picker
+  retained. Combine movement is now visible by stepping the lifecycle and
+  watching the board re-rank.
+
+---
+
 ## [0.77.0] — 2026-05-26
 
 ### Changed — draft declarations move to mid-January (before the combine)

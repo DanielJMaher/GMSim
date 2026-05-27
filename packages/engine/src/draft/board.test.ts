@@ -3,7 +3,9 @@ import { createLeague } from '../league/generate.js';
 import { simulateSeason } from '../season/runner.js';
 import { advanceSeason } from '../season/advance.js';
 import { regenerateDraftBoardsForLeague } from './board.js';
+import { getArchetypeById } from '../archetypes/index.js';
 import type { TeamId } from '../types/ids.js';
+import type { CombineMeasurables } from '../types/college.js';
 
 describe('regenerateDraftBoardsForLeague (slice 3)', () => {
   it('createLeague populates draftBoards for all 32 teams', () => {
@@ -237,9 +239,90 @@ describe('draft reach distribution (v0.51 damped priority formula)', () => {
     // modal bucket (>50% of picks); the damped formula keeps it a
     // minority. This is a coarse single-seed sanity bound, not a precise
     // target — the real health signal is meanReach ≈ 0 (asserted above).
-    // (v0.77: moving JR declarations to mid-January shifted this seed's
-    // declared class, nudging the ratio from just under 0.30 to ~0.31;
-    // the distribution stays healthy, so the bound is loosened to 0.35.)
+    // (v0.77 moved JR declarations to mid-January and v0.78 folded the
+    // public combine read into the boards; together they shifted this
+    // seed's ratio from just under 0.30 to ~0.33 — still a clear
+    // minority and meanReach stays healthy, so the bound sits at 0.35.)
     expect(bigReachRatio).toBeLessThan(0.35);
+  });
+});
+
+describe('combine moves the board (v0.78)', () => {
+  const ATHLETIC = new Set(['speed', 'acceleration', 'agility', 'strength']);
+
+  function consensusScore(
+    boards: Record<TeamId, { collegePlayerId: string; observedSkillScore: number }[]>,
+    prospectId: string,
+  ): number {
+    let sum = 0;
+    let n = 0;
+    for (const board of Object.values(boards)) {
+      const e = board.find((x) => x.collegePlayerId === prospectId);
+      if (e) {
+        sum += e.observedSkillScore;
+        n += 1;
+      }
+    }
+    return n > 0 ? sum / n : 0;
+  }
+
+  it('an elite workout lifts an athletic prospect above a poor workout', () => {
+    const league = createLeague({ seed: 'combine-moves-board' });
+
+    // A declared prospect whose archetype actually values athletic skills,
+    // so the combine read flows into observedSkillScore.
+    const prospect = league.collegePool.find((cp) => {
+      if (!(cp.isDraftEligible && cp.hasDeclared)) return false;
+      const arch = getArchetypeById(cp.archetype);
+      if (!arch) return false;
+      return Object.entries(arch.skillWeights).some(
+        ([k, w]) => ATHLETIC.has(k) && (w ?? 1) >= 1.2,
+      );
+    });
+    expect(prospect).toBeDefined();
+
+    // Vary every athletic drill together so the effect lands on whichever
+    // athletic skill this prospect's archetype weights.
+    const mk = (quality: 'elite' | 'poor'): CombineMeasurables => ({
+      ...prospect!.measurables,
+      attended: true,
+      measuredOnTick: 0,
+      fortyYardSeconds: quality === 'elite' ? 4.25 : 5.1,
+      verticalInches: quality === 'elite' ? 44 : 26,
+      broadJumpInches: quality === 'elite' ? 138 : 96,
+      threeConeSeconds: quality === 'elite' ? 6.4 : 7.9,
+      shuttleSeconds: quality === 'elite' ? 3.9 : 4.9,
+      benchPress225Reps: quality === 'elite' ? 36 : 6,
+    });
+    const baseArgs = {
+      teams: league.teams,
+      collegeScouts: league.collegeScouts,
+      coaches: league.coaches,
+      players: league.players,
+      collegePool: league.collegePool,
+      observations: league.collegeObservations,
+      addedOnTick: league.tick,
+    };
+
+    const elite = regenerateDraftBoardsForLeague({ ...baseArgs, combineResults: { [prospect!.id]: mk('elite') } });
+    const poor = regenerateDraftBoardsForLeague({ ...baseArgs, combineResults: { [prospect!.id]: mk('poor') } });
+
+    expect(consensusScore(elite, prospect!.id)).toBeGreaterThan(consensusScore(poor, prospect!.id));
+  });
+
+  it('is a no-op when no combine results are supplied (pre-combine)', () => {
+    const league = createLeague({ seed: 'combine-noop' });
+    const baseArgs = {
+      teams: league.teams,
+      collegeScouts: league.collegeScouts,
+      coaches: league.coaches,
+      players: league.players,
+      collegePool: league.collegePool,
+      observations: league.collegeObservations,
+      addedOnTick: league.tick,
+    };
+    const without = regenerateDraftBoardsForLeague(baseArgs);
+    const emptyCombine = regenerateDraftBoardsForLeague({ ...baseArgs, combineResults: {} });
+    expect(emptyCombine).toEqual(without);
   });
 });

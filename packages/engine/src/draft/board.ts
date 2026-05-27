@@ -1,9 +1,10 @@
-import type { TeamId, ScoutId, PlayerId } from '../types/ids.js';
+import type { TeamId, PlayerId } from '../types/ids.js';
 import type { PositionGroup } from '../types/enums.js';
 import type {
   CollegePlayer,
   CollegePlayerObservation,
   CollegeScout,
+  CombineMeasurables,
   DraftBoardEntry,
   DraftBoardReason,
 } from '../types/college.js';
@@ -14,6 +15,8 @@ import { getArchetypeById } from '../archetypes/index.js';
 import { schemeFitForPlayer } from '../scheme/index.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { recencyWeight } from '../scouting/recency.js';
+import { combineAthleticSkills } from './measurables.js';
+import { ScoutId } from '../types/ids.js';
 
 /**
  * Maximum board depth. v0.52 raises from 50 → 500 to rank every
@@ -68,6 +71,58 @@ const SCHEME_BONUS_CAP = 6;
 const NEED_BONUS_SCALE = 12;
 const NEED_BONUS_CAP = 4;
 const CONFIDENCE_FLOOR = 0.8;
+
+/**
+ * Combine read (v0.78). The combine is a public event — every team gets
+ * the same precisely-measured athletic numbers — so it's injected into
+ * board regeneration as a league-wide synthetic observation per attendee
+ * (not stored in the per-team scout stream). `combineAthleticSkills`
+ * turns the measurables into a position-relative read of the four
+ * athletic skills; this confidence governs how hard that read pulls the
+ * board's confidence-weighted skill aggregate. High + freshly-dated, so a
+ * workout warrior visibly climbs and a poor tester slides. Tuning knob.
+ */
+const COMBINE_OBS_CONFIDENCE = 0.7;
+const COMBINE_SCOUT_ID = ScoutId('COMBINE');
+
+/**
+ * Build one synthetic, league-wide combine observation per attending
+ * prospect from the class's combine results. Athletic skills only; the
+ * combine says nothing about football skill. Returns an empty map when no
+ * combine results are supplied (pre-combine regenerations are unchanged).
+ */
+function buildCombineObsByProspect(
+  collegePool: readonly CollegePlayer[],
+  combineResults: Readonly<Record<string, CombineMeasurables>> | undefined,
+  addedOnTick: number,
+): Map<PlayerId, CollegePlayerObservation> {
+  const out = new Map<PlayerId, CollegePlayerObservation>();
+  if (!combineResults) return out;
+  for (const cp of collegePool) {
+    const m = combineResults[cp.id];
+    if (!m || !m.attended) continue;
+    const implied = combineAthleticSkills(cp.nflProjectedPosition, m);
+    const skills: Partial<Record<keyof PlayerSkills, number>> = {};
+    const confidence: Partial<Record<keyof PlayerSkills, number>> = {};
+    let any = false;
+    for (const [k, v] of Object.entries(implied)) {
+      if (typeof v === 'number') {
+        skills[k as keyof PlayerSkills] = v;
+        confidence[k as keyof PlayerSkills] = COMBINE_OBS_CONFIDENCE;
+        any = true;
+      }
+    }
+    if (!any) continue;
+    out.set(cp.id, {
+      scoutId: COMBINE_SCOUT_ID,
+      collegePlayerId: cp.id,
+      observedOnTick: addedOnTick,
+      skills,
+      confidence,
+    });
+  }
+  return out;
+}
 
 /**
  * Position-group depth targets used by the draft-board need score.
@@ -171,6 +226,9 @@ export function regenerateDraftBoardsForLeague(args: {
   collegePool: readonly CollegePlayer[];
   observations: readonly CollegePlayerObservation[];
   addedOnTick: number;
+  /** Class combine results — when supplied, the (public) combine is
+   * blended into every board's athletic read. Omit pre-combine. */
+  combineResults?: Readonly<Record<string, CombineMeasurables>>;
 }): Record<TeamId, DraftBoardEntry[]> {
   const needScoresByTeam = new Map<TeamId, Record<PositionGroup, number>>();
   for (const team of Object.values(args.teams)) {
@@ -187,6 +245,7 @@ function regenerateDraftBoardsInternal(args: {
   observations: readonly CollegePlayerObservation[];
   needScoresByTeam: Map<TeamId, Record<PositionGroup, number>>;
   addedOnTick: number;
+  combineResults?: Readonly<Record<string, CombineMeasurables>>;
 }): Record<TeamId, DraftBoardEntry[]> {
   const prospectById = new Map<PlayerId, CollegePlayer>();
   for (const cp of args.collegePool) prospectById.set(cp.id, cp);
@@ -224,16 +283,29 @@ function regenerateDraftBoardsInternal(args: {
   // prospects through this aggregate, with reduced confidence to
   // reflect "we know about this guy from the wider league signal,
   // not firsthand."
+  // Public combine read (v0.78), one synthetic observation per attendee,
+  // blended into every team's board below + the league aggregate here.
+  const combineObsByProspect = buildCombineObsByProspect(
+    args.collegePool,
+    args.combineResults,
+    args.addedOnTick,
+  );
+
   const leagueAggregateByProspect = new Map<
     PlayerId,
     { observedSkillScore: number; meanConfidence: number }
   >();
-  for (const [pid, obsList] of obsByProspect) {
+  const aggregateIds = new Set<PlayerId>(obsByProspect.keys());
+  for (const pid of combineObsByProspect.keys()) aggregateIds.add(pid);
+  for (const pid of aggregateIds) {
     const prospect = prospectById.get(pid);
     if (!prospect) continue;
+    const obsList = obsByProspect.get(pid) ?? [];
+    const combineObs = combineObsByProspect.get(pid);
+    const merged = combineObs ? [...obsList, combineObs] : obsList;
     leagueAggregateByProspect.set(
       pid,
-      aggregateCollegeObservations(obsList, prospect, args.addedOnTick),
+      aggregateCollegeObservations(merged, prospect, args.addedOnTick),
     );
   }
 
@@ -254,6 +326,7 @@ function regenerateDraftBoardsInternal(args: {
       need,
       args.addedOnTick,
       leagueAggregateByProspect,
+      combineObsByProspect,
     );
   }
   return out;
@@ -294,6 +367,7 @@ function buildBoardForTeamWithNeed(
     PlayerId,
     { observedSkillScore: number; meanConfidence: number }
   >,
+  combineObsByProspect?: ReadonlyMap<PlayerId, CollegePlayerObservation>,
 ): DraftBoardEntry[] {
   const byProspect = new Map<PlayerId, CollegePlayerObservation[]>();
   for (const obs of teamObservations) {
@@ -303,6 +377,19 @@ function buildBoardForTeamWithNeed(
       byProspect.set(obs.collegePlayerId, bucket);
     }
     bucket.push(obs);
+  }
+
+  // The combine is public — fold its athletic read into the prospects
+  // this team has *already scouted*, sharpening their own grade (v0.78).
+  // Prospects the team hasn't scouted still get the combine, but through
+  // the shared league aggregate below — so a public event moves every
+  // board the same way instead of scattering athletic-only reads (which
+  // would manufacture divergence the draft reads as reaches).
+  if (combineObsByProspect) {
+    for (const [pid, cObs] of combineObsByProspect) {
+      const bucket = byProspect.get(pid);
+      if (bucket) bucket.push(cObs);
+    }
   }
 
   // Candidate set = (team's own observations) ∪ (every prospect any
