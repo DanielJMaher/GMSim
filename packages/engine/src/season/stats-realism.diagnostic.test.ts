@@ -33,14 +33,28 @@ describe.skip('stats realism diagnostic', () => {
     }
     starterInts.sort((a, b) => b - a);
     const games = league.schedule!.regularSeason.flat().filter((g) => g.result).length;
+    // Defensive side: who CATCHES the picks + sacks.
+    const defInts: number[] = [];
+    const sacks: number[] = [];
+    let totalDefInt = 0;
+    for (const s of stats.values()) {
+      if (s.interceptions > 0) defInts.push(s.interceptions);
+      if (s.sacks > 0) sacks.push(s.sacks);
+      totalDefInt += s.interceptions;
+    }
+    defInts.sort((a, b) => b - a);
+    sacks.sort((a, b) => b - a);
     /* eslint-disable no-console */
     console.log('=== NFL passing/INT diagnostic ===');
     console.log(`games played: ${games}`);
     console.log(`starter QBs (>=150 att): ${starterInts.length}`);
-    console.log(`league INT% (starters): ${((100 * totalInt) / totalAtt).toFixed(2)}%`);
-    console.log(`mean starter season INT: ${(totalInt / starterInts.length).toFixed(1)}`);
-    console.log(`top 12 season INT: ${starterInts.slice(0, 12).join(', ')}`);
-    console.log(`INT/team/game (starters): ${(totalInt / starterInts.length / 17).toFixed(2)}`);
+    console.log(`league INT% thrown (starters): ${((100 * totalInt) / totalAtt).toFixed(2)}%`);
+    console.log(`mean starter season INT thrown: ${(totalInt / starterInts.length).toFixed(1)}`);
+    console.log(`top 12 season INT thrown: ${starterInts.slice(0, 12).join(', ')}`);
+    console.log('--- DEFENSIVE interceptions (the NFL "INT leader" stat) ---');
+    console.log(`league total def INT: ${totalDefInt}`);
+    console.log(`top 15 season def INT (real 2025 leader = 7): ${defInts.slice(0, 15).join(', ')}`);
+    console.log(`top 10 season sacks (real leader ~16-22): ${sacks.slice(0, 10).join(', ')}`);
     /* eslint-enable no-console */
   });
 

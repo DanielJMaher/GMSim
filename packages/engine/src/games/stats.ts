@@ -7,6 +7,14 @@ import { Position, PositionGroup } from '../types/enums.js';
 import { getArchetypeById } from '../archetypes/index.js';
 
 /**
+ * Rank-weighted shares for spreading small per-game defensive turnover
+ * events (interceptions) across a unit. The lead ball-hawk (rank 0) is
+ * picked most often but the takeaways are shared down the depth chart, so
+ * no single defender hoards a team's whole season of picks.
+ */
+const DEF_TURNOVER_SLOTS = [0.3, 0.22, 0.17, 0.12, 0.09, 0.06, 0.04];
+
+/**
  * Derive per-player stat lines for a played game by distributing
  * team-level GameResult stats across the rosters that played.
  *
@@ -205,6 +213,35 @@ function fnv1aHash(s: string): number {
   return h >>> 0;
 }
 
+/** Deterministic hash → uniform [0, 1). */
+function hashUnit(s: string): number {
+  return fnv1aHash(s) / 0x100000000;
+}
+
+/**
+ * Deterministically pick one player from a skill-ranked list using
+ * absolute `weights` by rank — a hash-seeded weighted draw. Spreads small
+ * per-game events across a unit over a season instead of always landing on
+ * the top-ranked player (the largest-remainder failure mode).
+ */
+function pickByRankWeight<T>(
+  ranked: readonly T[],
+  weights: readonly number[],
+  seed: string,
+): T | undefined {
+  if (ranked.length === 0) return undefined;
+  const n = Math.min(ranked.length, weights.length);
+  let total = 0;
+  for (let i = 0; i < n; i++) total += weights[i]!;
+  if (total <= 0) return ranked[0];
+  let r = hashUnit(seed) * total;
+  for (let i = 0; i < n; i++) {
+    r -= weights[i]!;
+    if (r <= 0) return ranked[i];
+  }
+  return ranked[n - 1];
+}
+
 function recvSharesFor(n: number): number[] {
   // Pareto-ish target distribution.
   const base = [0.28, 0.20, 0.16, 0.13, 0.10, 0.08, 0.05];
@@ -274,17 +311,30 @@ function attributeDefense(
 
   // ── Interceptions ────────────────────────────────────────────────
   // Defensive INTs ≈ 50% of opposing team's turnovers (the rest are
-  // forced fumbles). Matches the offensive 0.5 split. DBs catch
-  // most; a few go to LBs.
+  // forced fumbles). Matches the offensive 0.5 split.
+  //
+  // Picks are SPREAD across the secondary by a rank-weighted draw rather
+  // than handed to the single top-skill DB. `distributeBySkill` used
+  // largest-remainder rounding, so a per-game count of 0-1 always landed
+  // on the highest-skill defender — inflating one ball-hawk to ~15 INTs a
+  // season (real NFL leader ~7, most teams' leader ~4-6). A ball-hawk
+  // still leads (rank-0 weight is highest) but the picks are shared.
   const totalInts = fractionalRound(
     oppStats.turnovers * 0.5,
     `${gameId}:def-int:${team.identity.abbreviation}`,
   );
   if (totalInts > 0) {
-    const dbInts = Math.round(totalInts * 0.8);
-    const lbInts = Math.max(0, totalInts - dbInts);
-    distributeBySkill(dbs, dbInts, (p, n) => (getOrInit(lines, p.id).interceptions += n));
-    distributeBySkill(lbs, lbInts, (p, n) => (getOrInit(lines, p.id).interceptions += n));
+    const dbsRanked = [...dbs].sort(byTierThenSkill);
+    const lbsRanked = [...lbs].sort(byTierThenSkill);
+    for (let i = 0; i < totalInts; i++) {
+      const seed = `${gameId}:dint:${team.identity.abbreviation}:${i}`;
+      // ~80% of picks go to a DB, ~20% to a LB (fall back if a group is empty).
+      const preferDb = hashUnit(`${seed}:grp`) < 0.8;
+      const primary = preferDb ? dbsRanked : lbsRanked;
+      const pool = primary.length > 0 ? primary : preferDb ? lbsRanked : dbsRanked;
+      const pick = pickByRankWeight(pool, DEF_TURNOVER_SLOTS, seed);
+      if (pick) getOrInit(lines, pick.id).interceptions += 1;
+    }
   }
 }
 
