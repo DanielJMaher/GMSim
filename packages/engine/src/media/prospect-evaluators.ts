@@ -49,25 +49,37 @@ const EVALUATORS_BY_TIER: Record<MediaTier, number> = {
 const READS_PER_EVALUATOR = 40;
 /** Size of the "notable" class the media covers (top of the board). */
 const NOTABLE_CLASS_SIZE = 120;
-/** Max optimism (skill points) a max-hype outlet adds to a max-flashy prospect. */
-const HYPE_MAX_BIAS = 12;
 /** Base read noise stdev at zero accuracy (mirrors the college scout base). */
 const BASE_NOISE_STDEV = 18;
+
 /**
- * Combine reactivity (v0.76) — once a class has tested, athletic
- * percentile feeds the media's read on two channels:
- *   - COVERAGE: a freak workout pulls a prospect into the notable class
- *     the media talks about (everyone saw the 4.3), weighted alongside
- *     pedigree + talent. Outlet-independent — the combine is public.
- *   - READ BIAS: a max-hype outlet inflates a max-athletic prospect by
- *     up to this many skill points (the workout-warrior false flag);
- *     low-hype outlets read the same freak near truth, so he rises
- *     loudly on hype boards and only quietly elsewhere.
- * Both terms are 0 before the combine (athleticism is 0 with no data),
- * so this is fully backward-compatible pre-combine.
+ * Media read model (v0.88 recalibration). The media is a USEFUL data point
+ * that mostly tracks reality, not a false-flag machine. An outlet's read is
+ * truth + accuracy noise + a small **signed optimism lean**:
+ *
+ *   - `outletOptimism` maps hypeSpectrum to a signed lean in ~[-1, +1]
+ *     centered on a neutral (~5.5) outlet, so optimists read a touch HIGH,
+ *     skeptics read a touch LOW, and the multi-outlet CONSENSUS lands near
+ *     truth (it no longer floats everyone up).
+ *   - the lean is larger on flashy / established prospects (pedigree +
+ *     talent) and on combine risers — optimists amplify the names everyone
+ *     already likes, they don't invent scrubs.
+ *   - on TOP of that, each optimistic outlet hard-champions a few stable,
+ *     idiosyncratic "darlings" (`DARLING_BONUS`) — the rare 1-of-N outlet
+ *     pushing a mid prospect toward the 1st round. Bounded + uncommon.
+ *
+ * Magnitudes are small so the consensus mostly matches the real board and a
+ * sharp (high-accuracy, neutral-hype) outlet reads close to truth — i.e.
+ * listening to a good outlet pays off.
  */
+const HYPE_BASE_GAIN = 2; // optimism lean independent of flashiness
+const HYPE_FLASH_GAIN = 4; // extra optimism lean on flashy/established prospects
+const COMBINE_LEAN_GAIN = 4; // optimist's extra lean on a combine riser
+const DARLING_BONUS = 15; // the rare hard over-hype, on an outlet's few darlings
+const DARLING_MAX = 3; // most darlings a (max-optimist) outlet champions
+/** Coverage weight of combine athleticism (who the media TALKS about; the
+ * combine is public so this is outlet-independent). Read bias is separate. */
 const ATHLETIC_COVERAGE_WEIGHT = 0.35;
-const COMBINE_HYPE_BIAS = 10;
 
 const SCHOOL_PRESTIGE: Record<ConferenceTier, number> = {
   POWER: 1.0,
@@ -101,6 +113,47 @@ function flashiness(cp: CollegePlayer): number {
   const prestige = SCHOOL_PRESTIGE[SCHOOL_TIER_BY_ID.get(cp.schoolId) ?? 'GROUP_OF_5'];
   return clamp(0.6 * prestige + 0.4 * meanCurrent(cp), 0, 1);
 }
+
+/**
+ * Signed optimism lean for an outlet, ~[-1, +1]. A neutral outlet
+ * (hypeSpectrum ~5.5) reads at truth; clickbait outlets lean up, measured
+ * outlets lean down. Centering is what keeps the multi-outlet consensus
+ * anchored to reality instead of floating everyone up.
+ */
+function outletOptimism(outlet: MediaOutlet): number {
+  return clamp((outlet.hypeSpectrum - 5.5) / 4.5, -1, 1);
+}
+
+function fnv1a(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * The few prospects an optimistic outlet hard-champions (the rare big
+ * over-hype). Selection is idiosyncratic per outlet (hash of outlet+id) so
+ * it's stable across coverage rounds and can land on a mid prospect — the
+ * "Day-3 guy this one outlet swears is a first-rounder" take. Skeptical /
+ * neutral outlets champion no one.
+ */
+function darlingSet(
+  outlet: MediaOutlet,
+  notableIds: readonly string[],
+  optimism: number,
+): ReadonlySet<string> {
+  if (optimism <= 0.3 || notableIds.length === 0) return EMPTY_SET;
+  const k = optimism >= 0.8 ? DARLING_MAX : optimism >= 0.55 ? 2 : 1;
+  const ranked = [...notableIds].sort(
+    (a, b) => fnv1a(`${outlet.id}:${a}`) - fnv1a(`${outlet.id}:${b}`),
+  );
+  return new Set(ranked.slice(0, k));
+}
+
+const EMPTY_SET: ReadonlySet<string> = new Set();
 
 export interface MediaCoverageOptions {
   /** How many of the notable class each evaluator files on. */
@@ -155,12 +208,14 @@ export function generateMediaCollegeObservations(
     })
     .sort((a, b) => b.coverage - a.coverage || (a.cp.id < b.cp.id ? -1 : 1))
     .slice(0, NOTABLE_CLASS_SIZE);
+  const notableIds = notable.map((n) => n.cp.id as string);
 
   const observations: CollegePlayerObservation[] = [];
   for (const outlet of Object.values(outlets)) {
     if (outlet.focus !== 'COLLEGE') continue;
     const accuracy = clamp(outlet.accuracySpectrum / 10 + accuracyBoost, 0, 1);
-    const hype = clamp(outlet.hypeSpectrum / 10, 0, 1);
+    const optimism = outletOptimism(outlet);
+    const darlings = darlingSet(outlet, notableIds, optimism);
     const evaluatorCount = EVALUATORS_BY_TIER[outlet.tier] ?? 2;
     const outletPrng = prng.fork(`outlet:${outlet.id}`);
 
@@ -171,17 +226,19 @@ export function generateMediaCollegeObservations(
       // the names the media obsesses over.
       const targets = notable.slice(0, reads);
       for (const { cp, flash, athletic } of targets) {
-        // Hype inflates the big names (pedigree/talent) AND the combine
-        // freaks; both are hype-scaled, so an honest outlet reads near
-        // truth while a hype outlet crowns the workout warrior.
-        const hypeBias = hype * (HYPE_MAX_BIAS * flash + COMBINE_HYPE_BIAS * athletic);
+        // Small SIGNED optimism lean (bigger on flashy + combine risers),
+        // plus a rare hard bonus on this outlet's few darlings. Optimists
+        // read a touch high, skeptics low; the consensus stays near truth.
+        const bias =
+          optimism * (HYPE_BASE_GAIN + HYPE_FLASH_GAIN * flash + COMBINE_LEAN_GAIN * athletic) +
+          (darlings.has(cp.id as string) ? DARLING_BONUS : 0);
         observations.push(
           generateMediaObservation(
             evalPrng.fork(`p:${cp.id}`),
             evaluatorId,
             cp,
             accuracy,
-            hypeBias,
+            bias,
             observedOnTick,
           ),
         );
@@ -202,8 +259,9 @@ const FORM_COVERAGE_FULL = 18;
 const FORM_COVERAGE_WEIGHT = 0.45;
 /** Scales the public form signal into the read bias every outlet applies. */
 const FORM_READ_SCALE = 0.7;
-/** Extra skill points a max-hype outlet piles onto a max-hot-streak prospect. */
-const FORM_HYPE_AMP = 8;
+/** Cap on the in-season form contribution to a read — bounds how far a hot
+ * (or cold) season alone can move a prospect's media grade. */
+const FORM_READ_CAP = 8;
 
 /**
  * One round of WEEKLY in-season media observations (v0.81). Unlike the
@@ -251,12 +309,14 @@ export function generateWeeklyMediaObservations(
     })
     .sort((a, b) => b.coverage - a.coverage || (a.cp.id < b.cp.id ? -1 : 1))
     .slice(0, NOTABLE_CLASS_SIZE);
+  const notableIds = notable.map((n) => n.cp.id as string);
 
   const observations: CollegePlayerObservation[] = [];
   for (const outlet of Object.values(outlets)) {
     if (outlet.focus !== 'COLLEGE') continue;
     const accuracy = clamp(outlet.accuracySpectrum / 10 + accuracyBoost, 0, 1);
-    const hype = clamp(outlet.hypeSpectrum / 10, 0, 1);
+    const optimism = outletOptimism(outlet);
+    const darlings = darlingSet(outlet, notableIds, optimism);
     const evaluatorCount = EVALUATORS_BY_TIER[outlet.tier] ?? 2;
     const outletPrng = prng.fork(`outlet:${outlet.id}`);
 
@@ -264,12 +324,14 @@ export function generateWeeklyMediaObservations(
       const evalPrng = outletPrng.fork(`e${e}`);
       const evaluatorId = ScoutId(`${outlet.id}::e${e}`);
       const targets = notable.slice(0, reads);
-      for (const { cp, flash, form, formNorm } of targets) {
-        // Every outlet reflects the public production (scaled); hype outlets
-        // inflate the big names AND pile extra onto a hot streak.
+      for (const { cp, flash, form } of targets) {
+        // Bounded public-form contribution (a hot/cold season moves the read
+        // at most ±FORM_READ_CAP) + a small signed optimism lean + the rare
+        // darling bonus. Optimists read high, skeptics low; consensus ~truth.
         const bias =
-          FORM_READ_SCALE * form +
-          hype * (HYPE_MAX_BIAS * flash + FORM_HYPE_AMP * formNorm);
+          clamp(FORM_READ_SCALE * form, -FORM_READ_CAP, FORM_READ_CAP) +
+          optimism * (HYPE_BASE_GAIN + HYPE_FLASH_GAIN * flash) +
+          (darlings.has(cp.id as string) ? DARLING_BONUS : 0);
         observations.push(
           generateMediaObservation(
             evalPrng.fork(`p:${cp.id}`),
