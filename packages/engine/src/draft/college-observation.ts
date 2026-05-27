@@ -1,7 +1,7 @@
 import type { Prng } from '../prng/index.js';
 import type { CollegeScout, CollegePlayer, CollegePlayerObservation, ScoutRegion } from '../types/college.js';
 import type { Player, PlayerSkills } from '../types/player.js';
-import type { TeamId } from '../types/ids.js';
+import type { TeamId, PlayerId } from '../types/ids.js';
 import { STATE_TO_REGION } from '../types/college.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import { positionGroupFor } from '../players/position-group.js';
@@ -115,6 +115,85 @@ export function generateInitialCollegeObservations(
     }
   }
 
+  return observations;
+}
+
+// ── Weekly in-season scouting (v0.87) ───────────────────────────────────
+/** Reads each scout files per CFB week (small — a midseason check-in). */
+const WEEKLY_OBS_PER_SCOUT = 2;
+/** Season-to-date form (skill pts) a prospect needs to be worth a look. */
+const WEEKLY_FORM_NOTABLE = 1.5;
+/** form → optimism/pessimism shift on the read. */
+const WEEKLY_FORM_TO_BIAS = 0.5;
+/** Max read shift from form — bounds weekly movement so no prospect vaults
+ * the board off games (the funnel widens gradually; see CLAUDE.md). */
+const WEEKLY_BIAS_CAP = 6;
+
+/**
+ * Generate one CFB week's scout observations (v0.87). Scouts react to the
+ * weekend's games: each files a couple of reads on prospects in their
+ * specialty whose **season-to-date form** has moved notably, with the read
+ * shifted (bounded) by that form. Filing these weekly — and regenerating
+ * boards off them — is what makes the **team** draft boards move in-season,
+ * closing the gap with the (already weekly) media board.
+ *
+ * Guardrails (CLAUDE.md "refine known prospects, don't discover unknowns"):
+ *   - only prospects ALREADY in the funnel (`knownProspectIds`) +
+ *     draft-eligible are eligible for a weekly read;
+ *   - the form-driven `biasShift` is capped at ±`WEEKLY_BIAS_CAP`, so a
+ *     hot stretch nudges a prospect up gradually — it can't vault him.
+ */
+export function generateWeeklyScoutObservations(
+  prng: Prng,
+  scoutsByTeam: Readonly<Record<TeamId, readonly CollegeScout[]>>,
+  collegePool: readonly CollegePlayer[],
+  formBias: ReadonlyMap<PlayerId, number>,
+  knownProspectIds: ReadonlySet<string>,
+  observedOnTick: number,
+): CollegePlayerObservation[] {
+  const observations: CollegePlayerObservation[] = [];
+
+  // Only prospects worth a midseason look: in the funnel, draft-eligible,
+  // and moving (notable season form).
+  const movers = collegePool.filter(
+    (cp) =>
+      cp.isDraftEligible &&
+      knownProspectIds.has(cp.id) &&
+      Math.abs(formBias.get(cp.id) ?? 0) >= WEEKLY_FORM_NOTABLE,
+  );
+  if (movers.length === 0) return observations;
+  const byGroup = bucketByPositionGroup(movers);
+
+  for (const teamId of Object.keys(scoutsByTeam) as TeamId[]) {
+    for (const scout of scoutsByTeam[teamId] ?? []) {
+      const candidates = byGroup.get(scout.knownSpecialty) ?? [];
+      if (candidates.length === 0) continue;
+      const scoutPrng = prng.fork(`wk-cobs:${scout.id}`);
+      const targets = sampleByRegion(
+        scoutPrng.fork('sample'),
+        candidates,
+        scout.preferredRegion,
+        Math.min(WEEKLY_OBS_PER_SCOUT, candidates.length),
+      );
+      for (const target of targets) {
+        const form = formBias.get(target.id) ?? 0;
+        const biasShift = Math.max(
+          -WEEKLY_BIAS_CAP,
+          Math.min(WEEKLY_BIAS_CAP, form * WEEKLY_FORM_TO_BIAS),
+        );
+        observations.push(
+          generateCollegeObservation(
+            scoutPrng.fork(`p:${target.id}`),
+            scout,
+            target,
+            observedOnTick,
+            0,
+            biasShift,
+          ),
+        );
+      }
+    }
+  }
   return observations;
 }
 

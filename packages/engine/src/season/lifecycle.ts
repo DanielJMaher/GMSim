@@ -52,7 +52,10 @@ import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
 import { advanceCollegePool } from '../draft/pool.js';
 import { advanceCollegeScoutingCycle } from '../draft/college-cycle.js';
-import { pruneObservationsToPool } from '../draft/college-observation.js';
+import {
+  pruneObservationsToPool,
+  generateWeeklyScoutObservations,
+} from '../draft/college-observation.js';
 import { regenerateDraftBoardsForLeague } from '../draft/board.js';
 import { runCombine, selectCombineInvitees } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
@@ -114,7 +117,7 @@ import type {
   CfpBracket,
 } from '../types/college-season.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
-import type { CollegePlayer, CollegeSchool } from '../types/college.js';
+import type { CollegePlayer, CollegeSchool, CollegeScout } from '../types/college.js';
 import { buildSeasonTimeline, type TimelineStep } from './timeline.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
@@ -1218,14 +1221,17 @@ function mediaCoverageRound(
  * to the current season by keeping only lines whose game is in THIS year's
  * schedule. Strength is computed per school from the current pool.
  */
-function weeklyInSeasonMediaRound(
+/**
+ * Season-to-date, opponent-weighted form per eligible prospect (v0.81).
+ * Computed once per CFB week and fed to BOTH the media read and the scout
+ * read so the two move off the same game signal.
+ */
+function computeWeeklyFormBias(
   league: LeagueState,
   schedule: CollegeSeasonSchedule,
   bucketed: ReadonlyMap<string, readonly CollegePlayer[]>,
   seasonStats: readonly CollegePlayerGameStats[],
-  prng: PrngClass,
-  weekNumber: number,
-): LeagueState['mediaCollegeObservations'] {
+): Map<PlayerId, number> {
   // This season's played regular-season games, keyed by id. Scopes the
   // append-all-seasons stat stream to the current year and resolves each
   // line's opponent.
@@ -1243,22 +1249,12 @@ function weeklyInSeasonMediaRound(
   const eligible = league.collegePool.filter(
     (cp) => cp.isDraftEligible && !cp.hasReturnedToSchool,
   );
-  const formBias = computeProspectFormBias({
+  return computeProspectFormBias({
     eligible,
     gameStats: seasonStats.filter((l) => gamesById.has(l.gameId)),
     gamesById,
     strengthBySchool,
   });
-
-  return generateWeeklyMediaObservations(
-    prng.fork('weekly-media'),
-    league.mediaOutlets,
-    league.collegePool,
-    formBias,
-    league.tick,
-    // Coverage broadens + sharpens as the season builds toward the draft.
-    mediaCoverageForLevel(0.3 + (weekNumber / 12) * 0.35),
-  );
 }
 
 // ─── Draft all-star showcases (v0.65) ──────────────────────────────────
@@ -1522,26 +1518,67 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
     seasonNumber: league.seasonNumber,
   });
 
-  // v0.81: media re-grades the class EVERY week off game results, so the
-  // Big Board stock-tracker shows living weekly movement. The read is
-  // driven by season-to-date, opponent-weighted form (see
-  // `weeklyInSeasonMediaRound`). Replaces the v0.74 every-third-week round,
-  // which was a no-op in-season anyway (it filtered on `hasDeclared`, false
-  // until Jan 20).
-  const nextMediaObs = weeklyInSeasonMediaRound(
-    league,
-    nextSchedule,
-    bucketed,
-    updatedStats,
-    prng.fork(`wk${weekIdx}`),
-    weekNumber,
+  // v0.81/v0.87: media AND scouts re-grade the class every week off the
+  // same season-to-date, opponent-weighted form signal.
+  const formBias = computeWeeklyFormBias(league, nextSchedule, bucketed, updatedStats);
+
+  // Media read (v0.81) — drives the Big Board stock-tracker. Same fork
+  // path as before so the media stream is determinism-stable.
+  const nextMediaObs = generateWeeklyMediaObservations(
+    prng.fork(`wk${weekIdx}`).fork('weekly-media'),
+    league.mediaOutlets,
+    league.collegePool,
+    formBias,
+    league.tick,
+    mediaCoverageForLevel(0.3 + (weekNumber / 12) * 0.35),
   );
+
+  // Scout read (v0.87) — scouts file weekly reads on prospects whose form
+  // has moved, and we regenerate the TEAM boards off them, so the team
+  // boards move in-season too (not just the media board). The read shift
+  // is bounded, so a hot stretch climbs a prospect gradually, never vaults.
+  const scoutsByTeam: Record<string, CollegeScout[]> = {};
+  for (const team of Object.values(league.teams)) {
+    const teamScouts: CollegeScout[] = [];
+    for (const sid of team.collegeScoutIds) {
+      const scout = league.collegeScouts[sid];
+      if (scout) teamScouts.push(scout);
+    }
+    scoutsByTeam[team.identity.id] = teamScouts;
+  }
+  const knownIds = new Set<string>(league.collegeObservations.map((o) => o.collegePlayerId));
+  const weeklyScoutObs = generateWeeklyScoutObservations(
+    prng.fork(`wk-scout-${weekIdx}`),
+    scoutsByTeam as Readonly<Record<TeamId, readonly CollegeScout[]>>,
+    league.collegePool,
+    formBias,
+    knownIds,
+    league.tick,
+  );
+  const nextCollegeObs =
+    weeklyScoutObs.length > 0
+      ? [...league.collegeObservations, ...weeklyScoutObs]
+      : league.collegeObservations;
+  const nextBoards =
+    weeklyScoutObs.length > 0
+      ? regenerateDraftBoardsForLeague({
+          teams: league.teams,
+          collegeScouts: league.collegeScouts,
+          coaches: league.coaches,
+          players: league.players,
+          collegePool: league.collegePool,
+          observations: nextCollegeObs,
+          addedOnTick: league.tick,
+        })
+      : league.draftBoards;
 
   return {
     ...league,
     collegeSchedule: nextSchedule,
     collegeCurrentWeek: weekIdx,
     collegeGameStats: updatedStats,
+    collegeObservations: nextCollegeObs,
+    draftBoards: nextBoards,
     mediaCollegeObservations: nextMediaObs,
     mediaReports:
       heismanReports.length > 0
