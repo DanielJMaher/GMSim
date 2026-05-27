@@ -8,6 +8,29 @@ import type {
 import { emptyCollegePlayerGameStats } from '../types/college-season.js';
 
 /**
+ * Depth-chart slot shares (v0.83). College box scores are distributed
+ * across an ASSUMED full position room, and only the pool prospects'
+ * slices are recorded — the rest implicitly belongs to non-draft-eligible
+ * teammates and is dropped. This is the fix for the "lone pool prospect
+ * inherits the whole team's stat line" bug: a single pool WR takes the
+ * WR1 slot (~23% of targets), not 100%. Shares are absolute, NOT
+ * normalized to the pool players present.
+ *
+ * Grounded in real per-game distributions: a team's lead receiver sees
+ * ~22-25% of targets, the lead back ~50% of carries, the lead tackler
+ * ~12-16% of team tackles. Sums need not reach 1.0 — unfilled slots are
+ * production that went to untracked teammates.
+ */
+const RECV_SLOTS = [0.26, 0.19, 0.15, 0.11, 0.09, 0.07, 0.05, 0.04, 0.03, 0.01];
+const RUSH_SLOTS = [0.5, 0.28, 0.14, 0.06, 0.02];
+const QB_SLOTS = [0.92, 0.08];
+const LB_TACKLE_SLOTS = [0.3, 0.25, 0.2, 0.13, 0.08, 0.04];
+const DB_TACKLE_SLOTS = [0.24, 0.21, 0.18, 0.15, 0.11, 0.07, 0.04];
+const DL_TACKLE_SLOTS = [0.27, 0.23, 0.19, 0.15, 0.1, 0.06];
+const SACK_SLOTS = [0.42, 0.3, 0.18, 0.1];
+const INT_SLOTS = [0.4, 0.3, 0.2, 0.1];
+
+/**
  * Derive per-prospect stat lines for a played college game by
  * distributing team-level `CollegeGameResult` stats across the
  * school's prospect cohort.
@@ -76,7 +99,33 @@ export function deriveCollegeGamePlayerStats(
     lines,
   );
 
-  return [...lines.values()].filter(isNonEmpty);
+  const out = [...lines.values()];
+  for (const s of out) capGameLine(s);
+  return out.filter(isNonEmpty);
+}
+
+/**
+ * Hard single-game ceilings as a backstop (v0.83). The slot distribution
+ * keeps normal games realistic; these caps ensure even an extreme team
+ * line can never yield a record-shattering individual game. Set above the
+ * 99th-percentile real college game, below the absurd.
+ */
+function capGameLine(s: CollegePlayerGameStats): void {
+  s.passAttempts = Math.min(s.passAttempts, 65);
+  s.passCompletions = Math.min(s.passCompletions, 50);
+  s.passingYards = Math.min(s.passingYards, 550);
+  s.passingTds = Math.min(s.passingTds, 7);
+  s.interceptionsThrown = Math.min(s.interceptionsThrown, 6);
+  s.rushingAttempts = Math.min(s.rushingAttempts, 40);
+  s.rushingYards = Math.min(s.rushingYards, 320);
+  s.rushingTds = Math.min(s.rushingTds, 6);
+  s.targets = Math.min(s.targets, 26);
+  s.receptions = Math.min(s.receptions, 18);
+  s.receivingYards = Math.min(s.receivingYards, 280);
+  s.receivingTds = Math.min(s.receivingTds, 5);
+  s.tackles = Math.min(s.tackles, 22);
+  s.sacks = Math.min(s.sacks, 6);
+  s.interceptions = Math.min(s.interceptions, 4);
 }
 
 function isNonEmpty(s: CollegePlayerGameStats): boolean {
@@ -153,12 +202,11 @@ function attributeOffense(
       teamStats.turnovers * 0.5,
       `${game.id}:int:${schoolId}`,
     );
-    const shares = qbs.length === 1 ? [1] : qbs.length === 2 ? [0.92, 0.08] : [0.92, 0.08, 0];
-    splitInt(qbs, shares, totalAttempts, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passAttempts += n));
-    splitInt(qbs, shares, totalCompletions, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passCompletions += n));
-    splitInt(qbs, shares, teamStats.passingYards, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passingYards += n));
-    splitInt(qbs, shares, totalPassTds, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passingTds += n));
-    splitInt(qbs, shares, totalInts, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).interceptionsThrown += n));
+    splitBySlots(qbs, QB_SLOTS, totalAttempts, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passAttempts += n));
+    splitBySlots(qbs, QB_SLOTS, totalCompletions, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passCompletions += n));
+    splitBySlots(qbs, QB_SLOTS, teamStats.passingYards, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passingYards += n));
+    splitBySlots(qbs, QB_SLOTS, totalPassTds, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).passingTds += n));
+    splitBySlots(qbs, QB_SLOTS, totalInts, (qb, n) => (getOrInit(lines, qb, schoolId, game, playedOnTick).interceptionsThrown += n));
   }
 
   // ── Rushing ──────────────────────────────────────────────────────
@@ -168,15 +216,9 @@ function attributeOffense(
   if (rbs.length > 0 && teamStats.rushingYards > 0) {
     // College YPC ~4.6; carries = rushingYards / 4.6.
     const totalCarries = Math.max(1, Math.round(teamStats.rushingYards / 4.6));
-    const shares =
-      rbs.length === 1
-        ? [1]
-        : rbs.length === 2
-          ? [0.68, 0.32]
-          : [0.60, 0.25, 0.15, ...Array(rbs.length - 3).fill(0)];
-    splitInt(rbs, shares, totalCarries, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).rushingAttempts += n));
-    splitInt(rbs, shares, teamStats.rushingYards, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).rushingYards += n));
-    splitInt(rbs, shares, totalRushTds, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).rushingTds += n));
+    splitBySlots(rbs, RUSH_SLOTS, totalCarries, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).rushingAttempts += n));
+    splitBySlots(rbs, RUSH_SLOTS, teamStats.rushingYards, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).rushingYards += n));
+    splitBySlots(rbs, RUSH_SLOTS, totalRushTds, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).rushingTds += n));
   }
 
   // ── Receiving ────────────────────────────────────────────────────
@@ -189,16 +231,15 @@ function attributeOffense(
     )
     .map((p) => ({ player: p, weight: receivingWeight(p) * keySkillAvg(p) }))
     .sort((a, b) => b.weight - a.weight)
-    .slice(0, 7)
+    .slice(0, RECV_SLOTS.length)
     .map((x) => x.player);
   if (receivers.length > 0) {
     const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7.8));
     const totalCompletions = Math.round(totalAttempts * 0.62);
-    const shares = recvSharesFor(receivers.length);
-    splitInt(receivers, shares, totalAttempts, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).targets += n));
-    splitInt(receivers, shares, totalCompletions, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).receptions += n));
-    splitInt(receivers, shares, teamStats.passingYards, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).receivingYards += n));
-    splitInt(receivers, shares, totalPassTds, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).receivingTds += n));
+    splitBySlots(receivers, RECV_SLOTS, totalAttempts, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).targets += n));
+    splitBySlots(receivers, RECV_SLOTS, totalCompletions, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).receptions += n));
+    splitBySlots(receivers, RECV_SLOTS, teamStats.passingYards, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).receivingYards += n));
+    splitBySlots(receivers, RECV_SLOTS, totalPassTds, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).receivingTds += n));
   }
 }
 
@@ -224,11 +265,30 @@ function fnv1aHash(s: string): number {
   return h >>> 0;
 }
 
-function recvSharesFor(n: number): number[] {
-  const base = [0.30, 0.22, 0.16, 0.12, 0.09, 0.07, 0.04];
-  const out = base.slice(0, n);
-  const total = out.reduce((s, v) => s + v, 0);
-  return out.map((v) => v / total);
+/**
+ * Distribute `total` integer units across `players` (already ranked, best
+ * first) using ABSOLUTE depth-chart `slotShares`. Player i receives
+ * `round(total × slotShares[i])`; players beyond the slot list — and slots
+ * beyond the players present — get nothing (that production belonged to
+ * untracked, non-draft-eligible teammates). This is what bounds a lone
+ * pool prospect to his depth-chart slice instead of the whole team line.
+ */
+function splitBySlots<T>(
+  players: readonly T[],
+  slotShares: readonly number[],
+  total: number,
+  apply: (p: T, n: number) => void,
+): void {
+  if (players.length === 0 || total <= 0) return;
+  const n = Math.min(players.length, slotShares.length);
+  for (let i = 0; i < n; i++) {
+    const units = Math.round(total * slotShares[i]!);
+    if (units > 0) apply(players[i]!, units);
+  }
+}
+
+function clampInt(v: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, v));
 }
 
 function receivingWeight(p: CollegePlayer): number {
@@ -251,45 +311,52 @@ function attributeDefense(
 ): void {
   if (prospects.length === 0) return;
 
-  // College tackle volume is similar to NFL; use 65 total per game
-  // (slightly higher than NFL's 62 to reflect longer games and
-  // more snaps).
-  const totalTackles = 65;
-  const lbs = prospects.filter(
-    (p) => p.collegePosition === Position.ILB || p.collegePosition === Position.OLB,
-  );
-  const dbs = prospects.filter(
-    (p) =>
-      p.collegePosition === Position.CB ||
-      p.collegePosition === Position.S ||
-      p.collegePosition === Position.NICKEL,
-  );
-  const dls = prospects.filter(
-    (p) =>
-      p.collegePosition === Position.EDGE ||
-      p.collegePosition === Position.DT ||
-      p.collegePosition === Position.NT,
-  );
+  // ── Tackles ──────────────────────────────────────────────────────
+  // Derived from the OPPONENT's offensive output (more plays faced → more
+  // tackles), not a constant — this both varies game-to-game and tracks
+  // strength of schedule. Roughly: plays ≈ opp attempts + carries; ~80%
+  // of plays end in a recorded tackle. A typical ~410-yd opponent yields
+  // ~62 team tackles; a high-tempo opponent more.
+  const oppPlays = oppStats.passingYards / 7.8 + oppStats.rushingYards / 4.6;
+  const totalTackles = clampInt(Math.round(oppPlays * 0.8 + 6), 38, 85);
+  const lbs = [...prospects]
+    .filter((p) => p.collegePosition === Position.ILB || p.collegePosition === Position.OLB)
+    .sort(byTierThenSkill);
+  const dbs = [...prospects]
+    .filter(
+      (p) =>
+        p.collegePosition === Position.CB ||
+        p.collegePosition === Position.S ||
+        p.collegePosition === Position.NICKEL,
+    )
+    .sort(byTierThenSkill);
+  const dls = [...prospects]
+    .filter(
+      (p) =>
+        p.collegePosition === Position.EDGE ||
+        p.collegePosition === Position.DT ||
+        p.collegePosition === Position.NT,
+    )
+    .sort(byTierThenSkill);
 
-  const lbTackles = Math.round(totalTackles * 0.52);
-  const dbTackles = Math.round(totalTackles * 0.32);
-  const dlTackles = Math.round(totalTackles * 0.16);
-
-  distributeBySkill(lbs, lbTackles, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).tackles += n));
-  distributeBySkill(dbs, dbTackles, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).tackles += n));
-  distributeBySkill(dls, dlTackles, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).tackles += n));
+  // LBs ~52% / DBs ~32% / DL ~16% of team tackles; within each group the
+  // production is spread over a full rotation via slot shares so a lone
+  // pool defender takes only the lead-defender slice, not the group total.
+  splitBySlots(lbs, LB_TACKLE_SLOTS, Math.round(totalTackles * 0.52), (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).tackles += n));
+  splitBySlots(dbs, DB_TACKLE_SLOTS, Math.round(totalTackles * 0.32), (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).tackles += n));
+  splitBySlots(dls, DL_TACKLE_SLOTS, Math.round(totalTackles * 0.16), (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).tackles += n));
 
   // Sacks: ownStats.sacks = sacks this team's defense earned.
   const totalSacks = ownStats.sacks;
   if (totalSacks > 0) {
-    const edges = prospects.filter((p) => p.collegePosition === Position.EDGE);
-    const interior = prospects.filter(
-      (p) => p.collegePosition === Position.DT || p.collegePosition === Position.NT,
-    );
+    const edges = [...prospects].filter((p) => p.collegePosition === Position.EDGE).sort(byTierThenSkill);
+    const interior = [...prospects]
+      .filter((p) => p.collegePosition === Position.DT || p.collegePosition === Position.NT)
+      .sort(byTierThenSkill);
     const edgeShare = Math.round(totalSacks * 0.62);
     const dtShare = Math.max(0, totalSacks - edgeShare);
-    distributeBySkill(edges, edgeShare, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).sacks += n));
-    distributeBySkill(interior, dtShare, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).sacks += n));
+    splitBySlots(edges, SACK_SLOTS, edgeShare, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).sacks += n));
+    splitBySlots(interior, SACK_SLOTS, dtShare, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).sacks += n));
   }
 
   // Defensive interceptions: ≈ 50% of opponent's turnovers.
@@ -300,8 +367,8 @@ function attributeDefense(
   if (totalInts > 0) {
     const dbInts = Math.round(totalInts * 0.8);
     const lbInts = Math.max(0, totalInts - dbInts);
-    distributeBySkill(dbs, dbInts, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).interceptions += n));
-    distributeBySkill(lbs, lbInts, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).interceptions += n));
+    splitBySlots(dbs, INT_SLOTS, dbInts, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).interceptions += n));
+    splitBySlots(lbs, INT_SLOTS, lbInts, (p, n) => (getOrInit(lines, p, schoolId, game, playedOnTick).interceptions += n));
   }
 }
 
@@ -330,47 +397,3 @@ function keySkillAvg(p: CollegePlayer): number {
   return (p.current.technicalSkill + p.current.footballIq + p.current.speed) / 3;
 }
 
-function splitInt<T>(
-  players: readonly T[],
-  shares: readonly number[],
-  total: number,
-  apply: (p: T, n: number) => void,
-): void {
-  if (players.length === 0 || total <= 0) return;
-  const raw: number[] = [];
-  let allocated = 0;
-  for (let i = 0; i < players.length; i++) {
-    const share = shares[i] ?? 0;
-    const v = total * share;
-    raw.push(v);
-    allocated += Math.floor(v);
-  }
-  const remainders = raw
-    .map((v, i) => ({ frac: v - Math.floor(v), i }))
-    .sort((a, b) => b.frac - a.frac);
-  const slack = total - allocated;
-  const ints = raw.map((v) => Math.floor(v));
-  for (let k = 0; k < slack; k++) {
-    const idx = remainders[k % remainders.length]!.i;
-    ints[idx]! += 1;
-  }
-  for (let i = 0; i < players.length; i++) {
-    if (ints[i]! > 0) apply(players[i]!, ints[i]!);
-  }
-}
-
-function distributeBySkill(
-  prospects: readonly CollegePlayer[],
-  total: number,
-  apply: (p: CollegePlayer, n: number) => void,
-): void {
-  if (prospects.length === 0 || total <= 0) return;
-  const weights = prospects.map(keySkillAvg);
-  const sum = weights.reduce((a, b) => a + b, 0);
-  if (sum === 0) {
-    apply(prospects[0]!, total);
-    return;
-  }
-  const shares = weights.map((w) => w / sum);
-  splitInt(prospects, shares, total, apply);
-}

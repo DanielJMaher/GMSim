@@ -107,18 +107,19 @@ describe('deriveCollegeGamePlayerStats', () => {
     expect(homeQbStat).toBeDefined();
   });
 
-  it('total team passing yards equal the sum of attributed prospect passing yards', () => {
+  it('the QB of record gets the bulk of team passing (v0.83: depth-chart shares, not 100%)', () => {
+    // v0.83 distributes across an assumed full roster and drops the slice
+    // belonging to untracked teammates, so pool passing no longer sums
+    // exactly to the team total — but the lone pool QB still owns the bulk.
     const { bucketed } = makePool();
     const game = makeGameWithResult('ALABAMA', 'AUBURN', 240, 150, 200, 130);
     const stats = deriveCollegeGamePlayerStats(game, bucketed, 0);
     const homePassing = stats
       .filter((s) => s.schoolId === 'ALABAMA')
       .reduce((sum, s) => sum + s.passingYards, 0);
-    expect(homePassing).toBe(240);
-    const awayPassing = stats
-      .filter((s) => s.schoolId === 'AUBURN')
-      .reduce((sum, s) => sum + s.passingYards, 0);
-    expect(awayPassing).toBe(200);
+    // One pool QB → he owns ~92% of the team's passing, not all of it.
+    expect(homePassing).toBeGreaterThanOrEqual(240 * 0.85);
+    expect(homePassing).toBeLessThanOrEqual(240);
   });
 
   it('rushing yards are attributed to RBs', () => {
@@ -151,5 +152,83 @@ describe('deriveCollegeGamePlayerStats', () => {
       expect(s.kind).toBe('REGULAR');
       expect(s.playedOnTick).toBe(17);
     }
+  });
+});
+
+/**
+ * v0.83 regression guard. Before the depth-chart fix, a school with a
+ * single pool prospect at a position handed him the entire team's line
+ * (25+ catches, 34 tackles). Now a lone prospect gets only his slot.
+ */
+function makeThinPool(): { bucketed: Map<string, CollegePlayer[]>; byPos: Map<Position, CollegePlayer> } {
+  const prng = new Prng('thin-pool');
+  const alabama = COLLEGE_SCHOOLS.find((s) => s.id === 'ALABAMA')!;
+  const byPos = new Map<Position, CollegePlayer>();
+  let c = 0;
+  for (const position of [Position.QB, Position.RB, Position.WR, Position.ILB, Position.EDGE]) {
+    byPos.set(
+      position,
+      generateCollegePlayer(prng.fork(`t-${c++}`), {
+        idSuffix: `THIN_${c}`,
+        classYear: 'JR',
+        school: alabama,
+        forcePosition: position,
+        simYear: 2026,
+      }),
+    );
+  }
+  const bucketed = new Map<string, CollegePlayer[]>([
+    ['ALABAMA', [...byPos.values()]],
+    ['AUBURN', []],
+  ]);
+  return { bucketed, byPos };
+}
+
+describe('deriveCollegeGamePlayerStats — a lone pool prospect is bounded (v0.83)', () => {
+  const { bucketed, byPos } = makeThinPool();
+  // Strong HOME offense + high-output AWAY offense (drives HOME's tackles).
+  const game = makeGameWithResult('ALABAMA', 'AUBURN', 440, 260, 420, 300);
+  const stats = deriveCollegeGamePlayerStats(game, bucketed, 0);
+  const find = (pos: Position) => stats.find((s) => s.playerId === byPos.get(pos)!.id)!;
+
+  it('lone WR gets a realistic slice, not the whole passing game', () => {
+    const wr = find(Position.WR);
+    expect(wr.receptions).toBeLessThanOrEqual(14);
+    expect(wr.receivingYards).toBeLessThanOrEqual(180);
+    expect(wr.receivingYards).toBeLessThan(440 * 0.45);
+  });
+
+  it('lone RB cannot take an impossible carry load', () => {
+    const rb = find(Position.RB);
+    expect(rb.rushingAttempts).toBeLessThanOrEqual(34);
+    expect(rb.rushingYards).toBeLessThanOrEqual(260);
+  });
+
+  it('lone QB stays within a real single-game ceiling', () => {
+    const qb = find(Position.QB);
+    expect(qb.passingYards).toBeLessThanOrEqual(550);
+    expect(qb.passAttempts).toBeLessThanOrEqual(65);
+  });
+
+  it('lone linebacker tackles like a lead defender, not the whole front seven', () => {
+    const lb = find(Position.ILB);
+    expect(lb.tackles).toBeGreaterThan(0);
+    expect(lb.tackles).toBeLessThanOrEqual(18); // pre-fix this was ~34
+  });
+
+  it('tackles track opponent output (more plays faced → more tackles)', () => {
+    const low = deriveCollegeGamePlayerStats(
+      makeGameWithResult('ALABAMA', 'AUBURN', 440, 260, 160, 110),
+      bucketed,
+      0,
+    );
+    const high = deriveCollegeGamePlayerStats(
+      makeGameWithResult('ALABAMA', 'AUBURN', 440, 260, 480, 320),
+      bucketed,
+      0,
+    );
+    const lbLow = low.find((s) => s.playerId === byPos.get(Position.ILB)!.id)!;
+    const lbHigh = high.find((s) => s.playerId === byPos.get(Position.ILB)!.id)!;
+    expect(lbHigh.tackles).toBeGreaterThan(lbLow.tackles);
   });
 });
