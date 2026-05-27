@@ -16,6 +16,29 @@ _Nothing yet._
 
 ---
 
+## [0.79.0] — 2026-05-26
+
+### Changed — Big Board becomes a stock-movement tracker
+
+- **Big Board → a per-round stock tracker.** Replaced the static ranked
+  board with a sortable matrix: rows are prospects, columns are the media
+  coverage rounds (preseason → bowls → combine → pro days → top-30),
+  captured tick-by-tick as you step the lifecycle. Each cell is the media
+  consensus grade at that round, **tinted by how much it moved** since
+  the prior round (green up / red down). Hover a cell for what drove the
+  move (combine testing, all-star interviews, the top-30 sweep, …). Click
+  a column header to sort by it. This restores — and deepens — the
+  draft-stock movement insight the v0.78 ranked board had dropped.
+- The combine column is where workout warriors visibly jump (the media
+  read is combine-reactive since v0.76).
+- Honest limitation surfaced by the tracker: perceived stock only moves
+  at the coverage rounds, **not weekly during the CFB season** — games
+  don't feed scouting/media perception yet. (Next up.)
+
+Inspector-only — no engine changes (803 engine tests still green).
+
+---
+
 ## [0.78.0] — 2026-05-26
 
 ### Changed — the combine moves the draft board; Draft Shift → Big Board

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createLeague,
   getArchetypeById,
@@ -135,9 +135,43 @@ export function App() {
   const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
   const [activeTab, setActiveTab] = useState<InspectorTab>('league');
 
-  // Big Board view: which front office's board to show — the league
-  // consensus, the media consensus, or a single team's board.
-  const [draftShiftPicker, setDraftShiftPicker] = useState<DraftShiftPicker>('LEAGUE');
+  // Big Board: a per-media-round time series of each prospect's perceived
+  // grade, captured as you step the lifecycle so you can watch draft
+  // stock move through the season + draft process. Media-only (the
+  // simplest single consensus stream). Lives at App level so it captures
+  // every step regardless of the active tab; resets on a re-roll.
+  const [perceivedHistory, setPerceivedHistory] = useState<PerceivedColumn[]>([]);
+  const phSeedRef = useRef<string | null>(null);
+  const phTickRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (phSeedRef.current !== league.seed) {
+      phSeedRef.current = league.seed;
+      phTickRef.current = null;
+      setPerceivedHistory([]);
+    }
+    // The media stream is replaced each coverage round; every obs in a
+    // round shares its observedOnTick, so a changed round-tick = a new
+    // round to snapshot. Capture one column per round.
+    const roundTick = league.mediaCollegeObservations[0]?.observedOnTick ?? null;
+    if (roundTick === null || roundTick === phTickRef.current) return;
+    phTickRef.current = roundTick;
+    const column: PerceivedColumn = {
+      key: `${league.seasonNumber}:${roundTick}`,
+      phase: league.lifecyclePhase,
+      label: bigBoardColumnLabel(league.lifecyclePhase),
+      dateLabel: formatDateOrEmpty(
+        phaseCalendarDate(
+          league.lifecyclePhase,
+          league.currentWeek,
+          league.seasonNumber,
+          league.collegeCurrentWeek,
+        ),
+      ),
+      scores: mediaPerceivedScores(league),
+    };
+    setPerceivedHistory((cols) => [...cols, column].slice(-BIG_BOARD_MAX_COLS));
+  }, [league]);
 
   const seasonSimmed = league.schedule !== null;
   const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
@@ -347,12 +381,7 @@ export function App() {
       )}
 
       {activeTab === 'draft-shift' && (
-        <DraftShiftPanel
-          league={league}
-          picker={draftShiftPicker}
-          onPickerChange={setDraftShiftPicker}
-          teams={teams}
-        />
+        <DraftShiftPanel league={league} history={perceivedHistory} />
       )}
 
       {activeTab === 'free-agency' && (
@@ -7693,17 +7722,129 @@ function formatDateOrEmpty(date: CalendarDate | null): string {
   return `${date.month}/${date.day}`;
 }
 
-// ─── Big Board tab (v0.78) ──────────────────────────────────────────────
+// ─── Big Board tab (v0.79) ──────────────────────────────────────────────
 //
-// A summary of the current consensus draft board: every prospect ranked
-// by the chosen front office's read, with a perceived/real grade pair.
-// The LEAGUE view is the 32-team consensus; a team view is that team's
-// own board; MEDIA is the outlets' separate evaluator consensus. Because
-// the boards regenerate at the combine (v0.78), stepping through the
-// combine visibly re-ranks the board — workout warriors climb, poor
-// testers slide.
+// A per-media-round time series of each prospect's perceived grade,
+// captured tick-by-tick as you step the lifecycle. Rows are prospects,
+// columns are coverage rounds (preseason → bowls → combine → pro days →
+// top-30), each cell the media consensus grade at that round, tinted by
+// how much the grade MOVED since the prior round. Hover a cell for why
+// it moved (the event that drove it). The point is to watch stock rise
+// and fall through the season + draft process and gauge whether the
+// movement feels real — e.g. workout warriors jumping at the combine.
 
-type DraftShiftPicker = 'LEAGUE' | 'MEDIA' | TeamId;
+/** Max coverage-round columns kept (≈ 2 seasons of rounds). */
+const BIG_BOARD_MAX_COLS = 14;
+/** Max prospect rows shown (by most-recent grade). */
+const BIG_BOARD_MAX_ROWS = 50;
+/** Grade delta (points) that counts as a "big" move for the tint. */
+const BIG_BOARD_BIG_MOVE = 5;
+
+interface PerceivedColumn {
+  key: string;
+  phase: LifecyclePhase;
+  label: string;
+  dateLabel: string;
+  /** prospectId → media consensus grade (0-100) at this round. */
+  scores: Map<string, number>;
+}
+
+/**
+ * Confidence-weighted media consensus grade per prospect from the current
+ * media observation stream. Mirrors the board's observed-grade math but
+ * over the outlets' evaluator stream, returning a 0-100 score per
+ * prospect (not a rank).
+ */
+function mediaPerceivedScores(league: LeagueState): Map<string, number> {
+  const agg = new Map<string, { wsum: number; csum: number }>();
+  for (const obs of league.mediaCollegeObservations) {
+    let sSum = 0;
+    let sN = 0;
+    let cSum = 0;
+    let cN = 0;
+    for (const v of Object.values(obs.skills)) {
+      if (typeof v === 'number') {
+        sSum += v;
+        sN += 1;
+      }
+    }
+    for (const v of Object.values(obs.confidence)) {
+      if (typeof v === 'number') {
+        cSum += v;
+        cN += 1;
+      }
+    }
+    const overall = sN > 0 ? sSum / sN : 0;
+    const conf = cN > 0 ? cSum / cN : 0;
+    if (conf <= 0) continue;
+    const cur = agg.get(obs.collegePlayerId) ?? { wsum: 0, csum: 0 };
+    cur.wsum += overall * conf;
+    cur.csum += conf;
+    agg.set(obs.collegePlayerId, cur);
+  }
+  const out = new Map<string, number>();
+  for (const [id, { wsum, csum }] of agg) {
+    if (csum > 0) out.set(id, Math.round(wsum / csum));
+  }
+  return out;
+}
+
+/** Short column header for a coverage round's phase. */
+function bigBoardColumnLabel(phase: LifecyclePhase): string {
+  switch (phase) {
+    case 'PRESEASON':
+      return 'Preseason';
+    case 'SHRINE_BOWL':
+      return 'Shrine';
+    case 'SENIOR_BOWL':
+      return 'Senior Bowl';
+    case 'COMBINE':
+      return 'Combine';
+    case 'PRO_DAYS':
+      return 'Pro Days';
+    case 'TOP_30_VISITS':
+      return 'Top-30';
+    case 'DRAFT_DECLARATION':
+      return 'Declared';
+    default:
+      return phase;
+  }
+}
+
+/** Why a prospect's grade moved this round — derived from the event. */
+function bigBoardMoveReason(phase: LifecyclePhase, delta: number | null): string {
+  if (delta === null) return 'First media read of the class';
+  const mag = `${delta > 0 ? '+' : ''}${delta}`;
+  switch (phase) {
+    case 'COMBINE':
+      return delta >= 0
+        ? `Combine: tested better than scouts expected (${mag})`
+        : `Combine: workout disappointed (${mag})`;
+    case 'PRO_DAYS':
+      return `Pro day workout (${mag})`;
+    case 'SHRINE_BOWL':
+    case 'SENIOR_BOWL':
+      return `All-star week — practices + interviews (${mag})`;
+    case 'TOP_30_VISITS':
+      return `Top-30 visits + final scouting sweep (${mag})`;
+    case 'PRESEASON':
+      return `Preseason buzz (${mag})`;
+    case 'DRAFT_DECLARATION':
+      return `Declared for the draft (${mag})`;
+    default:
+      return `Stock ${delta > 0 ? 'rose' : delta < 0 ? 'fell' : 'held'} (${mag})`;
+  }
+}
+
+/** Tailwind classes tinting a cell by how much the grade moved. */
+function bigBoardCellClass(delta: number | null): string {
+  if (delta === null) return 'bg-zinc-800/40 text-zinc-300';
+  if (delta >= BIG_BOARD_BIG_MOVE) return 'bg-emerald-500/30 text-emerald-100';
+  if (delta > 0) return 'bg-emerald-500/10 text-emerald-200';
+  if (delta <= -BIG_BOARD_BIG_MOVE) return 'bg-rose-500/30 text-rose-100';
+  if (delta < 0) return 'bg-rose-500/10 text-rose-200';
+  return 'bg-zinc-800/30 text-zinc-400';
+}
 
 // ─── Prospect grades: perceived vs real (v0.75) ─────────────────────────
 //
@@ -7917,140 +8058,147 @@ function mockCellClass(pick: number | undefined, consensusPick: number): string 
   return 'text-zinc-400';
 }
 
-interface BigBoardRow {
-  prospectId: string;
-  rank: number;
-  name: string;
-  school: string;
-  position: string;
-  perceived: number | null;
-  real: number | null;
-  /** Teams (of 32) carrying the prospect — LEAGUE view only. */
-  appearances?: number | undefined;
+interface BigBoardCell {
+  score: number;
+  /** Change vs the prospect's previous round; null = first appearance. */
+  delta: number | null;
 }
 
-const BIG_BOARD_DEPTH = 60;
+interface BigBoardMatrixRow {
+  prospectId: string;
+  name: string;
+  position: string;
+  cells: (BigBoardCell | null)[];
+  /** Most-recent non-null score, for default sorting. */
+  latest: number;
+}
+
+type BigBoardSort = 'name' | 'latest' | number;
 
 function DraftShiftPanel({
   league,
-  picker,
-  onPickerChange,
-  teams,
+  history,
 }: {
   league: LeagueState;
-  picker: DraftShiftPicker;
-  onPickerChange: (p: DraftShiftPicker) => void;
-  teams: readonly { identity: { id: TeamId; abbreviation: string; location: string } }[];
+  history: readonly PerceivedColumn[];
 }) {
+  const [sort, setSort] = useState<BigBoardSort>('latest');
+
   const poolById = useMemo(
     () => new Map(league.collegePool.map((cp) => [cp.id as string, cp] as const)),
     [league.collegePool],
   );
 
-  const rows = useMemo<BigBoardRow[]>(() => {
-    const decorate = (
-      prospectId: string,
-      rank: number,
-      perceived: number | null,
-      appearances?: number,
-    ): BigBoardRow => {
-      const cp = poolById.get(prospectId);
-      return {
-        prospectId,
-        rank,
-        name: cp ? `${cp.firstName} ${cp.lastName}` : prospectId,
-        school: cp ? getSchoolById(cp.schoolId)?.name ?? cp.schoolId : '',
-        position: cp ? cp.nflProjectedPosition : '',
-        perceived,
-        real: cp ? prospectRealGradeFromCp(cp) : null,
-        appearances,
-      };
-    };
+  const rows = useMemo<BigBoardMatrixRow[]>(() => {
+    if (history.length === 0) return [];
+    const ids = new Set<string>();
+    for (const col of history) for (const id of col.scores.keys()) ids.add(id);
 
-    if (picker === 'MEDIA') {
-      const outlets = Object.values(league.mediaOutlets).filter((o) => o.focus === 'COLLEGE');
-      const weights = new Map(outlets.map((o) => [o.id, o.accuracySpectrum / 10]));
-      return computeMediaConsensusBoard(league.mediaCollegeObservations, BIG_BOARD_DEPTH, weights).map(
-        (e, i) => decorate(e.prospectId, i + 1, Math.round(e.grade)),
-      );
+    const built: BigBoardMatrixRow[] = [];
+    for (const id of ids) {
+      let prev: number | null = null;
+      let latest = -1;
+      const cells = history.map((col) => {
+        const s = col.scores.get(id);
+        if (s === undefined) return null;
+        const delta = prev === null ? null : s - prev;
+        prev = s;
+        latest = s;
+        return { score: s, delta };
+      });
+      const cp = poolById.get(id);
+      built.push({
+        prospectId: id,
+        name: cp ? `${cp.firstName} ${cp.lastName}` : id,
+        position: cp ? cp.nflProjectedPosition : '',
+        cells,
+        latest,
+      });
     }
-    if (picker === 'LEAGUE') {
-      const consensus = computeConsensusBoard(league.draftBoards);
-      const perceived = consensusPerceivedGrades(league);
-      return consensus
-        .slice(0, BIG_BOARD_DEPTH)
-        .map((e, i) => decorate(e.collegePlayerId, i + 1, perceived.get(e.collegePlayerId) ?? null, e.appearances));
-    }
-    const board = league.draftBoards[picker] ?? [];
-    return board
-      .slice(0, BIG_BOARD_DEPTH)
-      .map((e, i) => decorate(e.collegePlayerId, i + 1, Math.round(e.observedSkillScore)));
-  }, [league, picker, poolById]);
+
+    built.sort((a, b) => {
+      if (sort === 'name') return a.name.localeCompare(b.name);
+      if (sort === 'latest') return b.latest - a.latest;
+      const av = a.cells[sort]?.score ?? -1;
+      const bv = b.cells[sort]?.score ?? -1;
+      return bv - av;
+    });
+    return built.slice(0, BIG_BOARD_MAX_ROWS);
+  }, [history, poolById, sort]);
 
   return (
     <section className="mt-6 rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-4">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-cyan-200">Big Board</h2>
-        <label className="flex items-center gap-2 text-xs text-zinc-400">
-          view
-          <select
-            value={picker}
-            onChange={(e) => onPickerChange(e.target.value as DraftShiftPicker)}
-            className="rounded border border-zinc-800 bg-zinc-900 px-2 py-1 font-mono text-xs text-zinc-200 focus:border-cyan-500 focus:outline-none"
-          >
-            <option value="LEAGUE">League consensus (32 boards)</option>
-            <option value="MEDIA">Media consensus</option>
-            {teams.map((t) => (
-              <option key={t.identity.id} value={t.identity.id}>
-                {t.identity.abbreviation} — {t.identity.location}
-              </option>
-            ))}
-          </select>
-        </label>
+        <h2 className="text-lg font-semibold text-cyan-200">Big Board — Stock Tracker</h2>
+        <span className="text-[10px] text-zinc-500">sort: click a column header</span>
       </div>
 
       <p className="mb-3 text-xs text-zinc-500">
-        The current draft board, ranked. <strong>League</strong> is the
-        32-team consensus; a <strong>team</strong> view is that front
-        office's own board; <strong>Media</strong> is the outlets' separate
-        read (it hypes flashy names). The{' '}
-        <span className="font-mono">perceived/real</span> grade shows the
-        gap — <span className="text-amber-300">amber</span> = inflated,{' '}
-        <span className="text-cyan-300">cyan</span> = slept-on,{' '}
-        <span className="text-emerald-300">green</span> = honest. The
-        combine (late Feb) re-ranks the board — workout warriors climb,
-        poor testers slide.
+        Each prospect's <strong>media consensus grade</strong> at every
+        coverage round, captured as you step the lifecycle. A cell is tinted
+        by how much the grade <strong>moved</strong> since the prior round —{' '}
+        <span className="rounded bg-emerald-500/30 px-1 text-emerald-100">green up</span>,{' '}
+        <span className="rounded bg-rose-500/30 px-1 text-rose-100">red down</span>. Hover a
+        cell for what drove the move. Step through the COMBINE to watch
+        workout warriors jump.
       </p>
 
       {rows.length === 0 ? (
         <div className="rounded border border-zinc-800 bg-zinc-950/40 p-3 text-xs text-zinc-500">
-          No board yet. Simulate a season (Lifecycle tab) to build the draft
-          class and its boards.
+          No reads captured yet. Step the lifecycle (Lifecycle tab) through a
+          media coverage round — the preseason, the Shrine/Senior bowls, the
+          combine, pro days, and the top-30 sweep each add a column here.
         </div>
       ) : (
-        <ol className="divide-y divide-zinc-800/70 rounded border border-zinc-800 bg-zinc-950/40">
-          {rows.map((r) => (
-            <li
-              key={r.prospectId}
-              className="flex items-baseline justify-between gap-2 px-3 py-1 font-mono text-xs"
-            >
-              <span className="flex items-baseline gap-2 truncate">
-                <span className="w-7 shrink-0 tabular-nums text-zinc-500">#{r.rank}</span>
-                <span className="truncate text-zinc-200">{r.name}</span>
-                {r.position && <span className="shrink-0 text-zinc-500">{r.position}</span>}
-                <span className="truncate text-zinc-600">{r.school}</span>
-              </span>
-              <span className="flex shrink-0 items-baseline gap-3">
-                {r.appearances !== undefined && (
-                  <span className="tabular-nums text-[10px] text-zinc-600" title="teams carrying him">
-                    {r.appearances}/32
-                  </span>
-                )}
-                <GradeCell perceived={r.perceived} real={r.real} />
-              </span>
-            </li>
-          ))}
-        </ol>
+        <div className="overflow-x-auto rounded border border-zinc-800 bg-zinc-950/40">
+          <table className="min-w-full border-collapse text-xs">
+            <thead>
+              <tr className="text-zinc-400">
+                <th
+                  onClick={() => setSort('name')}
+                  className={`sticky left-0 z-10 cursor-pointer bg-zinc-950 px-3 py-1.5 text-left font-medium hover:text-cyan-200 ${sort === 'name' ? 'text-cyan-200' : ''}`}
+                >
+                  Player ▾
+                </th>
+                {history.map((col, i) => (
+                  <th
+                    key={col.key}
+                    onClick={() => setSort(i)}
+                    className={`cursor-pointer whitespace-nowrap px-2 py-1.5 text-center font-medium hover:text-cyan-200 ${sort === i ? 'text-cyan-200' : ''}`}
+                    title={`${col.label}${col.dateLabel ? ` · ${col.dateLabel}` : ''}`}
+                  >
+                    <div>{col.label}</div>
+                    <div className="font-mono text-[9px] font-normal text-zinc-600">{col.dateLabel}</div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.prospectId} className="border-t border-zinc-800/60">
+                  <td className="sticky left-0 z-10 bg-zinc-950/95 px-3 py-1 text-left">
+                    <span className="text-zinc-200">{r.name}</span>
+                    {r.position && <span className="ml-1.5 text-zinc-600">{r.position}</span>}
+                  </td>
+                  {r.cells.map((cell, i) => (
+                    <td key={history[i]!.key} className="px-1 py-0.5 text-center">
+                      {cell === null ? (
+                        <span className="text-zinc-700">·</span>
+                      ) : (
+                        <span
+                          className={`inline-block w-9 rounded py-0.5 font-mono tabular-nums ${bigBoardCellClass(cell.delta)}`}
+                          title={`${history[i]!.label}: ${bigBoardMoveReason(history[i]!.phase, cell.delta)} → grade ${cell.score}`}
+                        >
+                          {cell.score}
+                        </span>
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
