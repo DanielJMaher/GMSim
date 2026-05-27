@@ -15,6 +15,15 @@ import { getArchetypeById } from '../archetypes/index.js';
 const DEF_TURNOVER_SLOTS = [0.3, 0.22, 0.17, 0.12, 0.09, 0.06, 0.04];
 
 /**
+ * Rank-weighted shares for spreading sacks across the pass rush. Steeper
+ * than the INT slots — an elite edge rusher genuinely dominates his team's
+ * sack production (DPOY types take the bulk), so the league leader still
+ * lands ~18-20, but the takedowns no longer all pile onto him every game
+ * (which clustered too many players at 17-19).
+ */
+const SACK_PICK_SLOTS = [0.5, 0.28, 0.14, 0.08];
+
+/**
  * Derive per-player stat lines for a played game by distributing
  * team-level GameResult stats across the rosters that played.
  *
@@ -297,16 +306,23 @@ function attributeDefense(
   // ── Sacks ────────────────────────────────────────────────────────
   // `ownStats.sacks` = sacks this team's defense generated. EDGE rushers
   // get most; DTs split the rest. LBs occasionally blitz; DBs rarely.
+  // Sacks spread across the rush by a rank-weighted draw (like INTs) so a
+  // single edge doesn't vacuum every game's sack via largest-remainder.
+  // ~60% go to an edge, ~40% to the interior.
   const totalSacks = ownStats.sacks;
   if (totalSacks > 0) {
-    const edges = players.filter((p) => p.position === Position.EDGE);
-    const interior = players.filter(
-      (p) => p.position === Position.DT || p.position === Position.NT,
-    );
-    const edgeShare = Math.round(totalSacks * 0.6);
-    const dtShare = Math.max(0, totalSacks - edgeShare);
-    distributeBySkill(edges, edgeShare, (p, n) => (getOrInit(lines, p.id).sacks += n));
-    distributeBySkill(interior, dtShare, (p, n) => (getOrInit(lines, p.id).sacks += n));
+    const edgesRanked = players.filter((p) => p.position === Position.EDGE).sort(byTierThenSkill);
+    const interiorRanked = players
+      .filter((p) => p.position === Position.DT || p.position === Position.NT)
+      .sort(byTierThenSkill);
+    for (let i = 0; i < totalSacks; i++) {
+      const seed = `${gameId}:sack:${team.identity.abbreviation}:${i}`;
+      const preferEdge = hashUnit(`${seed}:grp`) < 0.6;
+      const primary = preferEdge ? edgesRanked : interiorRanked;
+      const pool = primary.length > 0 ? primary : preferEdge ? interiorRanked : edgesRanked;
+      const pick = pickByRankWeight(pool, SACK_PICK_SLOTS, seed);
+      if (pick) getOrInit(lines, pick.id).sacks += 1;
+    }
   }
 
   // ── Interceptions ────────────────────────────────────────────────
