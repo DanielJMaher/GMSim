@@ -23,6 +23,7 @@
  */
 
 import type { LifecyclePhase } from '../season/lifecycle.js';
+import type { PositionGroup } from './enums.js';
 import type {
   MediaOutletId,
   MediaReportId,
@@ -90,6 +91,23 @@ export interface MediaOutlet {
    * pick measured templates and may stay silent on borderline events.
    */
   hypeSpectrum: number;
+  /**
+   * Hidden per-position-group accuracy (v0.89). Same 1-10 scale as
+   * `accuracySpectrum`, which remains the outlet's HEADLINE/average — but
+   * an outlet is sharper on some groups than others ("nails QBs, swings
+   * on OL"). Mirrors a scout's `trueAccuracy` per group. Per North Star,
+   * never shown numerically in the game UI: the player learns each
+   * outlet's WHERE-to-trust through track record. The dev inspector
+   * exposes it for tuning.
+   */
+  accuracyByGroup: Readonly<Record<PositionGroup, number>>;
+  /**
+   * Hidden per-position-group optimism (v0.89). Same 1-10 scale as
+   * `hypeSpectrum`. An outlet can be measured on QBs but a hype machine
+   * on OL — so trust is patterned by WHERE, not just by outlet. This is
+   * the heart of the media's purpose: which/where/why to trust.
+   */
+  hypeByGroup: Readonly<Record<PositionGroup, number>>;
 }
 
 /**

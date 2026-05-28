@@ -21,12 +21,64 @@ import type { Prng } from '../prng/index.js';
 import type { TeamState } from '../types/team.js';
 import type { TeamId, MediaOutletId } from '../types/ids.js';
 import { MediaOutletId as MediaOutletIdCtor } from '../types/ids.js';
+import { PositionGroup } from '../types/enums.js';
 import type {
   MediaOutlet,
   MediaTier,
   MediaFocus,
   MediaMarket,
 } from '../types/media.js';
+
+const POSITION_GROUPS: readonly PositionGroup[] = [
+  PositionGroup.QB,
+  PositionGroup.SKILL,
+  PositionGroup.OL,
+  PositionGroup.DL,
+  PositionGroup.LB,
+  PositionGroup.DB,
+  PositionGroup.ST,
+];
+
+/**
+ * Spread an outlet's headline spectrum (accuracy or hype, 1-10) across
+ * the seven position groups (v0.89). Most groups sit near the baseline
+ * with small wobble; one group is an accentuated STRENGTH and one a
+ * WEAKNESS (off-baseline by 2-3). For accuracy this reads as "sharp on
+ * QBs, swings on OL"; for hype as "honest on QBs, hypes OL". The two
+ * profiles are drawn from independent forks so an outlet's sharp group
+ * and its hype group are uncorrelated — the texture a consumer learns.
+ *
+ * Forked off the outlet's existing variance prng, so it does NOT disturb
+ * the headline spectrum draws or any downstream determinism.
+ */
+function spreadAcrossGroups(prng: Prng, baseline: number): Record<PositionGroup, number> {
+  const out = {} as Record<PositionGroup, number>;
+  for (const g of POSITION_GROUPS) {
+    out[g] = clamp(Math.round(prng.normal(baseline, 0.8)), 1, 10);
+  }
+  const strong = prng.pick(POSITION_GROUPS);
+  out[strong] = clamp(out[strong] + prng.nextRange(2, 4), 1, 10); // +2 or +3
+  const weak = prng.pick(POSITION_GROUPS.filter((g) => g !== strong));
+  out[weak] = clamp(out[weak] - prng.nextRange(2, 4), 1, 10);
+  return out;
+}
+
+/**
+ * Build an outlet's per-group accuracy + hype profiles (v0.89) from its
+ * headline spectrums. Exposed so the save-migration can backfill outlets
+ * created before per-group reliability existed. `prng` should be forked
+ * per outlet for stable, independent profiles.
+ */
+export function outletGroupProfiles(
+  prng: Prng,
+  accuracySpectrum: number,
+  hypeSpectrum: number,
+): Pick<MediaOutlet, 'accuracyByGroup' | 'hypeByGroup'> {
+  return {
+    accuracyByGroup: spreadAcrossGroups(prng.fork('accByGroup'), accuracySpectrum),
+    hypeByGroup: spreadAcrossGroups(prng.fork('hypeByGroup'), hypeSpectrum),
+  };
+}
 
 interface NationalOutletTemplate {
   /** Stable id slug used to construct `M_<slug>`. */
@@ -272,14 +324,17 @@ export function generateMediaOutlets(
     const variancePrng = prng.fork(`variance:${tpl.slug}`);
     const accDelta = variancePrng.nextRange(-1, 2); // -1, 0, or +1
     const hypeDelta = variancePrng.nextRange(-1, 2);
+    const accuracySpectrum = clamp(tpl.baselineAccuracy + accDelta, 1, 10);
+    const hypeSpectrum = clamp(tpl.baselineHype + hypeDelta, 1, 10);
     out[id] = {
       id,
       name: tpl.name,
       tier: tpl.tier,
       focus: tpl.focus,
       market: 'NATIONAL' as MediaMarket,
-      accuracySpectrum: clamp(tpl.baselineAccuracy + accDelta, 1, 10),
-      hypeSpectrum: clamp(tpl.baselineHype + hypeDelta, 1, 10),
+      accuracySpectrum,
+      hypeSpectrum,
+      ...outletGroupProfiles(variancePrng, accuracySpectrum, hypeSpectrum),
     };
   }
 
@@ -290,14 +345,17 @@ export function generateMediaOutlets(
     const accDelta = teamPrng.fork('acc').nextRange(-1, 2);
     const hypeDelta = teamPrng.fork('hype').nextRange(-1, 2);
     const id = MediaOutletIdCtor(`MO_local_${team.identity.id}`);
+    const accuracySpectrum = clamp(kind.baselineAccuracy + accDelta, 1, 10);
+    const hypeSpectrum = clamp(kind.baselineHype + hypeDelta, 1, 10);
     out[id] = {
       id,
       name: kind.nameTemplate.replace('{loc}', team.identity.location),
       tier: kind.tier,
       focus: 'NFL',
       market: { localTo: team.identity.id as TeamId },
-      accuracySpectrum: clamp(kind.baselineAccuracy + accDelta, 1, 10),
-      hypeSpectrum: clamp(kind.baselineHype + hypeDelta, 1, 10),
+      accuracySpectrum,
+      hypeSpectrum,
+      ...outletGroupProfiles(teamPrng, accuracySpectrum, hypeSpectrum),
     };
   }
 

@@ -165,6 +165,8 @@ export {
   computeMediaConsensusBoard,
 } from './media/mock-boards.js';
 export type { MockBoardEntry } from './media/mock-boards.js';
+export { computeOutletQualityByGroup } from './media/media-quality.js';
+export type { OutletGroupQuality } from './media/media-quality.js';
 export { generateHeismanRaceReports, HEISMAN_WATCH_START_WEEK } from './media/heisman-race.js';
 export {
   generateWeeklyMediaReports,

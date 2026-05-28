@@ -35,6 +35,7 @@ import type { PlayerId } from '../types/ids.js';
 import { ScoutId } from '../types/ids.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import { computeCombineAthleticism } from '../draft/athleticism.js';
+import { positionGroupFor } from '../players/position-group.js';
 
 // ── Tuning knobs ────────────────────────────────────────────────────────
 /** Evaluators per outlet by tier — a BLOG is the lone streamer. */
@@ -121,7 +122,17 @@ function flashiness(cp: CollegePlayer): number {
  * anchored to reality instead of floating everyone up.
  */
 function outletOptimism(outlet: MediaOutlet): number {
-  return clamp((outlet.hypeSpectrum - 5.5) / 4.5, -1, 1);
+  return optimismFromHype(outlet.hypeSpectrum);
+}
+
+/**
+ * Map a hype value (1-10) to a signed optimism lean, ~[-1, +1]. Used both
+ * for the outlet headline (darling selection) and per-position-group
+ * (v0.89) — an outlet leans up where it's a hype machine, down where it's
+ * measured, so the consensus across outlets stays anchored to truth.
+ */
+function optimismFromHype(hype: number): number {
+  return clamp((hype - 5.5) / 4.5, -1, 1);
 }
 
 function fnv1a(s: string): number {
@@ -213,9 +224,11 @@ export function generateMediaCollegeObservations(
   const observations: CollegePlayerObservation[] = [];
   for (const outlet of Object.values(outlets)) {
     if (outlet.focus !== 'COLLEGE') continue;
-    const accuracy = clamp(outlet.accuracySpectrum / 10 + accuracyBoost, 0, 1);
-    const optimism = outletOptimism(outlet);
-    const darlings = darlingSet(outlet, notableIds, optimism);
+    // Darlings are an outlet-wide idiosyncrasy, selected off the headline
+    // hype; the per-read accuracy + optimism are resolved per position
+    // group (v0.89) so an outlet reads sharply where it's strong and hypes
+    // where it isn't.
+    const darlings = darlingSet(outlet, notableIds, outletOptimism(outlet));
     const evaluatorCount = EVALUATORS_BY_TIER[outlet.tier] ?? 2;
     const outletPrng = prng.fork(`outlet:${outlet.id}`);
 
@@ -226,6 +239,9 @@ export function generateMediaCollegeObservations(
       // the names the media obsesses over.
       const targets = notable.slice(0, reads);
       for (const { cp, flash, athletic } of targets) {
+        const group = positionGroupFor(cp.nflProjectedPosition);
+        const accuracy = clamp(outlet.accuracyByGroup[group] / 10 + accuracyBoost, 0, 1);
+        const optimism = optimismFromHype(outlet.hypeByGroup[group]);
         // Small SIGNED optimism lean (bigger on flashy + combine risers),
         // plus a rare hard bonus on this outlet's few darlings. Optimists
         // read a touch high, skeptics low; the consensus stays near truth.
@@ -314,9 +330,7 @@ export function generateWeeklyMediaObservations(
   const observations: CollegePlayerObservation[] = [];
   for (const outlet of Object.values(outlets)) {
     if (outlet.focus !== 'COLLEGE') continue;
-    const accuracy = clamp(outlet.accuracySpectrum / 10 + accuracyBoost, 0, 1);
-    const optimism = outletOptimism(outlet);
-    const darlings = darlingSet(outlet, notableIds, optimism);
+    const darlings = darlingSet(outlet, notableIds, outletOptimism(outlet));
     const evaluatorCount = EVALUATORS_BY_TIER[outlet.tier] ?? 2;
     const outletPrng = prng.fork(`outlet:${outlet.id}`);
 
@@ -325,6 +339,9 @@ export function generateWeeklyMediaObservations(
       const evaluatorId = ScoutId(`${outlet.id}::e${e}`);
       const targets = notable.slice(0, reads);
       for (const { cp, flash, form } of targets) {
+        const group = positionGroupFor(cp.nflProjectedPosition);
+        const accuracy = clamp(outlet.accuracyByGroup[group] / 10 + accuracyBoost, 0, 1);
+        const optimism = optimismFromHype(outlet.hypeByGroup[group]);
         // Bounded public-form contribution (a hot/cold season moves the read
         // at most ±FORM_READ_CAP) + a small signed optimism lean + the rare
         // darling bonus. Optimists read high, skeptics low; consensus ~truth.

@@ -1,6 +1,7 @@
 import { describe, it } from 'vitest';
 import { createLeague } from '../league/generate.js';
 import { tickPhase } from './lifecycle.js';
+import { computeOutletQualityByGroup } from '../media/media-quality.js';
 import type { LeagueState } from '../types/league.js';
 import type { CollegePlayer, CollegePlayerObservation } from '../types/college.js';
 
@@ -130,6 +131,30 @@ function analyze(label: string, league: LeagueState): void {
     if (rr === undefined || rr > 50) vaulters += 1;
   }
   console.log(`consensus top-32: ${vaulters} outside the real top-50 (mid guys vaulting)`);
+
+  // v0.89: the real quality measure — per-outlet × per-group rank
+  // correlation of the read vs the real board (robust to the near-flat
+  // realGrade distribution that made the top-32 count an artifact). High =
+  // trust this outlet's order here; the spread ACROSS groups in a row is
+  // the "sharp here / hypes there" pattern a consumer learns.
+  const GROUPS = ['QB', 'SKILL', 'OL', 'DL', 'LB', 'DB', 'ST'] as const;
+  console.log('\nrank-correlation (read vs real) by outlet × group:');
+  console.log(`acc hype  ${GROUPS.map((g) => g.padStart(5)).join(' ')}`);
+  const outletList = [...byOutlet.keys()]
+    .map((id) => league.mediaOutlets[id as keyof typeof league.mediaOutlets])
+    .filter((o): o is NonNullable<typeof o> => Boolean(o))
+    .sort((a, b) => b.accuracySpectrum - a.accuracySpectrum);
+  for (const outlet of outletList) {
+    const rows = computeOutletQualityByGroup(obs, league.collegePool, outlet.id);
+    const byGroup = new Map(rows.map((r) => [r.group, r] as const));
+    const cells = GROUPS.map((g) => {
+      const c = byGroup.get(g)?.rankCorrelation;
+      return (c === null || c === undefined ? '   - ' : c.toFixed(2).padStart(5));
+    }).join(' ');
+    console.log(
+      `${String(outlet.accuracySpectrum).padStart(2)}  ${String(outlet.hypeSpectrum).padStart(2)}  ${cells}`,
+    );
+  }
   /* eslint-enable no-console */
 }
 

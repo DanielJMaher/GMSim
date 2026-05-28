@@ -63,6 +63,50 @@ describe('media outlet generation (v0.62)', () => {
       expect(oa.name).toBe(ob.name);
       expect(oa.accuracySpectrum).toBe(ob.accuracySpectrum);
       expect(oa.hypeSpectrum).toBe(ob.hypeSpectrum);
+      expect(oa.accuracyByGroup).toEqual(ob.accuracyByGroup);
+      expect(oa.hypeByGroup).toEqual(ob.hypeByGroup);
+    }
+  });
+
+  // ── Per-group reliability (v0.89) ────────────────────────────────────
+  it('every outlet has per-group accuracy + hype, all 7 groups in [1,10]', () => {
+    const league = createLeague({ seed: 'media-pergroup-range' });
+    const groups = ['QB', 'SKILL', 'OL', 'DL', 'LB', 'DB', 'ST'] as const;
+    for (const o of Object.values(league.mediaOutlets)) {
+      for (const g of groups) {
+        for (const v of [o.accuracyByGroup[g], o.hypeByGroup[g]]) {
+          expect(v).toBeGreaterThanOrEqual(1);
+          expect(v).toBeLessThanOrEqual(10);
+        }
+      }
+    }
+  });
+
+  it('per-group profiles vary across groups (patterned, not flat)', () => {
+    const league = createLeague({ seed: 'media-pergroup-varies' });
+    // At least one outlet should be meaningfully sharper on one group than
+    // another AND hypier on one than another — the "sharp here / hypes
+    // there" texture. (A spread of >=2 on at least one axis somewhere.)
+    let accVaries = false;
+    let hypeVaries = false;
+    for (const o of Object.values(league.mediaOutlets)) {
+      const acc = Object.values(o.accuracyByGroup);
+      const hype = Object.values(o.hypeByGroup);
+      if (Math.max(...acc) - Math.min(...acc) >= 2) accVaries = true;
+      if (Math.max(...hype) - Math.min(...hype) >= 2) hypeVaries = true;
+    }
+    expect(accVaries).toBe(true);
+    expect(hypeVaries).toBe(true);
+  });
+
+  it('per-group spectrums track the headline spectrum on average', () => {
+    const league = createLeague({ seed: 'media-pergroup-tracks' });
+    for (const o of Object.values(league.mediaOutlets)) {
+      const acc = Object.values(o.accuracyByGroup);
+      const mean = acc.reduce((a, b) => a + b, 0) / acc.length;
+      // The group profile is centered on the headline (one +strength, one
+      // -weakness mostly cancel), so the mean stays within ~2 of headline.
+      expect(Math.abs(mean - o.accuracySpectrum)).toBeLessThanOrEqual(2);
     }
   });
 });

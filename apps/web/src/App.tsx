@@ -61,7 +61,8 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, collegeTeamStrength, bucketProspectsBySchool } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool } from '@gmsim/engine';
+import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
 import type { PositionNeed } from '@gmsim/engine';
 import {
@@ -379,6 +380,7 @@ export function App() {
           <CollegePoolPanel league={league} />
           <DraftBoardsPanel league={league} />
           <MediaMockBoardsPanel league={league} />
+          <MediaReliabilityPanel league={league} />
           <DraftReplayPanel league={league} />
           <DraftTradesPanel league={league} />
           <DraftResultsPanel league={league} />
@@ -8423,6 +8425,139 @@ function mockCellClass(pick: number | undefined, consensusPick: number): string 
   if (delta <= -8) return 'text-rose-400';
   if (delta <= -3) return 'text-rose-300/70';
   return 'text-zinc-400';
+}
+
+// ─── Media Reliability by Position Group (v0.89) ────────────────────────
+//
+// The heart of the media's purpose: WHICH outlet to trust, WHERE, and WHY.
+// Each outlet carries hidden per-group accuracy + hype; this panel measures
+// the RESULT — how well each outlet's read orders prospects vs the real
+// board (rank correlation), per position group, and how it tilts them
+// (bias). Green = trustworthy ordering here; red = noise/hype here. The
+// hidden per-group knobs are shown in the cell tooltip for tuning (dev
+// inspector only — never the game UI).
+
+function correlationCellClass(corr: number | null): string {
+  if (corr === null) return 'text-zinc-700';
+  if (corr >= 0.6) return 'text-emerald-400';
+  if (corr >= 0.3) return 'text-emerald-300/70';
+  if (corr >= 0.0) return 'text-amber-300/80';
+  return 'text-rose-400';
+}
+
+function MediaReliabilityPanel({ league }: { league: LeagueState }) {
+  const collegeOutlets = useMemo(
+    () =>
+      Object.values(league.mediaOutlets)
+        .filter((o) => o.focus === 'COLLEGE')
+        .sort((a, b) => b.accuracySpectrum - a.accuracySpectrum),
+    [league.mediaOutlets],
+  );
+
+  // outletId → group → quality row.
+  const qualityByOutlet = useMemo(() => {
+    const map = new Map<string, Map<PositionGroup, OutletGroupQuality>>();
+    for (const o of collegeOutlets) {
+      const rows = computeOutletQualityByGroup(
+        league.mediaCollegeObservations,
+        league.collegePool,
+        o.id,
+      );
+      const byGroup = new Map<PositionGroup, OutletGroupQuality>();
+      for (const r of rows) byGroup.set(r.group, r);
+      map.set(o.id, byGroup);
+    }
+    return map;
+  }, [collegeOutlets, league.mediaCollegeObservations, league.collegePool]);
+
+  if (league.mediaCollegeObservations.length === 0) {
+    return (
+      <section className="mt-6 rounded border border-cyan-500/20 bg-cyan-500/[0.03] p-3 text-xs text-zinc-500">
+        🎯 Media reliability by position group — empty until the media cycle
+        runs (step through Top-30 Visits, or simulate + advance a season).
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-6 rounded border border-cyan-500/25 bg-cyan-500/[0.04] p-4">
+      <h2 className="mb-1 text-lg font-semibold text-cyan-200">
+        Media Reliability by Position Group
+      </h2>
+      <p className="mb-3 text-xs text-zinc-500">
+        How well each outlet's read <em>orders</em> prospects vs the real
+        board, per group (Spearman rank correlation). Green = trust its order
+        here; red = noise or hype here. Small number = bias (+ reads high). An
+        outlet can be sharp on QBs and a hype machine on OL — that's the
+        pattern to learn. Hover a cell for the hidden per-group knobs + sample
+        size. <span className="text-zinc-600">(dev-only; never the game UI)</span>
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-xs">
+          <thead>
+            <tr className="text-left text-zinc-500">
+              <th className="px-2 py-1 font-medium">Outlet</th>
+              <th className="px-2 py-1 text-center font-medium" title="headline accuracy / hype">
+                acc·hype
+              </th>
+              {POSITION_GROUPS_ORDERED.map((g) => (
+                <th key={g} className="px-2 py-1 text-center font-medium">
+                  {g}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {collegeOutlets.map((o) => {
+              const byGroup = qualityByOutlet.get(o.id);
+              return (
+                <tr key={o.id} className="border-t border-zinc-800/60">
+                  <td className="px-2 py-1 text-zinc-200" title={o.name}>
+                    {abbreviateOutlet(o.name)}
+                  </td>
+                  <td className="px-2 py-1 text-center font-mono tabular-nums text-zinc-500">
+                    {o.accuracySpectrum}·{o.hypeSpectrum}
+                  </td>
+                  {POSITION_GROUPS_ORDERED.map((g) => {
+                    const q = byGroup?.get(g);
+                    const corr = q?.rankCorrelation ?? null;
+                    const accG = o.accuracyByGroup[g];
+                    const hypeG = o.hypeByGroup[g];
+                    const title = q
+                      ? `${g}: corr ${corr === null ? 'n/a' : corr.toFixed(2)}, ` +
+                        `bias ${q.meanBias >= 0 ? '+' : ''}${q.meanBias.toFixed(1)}, ` +
+                        `n=${q.sampleSize} · hidden acc ${accG} / hype ${hypeG}`
+                      : `${g}: not covered · hidden acc ${accG} / hype ${hypeG}`;
+                    return (
+                      <td
+                        key={g}
+                        className="px-2 py-1 text-center font-mono tabular-nums"
+                        title={title}
+                      >
+                        {corr === null ? (
+                          <span className="text-zinc-700">—</span>
+                        ) : (
+                          <>
+                            <span className={correlationCellClass(corr)}>{corr.toFixed(2)}</span>
+                            {q && Math.abs(q.meanBias) >= 1 && (
+                              <span className="ml-1 text-[10px] text-zinc-600">
+                                {q.meanBias >= 0 ? '+' : ''}
+                                {q.meanBias.toFixed(0)}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 interface BigBoardCell {

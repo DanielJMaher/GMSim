@@ -13,7 +13,11 @@ import { runCombine } from '../draft/combine.js';
 import { runProDays } from '../draft/pro-days.js';
 import { generateInitialDraftPicks } from '../draft/picks.js';
 import type { DraftBoardEntry, CombineMeasurables, ProDayAttendanceRecord } from '../types/college.js';
-import { generateMediaOutlets as generateMediaOutletsForMigration } from '../media/generate.js';
+import {
+  generateMediaOutlets as generateMediaOutletsForMigration,
+  outletGroupProfiles,
+} from '../media/generate.js';
+import type { MediaOutlet } from '../types/media.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -309,6 +313,29 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       ),
       mediaReports: [],
     } as LeagueState;
+  }
+
+  // v0.89.0 per-position-group outlet reliability. Saves with outlets but
+  // no `accuracyByGroup` predate it — backfill each outlet's profiles from
+  // its headline spectrums (deterministic per outlet id, off a separate
+  // backfill namespace so it doesn't disturb the season prng).
+  {
+    const outlets = (next as unknown as { mediaOutlets?: Record<string, MediaOutlet> }).mediaOutlets;
+    const sample = outlets && Object.values(outlets)[0];
+    if (sample && !('accuracyByGroup' in sample)) {
+      const backfilled: Record<string, MediaOutlet> = {};
+      for (const [id, o] of Object.entries(outlets)) {
+        backfilled[id] = {
+          ...o,
+          ...outletGroupProfiles(
+            new Prng(`${next.seed}::outlet-groups::${id}`),
+            o.accuracySpectrum,
+            o.hypeSpectrum,
+          ),
+        };
+      }
+      next = { ...next, mediaOutlets: backfilled } as LeagueState;
+    }
   }
 
   // v0.56.0 currentWeek field. Backfill from the played schedule:
