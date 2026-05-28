@@ -16,6 +16,47 @@ _Nothing yet._
 
 ---
 
+## [0.89.0] — 2026-05-28
+
+### Added — per-position-group media reliability (the heart of media trust)
+
+- **Outlets now carry hidden per-position-group accuracy AND hype**
+  (`MediaOutlet.accuracyByGroup` / `hypeByGroup`, 1-10 per group). The
+  flat `accuracySpectrum` / `hypeSpectrum` remain the outlet's headline
+  average, but each outlet is sharper on some groups than others and a
+  hype machine on others — "nails QBs, swings on OL." Mirrors a scout's
+  `trueAccuracy` per group; generated deterministically at league
+  creation (`spreadAcrossGroups`: most groups near the headline, one
+  accentuated strength + one weakness; accuracy and hype profiles drawn
+  independently so an outlet's sharp group and its hype group are
+  uncorrelated). Per North Star these are never shown numerically in the
+  game UI — the player learns each outlet's WHERE-to-trust through track
+  record.
+- **The media read is now per-group.** Both the offseason and weekly
+  in-season evaluator passes resolve each prospect's projected position
+  group and apply that outlet's group-specific accuracy (read noise) and
+  optimism lean (signed hype). Trusting an outlet now means trusting it
+  *where it's good* — listening to the right outlet on QBs pays off even
+  if its OL board is noise.
+- **A real "is the board sensible?" metric** (`computeOutletQualityByGroup`,
+  exported). Per outlet × position group: Spearman rank correlation of
+  the read vs the real board (does it ORDER prospects right?) + mean
+  signed bias (the optimism tilt) + sample size. Rank correlation is
+  robust to the near-flat real-grade distribution that made the old
+  "N of top-32 outside real top-50" diagnostic an artifact.
+- **Inspector: "Media Reliability by Position Group"** panel (Draft tab).
+  An outlet × group matrix of rank correlation (green = trust its order
+  here, red = noise/hype), with the bias tilt inline and the hidden
+  per-group knobs + sample size on hover. Dev-only calibration lens.
+
+### Notes
+
+- Save migration backfills `accuracyByGroup` / `hypeByGroup` for outlets
+  created before this slice, deterministically from their headline
+  spectrums.
+
+---
+
 ## [0.80.0] — 2026-05-27
 
 ### Changed — combine invite cap; Big Board names + real grade
