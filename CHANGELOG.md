@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.90.0] — 2026-05-28
+
+### Added — Draft Audit tab (who's grading prospects right?)
+
+- **New "Draft Audit" inspector tab**: a searchable, sortable table of
+  every draft-eligible prospect showing the **real** grade next to what
+  the **teams** believe (consensus of the 32 boards, or any single team
+  via a dropdown) and what the **media** believes (the outlet stream's
+  confidence-weighted read). Each side shows its delta vs real
+  (amber = over-rated, cyan = under-rated, green = close); sort by a Δ
+  column to surface the biggest misses, filter by position group, search
+  by name/school.
+- **Headline accuracy summary** at the top: per evaluator (teams / media),
+  the count graded, mean |Δ|, signed bias, and Pearson correlation vs the
+  real board — the at-a-glance answer to "are the teams accurate? is the
+  media?" (Seed `audit-1`, pre-draft: teams corr 0.75 / |Δ| 6.7 / bias
+  +4.6; media corr 0.97 / |Δ| 1.4 over the ~50 flashy names it covers.)
+- The Media Reliability panel (v0.89) now explains its blank cells:
+  the media reads only the top ~30–50 names per round, so thin groups
+  (QB, OL, ST) clear the 4-prospect correlation minimum only late — for a
+  per-prospect read on everyone, the Draft Audit tab is the lens.
+
+---
+
 ## [0.89.0] — 2026-05-28
 
 ### Added — per-position-group media reliability (the heart of media trust)
