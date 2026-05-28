@@ -82,6 +82,21 @@ const DARLING_MAX = 3; // most darlings a (max-optimist) outlet champions
  * combine is public so this is outlet-independent). Read bias is separate. */
 const ATHLETIC_COVERAGE_WEIGHT = 0.35;
 
+/**
+ * Shared per-prospect misread (v0.91). Pooling many outlets' reads makes the
+ * media CONSENSUS near-perfect (idiosyncratic noise averages out), which made
+ * "listening to the media" a cheat code. Real draft media share a common read
+ * off the same tape — and that shared read is sometimes simply wrong on a
+ * guy. This adds one stable, prospect-specific offset applied identically to
+ * EVERY outlet's evaluators, so it does NOT average away — it caps consensus
+ * accuracy at a realistic level (~0.92 rank-corr vs ~0.97 before) while
+ * leaving each outlet's relative reliability intact. Deterministic + stable
+ * across rounds (seeded off the prospect id), so it adds no week-to-week
+ * jitter; it reads as a persistent media blind spot you can learn. Tuning
+ * knob — raise to make the consensus less accurate.
+ */
+const SHARED_MISREAD_STDEV = 2.0;
+
 const SCHOOL_PRESTIGE: Record<ConferenceTier, number> = {
   POWER: 1.0,
   GROUP_OF_5: 0.5,
@@ -142,6 +157,20 @@ function fnv1a(s: string): number {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
+}
+
+/**
+ * Stable per-prospect shared misread, ~N(0, SHARED_MISREAD_STDEV). Two
+ * decorrelated hashes → Box-Muller, so it's deterministic and round-stable
+ * with no PRNG threading. The whole media keys on the same (sometimes wrong)
+ * read of a prospect.
+ */
+function sharedMisread(id: string): number {
+  if (SHARED_MISREAD_STDEV <= 0) return 0;
+  const u1 = (fnv1a(`misread1:${id}`) + 1) / 4294967297; // (0, 1)
+  const u2 = (fnv1a(`misread2:${id}`) + 1) / 4294967297;
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return z * SHARED_MISREAD_STDEV;
 }
 
 /**
@@ -247,7 +276,8 @@ export function generateMediaCollegeObservations(
         // read a touch high, skeptics low; the consensus stays near truth.
         const bias =
           optimism * (HYPE_BASE_GAIN + HYPE_FLASH_GAIN * flash + COMBINE_LEAN_GAIN * athletic) +
-          (darlings.has(cp.id as string) ? DARLING_BONUS : 0);
+          (darlings.has(cp.id as string) ? DARLING_BONUS : 0) +
+          sharedMisread(cp.id as string);
         observations.push(
           generateMediaObservation(
             evalPrng.fork(`p:${cp.id}`),
@@ -348,7 +378,8 @@ export function generateWeeklyMediaObservations(
         const bias =
           clamp(FORM_READ_SCALE * form, -FORM_READ_CAP, FORM_READ_CAP) +
           optimism * (HYPE_BASE_GAIN + HYPE_FLASH_GAIN * flash) +
-          (darlings.has(cp.id as string) ? DARLING_BONUS : 0);
+          (darlings.has(cp.id as string) ? DARLING_BONUS : 0) +
+          sharedMisread(cp.id as string);
         observations.push(
           generateMediaObservation(
             evalPrng.fork(`p:${cp.id}`),

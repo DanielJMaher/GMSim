@@ -188,13 +188,31 @@ describe('rosterStateFactor (v0.61)', () => {
     // Hold the team perspective constant; only mutate the roster.
     // This isolates rosterState from scheme-fit + competitive-window
     // differences that would otherwise mask the comparison.
+    //
+    // v0.91: a team with no starter-quality QB now carries a standing
+    // premium QB need (Daniel's rule), so a backup-only baseline reads as
+    // a QB need too. To make "hole vs stacked" a clean comparison, the
+    // stacked side gets an explicit STARTER QB so the premium floor does
+    // NOT fire there.
     const baseline = createLeague({ seed: 'rs-asymmetry' });
     const teamId = Object.keys(baseline.teams)[0]! as TeamId;
     const needyLeague = stripPosition(baseline, teamId, Position.QB);
     const incoming = makeSynthetic(baseline, { tier: 'STAR', position: Position.QB });
 
+    // Stacked side: strip QBs, then add one bona-fide STARTER QB.
+    const starterQb = makeSynthetic(baseline, { tier: 'STARTER', position: Position.QB });
+    const strippedTeam = needyLeague.teams[teamId]!;
+    const stackedLeague: LeagueState = {
+      ...needyLeague,
+      players: { ...needyLeague.players, [starterQb.id]: starterQb },
+      teams: {
+        ...needyLeague.teams,
+        [teamId]: { ...strippedTeam, rosterIds: [...strippedTeam.rosterIds, starterQb.id] },
+      } as LeagueState['teams'],
+    };
+
     const valueIfHole = evaluatePlayerValue(needyLeague.teams[teamId]!, incoming, needyLeague);
-    const valueIfStacked = evaluatePlayerValue(baseline.teams[teamId]!, incoming, baseline);
+    const valueIfStacked = evaluatePlayerValue(stackedLeague.teams[teamId]!, incoming, stackedLeague);
 
     expect(valueIfHole.factors.rosterState.multiplier).toBeGreaterThan(
       valueIfStacked.factors.rosterState.multiplier,

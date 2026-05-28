@@ -78,27 +78,43 @@ describe('computeOutletQualityByGroup', () => {
     expect(qb?.rankCorrelation ?? null).toBeNull();
   });
 
-  it('a sharp outlet out-correlates a noisy one on real media observations', () => {
-    const league = createLeague({ seed: 'mq-integration' });
-    const observations = generateMediaCollegeObservations(
-      new Prng('mq'),
-      league.mediaOutlets,
-      league.collegePool,
-      0,
-      { readsPerEvaluator: 60 },
-    );
-    const college = Object.values(league.mediaOutlets).filter((o) => o.focus === 'COLLEGE');
-    const sharp = college.reduce((a, b) => (b.accuracySpectrum > a.accuracySpectrum ? b : a));
-    const noisy = college.reduce((a, b) => (b.accuracySpectrum < a.accuracySpectrum ? b : a));
-    if (sharp.accuracySpectrum <= noisy.accuracySpectrum) return;
-
-    const meanCorr = (outletId: string) => {
-      const rows = computeOutletQualityByGroup(observations, league.collegePool, outletId).filter(
-        (r) => r.rankCorrelation !== null,
+  it('a sharp outlet out-correlates a noisy one across seeds', () => {
+    // Per-group correlations are small-sample (the media covers only the
+    // top ~50 names, split across 7 groups) and, since v0.91, every outlet
+    // carries the same shared misread — so a single seed / single group is
+    // noisy and can flip. Aggregate a sample-size-weighted mean correlation
+    // across several seeds: the sharp outlet should win in aggregate.
+    let sharpTotal = 0;
+    let noisyTotal = 0;
+    for (const seed of ['mq-a', 'mq-b', 'mq-c', 'mq-d', 'mq-e']) {
+      const league = createLeague({ seed });
+      const observations = generateMediaCollegeObservations(
+        new Prng('mq'),
+        league.mediaOutlets,
+        league.collegePool,
+        0,
+        { readsPerEvaluator: 60 },
       );
-      if (rows.length === 0) return 0;
-      return rows.reduce((s, r) => s + (r.rankCorrelation ?? 0), 0) / rows.length;
-    };
-    expect(meanCorr(sharp.id)).toBeGreaterThan(meanCorr(noisy.id));
+      const college = Object.values(league.mediaOutlets).filter((o) => o.focus === 'COLLEGE');
+      const sharp = college.reduce((a, b) => (b.accuracySpectrum > a.accuracySpectrum ? b : a));
+      const noisy = college.reduce((a, b) => (b.accuracySpectrum < a.accuracySpectrum ? b : a));
+      if (sharp.accuracySpectrum <= noisy.accuracySpectrum) continue;
+
+      const weightedCorr = (outletId: string) => {
+        const rows = computeOutletQualityByGroup(observations, league.collegePool, outletId).filter(
+          (r) => r.rankCorrelation !== null,
+        );
+        let ws = 0;
+        let w = 0;
+        for (const r of rows) {
+          ws += (r.rankCorrelation ?? 0) * r.sampleSize;
+          w += r.sampleSize;
+        }
+        return w > 0 ? ws / w : 0;
+      };
+      sharpTotal += weightedCorr(sharp.id);
+      noisyTotal += weightedCorr(noisy.id);
+    }
+    expect(sharpTotal).toBeGreaterThan(noisyTotal);
   });
 });

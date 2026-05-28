@@ -14,6 +14,7 @@ import type { HeadCoach } from '../types/personnel.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { schemeFitForPlayer } from '../scheme/index.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { boardPositionalFactor } from './position-value.js';
 import { recencyWeight } from '../scouting/recency.js';
 import { combineAthleticSkills } from './measurables.js';
 import { ScoutId } from '../types/ids.js';
@@ -450,9 +451,15 @@ function buildBoardForTeamWithNeed(
     );
     const needBonus = clampSigned((need - 1) * NEED_BONUS_SCALE, NEED_BONUS_CAP);
     const confFactor = CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * meanConfidence;
+    // Positional value (v0.91): shade the talent signal by how much draft
+    // capital the position is worth, so an equal-graded QB/EDGE/LT out-ranks
+    // a replaceable spot (a safety doesn't go top-5 on talent alone). Applied
+    // uniformly across all 32 boards, so the consensus shifts with it and the
+    // pick-vs-consensus reach distribution stays in equilibrium.
+    const posFactor = boardPositionalFactor(prospect.nflProjectedPosition);
     const priority = Math.max(
       0,
-      (observedSkillScore + schemeBonus + needBonus) * confFactor,
+      (observedSkillScore * posFactor + schemeBonus + needBonus) * confFactor,
     );
     const reason = deriveDraftBoardReason(
       prospect,

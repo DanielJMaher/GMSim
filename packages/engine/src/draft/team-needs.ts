@@ -4,6 +4,7 @@ import type { Player } from '../types/player.js';
 import type { Position } from '../types/enums.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { ageOfPlayer } from '../season/development.js';
+import { POSITION_DRAFT_VALUE } from './position-value.js';
 
 /**
  * Team Needs (v0.55).
@@ -27,12 +28,33 @@ import { ageOfPlayer } from '../season/development.js';
  *              + backups * 0.25 + fringe * 0.05
  *   ageBonus   = bestStarterAge ≥ 30 ? clamp((bestStarterAge - 29) * 0.3, 0, 1.5)
  *              : 0
- *   score      = max(-2, starterSlots - qse + ageBonus)
+ *   rawNeed    = starterSlots - qse + ageBonus
+ *   neediness  = max(0, rawNeed)                          // 0 if stacked
+ *   score      = neediness > 0 ? neediness * positionValue
+ *                              : max(-2, rawNeed)         // stacked sort below
  *
  * `starterSlots` is a hand-tuned table of "how many starter-grade
  * players you ideally have at this position." It is *not* the
  * blueprint depth count — blueprint says "3 QBs on the 53," but
  * starter slots says "you need 1 starter-quality QB."
+ *
+ * ## Positional value (v0.91)
+ *
+ * A bare slot shortfall isn't worth the same everywhere — an open QB
+ * hole dwarfs an open safety hole in draft terms (see
+ * `position-value.ts` for the open-market + rookie-scale reasoning).
+ * `neediness` is therefore multiplied by `POSITION_DRAFT_VALUE`, so a
+ * genuine premium-position need out-ranks an equal-magnitude need at a
+ * replaceable spot. Stacked positions (rawNeed ≤ 0) keep their raw
+ * (negative) score so they still sort to the bottom.
+ *
+ * ## QB rule (v0.91)
+ *
+ * A team with no starter-quality QB and no young QB it's developing has
+ * a standing premium need at the position — QB is *always* near the top
+ * of such a team's board. We floor QB `neediness` at `QB_NO_ANSWER_FLOOR`
+ * in that case so it can't be buried under a stack of skill-position
+ * shortfalls.
  *
  * ## Output ordering
  *
@@ -84,9 +106,17 @@ const AGE_BONUS_PER_YEAR = 0.3;
 const AGE_BONUS_CAP = 1.5;
 const SCORE_FLOOR = -2;
 
+/** Below this age, a non-fringe QB counts as a young arm the team is
+ * developing — so the standing QB premium need does NOT apply. */
+const YOUNG_QB_MAX_AGE = 24;
+/** Minimum QB neediness when a team has no starter-quality QB AND no
+ * young developing QB. Floors QB near the top of such a team's board. */
+const QB_NO_ANSWER_FLOOR = 1.2;
+
 export interface PositionNeed {
   position: Position;
-  /** Higher = bigger need. Negative values mean stacked at this slot. */
+  /** Higher = bigger need. Negative values mean stacked at this slot.
+   * Positive scores are `neediness × positionValue` (v0.91). */
   score: number;
   /** Count of STAR + STARTER players at this position. */
   starterCount: number;
@@ -94,6 +124,8 @@ export interface PositionNeed {
   blueprintTarget: number;
   /** Age of the highest-tier player at this position, or null if none. */
   bestStarterAge: number | null;
+  /** Positional draft-value multiplier applied to this need (v0.91). */
+  positionValue: number;
 }
 
 /**
@@ -152,13 +184,26 @@ export function computeTeamNeeds(
           )
         : 0;
 
-    const score = Math.max(SCORE_FLOOR, starterSlots - qse + ageBonus);
+    const rawNeed = starterSlots - qse + ageBonus;
+    let neediness = Math.max(0, rawNeed);
+
+    // QB rule: no starter-quality QB and no young arm being developed →
+    // a standing premium need, floored near the top of the board.
+    if (position === 'QB' && starterCount === 0 && !hasYoungDevQB(players, seasonNumber)) {
+      neediness = Math.max(neediness, QB_NO_ANSWER_FLOOR);
+    }
+
+    const positionValue = POSITION_DRAFT_VALUE[position];
+    // Positive needs scale by positional value; stacked positions keep
+    // their raw (negative) score so they sort to the bottom.
+    const score = neediness > 0 ? neediness * positionValue : Math.max(SCORE_FLOOR, rawNeed);
     needs.push({
       position,
       score: round2(score),
       starterCount,
       blueprintTarget: blueprintByPos.get(position) ?? 0,
       bestStarterAge,
+      positionValue,
     });
   }
 
@@ -168,6 +213,12 @@ export function computeTeamNeeds(
     return canonicalPositionOrder(a.position) - canonicalPositionOrder(b.position);
   });
   return needs;
+}
+
+/** True if the team has a young (≤ YOUNG_QB_MAX_AGE), non-fringe QB it's
+ * developing — i.e. it has its QB-of-the-future answer in house. */
+function hasYoungDevQB(qbs: readonly Player[], seasonNumber: number): boolean {
+  return qbs.some((p) => p.tier !== 'FRINGE' && ageOfPlayer(p, seasonNumber) <= YOUNG_QB_MAX_AGE);
 }
 
 function tierRank(tier: Player['tier']): number {

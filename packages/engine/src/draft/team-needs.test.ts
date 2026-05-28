@@ -57,6 +57,39 @@ describe('computeTeamNeeds', () => {
     expect(strippedQb.score).toBeGreaterThan(baselineQb.score);
   });
 
+  it('attaches the positional-value multiplier, highest at QB', () => {
+    const league = createLeague({ seed: 'needs-posvalue' });
+    const team = Object.values(league.teams)[0]!;
+    const needs = computeTeamNeeds(team, league);
+    for (const n of needs) expect(n.positionValue).toBeGreaterThan(0);
+    const qb = needs.find((n) => n.position === 'QB')!;
+    const maxValue = Math.max(...needs.map((n) => n.positionValue));
+    expect(qb.positionValue).toBe(maxValue);
+  });
+
+  it('forces QB high when the team has no starter and no young developing QB', () => {
+    // Strip QBs, then add a single 31-year-old BACKUP — no starter, not
+    // young → the standing QB premium need must keep QB in the top 3.
+    const league = createLeague({ seed: 'needs-qb-rule' });
+    const team = Object.values(league.teams)[0]!;
+    const oldBackupQb = Object.values(league.players).find(
+      (p) => p.position === 'QB' && p.tier === 'BACKUP',
+    );
+    if (!oldBackupQb) return; // seed without a spare backup QB — skip
+    const simYear = 2026 + (league.seasonNumber - 1);
+    const aged = { ...oldBackupQb, birthDate: `${simYear - 31}-01-01` };
+    const players = { ...league.players, [aged.id]: aged };
+    const roster = [
+      ...team.rosterIds.filter((pid) => league.players[pid]?.position !== 'QB'),
+      aged.id,
+    ];
+    const scoped = { ...league, players };
+    const needs = computeTeamNeeds({ ...team, rosterIds: roster }, scoped);
+    const qbRank = needs.findIndex((n) => n.position === 'QB');
+    expect(qbRank).toBeGreaterThanOrEqual(0);
+    expect(qbRank).toBeLessThan(3);
+  });
+
   it('produces deterministic output for the same league + team', () => {
     const league = createLeague({ seed: 'needs-determinism' });
     const team = Object.values(league.teams)[5]!;

@@ -1476,7 +1476,7 @@ function TeamNeedsStrip({
         <span
           key={n.position}
           className={`rounded border px-1.5 py-0.5 font-mono ${accent}`}
-          title={`${n.position} — score ${n.score.toFixed(2)} · starters ${n.starterCount}/${n.blueprintTarget}${n.bestStarterAge !== null ? ` · best age ${n.bestStarterAge}` : ''}`}
+          title={`${n.position} — score ${n.score.toFixed(2)} (pos-value ×${n.positionValue.toFixed(2)}) · starters ${n.starterCount}/${n.blueprintTarget}${n.bestStarterAge !== null ? ` · best age ${n.bestStarterAge}` : ''}`}
         >
           <span className="mr-1 text-zinc-500">{i + 1}.</span>
           {n.position}
