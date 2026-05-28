@@ -16,6 +16,41 @@ _Nothing yet._
 
 ---
 
+## [0.91.0] — 2026-05-28
+
+### Changed — scouts get more realistic: media humility, QB need, positional value
+
+- **Media is no longer near-perfect.** Pooling many outlets made the media
+  CONSENSUS track reality at ~0.97 correlation — a cheat code. Added a
+  stable, per-prospect **shared misread** (`SHARED_MISREAD_STDEV`) applied
+  identically to every outlet's evaluators, so it doesn't average away and
+  caps consensus accuracy at a realistic **~0.91** (seed `audit-1`,
+  pre-draft) while leaving each outlet's relative reliability intact. It's
+  deterministic + round-stable (a persistent media blind spot you can
+  learn), so it adds no week-to-week jitter.
+- **QB is always a high need without an answer.** A team with no
+  starter-quality QB and no young QB it's developing (≤24, non-fringe) now
+  floors QB need near the top of its board (`QB_NO_ANSWER_FLOOR`) — fixes
+  the "30-year-old backup but QB isn't the #1 need" case.
+- **Positional draft value** (`draft/position-value.ts`). Need is now
+  multiplied by a per-position value derived from the open-market price of
+  each position (Over The Cap top APYs: QB ~$55M, EDGE ~$50M, WR ~$42M,
+  iDL ~$32M, CB ~$31M, OT ~$28M, S ~$25M … ) against the position-
+  independent rookie wage scale — i.e. draft surplus. Heavy premium on
+  QB / EDGE / LT, moderate on WR / CB / interior-DL / RT / guards,
+  lightest on the replaceable spots (RB, nose tackle, C, LB, S, nickel,
+  TE); nobody is devalued to zero. (Interior DL tracks the open market —
+  top 3-techs are paid like premium players — rather than being filed
+  under "lightest.") A compressed version (`boardPositionalFactor`,
+  `BOARD_PREMIUM_STRENGTH`) shades the draft board's talent signal so an
+  equal-graded QB/edge/tackle out-ranks a safety — no more safeties going
+  in the top 5-10 on talent alone. Applied uniformly across all 32 boards,
+  so the pick-vs-consensus reach distribution stays in equilibrium.
+- `PositionNeed` gained a `positionValue` field; the inspector need
+  tooltip shows the multiplier.
+
+---
+
 ## [0.90.0] — 2026-05-28
 
 ### Added — Draft Audit tab (who's grading prospects right?)
