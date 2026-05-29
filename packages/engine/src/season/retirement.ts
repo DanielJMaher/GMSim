@@ -4,10 +4,15 @@ import type { PlayerId, ContractId } from '../types/ids.js';
 import { ageOfPlayer } from './development.js';
 
 /**
- * Age-based retirement. As of v0.37.0 (Doc 3 slice 5b) the in-place
- * rookie-replacement step has been removed — retirements only open
- * roster slots. The draft event fills most of them; `refillRosters`
- * brings any sub-53 teams back from the FA market afterwards.
+ * Age-based retirement + low-skill free-agent washout. As of v0.37.0
+ * (Doc 3 slice 5b) the in-place rookie-replacement step has been removed —
+ * retirements only open roster slots. The draft event fills most of them;
+ * `refillRosters` brings any sub-53 teams back from the FA market
+ * afterwards.
+ *
+ * v0.93 adds a washout pass (`rollWashout`) so unsigned low-skill players
+ * don't pile up in `league.players` forever — fringe/depth FAs who can't
+ * catch on retire after a year or two instead of aging in limbo.
  */
 
 /**
@@ -33,6 +38,39 @@ export function rollRetirement(prng: Prng, age: number): boolean {
   const p = retirementProbabilityForAge(age);
   if (p <= 0) return false;
   if (p >= 1) return true;
+  return prng.next() < p;
+}
+
+/**
+ * Low-skill free-agent **washout** (v0.93). Without this, unsigned
+ * low-skill players accumulate in `league.players` indefinitely — they're
+ * too young for age-retirement (<34) yet never good enough to be signed,
+ * so the store balloons over a long sim. Real low-end players who can't
+ * catch on hang it up after a year or two.
+ *
+ * Applies ONLY to free agents (no team) past rookie age whose tier marks
+ * them as fringe/depth; starters and better never wash out (they get
+ * signed or retire on the age curve). Because a player cut in an offseason
+ * doesn't enter the FA pool until *after* that offseason's retirement
+ * pass, every washout candidate gets at least one full year in the pool
+ * first — so the effective horizon is "a year or two." Probabilities are
+ * per-offseason; tune to taste.
+ */
+const WASHOUT_MIN_AGE = 23;
+const WASHOUT_PROB_BY_TIER: Record<string, number> = {
+  FRINGE: 0.6,
+  BACKUP: 0.35,
+};
+
+export function rollWashout(
+  prng: Prng,
+  tier: string,
+  age: number,
+  isFreeAgent: boolean,
+): boolean {
+  if (!isFreeAgent || age < WASHOUT_MIN_AGE) return false;
+  const p = WASHOUT_PROB_BY_TIER[tier] ?? 0;
+  if (p <= 0) return false;
   return prng.next() < p;
 }
 
@@ -103,7 +141,11 @@ export function processRetirements(
       continue;
     }
     const ageNext = ageOfPlayer(player, nextSeasonNumber);
-    if (rollRetirement(offRosterPrng.fork(`retire:${player.id}`), ageNext)) {
+    const isFreeAgent = player.teamId === null;
+    const retires =
+      rollRetirement(offRosterPrng.fork(`retire:${player.id}`), ageNext) ||
+      rollWashout(offRosterPrng.fork(`washout:${player.id}`), player.tier, ageNext, isFreeAgent);
+    if (retires) {
       retiredPlayerIds.push(player.id);
       retiredSet.add(player.id);
       if (player.contractId) dropContractIds.push(player.contractId);

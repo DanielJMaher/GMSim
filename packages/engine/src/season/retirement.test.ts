@@ -4,7 +4,7 @@ import { createLeague } from '../league/generate.js';
 import { simulateSeason } from './runner.js';
 import { advanceSeason } from './advance.js';
 import { ageOfPlayer } from './development.js';
-import { rollRetirement, retirementProbabilityForAge } from './retirement.js';
+import { rollRetirement, retirementProbabilityForAge, rollWashout } from './retirement.js';
 
 function runSeasons(seed: string, n: number) {
   let league = createLeague({ seed });
@@ -63,6 +63,49 @@ describe('rollRetirement', () => {
     // 30% target, allow ±5% statistical wiggle
     expect(retired).toBeGreaterThan(trials * 0.25);
     expect(retired).toBeLessThan(trials * 0.35);
+  });
+});
+
+describe('rollWashout (v0.93 low-skill FA washout)', () => {
+  it('never washes out a rostered player (team set)', () => {
+    const prng = new Prng('wo-rostered');
+    for (let i = 0; i < 100; i++) {
+      expect(rollWashout(prng, 'FRINGE', 28, false)).toBe(false);
+    }
+  });
+
+  it('never washes out a starter-or-better free agent', () => {
+    const prng = new Prng('wo-starter');
+    for (let i = 0; i < 100; i++) {
+      expect(rollWashout(prng, 'STARTER', 28, true)).toBe(false);
+      expect(rollWashout(prng, 'STAR', 30, true)).toBe(false);
+    }
+  });
+
+  it('never washes out a sub-23 free agent (give prospects time)', () => {
+    const prng = new Prng('wo-young');
+    for (let i = 0; i < 100; i++) {
+      expect(rollWashout(prng, 'FRINGE', 22, true)).toBe(false);
+    }
+  });
+
+  it('washes out fringe free agents at a meaningful per-offseason rate', () => {
+    const prng = new Prng('wo-fringe');
+    let out = 0;
+    const trials = 1000;
+    for (let i = 0; i < trials; i++) {
+      if (rollWashout(prng, 'FRINGE', 25, true)) out++;
+    }
+    expect(out).toBeGreaterThan(trials * 0.5);
+    expect(out).toBeLessThan(trials * 0.7);
+  });
+
+  it('keeps league.players bounded across 10 seasons (no unsigned pile-up)', () => {
+    const league = runSeasons('washout-bound', 10);
+    // Active 53 + PS 16 across 32 teams = 2208; the FA pool is the rolling
+    // ~1-2yr unsigned cohort. Before washout this climbed past 8k by
+    // season 10 and kept growing — bound it well under that.
+    expect(Object.keys(league.players).length).toBeLessThan(6000);
   });
 });
 
