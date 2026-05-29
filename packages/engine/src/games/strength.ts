@@ -1,9 +1,9 @@
 import type { LeagueState } from '../types/league.js';
 import type { TeamState } from '../types/team.js';
-import type { Player } from '../types/player.js';
+import type { Player, PlayerSkills } from '../types/player.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { getArchetypeById } from '../archetypes/index.js';
-import { PositionGroup } from '../types/enums.js';
+import { Position, PositionGroup } from '../types/enums.js';
 import { moodMultiplier } from '../season/mood.js';
 
 /**
@@ -134,40 +134,109 @@ export interface UnitStrengths {
   rushDefense: number;
 }
 
-export function unitStrengths(team: TeamState, league: LeagueState): UnitStrengths {
+/**
+ * Granular matchup facets (v0.97, player-model overhaul Stage 5). Each is a
+ * 0-100 rating computed from the team's best players' SPECIFIC granular
+ * skills at the relevant positions — so a nasty pass-rush repertoire, a
+ * route-running corps, or a man-coverage secondary reads distinctly instead
+ * of collapsing into one "pass defense" number. The game-stat layer
+ * (`outcome.rollStats`) pits offense facets against defense facets to drive
+ * the box score; the legacy 4-unit `UnitStrengths` is derived from these.
+ */
+export interface MatchupFacets {
+  qbPlay: number;
+  passProtection: number;
+  receivingCorps: number;
+  rushingCorps: number;
+  runBlocking: number;
+  passRush: number;
+  coverage: number;
+  runDefense: number;
+}
+
+function meanKeys(p: Player, keys: readonly (keyof PlayerSkills)[]): number {
+  let s = 0;
+  for (const k of keys) s += p.current[k];
+  return keys.length > 0 ? s / keys.length : 50;
+}
+
+/** Average of the top-N players (in `positions`, ranked by `score`,
+ * mood-adjusted) of their score. 50 when the team has nobody there. */
+function facet(
+  players: readonly Player[],
+  positions: ReadonlySet<Position>,
+  score: (p: Player) => number,
+  topN: number,
+): number {
+  const scored = players
+    .filter((p) => positions.has(p.position))
+    .map((p) => score(p) * moodMultiplier(p.mood))
+    .sort((a, b) => b - a)
+    .slice(0, topN);
+  if (scored.length === 0) return 50;
+  return scored.reduce((a, b) => a + b, 0) / scored.length;
+}
+
+const OL_POS = new Set([Position.LT, Position.LG, Position.C, Position.RG, Position.RT]);
+const QB_POS = new Set([Position.QB]);
+const RECV_POS = new Set([Position.WR, Position.TE, Position.RB]);
+const RUSH_POS = new Set([Position.RB, Position.FB]);
+const RUSHER_POS = new Set([Position.EDGE, Position.DT, Position.NT, Position.OLB]);
+const COVER_POS = new Set([Position.CB, Position.S, Position.NICKEL]);
+const FRONT7_POS = new Set([Position.EDGE, Position.DT, Position.NT, Position.ILB, Position.OLB]);
+
+const QB_KEYS: readonly (keyof PlayerSkills)[] = [
+  'accuracyShort', 'accuracyMedium', 'accuracyDeep', 'accuracyLeft', 'accuracyMiddle',
+  'accuracyRight', 'throwPower', 'decisionMaking', 'throwUnderPressure', 'footballIq',
+];
+const PROTECT_KEYS: readonly (keyof PlayerSkills)[] = ['passBlockPower', 'passBlockFinesse', 'handTechnique'];
+const RECV_KEYS: readonly (keyof PlayerSkills)[] = [
+  'routeShort', 'routeMedium', 'routeDeep', 'releaseVsPress', 'releaseVsOff',
+  'catching', 'catchInTraffic', 'contestedCatch',
+];
+const RUSHCORPS_KEYS: readonly (keyof PlayerSkills)[] = [
+  'carrying', 'ballCarrierVision', 'elusiveness', 'breakTackle', 'trucking', 'jukeMove', 'speed', 'agility',
+];
+const RUNBLOCK_KEYS: readonly (keyof PlayerSkills)[] = ['runBlockPower', 'runBlockFinesse', 'impactBlock', 'leadBlock', 'strength'];
+const COVER_KEYS: readonly (keyof PlayerSkills)[] = ['manCoverage', 'zoneCoverage', 'pressCoverage', 'ballSkills', 'playRecognition'];
+const RUNDEF_KEYS: readonly (keyof PlayerSkills)[] = ['blockShedding', 'tackle', 'pursuit', 'hitPower', 'strength', 'playRecognition'];
+const POWER_MOVES: readonly (keyof PlayerSkills)[] = ['bullRush', 'longArm', 'pushPull'];
+const FINESSE_MOVES: readonly (keyof PlayerSkills)[] = ['swimMove', 'ripMove', 'spinRush', 'crossChop', 'ghostMove'];
+
+/** A pass rusher is good if he has a winning move — power OR finesse — on
+ * top of get-off/bend/hands; we don't require both. */
+function passRushScore(p: Player): number {
+  const fundamentals = meanKeys(p, ['getOff', 'bend', 'handTechnique']);
+  const bestMove = Math.max(meanKeys(p, POWER_MOVES), meanKeys(p, FINESSE_MOVES));
+  return 0.4 * fundamentals + 0.6 * bestMove;
+}
+
+export function matchupFacets(team: TeamState, league: LeagueState): MatchupFacets {
   const players = team.rosterIds
     .map((id) => league.players[id])
     .filter((p): p is Player => Boolean(p));
-  if (players.length === 0) {
-    return { passOffense: 50, rushOffense: 50, passDefense: 50, rushDefense: 50 };
-  }
-
-  const byPosition = (positions: readonly string[], topN: number): number => {
-    const scored = players
-      .filter((p) => positions.includes(p.position))
-      .map((p) => keySkillAvg(p) * moodMultiplier(p.mood))
-      .sort((a, b) => b - a)
-      .slice(0, topN);
-    if (scored.length === 0) return 50;
-    return scored.reduce((s, v) => s + v, 0) / scored.length;
+  return {
+    qbPlay: facet(players, QB_POS, (p) => meanKeys(p, QB_KEYS), 1),
+    passProtection: facet(players, OL_POS, (p) => meanKeys(p, PROTECT_KEYS), 5),
+    receivingCorps: facet(players, RECV_POS, (p) => meanKeys(p, RECV_KEYS), 4),
+    rushingCorps: facet(players, RUSH_POS, (p) => meanKeys(p, RUSHCORPS_KEYS), 2),
+    runBlocking: facet(players, OL_POS, (p) => meanKeys(p, RUNBLOCK_KEYS), 5),
+    passRush: facet(players, RUSHER_POS, passRushScore, 4),
+    coverage: facet(players, COVER_POS, (p) => meanKeys(p, COVER_KEYS), 4),
+    runDefense: facet(players, FRONT7_POS, (p) => meanKeys(p, RUNDEF_KEYS), 6),
   };
+}
 
-  const qb = byPosition(['QB'], 1);
-  const wrTeRb = byPosition(['WR', 'TE', 'RB'], 4);
-  const ol = byPosition(['LT', 'LG', 'C', 'RG', 'RT'], 5);
-  const rbFb = byPosition(['RB', 'FB'], 2);
-  const edgeDt = byPosition(['EDGE', 'DT', 'NT'], 4);
-  const lb = byPosition(['ILB', 'OLB'], 3);
-  const db = byPosition(['CB', 'S', 'NICKEL'], 4);
-
-  // Pass offense: QB carries the most weight; receivers + OL pass-pro fill in.
-  const passOffense = 0.55 * qb + 0.25 * wrTeRb + 0.20 * ol;
-  // Rush offense: top RBs + OL run blocking, with a small QB scrambling share.
-  const rushOffense = 0.50 * rbFb + 0.40 * ol + 0.10 * qb;
-  // Pass defense: pass-rushers and DBs split the load.
-  const passDefense = 0.50 * edgeDt + 0.50 * db;
-  // Rush defense: front seven dominates.
-  const rushDefense = 0.55 * edgeDt + 0.35 * lb + 0.10 * db;
-
-  return { passOffense, rushOffense, passDefense, rushDefense };
+/**
+ * Legacy 4-unit strengths, derived from the granular facets so existing
+ * consumers (and the stat layer's high-level pass/rush split) keep working.
+ */
+export function unitStrengths(team: TeamState, league: LeagueState): UnitStrengths {
+  const f = matchupFacets(team, league);
+  return {
+    passOffense: 0.5 * f.qbPlay + 0.28 * f.receivingCorps + 0.22 * f.passProtection,
+    rushOffense: 0.55 * f.runBlocking + 0.45 * f.rushingCorps,
+    passDefense: 0.55 * f.passRush + 0.45 * f.coverage,
+    rushDefense: f.runDefense,
+  };
 }

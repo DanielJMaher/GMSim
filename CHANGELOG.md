@@ -16,6 +16,32 @@ _Nothing yet._
 
 ---
 
+## [0.97.0] — 2026-05-29
+
+### Changed — granular matchups drive the box score (overhaul Stage 5, A+B)
+
+- **Granular matchup facets** (`games/strength.ts` → `matchupFacets`): eight
+  0-100 ratings built from the team's best players' SPECIFIC granular
+  skills — `qbPlay` (accuracy by depth + L/M/R, arm, decisions),
+  `passProtection` (OL pass-block + hands), `receivingCorps` (routes +
+  releases + catch), `rushingCorps`, `runBlocking`, `passRush` (get-off /
+  bend / hands + best power-OR-finesse move, so a specialist counts),
+  `coverage` (man/zone/press/ball-skills), `runDefense`. The legacy 4-unit
+  `unitStrengths` is now derived from these.
+- **The team box score is matchup-driven** (`games/outcome.ts`): a real
+  protection-vs-rush edge lifts/suppresses passing yards and drives sacks;
+  a QB+receiving edge over coverage drives passing yards and forces
+  turnovers; a run-block+rushing edge over the front seven drives rushing
+  yards. Edges are centered (offense facet − defense facet ≈ 0
+  league-wide) so the NFL-average calibration is unchanged — verified
+  (season + career stat tests green). A dominant pass rush vs porous
+  protection now produces ~3.5+ sacks/game vs the ~2.4 average.
+
+This makes the player-model overhaul *matter on Sundays*: a blue-chip edge
+with a deep move set genuinely wrecks a weak tackle in the box score.
+
+---
+
 ## [0.96.0] — 2026-05-28
 
 ### Changed — role-based scheme fit (player-model overhaul, Stage 3)
