@@ -69,6 +69,51 @@ describe('granular skill differentiation (Stage 2)', () => {
     );
   });
 
+  it('power back favors trucking/break-tackle; receiving back favors catching/routes', () => {
+    expect(meanSkill('RB_POWER_BACK', 'trucking')).toBeGreaterThan(
+      meanSkill('RB_RECEIVING_BACK', 'trucking'),
+    );
+    expect(meanSkill('RB_RECEIVING_BACK', 'catching')).toBeGreaterThan(
+      meanSkill('RB_POWER_BACK', 'catching'),
+    );
+  });
+
+  it('zone OL favors run-block finesse; power OL favors run-block power', () => {
+    expect(meanSkill('OL_ZONE_BLOCKER', 'runBlockFinesse')).toBeGreaterThan(
+      meanSkill('OL_ZONE_BLOCKER', 'runBlockPower'),
+    );
+    expect(meanSkill('OL_POWER_BLOCKER', 'runBlockPower')).toBeGreaterThan(
+      meanSkill('OL_POWER_BLOCKER', 'runBlockFinesse'),
+    );
+  });
+
+  it('ball-hawk safety favors ball skills/zone; box safety favors tackle/hit power', () => {
+    expect(meanSkill('DB_BALL_HAWK_S', 'ballSkills')).toBeGreaterThan(
+      meanSkill('DB_BOX_S', 'ballSkills'),
+    );
+    expect(meanSkill('DB_BOX_S', 'hitPower')).toBeGreaterThan(
+      meanSkill('DB_BALL_HAWK_S', 'hitPower'),
+    );
+  });
+
+  it('run-stopping ILB favors block-shed/tackle; coverage LB favors zone coverage', () => {
+    expect(meanSkill('LB_3_4_ILB', 'blockShedding')).toBeGreaterThan(
+      meanSkill('LB_COVERAGE', 'blockShedding'),
+    );
+    expect(meanSkill('LB_COVERAGE', 'zoneCoverage')).toBeGreaterThan(
+      meanSkill('LB_3_4_ILB', 'zoneCoverage'),
+    );
+  });
+
+  it('penetrating DT favors get-off/finesse; nose tackle favors block-shed/power', () => {
+    expect(meanSkill('DL_PENETRATING_DT', 'getOff')).toBeGreaterThan(
+      meanSkill('DL_NOSE_TACKLE', 'getOff'),
+    );
+    expect(meanSkill('DL_NOSE_TACKLE', 'blockShedding')).toBeGreaterThan(
+      meanSkill('DL_NOSE_TACKLE', 'swimMove'),
+    );
+  });
+
   it('deep-threat WR favors deep routes + release vs off; possession WR favors short routes + release vs press', () => {
     expect(meanSkill('WR_DEEP_THREAT', 'routeDeep')).toBeGreaterThan(
       meanSkill('WR_DEEP_THREAT', 'routeShort'),

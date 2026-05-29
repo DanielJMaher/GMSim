@@ -191,6 +191,14 @@ const RB_POWER_BACK: PlayerArchetype = {
     speed: 1.0,
     agility: 0.95,
     handsBallSkills: 0.8,
+    // Runs through contact.
+    trucking: 1.55,
+    breakTackle: 1.5,
+    stiffArm: 1.4,
+    carrying: 1.35,
+    ballCarrierVision: 1.2,
+    elusiveness: 0.9,
+    jukeMove: 0.85,
   },
 };
 
@@ -218,6 +226,15 @@ const RB_RECEIVING_BACK: PlayerArchetype = {
     technicalSkill: 1.2,
     footballIq: 1.2,
     durability: 1.1,
+    // Pass-game weapon: catch + route + make the first man miss in space.
+    catching: 1.5,
+    routeShort: 1.4,
+    releaseVsOff: 1.3,
+    elusiveness: 1.4,
+    jukeMove: 1.35,
+    ballCarrierVision: 1.3,
+    catchInTraffic: 1.2,
+    trucking: 0.85,
   },
 };
 
@@ -244,6 +261,14 @@ const RB_ZONE_RUNNER: PlayerArchetype = {
     footballIq: 1.3,
     technicalSkill: 1.2,
     handsBallSkills: 1.1,
+    changeOfDirection: 1.4,
+    // Vision + one-cut burst over power.
+    ballCarrierVision: 1.55,
+    elusiveness: 1.45,
+    jukeMove: 1.3,
+    carrying: 1.3,
+    breakTackle: 1.15,
+    trucking: 0.9,
   },
 };
 
@@ -270,6 +295,12 @@ const FB_LEAD_BLOCKER: PlayerArchetype = {
     durability: 1.3,
     speed: 0.7,
     handsBallSkills: 0.8,
+    // Lead blocker first; short-yardage thump; safety-valve hands.
+    leadBlock: 1.6,
+    impactBlock: 1.5,
+    runBlockPower: 1.4,
+    trucking: 1.2,
+    carrying: 1.1,
   },
 };
 
@@ -438,6 +469,14 @@ const TE_RECEIVING: PlayerArchetype = {
     footballIq: 1.3,
     speed: 1.2,
     strength: 1.15,
+    // Mismatch receiver: routes + hands; in-line blocking secondary.
+    routeShort: 1.4,
+    routeMedium: 1.4,
+    routeDeep: 1.2,
+    catching: 1.5,
+    catchInTraffic: 1.4,
+    contestedCatch: 1.35,
+    releaseVsOff: 1.3,
   },
 };
 
@@ -464,6 +503,14 @@ const TE_BLOCKING: PlayerArchetype = {
     durability: 1.2,
     handsBallSkills: 0.85,
     speed: 0.8,
+    // In-line blocker first; safety-valve hands only.
+    runBlockPower: 1.5,
+    impactBlock: 1.4,
+    runBlockFinesse: 1.2,
+    passBlockPower: 1.2,
+    leadBlock: 1.2,
+    routeShort: 0.85,
+    catching: 0.9,
   },
 };
 
@@ -490,6 +537,14 @@ const TE_VERSATILE: PlayerArchetype = {
     blockingTechnique: 1.25,
     footballIq: 1.3,
     strength: 1.15,
+    // Do-it-all: solid routes/hands AND in-line blocking.
+    routeShort: 1.3,
+    routeMedium: 1.25,
+    catching: 1.3,
+    catchInTraffic: 1.25,
+    releaseVsOff: 1.2,
+    runBlockPower: 1.25,
+    impactBlock: 1.2,
   },
 };
 
@@ -518,6 +573,14 @@ const OL_ZONE_BLOCKER: PlayerArchetype = {
     blockingTechnique: 1.4,
     footballIq: 1.3,
     strength: 1.0,
+    changeOfDirection: 1.4,
+    // Lateral combo-blocking + mirror; drive power secondary.
+    runBlockFinesse: 1.55,
+    passBlockFinesse: 1.4,
+    impactBlock: 1.3,
+    handTechnique: 1.3,
+    runBlockPower: 1.0,
+    passBlockPower: 1.0,
   },
 };
 
@@ -544,6 +607,14 @@ const OL_POWER_BLOCKER: PlayerArchetype = {
     durability: 1.3,
     technicalSkill: 1.1,
     agility: 0.85,
+    // Drive/gap power; lateral finesse secondary.
+    runBlockPower: 1.55,
+    passBlockPower: 1.4,
+    impactBlock: 1.4,
+    leadBlock: 1.3,
+    handTechnique: 1.2,
+    runBlockFinesse: 0.9,
+    passBlockFinesse: 0.9,
   },
 };
 
@@ -570,6 +641,12 @@ const OL_PASS_PROTECTOR: PlayerArchetype = {
     technicalSkill: 1.3,
     footballIq: 1.2,
     strength: 1.15,
+    // Premium pass-pro: mirror + hands; run-block is fine, not the point.
+    passBlockFinesse: 1.55,
+    passBlockPower: 1.4,
+    handTechnique: 1.45,
+    runBlockFinesse: 1.0,
+    runBlockPower: 0.95,
   },
 };
 
@@ -597,6 +674,15 @@ const DL_PENETRATING_DT: PlayerArchetype = {
     technicalSkill: 1.3,
     strength: 1.2,
     agility: 1.2,
+    // First-step interior disruptor (Donald): get-off + finesse moves.
+    getOff: 1.6,
+    swimMove: 1.45,
+    handTechnique: 1.4,
+    ripMove: 1.35,
+    spinRush: 1.35,
+    crossChop: 1.3,
+    bullRush: 1.2,
+    blockShedding: 1.1,
   },
 };
 
@@ -622,6 +708,16 @@ const DL_NOSE_TACKLE: PlayerArchetype = {
     tacklingTechnique: 1.2,
     technicalSkill: 1.2,
     speed: 0.6,
+    // Two-gap anchor: shed + power; no finesse/bend.
+    blockShedding: 1.6,
+    bullRush: 1.4,
+    longArm: 1.35,
+    pushPull: 1.3,
+    tackle: 1.3,
+    handTechnique: 1.2,
+    swimMove: 0.7,
+    bend: 0.6,
+    getOff: 0.8,
   },
 };
 
@@ -724,6 +820,14 @@ const LB_4_3_MIKE: PlayerArchetype = {
     coverageTechnique: 1.2,
     leadership: 1.3,
     footballIq: 1.4,
+    // Sideline-to-sideline, coverage-capable, diagnoses fast.
+    playRecognition: 1.5,
+    tackle: 1.45,
+    pursuit: 1.45,
+    zoneCoverage: 1.3,
+    manCoverage: 1.2,
+    hitPower: 1.2,
+    blockShedding: 1.15,
   },
 };
 
@@ -749,6 +853,14 @@ const LB_3_4_ILB: PlayerArchetype = {
     leadership: 1.3,
     footballIq: 1.4,
     coverageTechnique: 1.0,
+    // Downhill thumper: shed + tackle + hit; coverage is just adequate.
+    tackle: 1.5,
+    blockShedding: 1.45,
+    hitPower: 1.45,
+    pursuit: 1.3,
+    playRecognition: 1.3,
+    zoneCoverage: 1.0,
+    manCoverage: 0.9,
   },
 };
 
@@ -774,6 +886,14 @@ const LB_COVERAGE: PlayerArchetype = {
     agility: 1.4,
     footballIq: 1.3,
     tacklingTechnique: 1.2,
+    changeOfDirection: 1.4,
+    // Nickel-era cover LB: zone + man range, reads routes.
+    zoneCoverage: 1.55,
+    manCoverage: 1.45,
+    playRecognition: 1.45,
+    pursuit: 1.4,
+    tackle: 1.25,
+    hitPower: 1.0,
   },
 };
 
@@ -799,6 +919,19 @@ const LB_EDGE_3_4: PlayerArchetype = {
     strength: 1.3,
     coverageTechnique: 1.0,
     agility: 1.3,
+    // Standing edge rusher (Watt/Mack): speed-to-power off the edge,
+    // with enough range to drop.
+    getOff: 1.5,
+    bend: 1.45,
+    ripMove: 1.4,
+    ghostMove: 1.35,
+    handTechnique: 1.35,
+    swimMove: 1.3,
+    spinRush: 1.25,
+    bullRush: 1.2,
+    longArm: 1.2,
+    tackle: 1.2,
+    blockShedding: 1.1,
   },
 };
 
@@ -887,6 +1020,15 @@ const DB_SLOT_CB: PlayerArchetype = {
     tacklingTechnique: 1.3,
     footballIq: 1.3,
     speed: 1.2,
+    changeOfDirection: 1.5,
+    // Quick-twitch slot: man in space, reads, tackles, occasional blitz.
+    manCoverage: 1.45,
+    playRecognition: 1.4,
+    tackle: 1.35,
+    zoneCoverage: 1.3,
+    ballSkills: 1.3,
+    pressCoverage: 1.1,
+    pursuit: 1.2,
   },
 };
 
@@ -912,6 +1054,14 @@ const DB_BALL_HAWK_S: PlayerArchetype = {
     coverageTechnique: 1.4,
     footballIq: 1.5,
     agility: 1.2,
+    // Deep range + instincts + ball production.
+    playRecognition: 1.55,
+    ballSkills: 1.55,
+    zoneCoverage: 1.5,
+    pursuit: 1.3,
+    jumping: 1.2,
+    manCoverage: 1.1,
+    hitPower: 1.0,
   },
 };
 
@@ -937,6 +1087,14 @@ const DB_BOX_S: PlayerArchetype = {
     coverageTechnique: 1.2,
     speed: 1.2,
     footballIq: 1.2,
+    // Run-support thumper with TE-coverage chops.
+    tackle: 1.5,
+    hitPower: 1.5,
+    pursuit: 1.35,
+    blockShedding: 1.25,
+    manCoverage: 1.25,
+    zoneCoverage: 1.15,
+    playRecognition: 1.2,
   },
 };
 
@@ -953,6 +1111,10 @@ const ST_KICKER: PlayerArchetype = {
     technicalSkill: 1.6,
     composure: 1.5,
     strength: 1.2,
+    kickPower: 1.6,
+    kickAccuracy: 1.6,
+    puntPower: 0.7,
+    puntAccuracy: 0.7,
   },
 };
 
@@ -967,6 +1129,10 @@ const ST_PUNTER: PlayerArchetype = {
     technicalSkill: 1.6,
     composure: 1.4,
     strength: 1.2,
+    puntPower: 1.6,
+    puntAccuracy: 1.6,
+    kickPower: 0.7,
+    kickAccuracy: 0.7,
   },
 };
 
