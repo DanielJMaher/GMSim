@@ -16,6 +16,24 @@ _Nothing yet._
 
 ---
 
+## [0.94.0] — 2026-05-28
+
+### Added — player physical profile (player-model overhaul, Stage 1)
+
+- Every NFL `Player` now carries **size** — height, weight, arm length,
+  hand size (`players/physical.ts`) — the same dimensions college
+  prospects already have. Drafted players **carry their real combine
+  measurables through promotion**; generated veterans roll a
+  position-appropriate profile (per-position gaussians tuned to NFL
+  norms); the save migration backfills pre-v0.94 players. Inspector
+  roster rows show `6'4" 312lb`.
+- This is the foundation for the player-model overhaul: size is ground
+  truth that will gate plausible roles (no 6'1"/225 base end) and feed
+  the upcoming role-based scheme fit (Stage 3) and granular skill model
+  (Stage 2).
+
+---
+
 ## [0.93.0] — 2026-05-28
 
 ### Fixed — unsigned low-skill players wash out instead of piling up
