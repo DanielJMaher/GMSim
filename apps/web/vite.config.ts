@@ -18,6 +18,12 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: false,
+    // Bind on all interfaces (0.0.0.0) so the inspector is reachable from
+    // other devices on the LAN — e.g. viewing it on a phone over home
+    // WiFi at http://<this-machine-LAN-IP>:5173. Vite prints the Network
+    // URL on startup. (Windows Firewall may prompt to allow Node on
+    // private networks the first time.)
+    host: true,
   },
   build: {
     outDir: 'dist',
