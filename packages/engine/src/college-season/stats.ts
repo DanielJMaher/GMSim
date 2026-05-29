@@ -6,6 +6,7 @@ import type {
   CollegeTeamGameStats,
 } from '../types/college-season.js';
 import { emptyCollegePlayerGameStats } from '../types/college-season.js';
+import { keySkillAverage } from '../archetypes/key-skill.js';
 
 /**
  * Depth-chart slot shares (v0.83). College box scores are distributed
@@ -393,7 +394,10 @@ function tierRank(p: CollegePlayer): number {
   }
 }
 
+// Position-aware skill composite (Stage 5b) — archetype key skills,
+// shared with the NFL sim. Drives stat-allocation weighting + depth-chart
+// ranking so production reflects the granular profile.
 function keySkillAvg(p: CollegePlayer): number {
-  return (p.current.technicalSkill + p.current.footballIq + p.current.speed) / 3;
+  return keySkillAverage(p.current, p.archetype);
 }
 

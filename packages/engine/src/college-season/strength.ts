@@ -1,5 +1,6 @@
 import type { CollegePlayer } from '../types/college.js';
 import type { ConferenceTier } from '../types/college.js';
+import { keySkillAverage } from '../archetypes/key-skill.js';
 
 /**
  * Compute a school's strength rating used as the primary input to
@@ -100,13 +101,13 @@ function tierWeightedSkill(p: CollegePlayer): number {
 }
 
 /**
- * Average of a prospect's core skill dimensions. Slice 1 keeps this
- * simple (technicalSkill + footballIq + speed) rather than reading
- * archetype-specific weights — the goal is a robust strength signal
- * across positions, not position-perfect evaluation.
+ * Position-aware skill composite (Stage 5b): the archetype's KEY
+ * skills, not a flat (technicalSkill + footballIq + speed)/3 stub — so a
+ * team's strength reflects its players' actual granular profiles. Shares the
+ * NFL sim's signal via `keySkillAverage`.
  */
 function keySkillAvg(p: CollegePlayer): number {
-  return (p.current.technicalSkill + p.current.footballIq + p.current.speed) / 3;
+  return keySkillAverage(p.current, p.archetype);
 }
 
 /**
