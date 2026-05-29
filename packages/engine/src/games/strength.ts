@@ -152,6 +152,15 @@ export interface MatchupFacets {
   passRush: number;
   coverage: number;
   runDefense: number;
+  // Dimensional pass-rush ⇄ protection sub-facets (v0.101, item 3): a power
+  // rusher attacks the OL's anchor, a finesse/speed rusher attacks its
+  // mirror — so a one-dimensional rusher is stoned by the matching counter
+  // and wins big against a weak one. `outcome.rollStats` matches these
+  // per-angle instead of comparing the aggregates.
+  passRushPower: number;
+  passRushFinesse: number;
+  passProtAnchor: number;
+  passProtMirror: number;
 }
 
 function meanKeys(p: Player, keys: readonly (keyof PlayerSkills)[]): number {
@@ -211,6 +220,15 @@ function passRushScore(p: Player): number {
   return 0.4 * fundamentals + 0.6 * bestMove;
 }
 
+// Per-angle scorers for the dimensional pass-rush ⇄ protection matchup.
+const rushFundamentals = (p: Player) => meanKeys(p, ['getOff', 'bend', 'handTechnique']);
+const powerRushScore = (p: Player) => 0.3 * rushFundamentals(p) + 0.7 * meanKeys(p, POWER_MOVES);
+const finesseRushScore = (p: Player) => 0.3 * rushFundamentals(p) + 0.7 * meanKeys(p, FINESSE_MOVES);
+const anchorScore = (p: Player) =>
+  0.7 * p.current.passBlockPower + 0.3 * p.current.handTechnique;
+const mirrorScore = (p: Player) =>
+  0.7 * p.current.passBlockFinesse + 0.3 * p.current.handTechnique;
+
 export function matchupFacets(team: TeamState, league: LeagueState): MatchupFacets {
   const players = team.rosterIds
     .map((id) => league.players[id])
@@ -224,6 +242,10 @@ export function matchupFacets(team: TeamState, league: LeagueState): MatchupFace
     passRush: facet(players, RUSHER_POS, passRushScore, 4),
     coverage: facet(players, COVER_POS, (p) => meanKeys(p, COVER_KEYS), 4),
     runDefense: facet(players, FRONT7_POS, (p) => meanKeys(p, RUNDEF_KEYS), 6),
+    passRushPower: facet(players, RUSHER_POS, powerRushScore, 4),
+    passRushFinesse: facet(players, RUSHER_POS, finesseRushScore, 4),
+    passProtAnchor: facet(players, OL_POS, anchorScore, 5),
+    passProtMirror: facet(players, OL_POS, mirrorScore, 5),
   };
 }
 

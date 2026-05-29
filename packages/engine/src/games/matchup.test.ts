@@ -68,6 +68,39 @@ describe('granular matchup facets (Stage 5 / sub-slice A)', () => {
   });
 });
 
+const POWER_MOVE_KEYS: (keyof PlayerSkills)[] = ['bullRush', 'longArm', 'pushPull', 'getOff', 'handTechnique'];
+const OL_POS_ALL: Position[] = [Position.LT, Position.LG, Position.C, Position.RG, Position.RT];
+
+describe('dimensional pass-rush matchup (item 3 — OL parity)', () => {
+  it('a power rush beats a weak anchor even when the OL mirrors well', () => {
+    let league = createLeague({ seed: 'dim-rush' });
+    const ids = Object.keys(league.teams);
+    const A = ids[0]!;
+    const B = ids[1]!;
+    // A: elite POWER rush.
+    league = setSkills(league, A, [Position.EDGE, Position.DT, Position.NT], POWER_MOVE_KEYS, 95);
+    // B's OL: great mirror (pass-block finesse) but a turnstile anchor.
+    league = setSkills(league, B, OL_POS_ALL, ['passBlockFinesse'], 95);
+    const weakAnchor = setSkills(league, B, OL_POS_ALL, ['passBlockPower'], 32);
+    const strongAnchor = setSkills(league, B, OL_POS_ALL, ['passBlockPower'], 92);
+
+    const sacksVs = (lg: typeof league): number => {
+      let s = 0;
+      const teamA = lg.teams[A as keyof typeof lg.teams]!;
+      const teamB = lg.teams[B as keyof typeof lg.teams]!;
+      for (let i = 0; i < 50; i++) {
+        const g = simulateGame(new Prng(`d${i}`), {
+          homeTeam: teamA, awayTeam: teamB, league: lg, weekNumber: 1, kind: 'REGULAR',
+        });
+        s += g.result!.homeStats.sacks;
+      }
+      return s / 50;
+    };
+    // The power rush exploits the weak anchor despite the good mirror.
+    expect(sacksVs(weakAnchor)).toBeGreaterThan(sacksVs(strongAnchor));
+  });
+});
+
 describe('matchup drives the box score (Stage 5 / sub-slice B)', () => {
   it('a dominant pass rush vs a weak pass-protection makes more sacks', () => {
     let league = createLeague({ seed: 'mf-sacks' });
