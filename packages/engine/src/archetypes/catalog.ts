@@ -46,6 +46,17 @@ const QB_PRECISION_PASSER: PlayerArchetype = {
     handsBallSkills: 1.2,
     speed: 0.7,
     strength: 0.7,
+    // Accuracy-first, full-field placement, quick game.
+    accuracyShort: 1.55,
+    accuracyMedium: 1.45,
+    accuracyDeep: 1.0,
+    accuracyLeft: 1.35,
+    accuracyMiddle: 1.35,
+    accuracyRight: 1.35,
+    throwUnderPressure: 1.3,
+    playAction: 1.2,
+    throwPower: 0.85,
+    spectacularThrow: 0.85,
   },
 };
 
@@ -72,6 +83,13 @@ const QB_VERTICAL_PASSER: PlayerArchetype = {
     decisionMaking: 1.2,
     composure: 1.2,
     footballIq: 1.2,
+    // Big arm, deep ball, off-platform magic.
+    throwPower: 1.6,
+    accuracyDeep: 1.55,
+    spectacularThrow: 1.45,
+    accuracyMiddle: 1.25,
+    throwOnRun: 1.2,
+    accuracyShort: 1.0,
   },
 };
 
@@ -99,6 +117,17 @@ const QB_POCKET_PASSER: PlayerArchetype = {
     leadership: 1.3,
     composure: 1.2,
     speed: 0.6,
+    // Concept master: timing accuracy everywhere, play-action, poise.
+    accuracyMedium: 1.45,
+    accuracyShort: 1.35,
+    accuracyDeep: 1.2,
+    accuracyLeft: 1.35,
+    accuracyMiddle: 1.4,
+    accuracyRight: 1.35,
+    playAction: 1.45,
+    throwUnderPressure: 1.35,
+    throwOnRun: 0.8,
+    spectacularThrow: 0.85,
   },
 };
 
@@ -126,6 +155,13 @@ const QB_DUAL_THREAT: PlayerArchetype = {
     technicalSkill: 1.1,
     durability: 1.2,
     composure: 1.1,
+    // Creates off-script: throw on the run, escape the rush, big-play arm.
+    throwOnRun: 1.6,
+    breakSack: 1.55,
+    spectacularThrow: 1.25,
+    accuracyDeep: 1.2,
+    accuracyShort: 1.1,
+    throwUnderPressure: 1.1,
   },
 };
 
@@ -262,6 +298,14 @@ const WR_POSSESSION: PlayerArchetype = {
     footballIq: 1.3,
     agility: 1.2,
     speed: 1.0,
+    // Underneath/intermediate route tech, beats press, hands in traffic.
+    routeShort: 1.5,
+    routeMedium: 1.4,
+    routeDeep: 0.9,
+    releaseVsPress: 1.35,
+    releaseVsOff: 1.15,
+    catching: 1.45,
+    catchInTraffic: 1.4,
   },
 };
 
@@ -288,6 +332,14 @@ const WR_DEEP_THREAT: PlayerArchetype = {
     handsBallSkills: 1.3,
     technicalSkill: 1.2,
     acceleration: 1.4,
+    jumping: 1.3,
+    // Wins deep + vs off coverage with speed; contested grabs downfield.
+    routeDeep: 1.6,
+    releaseVsOff: 1.45,
+    releaseVsPress: 1.05,
+    contestedCatch: 1.45,
+    routeShort: 0.9,
+    catchInTraffic: 1.05,
   },
 };
 
@@ -314,6 +366,14 @@ const WR_SLOT_TECHNICIAN: PlayerArchetype = {
     handsBallSkills: 1.3,
     footballIq: 1.3,
     speed: 1.1,
+    changeOfDirection: 1.5,
+    // Separation quickness vs off coverage; option routes in the slot.
+    routeShort: 1.5,
+    routeMedium: 1.35,
+    releaseVsOff: 1.45,
+    releaseVsPress: 1.1,
+    catchInTraffic: 1.4,
+    catching: 1.3,
   },
 };
 
@@ -340,6 +400,16 @@ const WR_YAC_SPECIALIST: PlayerArchetype = {
     strength: 1.3,
     handsBallSkills: 1.2,
     blockingTechnique: 1.1,
+    // Creates after the catch.
+    elusiveness: 1.55,
+    jukeMove: 1.45,
+    spinMove: 1.3,
+    breakTackle: 1.4,
+    stiffArm: 1.25,
+    ballCarrierVision: 1.45,
+    trucking: 1.2,
+    routeShort: 1.35,
+    catching: 1.2,
   },
 };
 
@@ -577,6 +647,20 @@ const DL_EDGE_PASS_RUSHER: PlayerArchetype = {
     acceleration: 1.5,
     agility: 1.3,
     strength: 1.2,
+    // Speed-rush repertoire: bend the edge, get off, finesse moves.
+    getOff: 1.5,
+    bend: 1.6,
+    swimMove: 1.45,
+    ripMove: 1.4,
+    ghostMove: 1.5,
+    spinRush: 1.3,
+    crossChop: 1.35,
+    handTechnique: 1.4,
+    // Power is secondary for this profile.
+    bullRush: 1.0,
+    longArm: 1.0,
+    pushPull: 0.9,
+    blockShedding: 1.0,
   },
 };
 
@@ -602,6 +686,17 @@ const DL_TWO_GAP_DE: PlayerArchetype = {
     technicalSkill: 1.3,
     durability: 1.2,
     passRushTechnique: 1.0,
+    // Sets the edge: shed blocks, power moves, hand technique. Little bend.
+    blockShedding: 1.55,
+    bullRush: 1.35,
+    longArm: 1.35,
+    pushPull: 1.2,
+    handTechnique: 1.3,
+    swimMove: 0.9,
+    ripMove: 0.9,
+    bend: 0.75,
+    ghostMove: 0.7,
+    getOff: 0.9,
   },
 };
 
@@ -731,6 +826,11 @@ const DB_PRESS_CB: PlayerArchetype = {
     speed: 1.4,
     agility: 1.3,
     handsBallSkills: 1.2,
+    // Man + press disruption; zone read is secondary.
+    manCoverage: 1.55,
+    pressCoverage: 1.55,
+    zoneCoverage: 0.95,
+    ballSkills: 1.2,
   },
 };
 
@@ -756,6 +856,12 @@ const DB_ZONE_CB: PlayerArchetype = {
     handsBallSkills: 1.4,
     speed: 1.2,
     agility: 1.2,
+    playRecognition: 1.5,
+    // Pattern-read + ball production; less press.
+    zoneCoverage: 1.6,
+    ballSkills: 1.5,
+    manCoverage: 1.1,
+    pressCoverage: 0.9,
   },
 };
 

@@ -6,6 +6,7 @@ import type {
 } from '../types/player.js';
 import type { PlayerArchetype } from '../archetypes/types.js';
 import type { AgeStage } from './age.js';
+import { ALL_SKILL_KEYS, categoryFor, effectiveSkillWeight } from './skill-keys.js';
 
 export type { TalentTier } from '../types/player.js';
 
@@ -41,34 +42,6 @@ const REALIZATION_BY_STAGE: Record<AgeStage, { physical: number; technical: numb
   AGING:      { physical: 0.78, technical: 1.00, mental: 1.00, stable: 1.00 },
 };
 
-const PHYSICAL_KEYS: readonly (keyof PlayerSkills)[] = [
-  'speed', 'acceleration', 'agility', 'strength', 'durability',
-];
-
-const TECHNICAL_KEYS: readonly (keyof PlayerSkills)[] = [
-  'technicalSkill', 'handsBallSkills', 'blockingTechnique',
-  'passRushTechnique', 'coverageTechnique', 'tacklingTechnique',
-];
-
-const MENTAL_KEYS: readonly (keyof PlayerSkills)[] = [
-  'footballIq', 'decisionMaking', 'leadership', 'composure',
-];
-
-const STABLE_KEYS: readonly (keyof PlayerSkills)[] = [
-  'competitiveness', 'workEthic', 'coachability',
-];
-
-const ALL_SKILL_KEYS: readonly (keyof PlayerSkills)[] = [
-  ...PHYSICAL_KEYS, ...TECHNICAL_KEYS, ...MENTAL_KEYS, ...STABLE_KEYS,
-];
-
-function categoryFor(key: keyof PlayerSkills): 'physical' | 'technical' | 'mental' | 'stable' {
-  if (PHYSICAL_KEYS.includes(key)) return 'physical';
-  if (TECHNICAL_KEYS.includes(key)) return 'technical';
-  if (MENTAL_KEYS.includes(key)) return 'mental';
-  return 'stable';
-}
-
 export function rollTalentTier(prng: Prng): TalentTier {
   return prng.weighted(TIER_WEIGHTS);
 }
@@ -103,7 +76,9 @@ export function rollSkills(
   const current = {} as PlayerSkills;
 
   for (const key of ALL_SKILL_KEYS) {
-    const weight = archetype.skillWeights[key] ?? 1.0;
+    // Granular skills inherit their parent umbrella's weight unless the
+    // archetype overrides them specifically (see skill-keys.ts).
+    const weight = effectiveSkillWeight(archetype.skillWeights, key);
     // Linear weight bias: each unit of weight above/below 1.0 shifts the
     // mean by ~7 points. This preserves *tier* separation across all
     // skills (stars have higher means than starters even on weighted

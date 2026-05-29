@@ -1110,7 +1110,9 @@ function CollegeProspectDetail({
 
       {/* Skills (current / ceiling) */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {SKILL_GROUPS.map((groupDef) => (
+        {SKILL_GROUPS.filter(
+          (g) => !g.forGroups || g.forGroups.includes(positionGroupFor(prospect.nflProjectedPosition)),
+        ).map((groupDef) => (
           <div key={groupDef.label} className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
             <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
               {groupDef.label}
@@ -5149,27 +5151,64 @@ function formatChampionshipResult(r: NonNullable<TeamSeasonRecord['championshipR
   }
 }
 
-const SKILL_GROUPS: ReadonlyArray<{ label: string; skills: ReadonlyArray<keyof PlayerSkills> }> = [
+// `forGroups` limits a granular group to relevant position groups (keeps a
+// QB's detail from listing pass-rush moves). Undefined = show for everyone.
+const SKILL_GROUPS: ReadonlyArray<{
+  label: string;
+  skills: ReadonlyArray<keyof PlayerSkills>;
+  forGroups?: ReadonlyArray<PositionGroup>;
+}> = [
   {
     label: 'Physical',
-    skills: ['speed', 'acceleration', 'agility', 'strength', 'durability'],
-  },
-  {
-    label: 'Position skill',
-    skills: [
-      'technicalSkill',
-      'footballIq',
-      'decisionMaking',
-      'handsBallSkills',
-      'blockingTechnique',
-      'passRushTechnique',
-      'coverageTechnique',
-      'tacklingTechnique',
-    ],
+    skills: ['speed', 'acceleration', 'agility', 'changeOfDirection', 'strength', 'jumping', 'stamina', 'durability'],
   },
   {
     label: 'Mental',
-    skills: ['leadership', 'competitiveness', 'workEthic', 'coachability', 'composure'],
+    skills: ['footballIq', 'playRecognition', 'decisionMaking', 'composure', 'leadership', 'competitiveness', 'workEthic', 'coachability'],
+  },
+  {
+    label: 'Technique (umbrella)',
+    skills: ['technicalSkill', 'handsBallSkills', 'blockingTechnique', 'passRushTechnique', 'coverageTechnique', 'tacklingTechnique'],
+  },
+  {
+    label: 'QB passing',
+    forGroups: [PositionGroup.QB],
+    skills: ['throwPower', 'accuracyShort', 'accuracyMedium', 'accuracyDeep', 'accuracyLeft', 'accuracyMiddle', 'accuracyRight', 'throwOnRun', 'throwUnderPressure', 'spectacularThrow', 'breakSack', 'playAction'],
+  },
+  {
+    label: 'Ball carrier',
+    forGroups: [PositionGroup.QB, PositionGroup.SKILL],
+    skills: ['carrying', 'ballCarrierVision', 'jukeMove', 'spinMove', 'stiffArm', 'trucking', 'breakTackle', 'elusiveness'],
+  },
+  {
+    label: 'Receiving',
+    forGroups: [PositionGroup.SKILL],
+    skills: ['routeShort', 'routeMedium', 'routeDeep', 'releaseVsPress', 'releaseVsOff', 'catching', 'catchInTraffic', 'contestedCatch'],
+  },
+  {
+    label: 'Blocking',
+    forGroups: [PositionGroup.OL, PositionGroup.SKILL],
+    skills: ['runBlockPower', 'runBlockFinesse', 'passBlockPower', 'passBlockFinesse', 'impactBlock', 'leadBlock'],
+  },
+  {
+    label: 'Pass rush',
+    forGroups: [PositionGroup.DL, PositionGroup.LB],
+    skills: ['getOff', 'bend', 'handTechnique', 'bullRush', 'longArm', 'pushPull', 'swimMove', 'ripMove', 'spinRush', 'crossChop', 'ghostMove'],
+  },
+  {
+    label: 'Run defense / tackling',
+    forGroups: [PositionGroup.DL, PositionGroup.LB, PositionGroup.DB],
+    skills: ['blockShedding', 'tackle', 'hitPower', 'pursuit'],
+  },
+  {
+    label: 'Coverage',
+    forGroups: [PositionGroup.DB, PositionGroup.LB],
+    skills: ['manCoverage', 'zoneCoverage', 'pressCoverage', 'ballSkills'],
+  },
+  {
+    label: 'Special teams',
+    forGroups: [PositionGroup.ST],
+    skills: ['kickPower', 'kickAccuracy', 'puntPower', 'puntAccuracy'],
   },
 ];
 
@@ -5177,10 +5216,14 @@ const SKILL_LABELS: Record<keyof PlayerSkills, string> = {
   speed: 'Speed',
   acceleration: 'Acceleration',
   agility: 'Agility',
+  changeOfDirection: 'Change of direction',
   strength: 'Strength',
+  jumping: 'Jumping',
+  stamina: 'Stamina',
   durability: 'Durability',
   technicalSkill: 'Technical skill',
   footballIq: 'Football IQ',
+  playRecognition: 'Play recognition',
   decisionMaking: 'Decision making',
   handsBallSkills: 'Hands / ball skills',
   blockingTechnique: 'Blocking technique',
@@ -5192,6 +5235,71 @@ const SKILL_LABELS: Record<keyof PlayerSkills, string> = {
   workEthic: 'Work ethic',
   coachability: 'Coachability',
   composure: 'Composure',
+  // QB
+  throwPower: 'Throw power',
+  accuracyShort: 'Accuracy: short',
+  accuracyMedium: 'Accuracy: medium',
+  accuracyDeep: 'Accuracy: deep',
+  accuracyLeft: 'Accuracy: left',
+  accuracyMiddle: 'Accuracy: middle',
+  accuracyRight: 'Accuracy: right',
+  throwOnRun: 'Throw on run',
+  throwUnderPressure: 'Throw under pressure',
+  spectacularThrow: 'Spectacular throw',
+  breakSack: 'Break sack',
+  playAction: 'Play action',
+  // Ball carrier
+  carrying: 'Carrying',
+  ballCarrierVision: 'Vision',
+  jukeMove: 'Juke move',
+  spinMove: 'Spin move',
+  stiffArm: 'Stiff arm',
+  trucking: 'Trucking',
+  breakTackle: 'Break tackle',
+  elusiveness: 'Elusiveness',
+  // Receiving
+  routeShort: 'Route: short',
+  routeMedium: 'Route: medium',
+  routeDeep: 'Route: deep',
+  releaseVsPress: 'Release vs press',
+  releaseVsOff: 'Release vs off',
+  catching: 'Catching',
+  catchInTraffic: 'Catch in traffic',
+  contestedCatch: 'Contested catch',
+  // Blocking
+  runBlockPower: 'Run block: power',
+  runBlockFinesse: 'Run block: finesse',
+  passBlockPower: 'Pass block: power',
+  passBlockFinesse: 'Pass block: finesse',
+  impactBlock: 'Impact block',
+  leadBlock: 'Lead block',
+  // Pass rush
+  bullRush: 'Bull rush',
+  longArm: 'Long arm',
+  pushPull: 'Push/pull',
+  swimMove: 'Swim move',
+  ripMove: 'Rip move',
+  spinRush: 'Spin (rush)',
+  crossChop: 'Cross chop',
+  ghostMove: 'Ghost / euro',
+  getOff: 'Get-off',
+  bend: 'Bend',
+  handTechnique: 'Hand technique',
+  // Run D / tackling
+  blockShedding: 'Block shedding',
+  tackle: 'Tackle',
+  hitPower: 'Hit power',
+  pursuit: 'Pursuit',
+  // Coverage
+  manCoverage: 'Man coverage',
+  zoneCoverage: 'Zone coverage',
+  pressCoverage: 'Press coverage',
+  ballSkills: 'Ball skills (def)',
+  // Special teams
+  kickPower: 'Kick power',
+  kickAccuracy: 'Kick accuracy',
+  puntPower: 'Punt power',
+  puntAccuracy: 'Punt accuracy',
 };
 
 const QUIRK_LABELS: Record<ScoutQuirk, { label: string; description: string }> = {
@@ -5855,7 +5963,9 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
       )}
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        {SKILL_GROUPS.map((groupDef) => (
+        {SKILL_GROUPS.filter(
+          (g) => !g.forGroups || g.forGroups.includes(player.positionGroup),
+        ).map((groupDef) => (
           <div key={groupDef.label} className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
             <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
               {groupDef.label}

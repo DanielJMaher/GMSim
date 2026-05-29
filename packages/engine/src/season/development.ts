@@ -5,6 +5,7 @@ import type { PlayerSeasonStats } from '../types/stats.js';
 import type { PlayerId } from '../types/ids.js';
 import { PositionGroup } from '../types/enums.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { ALL_SKILL_KEYS, categoryFor } from '../players/skill-keys.js';
 
 /**
  * Apply one year of development to a player. Hidden ceilings shift only
@@ -60,31 +61,6 @@ function stageForAge(age: number): AgeStage {
   if (age <= 29) return 'PRIME';
   if (age <= 33) return 'VETERAN';
   return 'AGING';
-}
-
-const PHYSICAL_KEYS: readonly (keyof PlayerSkills)[] = [
-  'speed', 'acceleration', 'agility', 'strength', 'durability',
-];
-const TECHNICAL_KEYS: readonly (keyof PlayerSkills)[] = [
-  'technicalSkill', 'handsBallSkills', 'blockingTechnique',
-  'passRushTechnique', 'coverageTechnique', 'tacklingTechnique',
-];
-const MENTAL_KEYS: readonly (keyof PlayerSkills)[] = [
-  'footballIq', 'decisionMaking', 'leadership', 'composure',
-];
-const STABLE_KEYS: readonly (keyof PlayerSkills)[] = [
-  'competitiveness', 'workEthic', 'coachability',
-];
-
-const ALL_SKILL_KEYS: readonly (keyof PlayerSkills)[] = [
-  ...PHYSICAL_KEYS, ...TECHNICAL_KEYS, ...MENTAL_KEYS, ...STABLE_KEYS,
-];
-
-function categoryFor(key: keyof PlayerSkills): 'physical' | 'technical' | 'mental' | 'stable' {
-  if (PHYSICAL_KEYS.includes(key)) return 'physical';
-  if (TECHNICAL_KEYS.includes(key)) return 'technical';
-  if (MENTAL_KEYS.includes(key)) return 'mental';
-  return 'stable';
 }
 
 function applyDevelopment(

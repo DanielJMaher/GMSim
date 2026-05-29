@@ -7,6 +7,8 @@ import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
 import { generatePhysicalProfile } from '../players/physical.js';
+import { GRANULAR_PARENT } from '../players/skill-keys.js';
+import type { PlayerSkills } from '../types/player.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
 import { generateInitialCollegeObservations } from '../draft/college-observation.js';
@@ -396,5 +398,49 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     }
   }
 
+  // v0.95.0 granular skills. Pre-v0.95 players have umbrella techniques but
+  // none of the granular skills (specific pass-rush moves, QB placement,
+  // WR releases, coverage man/zone/press, …) or the new physical/mental
+  // attrs. Seed each granular from its parent umbrella + small per-player
+  // noise; derive the new physical/mental attrs from related skills.
+  {
+    const players = next.players as Record<string, Player>;
+    const sample = Object.values(players)[0];
+    if (sample && (sample as { bullRush?: unknown }).bullRush === undefined) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        const rng = new Prng(`${next.seed}::granular-skills::${id}`);
+        backfilled[id] = {
+          ...p,
+          current: backfillGranularSkills(p.current, rng.fork('cur')),
+          ceiling: backfillGranularSkills(p.ceiling, rng.fork('ceil')),
+        };
+      }
+      next = { ...next, players: backfilled } as LeagueState;
+    }
+  }
+
   return next;
+}
+
+/** Seed granular + new physical/mental skills onto a pre-v0.95 skill set. */
+function backfillGranularSkills(skills: PlayerSkills, rng: Prng): PlayerSkills {
+  const s = skills as unknown as Record<string, number>;
+  const out: Record<string, number> = { ...s };
+  const clamp = (v: number) => Math.max(1, Math.min(99, Math.round(v)));
+  // New physical / mental attrs derive from related existing skills.
+  const derive: Record<string, number> = {
+    changeOfDirection: s.agility ?? 50,
+    jumping: ((s.agility ?? 50) + (s.strength ?? 50)) / 2,
+    stamina: s.durability ?? 60,
+    playRecognition: s.footballIq ?? 50,
+  };
+  for (const [key, base] of Object.entries(derive)) {
+    if (out[key] === undefined) out[key] = clamp(base + rng.normal(0, 3));
+  }
+  // Granulars seed from their parent umbrella ± small noise.
+  for (const [key, parent] of Object.entries(GRANULAR_PARENT)) {
+    if (out[key] === undefined) out[key] = clamp((s[parent] ?? 50) + rng.normal(0, 4));
+  }
+  return out as unknown as PlayerSkills;
 }

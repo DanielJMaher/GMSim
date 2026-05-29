@@ -51,7 +51,7 @@ describe('computeOutletQualityByGroup', () => {
     const observations = qbs.map((cp) => obs(cp, 100 - realGrade(cp)));
     const rows = computeOutletQualityByGroup(observations, league.collegePool, OUTLET);
     const qb = rows.find((r) => r.group === 'QB')!;
-    expect(qb.rankCorrelation!).toBeLessThan(-0.99);
+    expect(qb.rankCorrelation!).toBeLessThan(-0.95); // ~-1, modulo integer-rounding ties
   });
 
   it('uniformly optimistic read → positive bias, correlation preserved', () => {

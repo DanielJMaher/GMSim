@@ -200,31 +200,114 @@ export interface Player {
  * descriptive scout reports, observable performance, and statistics.
  */
 export interface PlayerSkills {
-  // Physical
+  // ── Physical ──────────────────────────────────────────────────────────
   speed: number;
   acceleration: number;
   agility: number;
+  changeOfDirection: number; // v0.95 — short-area quickness / cuts
   strength: number;
+  jumping: number; // v0.95 — verticals / contested / batted balls
+  stamina: number; // v0.95 — in-game endurance
   durability: number;
 
-  // Position-skill umbrellas. Sub-skills under each are computed when needed.
-  // Stored at this granularity to keep the type small; sub-skill resolution
-  // happens in the archetype-fit + scheme-fit calculations.
+  // ── Legacy umbrella techniques (kept for back-compat; ~30 consumers
+  //    read them). Joined by the granular skills below — see
+  //    `players/skill-keys.ts`. ──────────────────────────────────────────
   technicalSkill: number;
-  footballIq: number;
-  decisionMaking: number;
   handsBallSkills: number;
   blockingTechnique: number;
   passRushTechnique: number;
   coverageTechnique: number;
   tacklingTechnique: number;
 
-  // Mental/intangible
+  // ── Mental / intangible ───────────────────────────────────────────────
+  footballIq: number;
+  playRecognition: number; // v0.95 — defensive read/diagnose
+  decisionMaking: number;
   leadership: number;
   competitiveness: number;
   workEthic: number;
   coachability: number;
   composure: number;
+
+  // ── Granular skills (v0.95, player-model overhaul Stage 2) ────────────
+  // Madden-style + finer breakouts. Each rolls under a parent umbrella
+  // (GRANULAR_PARENT) unless an archetype overrides it.
+
+  // QB passing — depth, horizontal placement, situational, + spectacular.
+  throwPower: number;
+  accuracyShort: number;
+  accuracyMedium: number;
+  accuracyDeep: number;
+  accuracyLeft: number;
+  accuracyMiddle: number;
+  accuracyRight: number;
+  throwOnRun: number;
+  throwUnderPressure: number;
+  spectacularThrow: number; // off-platform / no-look / cross-body (Mahomes)
+  breakSack: number;
+  playAction: number;
+
+  // Ball carrier.
+  carrying: number;
+  ballCarrierVision: number;
+  jukeMove: number;
+  spinMove: number;
+  stiffArm: number;
+  trucking: number;
+  breakTackle: number;
+  elusiveness: number;
+
+  // Receiving.
+  routeShort: number;
+  routeMedium: number;
+  routeDeep: number;
+  releaseVsPress: number; // beating a jam at the line
+  releaseVsOff: number; // separating vs off coverage
+  catching: number;
+  catchInTraffic: number;
+  contestedCatch: number;
+
+  // Blocking.
+  runBlockPower: number;
+  runBlockFinesse: number;
+  passBlockPower: number;
+  passBlockFinesse: number;
+  impactBlock: number;
+  leadBlock: number;
+
+  // Pass rush — power moves.
+  bullRush: number;
+  longArm: number;
+  pushPull: number;
+  // Pass rush — finesse moves.
+  swimMove: number;
+  ripMove: number;
+  spinRush: number;
+  crossChop: number;
+  ghostMove: number;
+  // Pass rush — fundamentals.
+  getOff: number; // first-step explosion off the snap
+  bend: number; // ankle flexion / edge bend
+  handTechnique: number; // hand placement / fighting
+
+  // Run defense / tackling.
+  blockShedding: number;
+  tackle: number;
+  hitPower: number;
+  pursuit: number;
+
+  // Coverage.
+  manCoverage: number;
+  zoneCoverage: number;
+  pressCoverage: number;
+  ballSkills: number; // defensive playmaking — INTs / PBUs
+
+  // Special teams.
+  kickPower: number;
+  kickAccuracy: number;
+  puntPower: number;
+  puntAccuracy: number;
 }
 
 /**
