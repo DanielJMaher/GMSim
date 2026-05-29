@@ -48,13 +48,19 @@ import { POSITION_DRAFT_VALUE } from './position-value.js';
  * replaceable spot. Stacked positions (rawNeed ≤ 0) keep their raw
  * (negative) score so they still sort to the bottom.
  *
- * ## QB rule (v0.91)
+ * ## QB rule (v0.92 — pedigree-aware)
  *
- * A team with no starter-quality QB and no young QB it's developing has
- * a standing premium need at the position — QB is *always* near the top
- * of such a team's board. We floor QB `neediness` at `QB_NO_ANSWER_FLOOR`
- * in that case so it can't be buried under a stack of skill-position
- * shortfalls.
+ * A team with no starter-quality-or-better QB has a standing premium need
+ * at the position, floored at `QB_NO_ANSWER_FLOOR` so it can't be buried
+ * under a stack of skill-position shortfalls — *unless* it has a recent
+ * first-round QB it's developing (the franchise plan). That carve-out is
+ * driven by **draft pedigree** (`Player.draftRound` + `experienceYears`),
+ * not age or tier: a team building around last year's top-5 pick does not
+ * "need" a QB even while he's raw, but a team starting a journeyman with a
+ * 6th-round kid behind him still does. The franchise QB also counts as a
+ * provisional starter in `qse`, so QB drops off the need list entirely
+ * rather than merely losing the floor. This is what stops NPC teams from
+ * drafting a QB every single year. See `isFranchiseDevQb`.
  *
  * ## Output ordering
  *
@@ -106,12 +112,25 @@ const AGE_BONUS_PER_YEAR = 0.3;
 const AGE_BONUS_CAP = 1.5;
 const SCORE_FLOOR = -2;
 
-/** Below this age, a non-fringe QB counts as a young arm the team is
- * developing — so the standing QB premium need does NOT apply. */
-const YOUNG_QB_MAX_AGE = 24;
-/** Minimum QB neediness when a team has no starter-quality QB AND no
- * young developing QB. Floors QB near the top of such a team's board. */
+/** Minimum QB neediness when a team has no starter-quality-or-better QB
+ * and no recent first-round QB. Floors QB near the top of the board. */
 const QB_NO_ANSWER_FLOOR = 1.2;
+/** A first-round QB this many seasons in or fewer counts as the franchise
+ * plan (the rookie-deal development window). After it, an unproven
+ * first-rounder is a bust and QB re-opens as a need. */
+const FRANCHISE_DEV_QB_MAX_EXPERIENCE = 4;
+
+/** True if this QB was a first-round pick still inside his rookie window —
+ * the developmental franchise QB a team is committed to. Pedigree (draft
+ * round), not tier: a recent top pick is the plan even before he's proven;
+ * a late-round young QB is not. */
+function isFranchiseDevQb(p: Player): boolean {
+  return (
+    p.position === 'QB' &&
+    p.draftRound === 1 &&
+    p.experienceYears <= FRANCHISE_DEV_QB_MAX_EXPERIENCE
+  );
+}
 
 export interface PositionNeed {
   position: Position;
@@ -158,12 +177,23 @@ export function computeTeamNeeds(
     const players = byPosition.get(position) ?? [];
     const starterSlots = STARTER_SLOTS[position];
 
+    // A QB drafted in the first round and still inside his rookie window
+    // is the franchise plan — the team is committed to developing him, so
+    // he counts as a provisional starter for need purposes (a 6th-rounder
+    // does not). See the QB rule below.
+    const hasFranchiseDevQb =
+      position === 'QB' && players.some((p) => isFranchiseDevQb(p));
+
     let qse = 0;
     let starterCount = 0;
     let bestTierPlayer: Player | null = null;
     let bestTierRank = -1;
     for (const p of players) {
-      qse += TIER_WEIGHT[p.tier];
+      let weight = TIER_WEIGHT[p.tier];
+      if (position === 'QB' && isFranchiseDevQb(p) && weight < TIER_WEIGHT.STARTER) {
+        weight = TIER_WEIGHT.STARTER; // provisional-starter credit
+      }
+      qse += weight;
       if (p.tier === 'STAR' || p.tier === 'STARTER') starterCount++;
       const rank = tierRank(p.tier);
       if (rank > bestTierRank) {
@@ -187,9 +217,13 @@ export function computeTeamNeeds(
     const rawNeed = starterSlots - qse + ageBonus;
     let neediness = Math.max(0, rawNeed);
 
-    // QB rule: no starter-quality QB and no young arm being developed →
-    // a standing premium need, floored near the top of the board.
-    if (position === 'QB' && starterCount === 0 && !hasYoungDevQB(players, seasonNumber)) {
+    // QB rule: no starter-quality-or-better QB AND no recent first-round
+    // QB being developed → a standing premium need, floored near the top
+    // of the board. A backup-quality QB doesn't satisfy it UNLESS he was a
+    // first-round pick still inside his rookie window (the franchise plan).
+    // So a team starting a journeyman with a 6th-round kid behind him still
+    // needs a QB; a team developing last year's top-5 pick does not.
+    if (position === 'QB' && starterCount === 0 && !hasFranchiseDevQb) {
       neediness = Math.max(neediness, QB_NO_ANSWER_FLOOR);
     }
 
@@ -213,12 +247,6 @@ export function computeTeamNeeds(
     return canonicalPositionOrder(a.position) - canonicalPositionOrder(b.position);
   });
   return needs;
-}
-
-/** True if the team has a young (≤ YOUNG_QB_MAX_AGE), non-fringe QB it's
- * developing — i.e. it has its QB-of-the-future answer in house. */
-function hasYoungDevQB(qbs: readonly Player[], seasonNumber: number): boolean {
-  return qbs.some((p) => p.tier !== 'FRINGE' && ageOfPlayer(p, seasonNumber) <= YOUNG_QB_MAX_AGE);
 }
 
 function tierRank(tier: Player['tier']): number {

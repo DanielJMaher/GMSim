@@ -5,6 +5,7 @@ import type { CollegeScout, CollegePlayerObservation } from '../types/college.js
 import type { PlayerId, ScoutId, TeamId } from '../types/ids.js';
 import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
+import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
 import { generateInitialCollegeObservations } from '../draft/college-observation.js';
@@ -353,6 +354,27 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       if (lastPlayedIdx >= 0) currentWeek = lastPlayedIdx;
     }
     next = { ...next, currentWeek } as LeagueState;
+  }
+
+  // v0.92.0 draft provenance / backstory. Players from pre-v0.92 saves
+  // have no `draftRound` — synthesize a plausible pedigree from tier +
+  // position (deterministic per player id) so the QB-need rule and future
+  // narrative have something to read.
+  {
+    const players = next.players as Record<string, Player>;
+    const sample = Object.values(players)[0];
+    if (sample && (sample as { draftRound?: unknown }).draftRound === undefined) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        const prov = synthesizeDraftProvenance(
+          new Prng(`${next.seed}::draft-provenance::${id}`),
+          p.tier,
+          p.position,
+        );
+        backfilled[id] = { ...p, draftRound: prov.round, draftOverallPick: prov.overallPick };
+      }
+      next = { ...next, players: backfilled } as LeagueState;
+    }
   }
 
   return next;

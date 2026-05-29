@@ -162,6 +162,22 @@ export interface Player {
    * for new rookies. Cleared with the player on retirement.
    */
   careerAwards: readonly CareerAward[];
+
+  /**
+   * Draft provenance / backstory (v0.92). The round the player was
+   * drafted in (1–7), or `null` if undrafted (UDFA). Combined with
+   * `experienceYears` this answers "was this a 1st-round pick two years
+   * ago?" — pedigree that NFL decision-making leans on (a recent
+   * high-pick young QB is the franchise plan; a 6th-rounder isn't).
+   *
+   * At league creation this is *synthesized* from tier + position (a
+   * star was probably a high pick; a good late-rounder is a gem). On a
+   * real draft it records the actual pick. Hidden ground truth — the
+   * eventual game UI surfaces it as narrative, not as a tuning number.
+   */
+  draftRound: number | null;
+  /** Overall draft slot (1..~224), or `null` if undrafted. See `draftRound`. */
+  draftOverallPick: number | null;
 }
 
 /**

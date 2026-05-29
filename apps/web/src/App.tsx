@@ -6019,6 +6019,34 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
   );
 }
 
+// Draft provenance / backstory badge (v0.92) — dev calibration lens for
+// the pedigree the QB-need rule (and future narrative) reads. R1 picks
+// stand out; later rounds muted; UDFAs dimmest.
+function DraftPedigreeBadge({ player }: { player: Player }) {
+  const round = player.draftRound;
+  const pick = player.draftOverallPick;
+  if (round === undefined) return null; // pre-provenance data
+  const label = round === null ? 'UDFA' : `R${round}${pick ? ` #${pick}` : ''}`;
+  const tone =
+    round === null
+      ? 'border-zinc-700/50 text-zinc-600'
+      : round === 1
+        ? 'border-violet-500/50 bg-violet-500/10 text-violet-300'
+        : round <= 3
+          ? 'border-zinc-600/50 text-zinc-400'
+          : 'border-zinc-700/50 text-zinc-500';
+  return (
+    <span
+      className={`ml-2 rounded border px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider ${tone}`}
+      title={`Draft provenance (backstory): ${
+        round === null ? 'undrafted (UDFA)' : `round ${round}, overall pick ${pick ?? '?'}`
+      }`}
+    >
+      {label}
+    </span>
+  );
+}
+
 function PositionGroupTable({
   group,
   hc,
@@ -6130,6 +6158,7 @@ function PositionGroupTable({
                         {awardBadge}
                       </span>
                     )}
+                    <DraftPedigreeBadge player={p} />
                   </td>
                   <td className="px-2 py-1 text-zinc-500">
                     {ageOfPlayer(p, league.seasonNumber)}

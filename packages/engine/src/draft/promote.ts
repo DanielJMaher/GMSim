@@ -6,6 +6,7 @@ import type { TeamId, ContractId } from '../types/ids.js';
 import { generateRookieContract } from '../contracts/rookie-scale.js';
 import { rollMoodProfile } from '../players/mood-profile.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { provenanceFromOverallPick, type DraftProvenance } from '../players/draft-provenance.js';
 
 export interface PromoteOptions {
   prospect: CollegePlayer;
@@ -52,7 +53,7 @@ export function promoteProspectToPlayer(
   options: PromoteOptions,
 ): PromoteResult {
   const { prospect, teamId, signedOnTick, overallPick = 32 } = options;
-  const player = buildBaseRookiePlayer(prng, prospect, teamId);
+  const player = buildBaseRookiePlayer(prng, prospect, teamId, provenanceFromOverallPick(overallPick));
   const contract = generateRookieContract({
     player,
     idSuffix: String(player.id),
@@ -106,6 +107,7 @@ function buildBaseRookiePlayer(
   prng: Prng,
   prospect: CollegePlayer,
   teamId: TeamId | null,
+  provenance: DraftProvenance = { round: null, overallPick: null },
 ): Player {
   const position = prospect.nflProjectedPosition;
   const positionGroup = positionGroupFor(position);
@@ -132,5 +134,7 @@ function buildBaseRookiePlayer(
     mood: moodProfile.setPoint,
     careerStats: [],
     careerAwards: [],
+    draftRound: provenance.round,
+    draftOverallPick: provenance.overallPick,
   };
 }

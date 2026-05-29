@@ -53,6 +53,8 @@ function makePlayer(overrides: Partial<Player> = {}): Player {
     mood: 70,
     careerStats: [],
     careerAwards: [],
+    draftRound: 3,
+    draftOverallPick: 80,
     ...overrides,
   };
 }

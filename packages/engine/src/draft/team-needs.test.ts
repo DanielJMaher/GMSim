@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createLeague } from '../league/generate.js';
 import { computeTeamNeeds } from './team-needs.js';
+import { POSITION_DRAFT_VALUE } from './position-value.js';
 import type { TeamId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
+
+// Floored QB neediness (1.2) × QB positional value — the score a team
+// with no starter-quality QB should show.
+const QB_NO_ANSWER_FLOOR_SCORE = 1.2 * POSITION_DRAFT_VALUE.QB;
 
 describe('computeTeamNeeds', () => {
   it('produces a need entry for every canonical Position', () => {
@@ -67,27 +72,65 @@ describe('computeTeamNeeds', () => {
     expect(qb.positionValue).toBe(maxValue);
   });
 
-  it('forces QB high when the team has no starter and no young developing QB', () => {
-    // Strip QBs, then add a single 31-year-old BACKUP — no starter, not
-    // young → the standing QB premium need must keep QB in the top 3.
+  // v0.92: the QB-need carve-out is driven by DRAFT PEDIGREE, not age/tier.
+  function qbRoomNeeds(
+    qbSpecs: ReadonlyArray<{ age: number; round: number | null; exp: number }>,
+  ) {
     const league = createLeague({ seed: 'needs-qb-rule' });
     const team = Object.values(league.teams)[0]!;
-    const oldBackupQb = Object.values(league.players).find(
-      (p) => p.position === 'QB' && p.tier === 'BACKUP',
-    );
-    if (!oldBackupQb) return; // seed without a spare backup QB — skip
+    const template = Object.values(league.players).find((p) => p.position === 'QB')!;
     const simYear = 2026 + (league.seasonNumber - 1);
-    const aged = { ...oldBackupQb, birthDate: `${simYear - 31}-01-01` };
-    const players = { ...league.players, [aged.id]: aged };
+    const qbs = qbSpecs.map((s, i) => ({
+      ...template,
+      id: `${template.id}_q${i}` as typeof template.id,
+      tier: 'BACKUP' as const,
+      birthDate: `${simYear - s.age}-01-01`,
+      experienceYears: s.exp,
+      draftRound: s.round,
+      draftOverallPick: s.round === null ? null : (s.round - 1) * 32 + 5,
+    }));
+    const players = { ...league.players };
+    for (const q of qbs) players[q.id] = q;
     const roster = [
       ...team.rosterIds.filter((pid) => league.players[pid]?.position !== 'QB'),
-      aged.id,
+      ...qbs.map((q) => q.id),
     ];
-    const scoped = { ...league, players };
-    const needs = computeTeamNeeds({ ...team, rosterIds: roster }, scoped);
-    const qbRank = needs.findIndex((n) => n.position === 'QB');
-    expect(qbRank).toBeGreaterThanOrEqual(0);
-    expect(qbRank).toBeLessThan(3);
+    return computeTeamNeeds({ ...team, rosterIds: roster }, { ...league, players });
+  }
+
+  it('forces QB high when the QB room is backup-tier with no first-round pedigree', () => {
+    // The Bills case: 30/31-yo backups + a 22-yo 6th-round backup. The
+    // young guy is NOT the franchise answer (late pedigree), so QB floors
+    // to the very top of the board.
+    const needs = qbRoomNeeds([
+      { age: 30, round: 6, exp: 7 },
+      { age: 31, round: 5, exp: 8 },
+      { age: 22, round: 6, exp: 1 },
+    ]);
+    const qb = needs.find((n) => n.position === 'QB')!;
+    expect(qb.starterCount).toBe(0);
+    expect(qb.score).toBeGreaterThanOrEqual(QB_NO_ANSWER_FLOOR_SCORE - 0.001);
+    expect(needs.findIndex((n) => n.position === 'QB')).toBe(0);
+  });
+
+  it('drops QB off the needs when a recent first-round QB is in house', () => {
+    // Same room, but the young QB was a first-round pick last year — the
+    // franchise plan. QB is addressed and should NOT be a premium need.
+    const needs = qbRoomNeeds([
+      { age: 30, round: 6, exp: 7 },
+      { age: 22, round: 1, exp: 1 },
+    ]);
+    const qb = needs.find((n) => n.position === 'QB')!;
+    expect(qb.score).toBeLessThan(QB_NO_ANSWER_FLOOR_SCORE - 0.001);
+    expect(needs.findIndex((n) => n.position === 'QB')).toBeGreaterThan(0);
+  });
+
+  it('a first-round QB past his rookie window no longer suppresses the need', () => {
+    // A 1st-rounder 6 years in who never became a starter is a bust —
+    // QB re-opens as a need.
+    const needs = qbRoomNeeds([{ age: 28, round: 1, exp: 6 }]);
+    const qb = needs.find((n) => n.position === 'QB')!;
+    expect(qb.score).toBeGreaterThanOrEqual(QB_NO_ANSWER_FLOOR_SCORE - 0.001);
   });
 
   it('produces deterministic output for the same league + team', () => {
