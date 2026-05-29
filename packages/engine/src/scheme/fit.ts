@@ -3,7 +3,9 @@ import type {
   OffensiveSchemeArchetype,
   DefensiveSchemeArchetype,
 } from '../types/personnel.js';
+import type { Position } from '../types/enums.js';
 import { getArchetypeById, type ArchetypeId } from '../archetypes/index.js';
+import { sizePlausibility } from '../players/physical.js';
 
 /**
  * Look up the offensive scheme fit multiplier for an archetype + scheme.
@@ -102,7 +104,12 @@ function modulate(baseline: number, embody: number): number {
  * Returns a multiplier in the catalog's [0.5, 1.7] range.
  */
 export function schemeFitForPlayer(
-  player: Pick<Player, 'archetype'> & { current?: PlayerSkills },
+  player: Pick<Player, 'archetype'> & {
+    current?: PlayerSkills;
+    position?: Position;
+    heightInches?: number;
+    weightLbs?: number;
+  },
   context: {
     offensiveScheme: OffensiveSchemeArchetype;
     defensiveScheme: DefensiveSchemeArchetype;
@@ -122,6 +129,11 @@ export function schemeFitForPlayer(
       return 1.0; // special teams
   }
   const embody = embodiment(player.current, archetype.skillWeights);
-  const fit = modulate(baseline, embody);
+  let fit = modulate(baseline, embody);
+  // v0.99 item 1: soft-but-impactful size penalty when size is known — a
+  // 185 lb edge or 230 lb corner is a poor fit regardless of skill.
+  if (player.position && player.heightInches !== undefined && player.weightLbs !== undefined) {
+    fit *= sizePlausibility(player.position, player.weightLbs, player.heightInches);
+  }
   return Math.max(0.5, Math.min(1.7, fit));
 }

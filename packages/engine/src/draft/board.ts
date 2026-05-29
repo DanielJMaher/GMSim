@@ -555,6 +555,10 @@ function schemeFitForCollegeProspect(prospect: CollegePlayer, hc: HeadCoach): nu
     // v0.96: pass the prospect's true skills so fit is embodiment-aware
     // (only blue-chip prospects realize a premium scheme fit).
     current: prospect.current,
+    // v0.99 item 1: pass size so the fit's size penalty applies (an
+    // undersized prospect at his projected position fits worse).
+    heightInches: prospect.measurables.heightInches,
+    weightLbs: prospect.measurables.weightLbs,
   } as unknown as Player;
   return schemeFitForPlayer(playerLike, {
     offensiveScheme: hc.offensiveScheme,

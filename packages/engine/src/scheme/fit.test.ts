@@ -104,6 +104,25 @@ describe('schemeFitForPlayer', () => {
     expect(elite).toBeGreaterThan(scrub);
   });
 
+  it('size penalty: an undersized edge fits worse than a normal-size one with identical skills', () => {
+    const scheme = { offensiveScheme: 'WEST_COAST', defensiveScheme: 'BASE_4_3' } as const;
+    const skills = skillsAll(85);
+    const normal = schemeFitForPlayer(
+      { archetype: 'DL_EDGE_PASS_RUSHER', current: skills, position: 'EDGE', heightInches: 76, weightLbs: 260 },
+      scheme,
+    );
+    const undersized = schemeFitForPlayer(
+      { archetype: 'DL_EDGE_PASS_RUSHER', current: skills, position: 'EDGE', heightInches: 73, weightLbs: 185 },
+      scheme,
+    );
+    expect(undersized).toBeLessThan(normal);
+    // 185 lb at EDGE (norm ~260/10sd) is a hard, but soft-floored, hit.
+    expect(undersized).toBeLessThan(normal * 0.85);
+    // No size info → no penalty (legacy callers unaffected).
+    const noSize = schemeFitForPlayer({ archetype: 'DL_EDGE_PASS_RUSHER', current: skills }, scheme);
+    expect(noSize).toBeGreaterThan(undersized);
+  });
+
   it('a blue-chip transcends a non-ideal scheme; a role player is scheme-locked', () => {
     // DB_PRESS_CB in COVER_2_SHELL is a 0.85 penalty baseline.
     const scheme = { offensiveScheme: 'WEST_COAST', defensiveScheme: 'COVER_2_SHELL' } as const;

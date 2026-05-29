@@ -63,6 +63,43 @@ function round1(v: number): number {
   return Math.round(v * 10) / 10;
 }
 
+// ── Size plausibility (v0.99, player-model overhaul item 1) ───────────────
+// "Big" trench/run positions are hurt by being UNDER-sized (a 185 lb edge
+// can't set the edge or anchor); "speed" positions are hurt by being
+// OVER-sized (a 230 lb corner loses the quickness the role needs). A soft
+// but impactful penalty feeds scheme fit + flags conversion projects.
+const BIG_POSITIONS: ReadonlySet<Position> = new Set([
+  Position.LT, Position.LG, Position.C, Position.RG, Position.RT,
+  Position.EDGE, Position.DT, Position.NT, Position.TE, Position.FB, Position.ILB,
+]);
+const SPEED_POSITIONS: ReadonlySet<Position> = new Set([
+  Position.WR, Position.CB, Position.S, Position.NICKEL, Position.RB,
+]);
+
+/**
+ * 0.6–1.0 — how plausibly a player's size fits the demands of `position`.
+ * 1.0 = within norms; drops as the player is mis-sized in the way that
+ * matters for the role. Used as a soft multiplier on scheme fit and to
+ * target size-mismatched prospects as conversion projects.
+ */
+export function sizePlausibility(position: Position, weightLbs: number, heightInches: number): number {
+  const spec = SIZE_BY_POSITION[position];
+  const zW = (weightLbs - spec.weight[0]) / spec.weight[1];
+  const zH = (heightInches - spec.height[0]) / spec.height[1];
+  let penalty: number;
+  if (BIG_POSITIONS.has(position)) {
+    // Undersized hurts most; very short for a trench role hurts a little too.
+    penalty = Math.max(0, -zW - 1) * 0.045 + Math.max(0, -zH - 2) * 0.02;
+  } else if (SPEED_POSITIONS.has(position)) {
+    // Oversized hurts (lost burst/coverage); tolerance is wider.
+    penalty = Math.max(0, zW - 1.5) * 0.04;
+  } else {
+    // QB / specialists: mild penalty only for extreme deviation either way.
+    penalty = Math.max(0, Math.abs(zW) - 2) * 0.03;
+  }
+  return Math.max(0.6, 1 - penalty);
+}
+
 /**
  * Roll a position-appropriate physical profile. Deterministic from `prng`.
  */
