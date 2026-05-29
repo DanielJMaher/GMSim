@@ -53,6 +53,10 @@ pnpm --filter @gmsim/truth-arbiter embed
 # Semantic search demo over the write-ups
 pnpm --filter @gmsim/truth-arbiter run search "explosive edge rusher with rare get-off"
 
+# Arbiter check: physical/athletic realism of a generated class vs real drafts
+# (requires the engine built: pnpm --filter @gmsim/engine build)
+pnpm --filter @gmsim/truth-arbiter run arbiter
+
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```
 
@@ -65,13 +69,17 @@ combine testing merged (2,559 picks, 2,103 with a 40-time) + embedding index
 (3,212 write-ups). NGS scores and combine coverage both populate nearly all
 of Rounds 1–4 and taper through Day 3, matching real coverage.
 
-## Next (the Truth Arbiter agent — not built yet)
+## Arbiter checks
 
-An agent that, given a GMSim-generated draft class / rosters, runs distribution
-checks against `corpus.json` (e.g. "your R1 overall-score spread is 78–99 but
-real is 84–95", "you draft too many QBs in R1", "your generated EDGEs average
-290 lbs vs real R1 EDGE ~260") and uses `embeddings.json` to ground generated
-profiles/prose against the real corpus.
+`arbiter.ts` is the first verification check: it generates a GMSim draft class
+(via the engine) and compares every measurable/combine metric, by position
+group, against the real corpus — flagging any cell off by ≥0.5 real σ. This
+validates the engine's size/athletic baselines (`draft/measurables.ts`) against
+reality and points at exactly what to tune. The engine is consumed via its
+built `dist` (see `engine-bridge.ts`), so build it first.
+
+Future checks (not built): positional draft-frequency, grade-curve by round,
+and semantic grounding of generated scouting prose via `embeddings.json`.
 
 ## Caveats
 

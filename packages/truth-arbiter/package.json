@@ -9,6 +9,7 @@
     "scrape": "tsc -p tsconfig.json && node dist/scrape.js",
     "embed": "tsc -p tsconfig.json && node dist/embed.js",
     "search": "tsc -p tsconfig.json && node dist/search.js",
+    "arbiter": "tsc -p tsconfig.json && node dist/arbiter.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf .turbo dist"
   },
