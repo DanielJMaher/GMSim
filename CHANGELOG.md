@@ -16,6 +16,27 @@ _Nothing yet._
 
 ---
 
+## [0.100.0] — 2026-05-29
+
+### Changed — full granular archetype specialization (overhaul item 2)
+
+- Every player archetype now specializes its **granular** skills (v0.95
+  shipped the attributes; v0.96 specialized only EDGE/WR/QB/CB). Added
+  granular weight overrides across the board: RB (power = trucking/
+  break-tackle, receiving = catch/routes, zone = vision/elusiveness), FB
+  (lead/impact block), TE (receiving routes vs in-line run-block vs
+  versatile), OL (zone = run-block finesse vs power = run-block power vs
+  pass-protector = pass-block finesse/hands), interior DL (penetrating =
+  get-off/finesse vs nose = block-shed/power), LB (Mike = range/coverage,
+  3-4 ILB = shed/tackle/hit, coverage = zone/man range, 3-4 edge =
+  get-off/bend), slot CB (man-in-space + tackle), safeties (ball-hawk =
+  ball-skills/zone vs box = tackle/hit-power), K/P (kick vs punt). So the
+  granular skills + matchups + role-based fit now differentiate at *every*
+  position, not just the four done earlier — verified by 10 differentiation
+  tests.
+
+---
+
 ## [0.99.0] — 2026-05-29
 
 ### Added — size matters in scheme fit (player-model overhaul, item 1a)
