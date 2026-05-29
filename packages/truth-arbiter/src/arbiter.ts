@@ -134,6 +134,89 @@ async function main(): Promise<void> {
   }
 
   printReport(rows, real.length, drafted.length);
+
+  // Pair each generated prospect (talent-ranked) with the real pick at the
+  // same rank, so the generated class inherits the real round-size structure
+  // (incl. comp picks). genRound[g] = round of the equally-ranked real pick.
+  const realSorted = [...real].sort(
+    (a, b) => (a.overallPick ?? 1e9) - (b.overallPick ?? 1e9),
+  );
+  const genRound = new Map<GeneratedProspect, number>();
+  drafted.forEach((g, i) => genRound.set(g, realSorted[i]?.round ?? 7));
+
+  printPositional(real, drafted);
+  printGradeByRound(real, drafted, genRound);
+}
+
+/** Check 2a — positional supply: share of the drafted class at each group. */
+function printPositional(real: DraftPickRecord[], drafted: GeneratedProspect[]): void {
+  const realCount = new Map<string, number>();
+  const genCount = new Map<string, number>();
+  let rTot = 0;
+  let gTot = 0;
+  for (const p of real) {
+    const grp = group(p.position);
+    if (grp) {
+      realCount.set(grp, (realCount.get(grp) ?? 0) + 1);
+      rTot++;
+    }
+  }
+  for (const g of drafted) {
+    const grp = group(g.nflProjectedPosition);
+    if (grp) {
+      genCount.set(grp, (genCount.get(grp) ?? 0) + 1);
+      gTot++;
+    }
+  }
+  console.log(`\n=== positional supply — share of drafted class ===`);
+  console.log(`    ${'group'.padEnd(6)} ${'real%'.padStart(7)} ${'gen%'.padStart(7)} ${'Δpp'.padStart(7)}`);
+  for (const grp of GROUP_ORDER) {
+    const rPct = ((realCount.get(grp) ?? 0) / rTot) * 100;
+    const gPct = ((genCount.get(grp) ?? 0) / gTot) * 100;
+    const d = gPct - rPct;
+    const flag = Math.abs(d) >= 3 ? `  <-- ${d > 0 ? 'OVER' : 'UNDER'}-supplied` : '';
+    console.log(`    ${grp.padEnd(6)} ${rPct.toFixed(1).padStart(7)} ${gPct.toFixed(1).padStart(7)} ${d.toFixed(1).padStart(7)}${flag}`);
+  }
+}
+
+/** Check 2b — talent/grade curve by round: do we separate elite from late
+ *  the way real classes do? Real uses NGS Overall, generated uses talent
+ *  (mean skills); scales differ, so we compare the % decline from round 1. */
+function printGradeByRound(
+  real: DraftPickRecord[],
+  drafted: GeneratedProspect[],
+  genRound: Map<GeneratedProspect, number>,
+): void {
+  const realByRound = new Map<number, number[]>();
+  for (const p of real) {
+    if (p.scores.overall !== null) {
+      (realByRound.get(p.round) ?? realByRound.set(p.round, []).get(p.round)!).push(p.scores.overall);
+    }
+  }
+  const genByRound = new Map<number, number[]>();
+  for (const g of drafted) {
+    const r = genRound.get(g)!;
+    (genByRound.get(r) ?? genByRound.set(r, []).get(r)!).push(overall(g));
+  }
+
+  const realR1 = realByRound.get(1)?.length ? mean(realByRound.get(1)!) : 0;
+  const genR1 = genByRound.get(1)?.length ? mean(genByRound.get(1)!) : 0;
+
+  console.log(`\n=== talent/grade curve by round (decline from R1) ===`);
+  console.log(`    ${'rnd'.padEnd(4)} ${'real(NGS)'.padStart(10)} ${'rΔ%'.padStart(7)} ${'gen(tal)'.padStart(10)} ${'gΔ%'.padStart(7)}`);
+  for (let r = 1; r <= 7; r++) {
+    const rv = realByRound.get(r) ?? [];
+    const gv = genByRound.get(r) ?? [];
+    if (rv.length === 0 || gv.length === 0) continue;
+    const rm = mean(rv);
+    const gm = mean(gv);
+    const rDrop = realR1 ? ((rm - realR1) / realR1) * 100 : 0;
+    const gDrop = genR1 ? ((gm - genR1) / genR1) * 100 : 0;
+    const flag = Math.abs(gDrop - rDrop) >= 4 ? `  <-- ${Math.abs(gDrop) < Math.abs(rDrop) ? 'too FLAT' : 'too STEEP'}` : '';
+    console.log(
+      `    R${String(r).padEnd(3)} ${rm.toFixed(1).padStart(10)} ${rDrop.toFixed(1).padStart(7)} ${gm.toFixed(1).padStart(10)} ${gDrop.toFixed(1).padStart(7)}${flag}`,
+    );
+  }
 }
 
 function fmt(n: number, d = 1): string {
