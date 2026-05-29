@@ -16,7 +16,10 @@ export interface GeneratedProspect {
   nflProjectedPosition: string;
   position: string;
   tier: string;
+  classYear: string;
+  archetype: string;
   current: Record<string, number>;
+  ceiling: Record<string, number>;
   measurables: {
     heightInches: number;
     weightLbs: number;
@@ -31,39 +34,58 @@ export interface GeneratedProspect {
   };
 }
 
+interface EngineArchetype {
+  skillWeights: Record<string, number | undefined>;
+}
 interface EngineModule {
   Prng: new (seed: string) => unknown;
   generateInitialCollegePool: (
     prng: unknown,
     opts: { simYear?: number; idPrefix?: string },
   ) => readonly GeneratedProspect[];
+  getArchetypeById: (id: string) => EngineArchetype | undefined;
+  boardPositionalFactor: (position: string) => number;
 }
 
+let cached: EngineModule | null = null;
 async function loadEngine(): Promise<EngineModule> {
+  if (cached) return cached;
   if (!existsSync(ENGINE_DIST)) {
     throw new Error(
       `Engine build not found at ${ENGINE_DIST}.\n` +
         `Run: pnpm --filter @gmsim/engine build`,
     );
   }
-  return (await import(pathToFileURL(ENGINE_DIST).href)) as EngineModule;
+  cached = (await import(pathToFileURL(ENGINE_DIST).href)) as EngineModule;
+  return cached;
+}
+
+/** The archetype's defining ("key") skills — weight ≥ 1.2, the engine's own
+ *  threshold for a position-defining skill (see games/strength keySkillAvg). */
+export async function keySkillsFor(archetypeId: string): Promise<string[]> {
+  const eng = await loadEngine();
+  const arch = eng.getArchetypeById(archetypeId);
+  if (!arch) return [];
+  return Object.entries(arch.skillWeights)
+    .filter(([, w]) => (w ?? 1) >= 1.2)
+    .map(([k]) => k);
+}
+
+/** Position draft-value multiplier (QB/EDGE/CB premium), from the engine. */
+export async function positionValue(position: string): Promise<number> {
+  const eng = await loadEngine();
+  return eng.boardPositionalFactor(position);
 }
 
 /**
- * Generate a population of GMSim prospects across `seeds` college pools.
- * Returns the raw prospects; the Arbiter selects a "drafted" subset by talent.
+ * Generate one GMSim college pool (all class years). The Arbiter drafts from
+ * a single pool's graduating cohort — the realistic unit of one draft —
+ * rather than skimming the cream off many pooled classes.
  */
-export async function generateProspectPopulation(
-  seeds: readonly string[],
-): Promise<GeneratedProspect[]> {
+export async function generatePool(seed: string): Promise<GeneratedProspect[]> {
   const eng = await loadEngine();
-  const all: GeneratedProspect[] = [];
-  for (const seed of seeds) {
-    const pool = eng.generateInitialCollegePool(new eng.Prng(seed), {
-      simYear: 2026,
-      idPrefix: `arb_${seed}`,
-    });
-    all.push(...pool);
-  }
-  return all;
+  return [...eng.generateInitialCollegePool(new eng.Prng(seed), {
+    simYear: 2026,
+    idPrefix: `arb_${seed}`,
+  })];
 }
