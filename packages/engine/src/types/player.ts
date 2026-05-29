@@ -192,6 +192,15 @@ export interface Player {
   armLengthInches: number;
   /** Hand size in inches. */
   handSizeInches: number;
+
+  /**
+   * Hidden standout abilities / X-Factors (v0.102). Ability ids from
+   * `players/abilities.ts`. 0 or 1 in practice — sparse, emerge from the
+   * granular profile. Ground truth: the game UI surfaces only descriptive
+   * scout/media hints, never the flag (North Star). The game sim boosts the
+   * ability's facet (Superstar always-on, X-Factor when it activates).
+   */
+  abilities: readonly string[];
 }
 
 /**

@@ -7,6 +7,7 @@ import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
 import { generatePhysicalProfile } from '../players/physical.js';
+import { assignAbilities } from '../players/abilities.js';
 import { GRANULAR_PARENT } from '../players/skill-keys.js';
 import type { PlayerSkills } from '../types/player.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
@@ -415,6 +416,23 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
           current: backfillGranularSkills(p.current, rng.fork('cur')),
           ceiling: backfillGranularSkills(p.ceiling, rng.fork('ceil')),
         };
+      }
+      next = { ...next, players: backfilled } as LeagueState;
+    }
+  }
+
+  // v0.102.0 abilities / X-Factors. Pre-v0.102 players have no `abilities`
+  // array — derive from the (now-present) granular profile so the same
+  // elite players who'd qualify at generation get their flags. Runs after
+  // the v0.95 granular backfill above so the demanded skills exist.
+  {
+    const players = next.players as Record<string, Player>;
+    const sample = Object.values(players)[0];
+    if (sample && (sample as { abilities?: unknown }).abilities === undefined) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        const rng = new Prng(`${next.seed}::abilities::${id}`);
+        backfilled[id] = { ...p, abilities: assignAbilities(rng, p.positionGroup, p.current) };
       }
       next = { ...next, players: backfilled } as LeagueState;
     }

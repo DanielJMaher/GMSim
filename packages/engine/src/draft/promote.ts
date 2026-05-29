@@ -7,6 +7,7 @@ import { generateRookieContract } from '../contracts/rookie-scale.js';
 import { rollMoodProfile } from '../players/mood-profile.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { provenanceFromOverallPick, type DraftProvenance } from '../players/draft-provenance.js';
+import { assignAbilities } from '../players/abilities.js';
 
 export interface PromoteOptions {
   prospect: CollegePlayer;
@@ -141,5 +142,6 @@ function buildBaseRookiePlayer(
     weightLbs: prospect.measurables.weightLbs,
     armLengthInches: prospect.measurables.armLengthInches,
     handSizeInches: prospect.measurables.handSizeInches,
+    abilities: assignAbilities(prng.fork('abilities'), positionGroup, prospect.current),
   };
 }

@@ -10,6 +10,14 @@ export {
 } from './roster-blueprint.js';
 export { positionGroupFor } from './position-group.js';
 export {
+  ABILITIES,
+  getAbility,
+  assignAbilities,
+  type Ability,
+  type AbilityTier,
+  type AbilityFacet,
+} from './abilities.js';
+export {
   rollAgeProfile,
   ageToBirthDate,
   type AgeStage,

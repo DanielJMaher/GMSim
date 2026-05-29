@@ -58,6 +58,9 @@ export {
   rollAgeProfile,
   rollSkills,
   rollDevelopmentArchetype,
+  ABILITIES,
+  getAbility,
+  assignAbilities,
 } from './players/index.js';
 export type {
   GeneratePlayerOptions,
@@ -67,6 +70,9 @@ export type {
   AgeProfile,
   TalentTier,
   RolledSkills,
+  Ability,
+  AbilityTier,
+  AbilityFacet,
 } from './players/index.js';
 
 // Contracts + cap accounting

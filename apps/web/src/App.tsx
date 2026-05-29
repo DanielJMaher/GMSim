@@ -61,7 +61,7 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility } from '@gmsim/engine';
 import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
 import type { PositionNeed } from '@gmsim/engine';
@@ -6157,6 +6157,36 @@ function DraftPedigreeBadge({ player }: { player: Player }) {
   );
 }
 
+// Hidden abilities / X-Factors (v0.102). Inspector dev-lens only — the
+// game UI surfaces descriptive scout/media hints, never these flags.
+// X-Factors get a louder treatment; Superstars a quieter one.
+function AbilityBadges({ player }: { player: Player }) {
+  const abilities = player.abilities ?? [];
+  if (abilities.length === 0) return null;
+  return (
+    <>
+      {abilities.map((id) => {
+        const a = getAbility(id);
+        if (!a) return null;
+        const isX = a.tier === 'X_FACTOR';
+        const tone = isX
+          ? 'border-rose-500/60 bg-rose-500/15 text-rose-300'
+          : 'border-sky-500/40 bg-sky-500/10 text-sky-300';
+        return (
+          <span
+            key={id}
+            className={`ml-2 rounded border px-1 py-0.5 text-[9px] font-mono uppercase tracking-wider ${tone}`}
+            title={`${isX ? 'X-FACTOR' : 'Superstar'} ability (hidden ground truth): ${a.label} — boosts ${a.facet}`}
+          >
+            {isX ? '★ ' : ''}
+            {a.label}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
 // Height in inches → feet'inches" (e.g. 76 → 6'4").
 function formatHeight(inches: number): string {
   const ft = Math.floor(inches / 12);
@@ -6276,6 +6306,7 @@ function PositionGroupTable({
                       </span>
                     )}
                     <DraftPedigreeBadge player={p} />
+                    <AbilityBadges player={p} />
                     <span className="ml-2 text-[10px] text-zinc-600" title="Height · weight · arm length (ground-truth size)">
                       {formatHeight(p.heightInches)} {p.weightLbs}lb
                     </span>

@@ -13,6 +13,7 @@ import { rollSkills, rollDevelopmentArchetype } from './skills.js';
 import { rollMoodProfile } from './mood-profile.js';
 import { synthesizeDraftProvenance } from './draft-provenance.js';
 import { generatePhysicalProfile } from './physical.js';
+import { assignAbilities } from './abilities.js';
 
 export interface GeneratePlayerOptions {
   position: Position;
@@ -98,6 +99,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     weightLbs: physical.weightLbs,
     armLengthInches: physical.armLengthInches,
     handSizeInches: physical.handSizeInches,
+    abilities: assignAbilities(prng.fork('abilities'), positionGroup, skills.current),
   };
 }
 

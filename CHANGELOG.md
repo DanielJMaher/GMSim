@@ -16,6 +16,36 @@ _Nothing yet._
 
 ---
 
+## [0.102.0] — 2026-05-29
+
+### Added
+
+- **Player abilities / X-Factors** (player-model overhaul item 4a). A sparse
+  layer of standout traits on top of the granular skill model, à la Madden:
+  - **Two tiers.** `SUPERSTAR` (an always-on edge) and `X_FACTOR` (a true
+    difference-maker that can dominate when it activates in a game — Chase /
+    Calvin Johnson / Revis / Brady tier). Activation lives in the game sim
+    (item 4b, not yet wired).
+  - **A 20-ability catalog** (`players/abilities.ts`) spanning every position
+    group, each mapped to a `MatchupFacets` key: Gunslinger / Surgeon /
+    Escape Artist / Ice in the Veins (QB), Separator / YAC King / Mismatch
+    Nightmare / Deep Threat / Workhorse / Human Joystick (skill), Immovable /
+    Mirror Master (OL), Quick Twitch / Power Bully / Unblockable (DL),
+    Enforcer / Sideline to Sideline (LB), Ballhawk / Centerfield / Lockdown (DB).
+  - **Abilities emerge from the granular profile.** A player only qualifies
+    when the mean of the ability's demanded skills clears a high bar
+    (Superstar 84, X-Factor 90) and a sparse grant roll passes — so a
+    Gunslinger genuinely has the arm + deep accuracy, an Unblockable edge the
+    get-off + bend + hands. At most one ability per player; X-Factors win ties.
+    League-wide that's ~5.5% of players with an ability, ~0.7 X-Factors per team.
+  - **Hidden ground truth** (North Star). `Player.abilities` is added to the
+    type; the game UI will surface only descriptive scout/media hints
+    (item 4c), never the flag. The inspector shows them directly as a dev lens.
+  - Generation wired at both player-creation sites (`generatePlayer`,
+    rookie/UDFA promotion) and backfilled onto pre-v0.102 saves via migration.
+
+---
+
 ## [0.101.0] — 2026-05-29
 
 ### Changed — dimensional pass-rush matchup / OL parity (overhaul item 3)
