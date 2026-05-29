@@ -37,94 +37,96 @@ interface PositionBaseline {
 }
 
 const POSITION_BASELINES: Record<Position, PositionBaseline> = {
+  // broad/3-cone means recalibrated to real combine averages (Truth Arbiter
+  // found broad jumps short across the board and 3-cones a touch fast).
   QB: {
-    height: 75, weight: 220, arm: 32.5, hand: 9.5, forty: 4.8, bench: 12,
-    vert: 31, broad: 110, cone: 7.1, shuttle: 4.3,
+    height: 75, weight: 220, arm: 32.0, hand: 9.5, forty: 4.8, bench: 12,
+    vert: 31, broad: 113, cone: 7.1, shuttle: 4.3,
     heightSd: 1.5, weightSd: 12, fortySd: 0.18, benchSd: 4,
   },
   RB: {
     height: 70, weight: 215, arm: 31.0, hand: 9.0, forty: 4.55, bench: 18,
-    vert: 35, broad: 117, cone: 7.0, shuttle: 4.25,
+    vert: 35, broad: 120, cone: 7.0, shuttle: 4.25,
     heightSd: 1.5, weightSd: 12, fortySd: 0.10, benchSd: 4,
   },
   FB: {
     height: 71, weight: 240, arm: 31.5, hand: 9.2, forty: 4.75, bench: 22,
-    vert: 32, broad: 110, cone: 7.2, shuttle: 4.4,
+    vert: 32, broad: 113, cone: 7.2, shuttle: 4.4,
     heightSd: 1.4, weightSd: 12, fortySd: 0.10, benchSd: 4,
   },
   WR: {
     height: 73, weight: 200, arm: 32.0, hand: 9.3, forty: 4.50, bench: 13,
-    vert: 36, broad: 121, cone: 6.9, shuttle: 4.20,
+    vert: 36, broad: 123, cone: 6.9, shuttle: 4.20,
     heightSd: 2.2, weightSd: 14, fortySd: 0.10, benchSd: 4,
   },
   TE: {
     height: 76, weight: 250, arm: 33.0, hand: 9.7, forty: 4.75, bench: 20,
-    vert: 33, broad: 116, cone: 7.1, shuttle: 4.35,
+    vert: 33, broad: 118, cone: 7.1, shuttle: 4.35,
     heightSd: 1.4, weightSd: 12, fortySd: 0.12, benchSd: 4,
   },
   LT: {
     height: 78, weight: 315, arm: 34.5, hand: 10.0, forty: 5.20, bench: 25,
-    vert: 28, broad: 102, cone: 7.6, shuttle: 4.7,
+    vert: 28, broad: 106, cone: 7.75, shuttle: 4.7,
     heightSd: 1.0, weightSd: 12, fortySd: 0.15, benchSd: 5,
   },
   LG: {
     height: 76, weight: 315, arm: 33.0, hand: 10.0, forty: 5.25, bench: 28,
-    vert: 27, broad: 100, cone: 7.7, shuttle: 4.75,
+    vert: 27, broad: 104, cone: 7.85, shuttle: 4.75,
     heightSd: 1.2, weightSd: 12, fortySd: 0.15, benchSd: 5,
   },
   C: {
     height: 75, weight: 305, arm: 32.5, hand: 9.8, forty: 5.20, bench: 26,
-    vert: 28, broad: 100, cone: 7.6, shuttle: 4.7,
+    vert: 28, broad: 104, cone: 7.75, shuttle: 4.7,
     heightSd: 1.2, weightSd: 12, fortySd: 0.15, benchSd: 5,
   },
   RG: {
     height: 76, weight: 315, arm: 33.0, hand: 10.0, forty: 5.25, bench: 28,
-    vert: 27, broad: 100, cone: 7.7, shuttle: 4.75,
+    vert: 27, broad: 104, cone: 7.85, shuttle: 4.75,
     heightSd: 1.2, weightSd: 12, fortySd: 0.15, benchSd: 5,
   },
   RT: {
     height: 78, weight: 315, arm: 34.5, hand: 10.0, forty: 5.20, bench: 25,
-    vert: 28, broad: 102, cone: 7.6, shuttle: 4.7,
+    vert: 28, broad: 106, cone: 7.75, shuttle: 4.7,
     heightSd: 1.0, weightSd: 12, fortySd: 0.15, benchSd: 5,
   },
   EDGE: {
     height: 76, weight: 260, arm: 33.5, hand: 9.7, forty: 4.70, bench: 22,
-    vert: 34, broad: 119, cone: 7.0, shuttle: 4.35,
+    vert: 34, broad: 119, cone: 7.2, shuttle: 4.35,
     heightSd: 1.4, weightSd: 14, fortySd: 0.12, benchSd: 5,
   },
   DT: {
-    height: 75, weight: 305, arm: 33.5, hand: 10.0, forty: 5.05, bench: 28,
-    vert: 29, broad: 105, cone: 7.6, shuttle: 4.6,
+    height: 75, weight: 305, arm: 33.1, hand: 10.0, forty: 5.05, bench: 28,
+    vert: 29, broad: 108, cone: 7.7, shuttle: 4.6,
     heightSd: 1.2, weightSd: 14, fortySd: 0.18, benchSd: 5,
   },
   NT: {
     height: 75, weight: 335, arm: 34.0, hand: 10.0, forty: 5.30, bench: 30,
-    vert: 26, broad: 98, cone: 7.9, shuttle: 4.85,
+    vert: 26, broad: 100, cone: 7.9, shuttle: 4.85,
     heightSd: 1.2, weightSd: 14, fortySd: 0.18, benchSd: 5,
   },
   ILB: {
     height: 73, weight: 235, arm: 32.0, hand: 9.5, forty: 4.65, bench: 22,
-    vert: 34, broad: 117, cone: 7.0, shuttle: 4.30,
+    vert: 34, broad: 119, cone: 7.1, shuttle: 4.30,
     heightSd: 1.4, weightSd: 12, fortySd: 0.12, benchSd: 5,
   },
   OLB: {
     height: 74, weight: 240, arm: 33.0, hand: 9.5, forty: 4.65, bench: 22,
-    vert: 35, broad: 119, cone: 7.0, shuttle: 4.30,
+    vert: 35, broad: 120, cone: 7.1, shuttle: 4.30,
     heightSd: 1.4, weightSd: 12, fortySd: 0.12, benchSd: 5,
   },
   CB: {
     height: 71, weight: 195, arm: 31.5, hand: 9.2, forty: 4.45, bench: 13,
-    vert: 36, broad: 122, cone: 6.85, shuttle: 4.15,
+    vert: 36, broad: 124, cone: 6.95, shuttle: 4.15,
     heightSd: 1.5, weightSd: 10, fortySd: 0.08, benchSd: 4,
   },
   S: {
     height: 73, weight: 210, arm: 32.0, hand: 9.4, forty: 4.55, bench: 15,
-    vert: 35, broad: 121, cone: 7.0, shuttle: 4.25,
+    vert: 35, broad: 123, cone: 7.0, shuttle: 4.25,
     heightSd: 1.4, weightSd: 10, fortySd: 0.10, benchSd: 4,
   },
   NICKEL: {
     height: 71, weight: 200, arm: 31.5, hand: 9.2, forty: 4.50, bench: 14,
-    vert: 36, broad: 121, cone: 6.90, shuttle: 4.20,
+    vert: 36, broad: 123, cone: 6.95, shuttle: 4.20,
     heightSd: 1.4, weightSd: 10, fortySd: 0.08, benchSd: 4,
   },
   K: {
@@ -201,28 +203,31 @@ export function rollMeasurables(prng: Prng, options: RollMeasurablesOptions): Me
     Math.round(baseline.bench + strengthSignal * 4 + weightBonus + prng.normal(0, baseline.benchSd)),
   );
 
-  // Vertical / broad — agility + acceleration nudge.
+  // Vertical / broad — agility + acceleration nudge. Noise stdevs are
+  // widened to match real combine spread (Truth Arbiter found generated
+  // explosion drills clustered too tightly: real σ ≈ vert 3.0 / broad 6.0).
   const explosivenessSignal = (options.skills.acceleration - 70) / 30;
   const verticalInches = clamp(
-    round1(baseline.vert + explosivenessSignal * 2 + prng.normal(0, 2)),
+    round1(baseline.vert + explosivenessSignal * 2 + prng.normal(0, 3)),
     18,
     48,
   );
   const broadJumpInches = clamp(
-    Math.round(baseline.broad + explosivenessSignal * 3 + prng.normal(0, 4)),
+    Math.round(baseline.broad + explosivenessSignal * 3 + prng.normal(0, 5.5)),
     80,
     140,
   );
 
-  // 3-cone / shuttle — agility nudge.
+  // 3-cone / shuttle — agility nudge. Noise widened to real spread
+  // (real σ ≈ 3-cone 0.2 / shuttle 0.1).
   const agilitySignal = (options.skills.agility - 70) / 30;
   const threeConeSeconds = clamp(
-    round2(baseline.cone - agilitySignal * 0.10 + prng.normal(0, 0.10)),
+    round2(baseline.cone - agilitySignal * 0.10 + prng.normal(0, 0.18)),
     6.40,
     8.50,
   );
   const shuttleSeconds = clamp(
-    round2(baseline.shuttle - agilitySignal * 0.06 + prng.normal(0, 0.07)),
+    round2(baseline.shuttle - agilitySignal * 0.06 + prng.normal(0, 0.10)),
     3.90,
     5.20,
   );
