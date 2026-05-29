@@ -16,6 +16,39 @@ _Nothing yet._
 
 ---
 
+## [0.92.0] — 2026-05-28
+
+### Added — player draft provenance (backstory), and pedigree-aware QB need
+
+- **Every player now has a draft backstory** (`Player.draftRound`,
+  `Player.draftOverallPick`). At league creation it's *synthesized* from
+  tier + position (`players/draft-provenance.ts`): a star was probably a
+  high pick, a fringe player late or undrafted, premium positions skew
+  earlier — with deliberate spread so the league has gems (late picks who
+  became stars) and busts. On a real draft, `promoteProspectToPlayer`
+  records the actual pick. Hidden ground-truth substrate for roster logic
+  and future narrative ("former top-10 bust", "undrafted gem"). Migration
+  backfills pre-v0.92 saves.
+- **QB need is now pedigree-aware** — fixes the bug where a young *backup*
+  wrongly cancelled QB need. A team with no starter-quality QB floors QB
+  to a top need UNLESS it has a **first-round QB still inside his rookie
+  window** (the franchise plan it's developing). So a team starting a
+  journeyman with a 6th-round kid behind him still needs a QB; a team with
+  last year's top-5 pick does not — even while he's raw. The franchise QB
+  counts as a provisional starter, so QB drops off the list entirely. This
+  is what stops NPC teams from drafting a QB every single year.
+  (Supersedes the v0.91 age/tier heuristic, which mislabeled the Bills'
+  buried 22-year-old as their answer.)
+
+### Note
+
+- Surfaced a separate, pre-existing realism bug: in a deeply-advanced
+  league, QBs reach absurd ages (a 68-year-old still rostered) — players
+  aren't retiring/aging out. Tracked for a future aging/retirement slice;
+  not addressed here.
+
+---
+
 ## [0.91.0] — 2026-05-28
 
 ### Changed — scouts get more realistic: media humility, QB need, positional value
