@@ -173,3 +173,6 @@ export {
   SLEEPER_CONFIDENCE_BONUS,
 } from './sleepers.js';
 export type { SleeperProfile, SleeperPick, SleeperChannel } from './sleepers.js';
+
+// positional draft-value factor (board premium for QB/EDGE/CB, etc.)
+export { boardPositionalFactor } from './position-value.js';

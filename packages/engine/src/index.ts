@@ -317,6 +317,7 @@ export {
   valueOfPicks,
   comparePickPackages,
   roundForOverallPick,
+  boardPositionalFactor,
   // Doc 5 follow-on — DraftPickAsset infrastructure
   generateInitialDraftPicks,
   advancePickHorizon,
