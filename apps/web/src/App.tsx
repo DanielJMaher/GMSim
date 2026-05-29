@@ -6047,6 +6047,13 @@ function DraftPedigreeBadge({ player }: { player: Player }) {
   );
 }
 
+// Height in inches → feet'inches" (e.g. 76 → 6'4").
+function formatHeight(inches: number): string {
+  const ft = Math.floor(inches / 12);
+  const inch = inches % 12;
+  return `${ft}'${inch}"`;
+}
+
 function PositionGroupTable({
   group,
   hc,
@@ -6159,6 +6166,9 @@ function PositionGroupTable({
                       </span>
                     )}
                     <DraftPedigreeBadge player={p} />
+                    <span className="ml-2 text-[10px] text-zinc-600" title="Height · weight · arm length (ground-truth size)">
+                      {formatHeight(p.heightInches)} {p.weightLbs}lb
+                    </span>
                   </td>
                   <td className="px-2 py-1 text-zinc-500">
                     {ageOfPlayer(p, league.seasonNumber)}

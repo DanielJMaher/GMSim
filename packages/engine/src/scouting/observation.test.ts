@@ -55,6 +55,10 @@ function makePlayer(overrides: Partial<Player> = {}): Player {
     careerAwards: [],
     draftRound: 3,
     draftOverallPick: 80,
+    heightInches: 73,
+    weightLbs: 210,
+    armLengthInches: 32,
+    handSizeInches: 9.5,
     ...overrides,
   };
 }

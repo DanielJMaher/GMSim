@@ -136,5 +136,10 @@ function buildBaseRookiePlayer(
     careerAwards: [],
     draftRound: provenance.round,
     draftOverallPick: provenance.overallPick,
+    // Carry the prospect's real combine size through to the NFL record.
+    heightInches: prospect.measurables.heightInches,
+    weightLbs: prospect.measurables.weightLbs,
+    armLengthInches: prospect.measurables.armLengthInches,
+    handSizeInches: prospect.measurables.handSizeInches,
   };
 }

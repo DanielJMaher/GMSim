@@ -6,6 +6,7 @@ import type { PlayerId, ScoutId, TeamId } from '../types/ids.js';
 import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
+import { generatePhysicalProfile } from '../players/physical.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
 import { generateInitialCollegeObservations } from '../draft/college-observation.js';
@@ -372,6 +373,24 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
           p.position,
         );
         backfilled[id] = { ...p, draftRound: prov.round, draftOverallPick: prov.overallPick };
+      }
+      next = { ...next, players: backfilled } as LeagueState;
+    }
+  }
+
+  // v0.94.0 physical profile. Pre-v0.94 players have no `heightInches` —
+  // synthesize a position-appropriate size (deterministic per id).
+  {
+    const players = next.players as Record<string, Player>;
+    const sample = Object.values(players)[0];
+    if (sample && (sample as { heightInches?: unknown }).heightInches === undefined) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        const phys = generatePhysicalProfile(
+          new Prng(`${next.seed}::physical::${id}`),
+          p.position,
+        );
+        backfilled[id] = { ...p, ...phys };
       }
       next = { ...next, players: backfilled } as LeagueState;
     }

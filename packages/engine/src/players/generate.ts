@@ -12,6 +12,7 @@ import { rollAgeProfile, ageToBirthDate, type AgeStage, type AgeProfile } from '
 import { rollSkills, rollDevelopmentArchetype } from './skills.js';
 import { rollMoodProfile } from './mood-profile.js';
 import { synthesizeDraftProvenance } from './draft-provenance.js';
+import { generatePhysicalProfile } from './physical.js';
 
 export interface GeneratePlayerOptions {
   position: Position;
@@ -67,6 +68,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
 
   const positionGroup: PositionGroup = positionGroupFor(options.position);
   const provenance = synthesizeDraftProvenance(prng.fork('draft'), skills.tier, options.position);
+  const physical = generatePhysicalProfile(prng.fork('physical'), options.position);
 
   return {
     id: PlayerId(`P_${options.idSuffix}`),
@@ -92,6 +94,10 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     careerAwards: [],
     draftRound: provenance.round,
     draftOverallPick: provenance.overallPick,
+    heightInches: physical.heightInches,
+    weightLbs: physical.weightLbs,
+    armLengthInches: physical.armLengthInches,
+    handSizeInches: physical.handSizeInches,
   };
 }
 

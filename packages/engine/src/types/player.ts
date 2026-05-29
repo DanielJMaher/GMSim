@@ -178,6 +178,20 @@ export interface Player {
   draftRound: number | null;
   /** Overall draft slot (1..~224), or `null` if undrafted. See `draftRound`. */
   draftOverallPick: number | null;
+
+  // ── Physical profile (v0.94, player-model overhaul Stage 1) ──────────────
+  // Size as ground truth — gates plausible roles and feeds role-based
+  // scheme fit. Drafted players carry their real combine measurables;
+  // generated veterans roll a position-appropriate profile. Hidden truth
+  // (surfaced via scouting/measurables, not as raw tuning numbers).
+  /** Height in inches. */
+  heightInches: number;
+  /** Weight in pounds. */
+  weightLbs: number;
+  /** Arm length in inches. */
+  armLengthInches: number;
+  /** Hand size in inches. */
+  handSizeInches: number;
 }
 
 /**
