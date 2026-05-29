@@ -16,6 +16,24 @@ _Nothing yet._
 
 ---
 
+## [0.101.0] — 2026-05-29
+
+### Changed — dimensional pass-rush matchup / OL parity (overhaul item 3)
+
+- The pass-rush ⇄ protection matchup is now **dimensional** instead of
+  aggregate. New sub-facets (`games/strength.ts`): `passRushPower` /
+  `passRushFinesse` for the rush, `passProtAnchor` (pass-block power +
+  hands) / `passProtMirror` (pass-block finesse + hands) for the line.
+  `games/outcome.ts` computes the rusher's **best winning angle** — power
+  vs anchor, finesse vs mirror — so a bull-rusher beats a weak-anchor
+  tackle even if the line mirrors speed well, and a speed-bender beats a
+  slow-footed one who can still anchor. Centered (`DIM_RUSH_BIAS`) so
+  league-average sacks/pressure hold (season-stat calibration green). This
+  is the OL "parity": the line's existing counters (anchor / mirror /
+  hands) are now matched per-angle against the specific rush moves.
+
+---
+
 ## [0.100.0] — 2026-05-29
 
 ### Changed — full granular archetype specialization (overhaul item 2)
