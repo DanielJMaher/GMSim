@@ -16,6 +16,27 @@ _Nothing yet._
 
 ---
 
+## [0.99.0] — 2026-05-29
+
+### Added — size matters in scheme fit (player-model overhaul, item 1a)
+
+- Scheme fit now applies a **soft-but-impactful size penalty**
+  (`players/physical.ts` `sizePlausibility`, multiplied into
+  `schemeFitForPlayer`): "big" trench/run positions are penalized for being
+  *undersized* (a 185 lb edge can't set the edge — hard hit, soft-floored at
+  0.6), "speed" positions for being *oversized* (a 230 lb corner loses the
+  burst), specialists only for extreme deviation. Generated players sit at
+  position norms so the penalty only bites genuine mis-sized outliers and
+  real combine measurables, leaving league calibration unchanged. Draft
+  boards pass prospect measurables so an undersized prospect fits worse.
+- **Deferred (item 1b):** *size-driven conversion projection* (a 185 lb
+  college DE projecting to OLB/edge-in-space). It needs the prospect's size
+  before the position projection is rolled (today projection →
+  archetype → skills → measurables), i.e. a generation-order refactor —
+  tracked, not done here.
+
+---
+
 ## [0.98.0] — 2026-05-29
 
 ### Changed — player stats reflect granular skills (overhaul Stage 5, C)
