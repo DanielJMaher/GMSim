@@ -85,6 +85,68 @@ export function getAbility(id: string): Ability | undefined {
   return ABILITY_BY_ID.get(id);
 }
 
+/**
+ * Hedged, descriptive scouting phrase for each ability — the knowledge-layer
+ * HINT (North Star). A scout/media read surfaces this kind of language, never
+ * the ability flag itself: the player UI learns "flashes rare arm talent",
+ * not "has GUNSLINGER".
+ */
+export const ABILITY_HINTS: Record<string, string> = {
+  GUNSLINGER: 'flashes rare arm talent — drives the deep ball with velocity',
+  SURGEON: 'surgical short-to-intermediate accuracy; rarely misses the easy throw',
+  ESCAPE_ARTIST: 'slippery in the pocket — extends plays and throws on the move',
+  ICE_IN_VEINS: 'unflappable late — the moment never seems too big',
+  SEPARATOR: 'creates separation at will with a crisp route tree',
+  YAC_KING: 'dangerous after the catch; the first man rarely brings him down',
+  MISMATCH_NIGHTMARE: 'wins the jump ball — a matchup problem in traffic',
+  DEEP_THREAT: 'takes the top off the defense with true vertical speed',
+  WORKHORSE: 'punishing between the tackles; can carry the load',
+  HUMAN_JOYSTICK: 'absurd change of direction — makes defenders miss in a phone booth',
+  IMMOVABLE: 'anchors like a wall; the bull rush goes nowhere',
+  MIRROR_MASTER: 'mirrors speed rushers effortlessly off the edge',
+  QUICK_TWITCH: 'explosive first step; beats tackles off the snap',
+  POWER_BULLY: 'walks blockers into the backfield with raw power',
+  UNBLOCKABLE: 'a one-man wrecking crew off the edge when he gets going',
+  ENFORCER: 'a thumper in the box — sheds blocks and finishes tackles',
+  SIDELINE_TO_SIDELINE: 'ranges sideline to sideline; nothing outruns him',
+  BALLHAWK: 'a nose for the football; takes it away',
+  CENTERFIELD: 'patrols the deep middle and erases the post',
+  LOCKDOWN: 'travels with the No. 1 and takes him out of the game',
+};
+
+/** The hedged scouting phrase for an ability, or undefined if unknown. */
+export function describeAbilityHint(id: string): string | undefined {
+  return ABILITY_HINTS[id];
+}
+
+/**
+ * The ability ids a profile QUALIFIES for — the latent trait, WITHOUT the
+ * sparse grant roll `assignAbilities` applies. This is the ground-truth
+ * "does this player actually have this trait" used by the knowledge layer
+ * (a scout/media evaluator reads against it) and the perceived/real lens.
+ * Returns at most one (X-Factor preferred), mirroring the grant rule.
+ */
+export function latentAbilities(
+  positionGroup: PositionGroup,
+  current: PlayerSkills,
+): string[] {
+  const eligible = ABILITIES.filter((a) => a.positionGroups.includes(positionGroup));
+  const best = (tier: AbilityTier, bar: number): Ability | undefined =>
+    eligible
+      .filter((a) => a.tier === tier && meanOf(current, a.demandedSkills) >= bar)
+      .map((a) => ({ a, score: meanOf(current, a.demandedSkills) }))
+      .sort((p, q) => q.score - p.score || (p.a.id < q.a.id ? -1 : 1))[0]?.a;
+  const x = best('X_FACTOR', X_FACTOR_THRESHOLD);
+  if (x) return [x.id];
+  const s = best('SUPERSTAR', SUPERSTAR_THRESHOLD);
+  return s ? [s.id] : [];
+}
+
+/** Ability ids in the catalog valid for a position group (for false-flag draws). */
+export function eligibleAbilityIds(positionGroup: PositionGroup): string[] {
+  return ABILITIES.filter((a) => a.positionGroups.includes(positionGroup)).map((a) => a.id);
+}
+
 // Skill bar a player must clear (mean of demanded skills) to qualify, by
 // tier. X-Factors need elite skills; even then they're granted sparingly.
 const SUPERSTAR_THRESHOLD = 84;

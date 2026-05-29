@@ -11,8 +11,12 @@ export {
 export { positionGroupFor } from './position-group.js';
 export {
   ABILITIES,
+  ABILITY_HINTS,
   getAbility,
+  describeAbilityHint,
   assignAbilities,
+  latentAbilities,
+  eligibleAbilityIds,
   type Ability,
   type AbilityTier,
   type AbilityFacet,

@@ -59,8 +59,12 @@ export {
   rollSkills,
   rollDevelopmentArchetype,
   ABILITIES,
+  ABILITY_HINTS,
   getAbility,
+  describeAbilityHint,
   assignAbilities,
+  latentAbilities,
+  eligibleAbilityIds,
 } from './players/index.js';
 export type {
   GeneratePlayerOptions,
@@ -245,8 +249,9 @@ export {
   SCOUT_QUIRK_POOL,
   quirkEffect,
   composedQuirkEffect,
+  scoutAbilityRead,
 } from './scouting/index.js';
-export type { QuirkEffect } from './scouting/index.js';
+export type { QuirkEffect, AbilityRead } from './scouting/index.js';
 
 // Draft — Doc 3
 //   slice 1: college player substrate (v0.32.0)

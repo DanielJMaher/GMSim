@@ -16,6 +16,31 @@ _Nothing yet._
 
 ---
 
+## [0.104.0] — 2026-05-29
+
+### Added
+
+- **Ability hints — the knowledge layer reads abilities** (player-model
+  overhaul item 4c). The North Star bridge between hidden ability ground
+  truth and what evaluators can perceive:
+  - `latentAbilities(positionGroup, skills)` — the ability a profile actually
+    qualifies for, WITHOUT the sparse grant roll. The "real trait" a scout or
+    media evaluator reads against (and the inspector's perceived/real anchor).
+  - `scoutAbilityRead(prng, latent, eligible, reliability)` — a reliability-
+    gated read: a sharp evaluator spots a true standout trait far more often
+    and almost never invents one; a poor one misses real traits and
+    occasionally hallucinates a flashy one. Returns perceived, attributed
+    reads (`hit` marks true positives vs false flags) — never the flag.
+  - `ABILITY_HINTS` / `describeAbilityHint(id)` — the hedged descriptive
+    phrase a read surfaces ("flashes rare arm talent — drives the deep ball
+    with velocity"), so the player UI learns language, not the flag.
+  - Inspector: the ability badge tooltip now shows the hedged scout/media
+    hint alongside the real flag (dev calibration lens).
+  - These are the primitives the upcoming media-trust and GMs-consume-media
+    work will call; no game-UI consumer is wired yet.
+
+---
+
 ## [0.103.0] — 2026-05-29
 
 ### Added
