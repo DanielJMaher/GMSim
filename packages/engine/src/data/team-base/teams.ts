@@ -1,6 +1,6 @@
-import { TeamId } from '@gmsim/engine/types';
-import type { TeamIdentity } from '@gmsim/engine/types';
-import { Conference, Division, MarketSize } from '@gmsim/engine/types';
+import { TeamId } from '../../types/index.js';
+import type { TeamIdentity } from '../../types/index.js';
+import { Conference, Division, MarketSize } from '../../types/index.js';
 
 /**
  * Static identity for the 32 NFL franchises. Real names are used because
