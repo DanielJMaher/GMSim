@@ -16,6 +16,25 @@ _Nothing yet._
 
 ---
 
+## [0.98.0] — 2026-05-29
+
+### Changed — player stats reflect granular skills (overhaul Stage 5, C)
+
+- **QB completion % is now driven by accuracy** (`games/stats.ts`
+  `qbCompletionRate`) instead of a flat 64%: an accurate, decisive QB
+  (granular accuracy-short/medium + decisions + IQ) completes a higher
+  share of the same volume (~66–72%), an erratic one dips (~54–62%),
+  centered so the league-wide rate stays ~64% (season-stat calibration
+  green). Shared by the passing + receiving splits so receptions match.
+- The rest of per-player allocation already reflects the granular model:
+  `keySkillAvg` ranks players by their archetype's *key* skills, which are
+  the specialized granular skills (v0.95) — so target share (route
+  runners draw targets), sack share (pass-rush move-set), INT share
+  (ball skills), and tackle share already track the granular profile.
+  This sub-slice closes the one remaining flat input (completion %).
+
+---
+
 ## [0.97.0] — 2026-05-29
 
 ### Changed — granular matchups drive the box score (overhaul Stage 5, A+B)
