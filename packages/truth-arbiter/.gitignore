@@ -1,0 +1,4 @@
+# Scraped artifacts — large, regenerable, and not ours to redistribute.
+data/
+dist/
+.turbo/

@@ -1,0 +1,23 @@
+{
+  "name": "@gmsim/truth-arbiter",
+  "version": "0.104.0",
+  "private": true,
+  "type": "module",
+  "description": "Ground-truth corpus of real NFL draft history (2014-2026) used to verify GMSim's generated rosters and draft classes.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "scrape": "tsc -p tsconfig.json && node dist/scrape.js",
+    "embed": "tsc -p tsconfig.json && node dist/embed.js",
+    "search": "tsc -p tsconfig.json && node dist/search.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rimraf .turbo dist"
+  },
+  "dependencies": {
+    "node-html-parser": "^6.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3"
+  }
+}
