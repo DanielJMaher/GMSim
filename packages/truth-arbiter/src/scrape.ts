@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { cachedFetch } from './fetch.js';
 import { parseRoundPage } from './parse-round.js';
+import { mergeCombine } from './combine.js';
 import { YEARS, ROUNDS, roundUrl, DATA_DIR, CORPUS_PATH } from './config.js';
 import type { Corpus, DraftPickRecord } from './types.js';
 
@@ -41,6 +42,13 @@ async function main(): Promise<void> {
       );
     }
   }
+
+  // Join combine athletic testing from the open nflverse dataset.
+  const merge = await mergeCombine(picks);
+  console.log(
+    `\nCombine merge: ${merge.matched}/${merge.total} picks matched ` +
+      `(${merge.byOvr} by overall pick, ${merge.byName} by name).`,
+  );
 
   const corpus: Corpus = {
     generatedAt: new Date().toISOString(),

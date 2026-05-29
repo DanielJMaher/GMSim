@@ -17,6 +17,29 @@ export interface NgsScores {
   overall: number | null;
 }
 
+/**
+ * Combine athletic testing (from the open nflverse combine dataset, joined
+ * by draft year + overall pick). These are the raw workout numbers our
+ * engine also generates (fortyYardSeconds, benchPress225Reps, …), so they're
+ * directly verifiable. Any drill a player skipped is null.
+ */
+export interface CombineResults {
+  /** 40-yard dash, seconds. */
+  forty: number | null;
+  /** Bench press 225-lb reps. */
+  bench: number | null;
+  /** Vertical jump, inches. */
+  vertical: number | null;
+  /** Broad jump, inches. */
+  broadJump: number | null;
+  /** 3-cone drill, seconds. */
+  cone: number | null;
+  /** 20-yard shuttle, seconds. */
+  shuttle: number | null;
+  /** Pro-Football-Reference player id (identity/debug). */
+  pfrId: string | null;
+}
+
 /** One real drafted player, as scraped from the round tracker page. */
 export interface DraftPickRecord {
   year: number;
@@ -32,6 +55,8 @@ export interface DraftPickRecord {
   college: string | null;
   measurables: Measurables;
   scores: NgsScores;
+  /** Combine athletic testing, joined from nflverse (null if no match). */
+  combine: CombineResults | null;
   /** The scout write-up ("PROSPECT ANALYSIS"). */
   analysis: string | null;
   analyst: string | null;
