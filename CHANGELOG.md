@@ -16,6 +16,38 @@ _Nothing yet._
 
 ---
 
+## [0.95.0] — 2026-05-28
+
+### Added — granular skill model (player-model overhaul, Stage 2)
+
+- `PlayerSkills` gains a full **granular attribute set** (Madden-style and
+  finer), so players differentiate *within* a position instead of being
+  one "pass-rush technique" number:
+  - **Pass rush broken into specific moves** — power (bull rush, long arm,
+    push/pull), finesse (swim, rip, spin, cross-chop, ghost), plus get-off,
+    bend, hand technique. A speed rusher and a run-setting end now have
+    genuinely different profiles.
+  - **QB** — accuracy by depth (short/med/deep) AND by placement
+    (left/middle/right), plus throw-on-run, under-pressure, **spectacular
+    throw** (off-platform), break-sack, play-action.
+  - **WR** — route running by depth, **release vs press** and **release vs
+    off** coverage (separate), catching / catch-in-traffic / contested.
+  - Ball-carrier moves, blocking power/finesse, coverage man/zone/press +
+    ball skills, run-D/tackling, special teams, and new physical
+    (change-of-direction, jumping, stamina) + mental (play recognition).
+- The legacy umbrella techniques are **kept** (≈30 consumers read them);
+  granular skills roll *under* a parent umbrella, inheriting its archetype
+  weight unless an archetype overrides it. Key archetypes are specialized
+  (speed vs power edge, man vs zone corner, vertical vs precision QB,
+  deep-threat vs possession WR) so the new skills differentiate. Skill-key
+  taxonomy is centralized in `players/skill-keys.ts` (was duplicated in
+  generation + development). Migration backfills the new skills from their
+  parent umbrella.
+- Inspector player detail shows the granular skills, grouped and filtered
+  to the player's position group; roster rows already show size (v0.94).
+
+---
+
 ## [0.94.0] — 2026-05-28
 
 ### Added — player physical profile (player-model overhaul, Stage 1)
