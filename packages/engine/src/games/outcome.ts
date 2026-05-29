@@ -9,7 +9,7 @@ import type {
 import type { TeamState } from '../types/team.js';
 import type { LeagueState } from '../types/league.js';
 import type { Prng } from '../prng/index.js';
-import { teamStrength, matchupFacets, type MatchupFacets } from './strength.js';
+import { teamStrength, matchupFacets, applyAbilityBoosts, type MatchupFacets } from './strength.js';
 
 export interface SimulateGameOptions {
   homeTeam: TeamState;
@@ -65,8 +65,10 @@ export function simulateGame(prng: Prng, options: SimulateGameOptions): Schedule
   const homeWins = prng.next() < homeWinProb;
 
   const { homeScore, awayScore } = rollScores(prng, adjustedDelta, homeWins);
-  const homeFacets = matchupFacets(homeTeam, league);
-  const awayFacets = matchupFacets(awayTeam, league);
+  // Hidden abilities tilt the matchup on game day (v0.102 item 4b):
+  // Superstars always-on, X-Factors roll per-game activation.
+  const homeFacets = applyAbilityBoosts(matchupFacets(homeTeam, league), homeTeam, league, prng.fork('home-abil'));
+  const awayFacets = applyAbilityBoosts(matchupFacets(awayTeam, league), awayTeam, league, prng.fork('away-abil'));
   const homeStats = rollStats(prng, homeScore, homeFacets, awayFacets);
   const awayStats = rollStats(prng, awayScore, awayFacets, homeFacets);
   const injuries = rollInjuries(prng, homeTeam, awayTeam, league);

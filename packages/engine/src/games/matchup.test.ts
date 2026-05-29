@@ -1,11 +1,29 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
-import { matchupFacets } from './strength.js';
+import { matchupFacets, applyAbilityBoosts, teamStrength } from './strength.js';
 import { simulateGame } from './outcome.js';
 import { Prng } from '../prng/index.js';
 import { Position } from '../types/enums.js';
 import type { LeagueState } from '../types/league.js';
 import type { PlayerSkills } from '../types/player.js';
+
+/** Grant an ability id to a team's players at the given positions. */
+function grantAbility(
+  league: LeagueState,
+  teamId: string,
+  positions: readonly Position[],
+  abilityId: string,
+): LeagueState {
+  const team = league.teams[teamId as keyof typeof league.teams]!;
+  const players = { ...league.players };
+  const posSet = new Set<string>(positions);
+  for (const id of team.rosterIds) {
+    const p = players[id];
+    if (!p || !posSet.has(p.position)) continue;
+    players[id] = { ...p, abilities: [abilityId] };
+  }
+  return { ...league, players } as LeagueState;
+}
 
 const RUSH_KEYS: (keyof PlayerSkills)[] = [
   'getOff', 'bend', 'handTechnique', 'bullRush', 'longArm', 'pushPull',
@@ -98,6 +116,36 @@ describe('dimensional pass-rush matchup (item 3 — OL parity)', () => {
     };
     // The power rush exploits the weak anchor despite the good mirror.
     expect(sacksVs(weakAnchor)).toBeGreaterThan(sacksVs(strongAnchor));
+  });
+});
+
+describe('abilities tilt the matchup (item 4b)', () => {
+  it('a Lockdown corner raises the coverage facet via applyAbilityBoosts', () => {
+    const base = createLeague({ seed: 'abil-cov' });
+    const teamId = Object.keys(base.teams)[0]!;
+    const team = base.teams[teamId as keyof typeof base.teams]!;
+    const f0 = matchupFacets(team, base);
+    // Force a Lockdown (X-Factor, boosts coverage) onto the corners.
+    const granted = grantAbility(base, teamId, [Position.CB, Position.NICKEL], 'LOCKDOWN');
+    const gTeam = granted.teams[teamId as keyof typeof granted.teams]!;
+    const fBase = matchupFacets(gTeam, granted);
+    // Over many activation rolls the average coverage facet lands above the
+    // un-boosted baseline (X-Factor pops ~half the time, residual otherwise).
+    let sum = 0;
+    const n = 40;
+    for (let i = 0; i < n; i++) {
+      sum += applyAbilityBoosts(fBase, gTeam, granted, new Prng(`cov${i}`)).coverage;
+    }
+    expect(sum / n).toBeGreaterThan(f0.coverage + 2);
+  });
+
+  it('an X-Factor raises team strength (helps win, not just stats)', () => {
+    const base = createLeague({ seed: 'abil-str' });
+    const teamId = Object.keys(base.teams)[0]!;
+    const before = teamStrength(base.teams[teamId as keyof typeof base.teams]!, base);
+    const granted = grantAbility(base, teamId, [Position.QB], 'ICE_IN_VEINS');
+    const after = teamStrength(granted.teams[teamId as keyof typeof granted.teams]!, granted);
+    expect(after).toBeGreaterThan(before);
   });
 });
 

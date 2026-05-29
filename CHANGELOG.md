@@ -16,6 +16,25 @@ _Nothing yet._
 
 ---
 
+## [0.103.0] — 2026-05-29
+
+### Added
+
+- **Abilities matter on Sundays** (player-model overhaul item 4b). The hidden
+  ability flags from 4a now move the game sim:
+  - **Win probability.** `teamStrength` adds a small EV bonus per ability
+    (X-Factors weighted heavier), capped — so a roster with difference-makers
+    is genuinely tougher to beat, not just gaudier in the box score.
+  - **Box score, with per-game X-Factor activation.** `applyAbilityBoosts`
+    boosts a team's matchup facets on game day: Superstars are always-on;
+    X-Factors roll activation (~50%) and, when they pop, DOMINATE their facet
+    (a much larger boost) — when they don't, only a small residual. Pass-rush
+    and protection abilities also move the dimensional sub-facets that drive
+    sacks/pressure. Sparse league-wide, so NFL stat averages hold (season +
+    career stat guards stay green).
+
+---
+
 ## [0.102.0] — 2026-05-29
 
 ### Added

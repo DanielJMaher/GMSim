@@ -1,10 +1,12 @@
 import type { LeagueState } from '../types/league.js';
 import type { TeamState } from '../types/team.js';
 import type { Player, PlayerSkills } from '../types/player.js';
+import type { Prng } from '../prng/index.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { Position, PositionGroup } from '../types/enums.js';
 import { moodMultiplier } from '../season/mood.js';
+import { getAbility, type AbilityFacet } from '../players/abilities.js';
 
 /**
  * Compute a single-number team strength used as the primary input to
@@ -55,9 +57,25 @@ export function teamStrength(team: TeamState, league: LeagueState): number {
   const chemistryContribution = tp.organizationalStability * 6; // 1-10 → 6-60, mid 36
 
   // Weighted combination
-  return (
-    talent * 0.7 + fitContribution * 0.15 + coachingContribution * 0.1 + chemistryContribution * 0.05
-  );
+  const base =
+    talent * 0.7 + fitContribution * 0.15 + coachingContribution * 0.1 + chemistryContribution * 0.05;
+  // ─── Ability bonus (v0.102 item 4b) ──────────────────────────────────
+  // Difference-makers tilt win probability, not just the box score. EV
+  // bonus (X-Factors weighted heavier; per-game activation lives in the
+  // stat layer), capped so a star-stacked roster doesn't run away.
+  return base + abilityStrengthBonus(players);
+}
+
+function abilityStrengthBonus(players: readonly Player[]): number {
+  let bonus = 0;
+  for (const p of players) {
+    for (const id of p.abilities) {
+      const a = getAbility(id);
+      if (!a) continue;
+      bonus += a.tier === 'X_FACTOR' ? 1.5 : 0.6;
+    }
+  }
+  return Math.min(6, bonus);
 }
 
 /**
@@ -247,6 +265,60 @@ export function matchupFacets(team: TeamState, league: LeagueState): MatchupFace
     passProtAnchor: facet(players, OL_POS, anchorScore, 5),
     passProtMirror: facet(players, OL_POS, mirrorScore, 5),
   };
+}
+
+// Which MatchupFacets keys an ability's facet boosts. Pass-rush and
+// protection abilities bump the dimensional sub-facets too (those are what
+// actually drive sacks/pressure in `outcome.dimRushWin`).
+const FACET_TARGETS: Record<AbilityFacet, readonly (keyof MatchupFacets)[]> = {
+  qbPlay: ['qbPlay'],
+  receivingCorps: ['receivingCorps'],
+  rushingCorps: ['rushingCorps'],
+  passProtection: ['passProtection', 'passProtAnchor', 'passProtMirror'],
+  passRush: ['passRush', 'passRushPower', 'passRushFinesse'],
+  coverage: ['coverage'],
+  runDefense: ['runDefense'],
+};
+
+const SUPERSTAR_BOOST = 3;
+const X_FACTOR_ACTIVE_CHANCE = 0.5;
+const X_FACTOR_ACTIVE_BOOST = 14;
+const X_FACTOR_IDLE_BOOST = 3;
+
+/**
+ * Apply a team's hidden abilities to its game-day matchup facets (v0.102
+ * item 4b). Superstars are an always-on edge; X-Factors roll activation per
+ * game (≈50%) — when they pop they DOMINATE that facet, when they don't they
+ * leave only a small residual. Deterministic from `prng`; returns a new
+ * facet set (input untouched). Sparse league-wide, so NFL averages hold.
+ */
+export function applyAbilityBoosts(
+  facets: MatchupFacets,
+  team: TeamState,
+  league: LeagueState,
+  prng: Prng,
+): MatchupFacets {
+  const out = { ...facets };
+  const players = team.rosterIds
+    .map((id) => league.players[id])
+    .filter((p): p is Player => Boolean(p));
+  for (const p of players) {
+    for (const id of p.abilities) {
+      const a = getAbility(id);
+      if (!a) continue;
+      let boost: number;
+      if (a.tier === 'X_FACTOR') {
+        const active = prng.fork(p.id).next() < X_FACTOR_ACTIVE_CHANCE;
+        boost = active ? X_FACTOR_ACTIVE_BOOST : X_FACTOR_IDLE_BOOST;
+      } else {
+        boost = SUPERSTAR_BOOST;
+      }
+      for (const key of FACET_TARGETS[a.facet]) {
+        out[key] = Math.min(100, out[key] + boost);
+      }
+    }
+  }
+  return out;
 }
 
 /**
