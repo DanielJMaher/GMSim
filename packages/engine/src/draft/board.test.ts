@@ -60,8 +60,11 @@ describe('regenerateDraftBoardsForLeague (slice 3)', () => {
     const union = new Set([...aTop, ...bTop]).size;
     const jaccard = intersect / union;
     // Some overlap is expected (BLUE_CHIPS appear on most boards) but
-    // boards should not be identical. Loose bound — allow 0.10..0.85.
-    expect(jaccard).toBeLessThan(0.85);
+    // boards should not be identical. Loose bound. (v0.96 role-based scheme
+    // fit dampens the scheme-driven divergence for non-elite players —
+    // blue-chips still swing by scheme — nudging top-25 agreement up a hair,
+    // so the bound is 0.90.)
+    expect(jaccard).toBeLessThan(0.9);
   });
 
   it('CONVERSION_PROJECTION reason fires for at least some prospects', () => {

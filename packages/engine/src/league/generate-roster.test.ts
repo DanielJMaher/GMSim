@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createLeague } from './generate.js';
 import { ROSTER_SIZE } from '../players/index.js';
 import { PRACTICE_SQUAD_SIZE } from '../contracts/constants.js';
-import { schemeFitForPlayer } from '../scheme/fit.js';
+import { offensiveSchemeFit, defensiveSchemeFit } from '../scheme/fit.js';
 
 /**
  * Roster-level league tests. Personnel-only league behavior is covered
@@ -45,10 +45,10 @@ describe('createLeague — rosters', () => {
   });
 
   it('players are scheme-archetype-skewed per team HC scheme', () => {
-    // For a given league, count players whose archetype is a perfect-fit
-    // (offensive multiplier ≥ 1.4 OR defensive multiplier ≥ 1.4) for
-    // their team's scheme. Average across teams should be meaningfully
-    // above what uniform sampling would produce.
+    // Generation skews ARCHETYPES toward scheme fit. Measure that via the
+    // raw archetype↔scheme multiplier (offensive/defensive catalog value),
+    // NOT the v0.96 player-aware `schemeFitForPlayer` (which is dampened by
+    // talent and would understate the archetype-level generation skew).
     const league = createLeague({ seed: 'fit-skew' });
     let goodFits = 0;
     let total = 0;
@@ -56,16 +56,16 @@ describe('createLeague — rosters', () => {
       const hc = league.coaches[team.headCoachId]!;
       for (const playerId of team.rosterIds) {
         const player = league.players[playerId]!;
-        const fit = schemeFitForPlayer(player, {
-          offensiveScheme: hc.offensiveScheme,
-          defensiveScheme: hc.defensiveScheme,
-        });
-        if (fit >= 1.3) goodFits++;
+        const archetypeFit = Math.max(
+          offensiveSchemeFit(player.archetype, hc.offensiveScheme),
+          defensiveSchemeFit(player.archetype, hc.defensiveScheme),
+        );
+        if (archetypeFit >= 1.3) goodFits++;
         total++;
       }
     }
     // We can't easily compute the uniform baseline; just assert a
-    // meaningful fraction of players are good fits.
+    // meaningful fraction of players are good archetype fits.
     expect(goodFits / total).toBeGreaterThan(0.15);
   });
 });

@@ -552,6 +552,9 @@ function schemeFitForCollegeProspect(prospect: CollegePlayer, hc: HeadCoach): nu
   const playerLike = {
     archetype: prospect.archetype,
     position: prospect.nflProjectedPosition,
+    // v0.96: pass the prospect's true skills so fit is embodiment-aware
+    // (only blue-chip prospects realize a premium scheme fit).
+    current: prospect.current,
   } as unknown as Player;
   return schemeFitForPlayer(playerLike, {
     offensiveScheme: hc.offensiveScheme,
