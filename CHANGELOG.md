@@ -16,6 +16,23 @@ _Nothing yet._
 
 ---
 
+## [0.93.0] — 2026-05-28
+
+### Fixed — unsigned low-skill players wash out instead of piling up
+
+- `league.players` was growing without bound across a long sim — unsigned
+  fringe/depth players are too young for age-retirement (<34) yet never
+  good enough to sign, so they accumulated forever (a fresh league hit
+  ~11.7k players and climbing by season 15). Added a **free-agent washout**
+  pass to `processRetirements` (`rollWashout`): a free agent (no team) past
+  rookie age (≥23) whose tier is FRINGE/BACKUP retires with a per-offseason
+  probability (FRINGE 0.60, BACKUP 0.35) — so a low-end player who can't
+  catch on hangs it up after a year or two. Starters-and-better and
+  practice-squad players are never washed out. The store now plateaus
+  (~4.3k and converging over 15 seasons) with a healthy ~26 average age.
+
+---
+
 ## [0.92.0] — 2026-05-28
 
 ### Added — player draft provenance (backstory), and pedigree-aware QB need
