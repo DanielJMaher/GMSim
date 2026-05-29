@@ -122,13 +122,16 @@ function attributeOffense(
   const qbs = players
     .filter((p) => p.position === Position.QB)
     .sort(byTierThenSkill);
+  // Completion rate driven by the starting QB's accuracy (v0.98 sub-slice
+  // C) — shared by the passing + receiving splits so receptions match.
+  const compRate = qbs.length > 0 ? qbCompletionRate(qbs[0]!) : 0.64;
   if (qbs.length > 0) {
     // NFL yards-per-attempt 2014-2024 averages ~7.2. Use 7.6 here so
     // attempts land at ~30/game given ~230 pass yards (we slightly
     // under-shoot pass volume on purpose to leave headroom for the
     // top-end stat lines).
     const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7.6));
-    const totalCompletions = Math.round(totalAttempts * 0.64);
+    const totalCompletions = Math.round(totalAttempts * compRate);
     // INTs ≈ 50% of team turnovers (the rest are fumbles by
     // ball-carriers / strip-sacks). `fractionalRound` keeps the
     // mean at 0.5 × turnovers — `Math.round` would round 0.5 up to 1
@@ -180,7 +183,7 @@ function attributeOffense(
     .map((x) => x.player);
   if (receivers.length > 0) {
     const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7.6));
-    const totalCompletions = Math.round(totalAttempts * 0.64);
+    const totalCompletions = Math.round(totalAttempts * compRate);
     const shares = recvSharesFor(receivers.length);
     splitInt(receivers, shares, totalAttempts, (p, n) => (getOrInit(lines, p.id).targets += n));
     splitInt(receivers, shares, totalCompletions, (p, n) => (getOrInit(lines, p.id).receptions += n));
@@ -258,6 +261,21 @@ function recvSharesFor(n: number): number[] {
   const total = out.reduce((s, v) => s + v, 0);
   // Normalize to 1.0 in case we sliced fewer than 7.
   return out.map((v) => v / total);
+}
+
+/**
+ * Per-QB completion rate (v0.98, overhaul Stage 5 sub-slice C). NFL avg is
+ * ~64%; an accurate, decisive QB completes a higher share of the same
+ * volume (Brady/Brees territory) while an erratic one dips. Driven by the
+ * granular accuracy skills + decisions, centered on the league-typical QB1
+ * so the league-wide completion rate stays ~64%.
+ */
+const QB_ACC_REF = 74; // ~league-average QB1 accuracy composite
+export function qbCompletionRate(qb: Player): number {
+  const c = qb.current;
+  const acc = (c.accuracyShort + c.accuracyMedium + c.decisionMaking + c.footballIq) / 4;
+  const rate = 0.64 + (acc - QB_ACC_REF) * 0.0045;
+  return Math.max(0.54, Math.min(0.72, rate));
 }
 
 function receivingWeight(p: Player): number {
