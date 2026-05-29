@@ -16,6 +16,31 @@ _Nothing yet._
 
 ---
 
+## [0.96.0] — 2026-05-28
+
+### Changed — role-based scheme fit (player-model overhaul, Stage 3)
+
+- `schemeFitForPlayer` no longer returns a **flat per-archetype**
+  multiplier (every "pass rusher" edge got the same 1.5). It now modulates
+  the archetype↔scheme baseline by **embodiment** — how strongly the
+  player's actual skills match the archetype's demanded skills:
+  - **Bonus schemes** (baseline > 1) are realized in proportion to
+    embodiment, so **only blue-chip players get the premium fit**; a
+    replaceable role player at the same archetype reads ~neutral.
+  - **Penalty schemes** (baseline < 1) apply in proportion to
+    (1 − embodiment), so a **blue-chip transcends scheme and fits
+    everywhere** while a one-dimensional role player takes the hit.
+  - A bare archetype with no skills (legacy callers) falls back to the
+    raw baseline; output stays in the catalog's [0.5, 1.7] range, so the
+    ~15 consumers (boards, team strength, trades, FA, watch lists, mood)
+    are unchanged in scale.
+- Draft boards now pass each prospect's true skills into fit, so
+  prospect scheme fit is embodiment-aware too. This is what makes
+  "only blue-chip edges are a true fit for every system" actually true —
+  directly addressing the "every EDGE is a 1.5 fit" problem.
+
+---
+
 ## [0.95.0] — 2026-05-28
 
 ### Added — granular skill model (player-model overhaul, Stage 2)
