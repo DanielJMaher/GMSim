@@ -14,6 +14,26 @@ import type { CareerAward } from './awards.js';
 export type TalentTier = 'STAR' | 'STARTER' | 'BACKUP' | 'FRINGE';
 
 /**
+ * Fine-grained talent grade (Skill Adjudicator, 8 tiers) — the resolution real
+ * NFL talent stratifies into (4 tiers was far too coarse for a 32-team league).
+ * This is the SOURCE OF TRUTH; the legacy 4-tier `TalentTier` is DERIVED from
+ * it (`gradeToTier`), so the ~130 existing tier consumers keep working unchanged
+ * while generation / development / awards / the Adjudicator gain real resolution.
+ *
+ * Anchors: ELITE = 1st-team All-Pro, STAR = Pro Bowl, down to FRINGE = camp body.
+ * The abilities / X-Factor layer sits ON TOP of ELITE (the "generational" cut).
+ */
+export type TalentGrade =
+  | 'ELITE'
+  | 'STAR'
+  | 'HIGH_STARTER'
+  | 'STARTER'
+  | 'WEAK_STARTER'
+  | 'ROTATIONAL'
+  | 'BACKUP'
+  | 'FRINGE';
+
+/**
  * String-literal union of all player archetype IDs registered in the
  * `engine/archetypes` catalog. Defined here (in the types layer) so
  * `Player.archetype` can be strictly typed without creating a circular
@@ -98,6 +118,12 @@ export interface Player {
    * over a career; the value here is the *generation-time* tier.
    */
   tier: TalentTier;
+
+  /**
+   * Fine 8-tier talent grade (Skill Adjudicator). Source of truth; `tier` is
+   * derived from this via `gradeToTier`. Evolves over a career like `tier`.
+   */
+  talentGrade: TalentGrade;
 
   /** Position-specific archetype tag. Drives scheme fit. See ArchetypeId enum. */
   archetype: ArchetypeId;

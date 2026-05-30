@@ -3,27 +3,83 @@ import type {
   PlayerSkills,
   PlayerDevelopmentArchetype,
   TalentTier,
+  TalentGrade,
 } from '../types/player.js';
 import type { PlayerArchetype } from '../archetypes/types.js';
 import type { AgeStage } from './age.js';
 import { ALL_SKILL_KEYS, categoryFor, effectiveSkillWeight } from './skill-keys.js';
 
-export type { TalentTier } from '../types/player.js';
+export type { TalentTier, TalentGrade } from '../types/player.js';
 
-const TIER_WEIGHTS = [
-  { value: 'STAR' as TalentTier, weight: 5 },
-  { value: 'STARTER' as TalentTier, weight: 35 },
-  { value: 'BACKUP' as TalentTier, weight: 40 },
-  { value: 'FRINGE' as TalentTier, weight: 20 },
+/**
+ * Fine 8-grade distribution (Skill Adjudicator). Weights are chosen so they
+ * roll up — via `GRADE_TO_TIER` — to the legacy coarse 5/35/40/20
+ * STAR/STARTER/BACKUP/FRINGE split, so the ~130 `tier` consumers see an
+ * unchanged distribution while generation gains real resolution.
+ */
+const GRADE_WEIGHTS = [
+  { value: 'ELITE' as TalentGrade, weight: 1 },
+  { value: 'STAR' as TalentGrade, weight: 4 }, // → STAR 5
+  { value: 'HIGH_STARTER' as TalentGrade, weight: 13 },
+  { value: 'STARTER' as TalentGrade, weight: 22 }, // → STARTER 35
+  { value: 'WEAK_STARTER' as TalentGrade, weight: 18 },
+  { value: 'ROTATIONAL' as TalentGrade, weight: 22 }, // → BACKUP 40
+  { value: 'BACKUP' as TalentGrade, weight: 12 },
+  { value: 'FRINGE' as TalentGrade, weight: 8 }, // → FRINGE 20
 ];
 
-/** Mean ceiling (max-potential) baseline for each tier. */
-const TIER_CEILING_MEAN: Record<TalentTier, number> = {
-  STAR: 90,
-  STARTER: 78,
-  BACKUP: 66,
-  FRINGE: 54,
+/** Mean ceiling (max-potential) baseline per fine grade. Each coarse group's
+ *  weighted average matches the legacy tier mean (STAR≈90/STARTER78/BACKUP66/
+ *  FRINGE54), so coarse-derived skills don't shift. */
+const GRADE_CEILING_MEAN: Record<TalentGrade, number> = {
+  ELITE: 94,
+  STAR: 88,
+  HIGH_STARTER: 82,
+  STARTER: 76,
+  WEAK_STARTER: 70,
+  ROTATIONAL: 64,
+  BACKUP: 58,
+  FRINGE: 52,
 };
+
+/** Fine grade → legacy coarse tier (preserves the 5/35/40/20 split). */
+const GRADE_TO_TIER: Record<TalentGrade, TalentTier> = {
+  ELITE: 'STAR',
+  STAR: 'STAR',
+  HIGH_STARTER: 'STARTER',
+  STARTER: 'STARTER',
+  WEAK_STARTER: 'BACKUP',
+  ROTATIONAL: 'BACKUP',
+  BACKUP: 'FRINGE',
+  FRINGE: 'FRINGE',
+};
+
+export function gradeToTier(grade: TalentGrade): TalentTier {
+  return GRADE_TO_TIER[grade];
+}
+
+export function rollTalentGrade(prng: Prng): TalentGrade {
+  return prng.weighted(GRADE_WEIGHTS);
+}
+
+/** Order of grades from best to worst (for thresholds + the Adjudicator). */
+export const GRADE_ORDER: readonly TalentGrade[] = [
+  'ELITE', 'STAR', 'HIGH_STARTER', 'STARTER', 'WEAK_STARTER', 'ROTATIONAL', 'BACKUP', 'FRINGE',
+];
+
+/** Derive a grade from an overall ceiling value (for promotion / migration,
+ *  where a player has skills but no rolled grade). Thresholds are the
+ *  midpoints between adjacent `GRADE_CEILING_MEAN` anchors. */
+export function gradeFromOverall(overall: number): TalentGrade {
+  if (overall >= 91) return 'ELITE';
+  if (overall >= 85) return 'STAR';
+  if (overall >= 79) return 'HIGH_STARTER';
+  if (overall >= 73) return 'STARTER';
+  if (overall >= 67) return 'WEAK_STARTER';
+  if (overall >= 61) return 'ROTATIONAL';
+  if (overall >= 55) return 'BACKUP';
+  return 'FRINGE';
+}
 
 /**
  * How fully a player has reached their ceiling, by life-stage and skill
@@ -42,14 +98,17 @@ const REALIZATION_BY_STAGE: Record<AgeStage, { physical: number; technical: numb
   AGING:      { physical: 0.78, technical: 1.00, mental: 1.00, stable: 1.00 },
 };
 
+/** Legacy 4-tier roll — now derived from the fine grade so the distribution
+ *  is identical and the two stay consistent. */
 export function rollTalentTier(prng: Prng): TalentTier {
-  return prng.weighted(TIER_WEIGHTS);
+  return gradeToTier(rollTalentGrade(prng));
 }
 
 export interface RolledSkills {
   current: PlayerSkills;
   ceiling: PlayerSkills;
   tier: TalentTier;
+  talentGrade: TalentGrade;
 }
 
 /**
@@ -68,8 +127,9 @@ export function rollSkills(
   archetype: PlayerArchetype,
   ageStage: AgeStage,
 ): RolledSkills {
-  const tier = rollTalentTier(prng);
-  const ceilingBaseline = TIER_CEILING_MEAN[tier];
+  const talentGrade = rollTalentGrade(prng);
+  const tier = gradeToTier(talentGrade);
+  const ceilingBaseline = GRADE_CEILING_MEAN[talentGrade];
   const realization = REALIZATION_BY_STAGE[ageStage];
 
   const ceiling = {} as PlayerSkills;
@@ -99,7 +159,7 @@ export function rollSkills(
     current[key] = Math.min(ceilVal, Math.max(1, noisyCurrent));
   }
 
-  return { current, ceiling, tier };
+  return { current, ceiling, tier, talentGrade };
 }
 
 /**

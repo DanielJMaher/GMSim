@@ -1,5 +1,6 @@
 import type { Prng } from '../prng/index.js';
-import type { Player, PlayerSkills, PlayerDevelopmentArchetype, TalentTier } from '../types/player.js';
+import type { Player, PlayerSkills, PlayerDevelopmentArchetype, TalentGrade } from '../types/player.js';
+import { gradeToTier } from '../players/skills.js';
 import type { LeagueState } from '../types/league.js';
 import type { PlayerSeasonStats } from '../types/stats.js';
 import type { PlayerId } from '../types/ids.js';
@@ -32,14 +33,15 @@ export function advancePlayerDevelopment(
   const newCurrent = applyDevelopment(prng, player, stageNext, performanceMultiplier);
   // Tier shifts as skills change. We don't store an "original" tier;
   // re-derive from new current ratings using the same skill-key logic
-  // contracts use.
-  const newTier = deriveTierFromSkills(newCurrent, player);
+  // contracts use. The fine grade is the source of truth; tier derives from it.
+  const newGrade = deriveGradeFromSkills(newCurrent, player);
 
   return {
     ...player,
     experienceYears: player.experienceYears + 1,
     current: newCurrent,
-    tier: newTier,
+    talentGrade: newGrade,
+    tier: gradeToTier(newGrade),
   };
 }
 
@@ -162,17 +164,23 @@ function growthRate(
  * to import contracts (avoids a circular dep risk if contracts ever
  * needs to advance via development data).
  */
-function deriveTierFromSkills(skills: PlayerSkills, player: Player): TalentTier {
-  // Use the same key-skill set as the contracts module: skills with
-  // archetype weight ≥ 1.2.
-  // Loose duplication is intentional — keeps this module standalone.
-  const archetype = player.archetype;
-  const keys = keySkillsForArchetype(archetype);
-  if (keys.length === 0) return 'BACKUP';
+/**
+ * Derive the fine 8-grade from current key-skill average. Thresholds split
+ * the legacy 4-tier cuts (80/70/60) in two, so `gradeToTier` of the result
+ * reproduces the old tier exactly — tier behavior is unchanged, grade adds
+ * resolution.
+ */
+function deriveGradeFromSkills(skills: PlayerSkills, player: Player): TalentGrade {
+  const keys = keySkillsForArchetype(player.archetype);
+  if (keys.length === 0) return 'ROTATIONAL';
   const avg = keys.reduce((s, k) => s + skills[k], 0) / keys.length;
+  if (avg >= 86) return 'ELITE';
   if (avg >= 80) return 'STAR';
+  if (avg >= 75) return 'HIGH_STARTER';
   if (avg >= 70) return 'STARTER';
-  if (avg >= 60) return 'BACKUP';
+  if (avg >= 65) return 'WEAK_STARTER';
+  if (avg >= 60) return 'ROTATIONAL';
+  if (avg >= 54) return 'BACKUP';
   return 'FRINGE';
 }
 

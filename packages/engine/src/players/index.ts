@@ -30,7 +30,12 @@ export {
 export {
   rollSkills,
   rollTalentTier,
+  rollTalentGrade,
+  gradeToTier,
+  gradeFromOverall,
+  GRADE_ORDER,
   rollDevelopmentArchetype,
   type TalentTier,
+  type TalentGrade,
   type RolledSkills,
 } from './skills.js';

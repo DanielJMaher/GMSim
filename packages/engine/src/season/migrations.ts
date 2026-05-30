@@ -8,6 +8,7 @@ import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
 import { generatePhysicalProfile } from '../players/physical.js';
 import { assignAbilities } from '../players/abilities.js';
+import { gradeFromOverall } from '../players/skills.js';
 import { GRANULAR_PARENT } from '../players/skill-keys.js';
 import type { PlayerSkills } from '../types/player.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
@@ -432,6 +433,22 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
           current: backfillGranularSkills(p.current, rng.fork('cur')),
           ceiling: backfillGranularSkills(p.ceiling, rng.fork('ceil')),
         };
+      }
+      next = { ...next, players: backfilled } as LeagueState;
+    }
+  }
+
+  // Skill Adjudicator: fine 8-tier `talentGrade`. Pre-feature players have only
+  // the coarse `tier`; derive the grade from their ceiling overall.
+  {
+    const players = next.players as Record<string, Player>;
+    const sample = Object.values(players)[0];
+    if (sample && (sample as { talentGrade?: unknown }).talentGrade === undefined) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        const vals = Object.values(p.ceiling);
+        const overall = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+        backfilled[id] = { ...p, talentGrade: gradeFromOverall(overall) };
       }
       next = { ...next, players: backfilled } as LeagueState;
     }

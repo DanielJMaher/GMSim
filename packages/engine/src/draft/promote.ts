@@ -8,6 +8,13 @@ import { rollMoodProfile } from '../players/mood-profile.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { provenanceFromOverallPick, type DraftProvenance } from '../players/draft-provenance.js';
 import { assignAbilities } from '../players/abilities.js';
+import { gradeFromOverall } from '../players/skills.js';
+import type { PlayerSkills } from '../types/player.js';
+
+function meanOfSkills(skills: PlayerSkills): number {
+  const v = Object.values(skills);
+  return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
+}
 
 export interface PromoteOptions {
   prospect: CollegePlayer;
@@ -127,6 +134,9 @@ function buildBaseRookiePlayer(
     ceiling: prospect.ceiling,
     developmentArchetype: prospect.developmentArchetype,
     tier: prospect.tier,
+    // College prospects carry only the coarse tier; derive the fine grade
+    // from their ceiling (the Skill Adjudicator resolution) at promotion.
+    talentGrade: gradeFromOverall(meanOfSkills(prospect.ceiling)),
     archetype: prospect.archetype,
     injury: null,
     conditioning: 100,
