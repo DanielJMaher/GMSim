@@ -56,7 +56,7 @@ interface EnginePlayer {
   draftOverallPick: number | null;
   experienceYears: number;
   tier: string;
-  careerAwards: readonly unknown[];
+  careerAwards: readonly { kind: string }[];
 }
 interface EngineLeague {
   players: Record<string, EnginePlayer>;
@@ -119,6 +119,8 @@ export interface DraftedCareer {
   peakTier: string;
   /** Career individual awards (MVP/OPOY/DPOY/OROY/DROY) — the rare elite signal. */
   awards: number;
+  /** Career Pro Bowl selections (2b) — directly comparable to real probowls. */
+  proBowls: number;
   /** Disappeared from the league before sim end with a short career. */
   washedOutEarly: boolean;
 }
@@ -141,6 +143,7 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
     careerYears: number;
     peakTierRank: number;
     awards: number;
+    proBowls: number;
     lastSeen: number;
   }
   const tracked = new Map<string, Rec>();
@@ -159,12 +162,14 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
           careerYears: 0,
           peakTierRank: 0,
           awards: 0,
+          proBowls: 0,
           lastSeen: y,
         };
         tracked.set(p.id, rec);
       }
       rec.peakTierRank = Math.max(rec.peakTierRank, TIER_RANK[p.tier] ?? 0);
       rec.awards = p.careerAwards.length;
+      rec.proBowls = p.careerAwards.filter((a) => a.kind === 'PRO_BOWL').length;
       rec.careerYears = p.experienceYears;
       rec.lastSeen = y;
     }
@@ -176,6 +181,7 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
     careerYears: r.careerYears,
     peakTier: RANK_TO_TIER[r.peakTierRank] ?? 'FRINGE',
     awards: r.awards,
+    proBowls: r.proBowls,
     washedOutEarly: r.lastSeen < years - 1 && r.careerYears <= 3,
   }));
 }

@@ -39,7 +39,7 @@ import { computeRecords, divisionStandings } from './standings.js';
 import { advancePlayerDevelopment, computePerformanceMultipliers } from './development.js';
 import { processRetirements } from './retirement.js';
 import { seasonStatsForLeague } from './stats.js';
-import { seasonAwards } from './awards.js';
+import { seasonAwards, selectAccolades } from './awards.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { WEEKS_PER_LEAGUE_YEAR } from '../contracts/constants.js';
 import {
@@ -782,6 +782,12 @@ function applyPostSeasonFinalize(
   const seasonStats = seasonStatsForLeague(league);
   const awards = seasonAwards(league);
   const playerAwardMap = buildPlayerAwardMap(awards);
+  // Pro Bowl / All-Pro accolades (Skill Adjudicator 2b) — merge into the map.
+  for (const [pid, kinds] of selectAccolades(league)) {
+    const existing = playerAwardMap.get(pid);
+    if (existing) existing.push(...kinds);
+    else playerAwardMap.set(pid, [...kinds]);
+  }
   const performanceMultipliers = computePerformanceMultipliers(league, seasonStats);
 
   const playersAfterDev: Record<string, Player> = {};

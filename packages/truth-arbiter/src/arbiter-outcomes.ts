@@ -48,26 +48,23 @@ async function reportGenerated(years: number): Promise<void> {
     pct(realMature.filter((p) => p.round === r && p.career), (p) => (p.career!.probowls ?? 0) >= 1);
   const realBust = (r: number): number =>
     pct(realMature.filter((p) => p.round === r && p.career), (p) => (p.career!.seasonsStarted ?? 0) === 0 && (p.career!.wAv ?? p.career!.carAv ?? 0) < 8);
-  const genStar = (r: number): number => pct(genMature.filter((c) => c.round === r), (c) => c.peakTier === 'STAR');
-  const genStarter = (r: number): number => pct(genMature.filter((c) => c.round === r), (c) => c.peakTier === 'STAR' || c.peakTier === 'STARTER');
+  // The engine now selects Pro Bowls (2b), so the comparison is DIRECT.
+  const genPB = (r: number): number => pct(genMature.filter((c) => c.round === r), (c) => c.proBowls >= 1);
   const genBust = (r: number): number => pct(genMature.filter((c) => c.round === r), (c) => c.peakTier === 'FRINGE' || c.peakTier === 'BACKUP');
 
   console.log(`\n=== Phase B: generated vs real career outcomes by round ===`);
-  console.log(`(real ProBowl%↔gen STAR% : "became notably good"; bust% : never a starter)\n`);
+  console.log(`(ProBowl% now a DIRECT comparison — engine selects Pro Bowls; bust% = never a starter)\n`);
   console.log(
-    `  ${'rnd'.padEnd(4)} ${'realPB%'.padStart(8)} ${'genSTAR%'.padStart(9)} ${'genSTART%'.padStart(10)} ` +
+    `  ${'rnd'.padEnd(4)} ${'realPB%'.padStart(8)} ${'genPB%'.padStart(8)} ` +
       `${'realBust%'.padStart(10)} ${'genBust%'.padStart(9)}`,
   );
   for (let r = 1; r <= 7; r++) {
     console.log(
-      `  R${String(r).padEnd(3)} ${realPB(r).toFixed(1).padStart(8)} ${genStar(r).toFixed(1).padStart(9)} ${genStarter(r).toFixed(1).padStart(10)} ` +
+      `  R${String(r).padEnd(3)} ${realPB(r).toFixed(1).padStart(8)} ${genPB(r).toFixed(1).padStart(8)} ` +
         `${realBust(r).toFixed(1).padStart(10)} ${genBust(r).toFixed(1).padStart(9)}`,
     );
   }
-  console.log(
-    `\n  generated cohorts: ${genMature.length} drafted players (${years}-season sim).` +
-      `\n  NOTE: engine has no Pro Bowl/All-Pro — STAR-tier development is the closest "became elite" signal.`,
-  );
+  console.log(`\n  generated cohorts: ${genMature.length} drafted players (${years}-season sim).`);
 }
 
 function pct<T>(items: T[], pred: (t: T) => boolean): number {
