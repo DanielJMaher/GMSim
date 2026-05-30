@@ -4528,6 +4528,7 @@ function TeamCard({
 
       <PersonnelLine label="OWNER" name={owner.name} quirks={owner.quirks} />
       <PersonnelLine label="GM" name={gm.name} quirks={gm.quirks} />
+      <GmMediaTrust mediaTrust={gm.spectrums.mediaTrust} />
       <PersonnelLine
         label="HC"
         name={hc.name}
@@ -4658,6 +4659,29 @@ function Dim({ label, value }: { label: string; value: number }) {
     <div className="flex items-baseline justify-between border-b border-zinc-800/60 pb-0.5">
       <span className="text-zinc-600">{label}</span>
       <span className={`font-mono ${tone}`}>{value.toFixed(1)}</span>
+    </div>
+  );
+}
+
+// GM media trust (#5): how hard this GM lets the media consensus pull his draft
+// board. Hidden ground truth — dev lens only; explains why a team's board
+// chases (or ignores) public risers vs the consensus/Big Board.
+function GmMediaTrust({ mediaTrust }: { mediaTrust: number }) {
+  const tone =
+    mediaTrust >= 7
+      ? 'text-amber-300'
+      : mediaTrust <= 3
+        ? 'text-sky-300'
+        : 'text-zinc-400';
+  const flavor =
+    mediaTrust >= 7 ? 'chases the buzz' : mediaTrust <= 3 ? 'film-room, ignores noise' : 'balanced';
+  return (
+    <div
+      className="ml-[3.25rem] -mt-0.5 text-[10px] text-zinc-600"
+      title="Hidden GM trait (dev lens): how hard the media consensus pulls this GM's draft board (1-10). High = chases public risers/darlings on thinly-scouted prospects; low = trusts only firsthand scouting. Drives how far his board diverges from the consensus toward the media board."
+    >
+      media trust <span className={`font-mono ${tone}`}>{mediaTrust}/10</span>
+      <span className="ml-1 text-zinc-700">· {flavor}</span>
     </div>
   );
 }
