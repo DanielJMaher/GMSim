@@ -68,6 +68,8 @@ pnpm --filter @gmsim/truth-arbiter run class list
 # Real career-outcome curves by round ("did the pick pan out": wAV, Pro Bowl
 # rate, starter tenure, bust rate) — the reference for the development model.
 pnpm --filter @gmsim/truth-arbiter run outcomes
+# Phase B — generated outcomes via forward-sim (slow), compared to real curves.
+pnpm --filter @gmsim/truth-arbiter run outcomes sim [years]
 
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```

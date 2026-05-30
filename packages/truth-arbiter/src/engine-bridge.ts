@@ -45,6 +45,21 @@ interface EngineModule {
   ) => readonly GeneratedProspect[];
   getArchetypeById: (id: string) => EngineArchetype | undefined;
   boardPositionalFactor: (position: string) => number;
+  createLeague: (opts: { seed: string }) => EngineLeague;
+  simulateSeason: (league: EngineLeague) => EngineLeague;
+  advanceSeason: (league: EngineLeague) => EngineLeague;
+}
+
+interface EnginePlayer {
+  id: string;
+  draftRound: number | null;
+  draftOverallPick: number | null;
+  experienceYears: number;
+  tier: string;
+  careerAwards: readonly unknown[];
+}
+interface EngineLeague {
+  players: Record<string, EnginePlayer>;
 }
 
 let cached: EngineModule | null = null;
@@ -88,4 +103,79 @@ export async function generatePool(seed: string): Promise<GeneratedProspect[]> {
     simYear: 2026,
     idPrefix: `arb_${seed}`,
   })];
+}
+
+// ── Phase B: forward-sim career outcomes ─────────────────────────────────
+
+/** One drafted player's realized NFL career (tracked across a forward sim). */
+export interface DraftedCareer {
+  round: number;
+  overallPick: number | null;
+  /** Sim year the player was drafted (0-based). */
+  draftedYear: number;
+  /** experienceYears at last sighting (career length; right-censored at sim end). */
+  careerYears: number;
+  /** Best talent tier the player developed to (tier evolves via development). */
+  peakTier: string;
+  /** Career individual awards (MVP/OPOY/DPOY/OROY/DROY) — the rare elite signal. */
+  awards: number;
+  /** Disappeared from the league before sim end with a short career. */
+  washedOutEarly: boolean;
+}
+
+const TIER_RANK: Record<string, number> = { FRINGE: 0, BACKUP: 1, STARTER: 2, STAR: 3 };
+const RANK_TO_TIER = ['FRINGE', 'BACKUP', 'STARTER', 'STAR'] as const;
+
+/**
+ * Forward-simulate a league `years` seasons and track the realized career of
+ * every player DRAFTED in-sim (registered as a true rookie, experienceYears 0).
+ * This is the first SLOW Arbiter check — a full season sim per year.
+ */
+export async function simulateDraftedCareers(seed: string, years: number): Promise<DraftedCareer[]> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed });
+  interface Rec {
+    round: number;
+    overallPick: number | null;
+    draftedYear: number;
+    careerYears: number;
+    peakTierRank: number;
+    awards: number;
+    lastSeen: number;
+  }
+  const tracked = new Map<string, Rec>();
+  for (let y = 0; y < years; y++) {
+    league = eng.simulateSeason(league);
+    league = eng.advanceSeason(league);
+    for (const p of Object.values(league.players)) {
+      if (p.draftRound == null) continue;
+      let rec = tracked.get(p.id);
+      if (!rec) {
+        if (p.experienceYears > 0) continue; // only true in-sim rookies
+        rec = {
+          round: p.draftRound,
+          overallPick: p.draftOverallPick ?? null,
+          draftedYear: y,
+          careerYears: 0,
+          peakTierRank: 0,
+          awards: 0,
+          lastSeen: y,
+        };
+        tracked.set(p.id, rec);
+      }
+      rec.peakTierRank = Math.max(rec.peakTierRank, TIER_RANK[p.tier] ?? 0);
+      rec.awards = p.careerAwards.length;
+      rec.careerYears = p.experienceYears;
+      rec.lastSeen = y;
+    }
+  }
+  return [...tracked.values()].map((r) => ({
+    round: r.round,
+    overallPick: r.overallPick,
+    draftedYear: r.draftedYear,
+    careerYears: r.careerYears,
+    peakTier: RANK_TO_TIER[r.peakTierRank] ?? 'FRINGE',
+    awards: r.awards,
+    washedOutEarly: r.lastSeen < years - 1 && r.careerYears <= 3,
+  }));
 }
