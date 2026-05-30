@@ -1,11 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { CORPUS_PATH } from './config.js';
+import type { GeneratedProspect } from './engine-bridge.js';
 import {
-  generatePool,
-  keySkillsFor,
-  positionValue,
-  type GeneratedProspect,
-} from './engine-bridge.js';
+  newEvalCtx,
+  draftOneClass,
+  group,
+  GROUP_ORDER,
+  mean,
+  stdev,
+  gradeOf,
+} from './class-build.js';
 import type { Corpus, DraftPickRecord } from './types.js';
 
 /**
@@ -20,26 +24,6 @@ import type { Corpus, DraftPickRecord } from './types.js';
  *
  * Usage: pnpm --filter @gmsim/truth-arbiter run arbiter
  */
-
-// Both vocabularies (nfl.com real + engine Position enum) → coarse groups.
-const GROUP: Record<string, string> = {
-  QB: 'QB',
-  RB: 'RB', FB: 'RB',
-  WR: 'WR',
-  TE: 'TE',
-  LT: 'OL', LG: 'OL', C: 'OL', RG: 'OL', RT: 'OL', OT: 'OL', OG: 'OL', G: 'OL', T: 'OL', OL: 'OL',
-  EDGE: 'EDGE', DE: 'EDGE',
-  DT: 'DT', NT: 'DT', DL: 'DT',
-  LB: 'LB', OLB: 'LB', ILB: 'LB', MLB: 'LB',
-  CB: 'CB', NICKEL: 'CB',
-  S: 'S', SAF: 'S', FS: 'S', SS: 'S', DB: 'S',
-  K: 'K', P: 'P', LS: 'LS',
-};
-const GROUP_ORDER = ['QB', 'RB', 'WR', 'TE', 'OL', 'EDGE', 'DT', 'LB', 'CB', 'S'];
-
-function group(pos: string | null): string | null {
-  return pos ? (GROUP[pos.toUpperCase()] ?? null) : null;
-}
 
 interface Metric {
   label: string;
@@ -60,30 +44,6 @@ const METRICS: Metric[] = [
   { label: '3cone(s)', real: (p) => p.combine?.cone ?? null, gen: (g) => g.measurables.threeConeSeconds, lowerBetter: true },
   { label: 'shuttle(s)', real: (p) => p.combine?.shuttle ?? null, gen: (g) => g.measurables.shuttleSeconds, lowerBetter: true },
 ];
-
-function mean(xs: number[]): number {
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
-}
-function stdev(xs: number[]): number {
-  if (xs.length < 2) return 0;
-  const m = mean(xs);
-  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / (xs.length - 1));
-}
-/**
- * A draft-grade proxy for a generated prospect: the mean of the archetype's
- * KEY-skill CEILINGS (what the player projects to), not the mean of all 80
- * current skills. A real NGS grade reflects projected value off the
- * position-defining skills — averaging all 80 unrealized rookie skills is
- * heavily compressed and not comparable. `archKeys` maps archetype → key
- * skills (precomputed from the engine).
- */
-function gradeOf(g: GeneratedProspect, archKeys: Map<string, string[]>): number {
-  const keys = archKeys.get(g.archetype) ?? [];
-  const vals = (keys.length ? keys.map((k) => g.ceiling[k]) : Object.values(g.ceiling)).filter(
-    (x): x is number => typeof x === 'number',
-  );
-  return vals.length ? mean(vals) : 0;
-}
 
 const FLAG_SIGMA = 0.5; // |Δ| beyond this many real-σ gets flagged
 
@@ -113,35 +73,17 @@ async function main(): Promise<void> {
   const DRAFT_SIZE = Math.round(real.length / corpus.years.length); // ≈ one draft
   const seeds = ['arb-0', 'arb-1', 'arb-2', 'arb-3', 'arb-4', 'arb-5'];
 
-  const archKeys = new Map<string, string[]>();
-  const posVal = new Map<string, number>();
-  const grade = (g: GeneratedProspect): number => gradeOf(g, archKeys);
-  const draftValue = (g: GeneratedProspect): number =>
-    grade(g) * (posVal.get(g.nflProjectedPosition) ?? 1);
+  const ctx = newEvalCtx();
+  const grade = (g: GeneratedProspect): number => gradeOf(g, ctx);
 
+  // Pool several independent classes (each a single graduating cohort) for a
+  // stable aggregate sample; round assigned by rank within each class.
   const drafted: GeneratedProspect[] = [];
   const genRound = new Map<GeneratedProspect, number>();
   for (const seed of seeds) {
-    const pool = await generatePool(seed);
-    for (const arch of new Set(pool.map((p) => p.archetype))) {
-      if (!archKeys.has(arch)) archKeys.set(arch, await keySkillsFor(arch));
-    }
-    for (const pos of new Set(pool.map((p) => p.nflProjectedPosition))) {
-      if (!posVal.has(pos)) posVal.set(pos, await positionValue(pos));
-    }
-    // Draft-eligible cohort = all seniors + the ~110 best juniors who'd
-    // "declare" early (per the pool's own ~365-declared design). Only the
-    // top juniors leave; mediocre ones stay in school.
-    const seniors = pool.filter((p) => p.classYear === 'SR' || p.classYear === 'RS_SR');
-    const declaredJuniors = pool
-      .filter((p) => p.classYear === 'JR')
-      .sort((a, b) => draftValue(b) - draftValue(a))
-      .slice(0, 110);
-    const eligible = [...seniors, ...declaredJuniors]
-      .sort((a, b) => draftValue(b) - draftValue(a))
-      .slice(0, DRAFT_SIZE);
-    eligible.forEach((g, i) => {
-      genRound.set(g, roundForFraction(i / eligible.length, thresholds));
+    const cls = await draftOneClass(seed, ctx, DRAFT_SIZE);
+    cls.forEach((g, i) => {
+      genRound.set(g, roundForFraction(i / cls.length, thresholds));
       drafted.push(g);
     });
   }

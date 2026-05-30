@@ -57,6 +57,14 @@ pnpm --filter @gmsim/truth-arbiter run search "explosive edge rusher with rare g
 # (requires the engine built: pnpm --filter @gmsim/engine build)
 pnpm --filter @gmsim/truth-arbiter run arbiter
 
+# Per-class realism + class-to-class variance (does the generator vary like
+# real classes do — deep-WR years, barren-QB years?)
+pnpm --filter @gmsim/truth-arbiter run class <seed|nickname>   # grade one class
+pnpm --filter @gmsim/truth-arbiter run class variance [N]      # variance vs real
+# Named-seed registry (regression tracking — recall a class after tweaks):
+pnpm --filter @gmsim/truth-arbiter run class name "deep WR class" <seed>
+pnpm --filter @gmsim/truth-arbiter run class list
+
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```
 

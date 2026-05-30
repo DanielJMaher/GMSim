@@ -2,3 +2,5 @@
 data/
 dist/
 .turbo/
+# Personal named-seed registry (regression-tracking labels; like localStorage).
+seeds.json

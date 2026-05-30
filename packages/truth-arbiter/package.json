@@ -10,6 +10,7 @@
     "embed": "tsc -p tsconfig.json && node dist/embed.js",
     "search": "tsc -p tsconfig.json && node dist/search.js",
     "arbiter": "tsc -p tsconfig.json && node dist/arbiter.js",
+    "class": "tsc -p tsconfig.json && node dist/arbiter-class.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf .turbo dist"
   },
