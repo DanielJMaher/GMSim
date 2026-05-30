@@ -16,6 +16,58 @@ _Nothing yet._
 
 ---
 
+## [0.105.0] — 2026-05-30
+
+### Added
+
+- **Skill Adjudicator — 8-tier talent grades.** Replaced the too-coarse 4-tier
+  `TalentTier` (FRINGE/BACKUP/STARTER/STAR) with an 8-tier `TalentGrade`
+  (ELITE / STAR / HIGH_STARTER / STARTER / WEAK_STARTER / ROTATIONAL / BACKUP /
+  FRINGE), scaled for a 32-team league. Additive: `talentGrade` is the source
+  of truth and `tier` is derived (`gradeToTier`), with weights + ceiling-means
+  tuned to roll up to the legacy 5/35/40/20 split — so the ~130 `tier`
+  consumers and aggregate calibration are unchanged. Generation rolls it,
+  development evolves it, promotion/migration derive it from skills.
+- **Pro Bowl + All-Pro season awards.** `selectAccolades` picks per-position
+  honors each season scaled to mirror real NFL counts (1st-team All-Pro top
+  1-2/pos; Pro Bowl ≈ 2× All-Pro ≈ ~91/season). Box positions ranked by
+  production, OL/ST by talent. New `AwardKind`s `PRO_BOWL` / `ALL_PRO_1ST` /
+  `ALL_PRO_2ND` accrue to `careerAwards`.
+- **GMs consume the media.** NPC draft boards now blend the real media
+  consensus into their talent read, weighted by a new GM `mediaTrust` spectrum
+  and by each outlet's per-position-group reliability — so a sharp outlet's
+  "darling" take moves boards and a junk outlet's barely registers. Flows
+  through to picks and trade-ups via the board. The inspector surfaces GM
+  media-trust as a dev lens.
+- **Stage 5b — position-aware college skill signal.** The college sim grades
+  players by their archetype's key skills (shared with the NFL sim) instead of
+  a flat (technical + IQ + speed)/3 stub, so college production reflects the
+  granular player model.
+- **`boardPositionalFactor`** added to the public engine surface.
+
+### Changed
+
+- **Combine measurables recalibrated** to real NFL distributions — broad-jump
+  baselines raised, 3-cone slowed, and explosion/agility drill variance widened
+  to match real spread. Verified against 13 years of real combine data (every
+  position × metric now within 0.5σ).
+
+### Fixed
+
+- `data/team-base/teams.ts` now uses a relative import instead of the package
+  self-reference, so the built `dist` is self-contained for plain-Node tooling.
+
+### Tooling
+
+- New `@gmsim/truth-arbiter` workspace package (outside the pure engine): a
+  calibration/verification harness with a real NFL draft-history corpus
+  (2014–2026: nfl.com scores + write-ups, nflverse combine + career outcomes),
+  write-up embeddings, and the Arbiter/Skill-Adjudicator checks used to
+  validate generated rosters, draft classes, and development outcomes against
+  reality.
+
+---
+
 ## [0.104.0] — 2026-05-29
 
 ### Added
