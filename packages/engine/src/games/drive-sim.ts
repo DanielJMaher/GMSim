@@ -150,6 +150,9 @@ interface PRef {
 }
 export interface TeamPersonnel {
   qb: string | null;
+  /** Backup QB — takes a small share of dropbacks (spot duty / garbage time)
+   *  so the starter doesn't post 100% of a team's passing every season. */
+  qb2: string | null;
   receivers: PRef[];
   rushers: PRef[];
   passRush: PRef[];
@@ -189,10 +192,23 @@ function recvSteep(score: number): number {
   return Math.pow(Math.max(0, score - 35), 1.6);
 }
 
+const QB_TIER_RANK: Record<string, number> = { STAR: 4, STARTER: 3, BACKUP: 2, FRINGE: 1 };
+
+/** Share of dropbacks the backup QB takes (spot duty / garbage time). Keeps the
+ *  starter near ~92%, so the league passing leader lands in the realistic range
+ *  instead of posting 100% of a high-volume team's yards. */
+const BACKUP_QB_SHARE = 0.08;
+
 export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
-  const qb = players
+  // Pick the starter the way the rest of the engine identifies QB1 — tier
+  // first, then depth-chart (roster) order among ties — so the bottom-up sim
+  // feeds the same QB1 the stat consumers expect. Stable sort preserves roster
+  // order within a tier. The next QB is the backup who gets spot snaps.
+  const qbs = players
     .filter((p) => p.position === Position.QB)
-    .sort((a, b) => meanKeys(b, ['accuracyShort', 'accuracyMedium', 'accuracyDeep', 'decisionMaking']) - meanKeys(a, ['accuracyShort', 'accuracyMedium', 'accuracyDeep', 'decisionMaking']))[0];
+    .sort((a, b) => (QB_TIER_RANK[b.tier] ?? 0) - (QB_TIER_RANK[a.tier] ?? 0));
+  const qb = qbs[0];
+  const qb2 = qbs[1];
 
   const receivers: PRef[] = players
     .filter((p) => p.position === Position.WR || p.position === Position.TE || p.position === Position.RB)
@@ -241,7 +257,7 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
   tacklers.sort((a, b) => b.weight - a.weight);
   tacklers.splice(14);
 
-  return { qb: qb?.id ?? null, receivers, rushers, passRush, coverage, tacklers };
+  return { qb: qb?.id ?? null, qb2: qb2?.id ?? null, receivers, rushers, passRush, coverage, tacklers };
 }
 
 function pick(prng: Prng, refs: PRef[]): string | null {
@@ -313,7 +329,7 @@ function simulateDrive(
     const pr = resolvePlay(prng, ctx, down, togo);
 
     // ── Attribute the play's outcome to specific players (stage 1b). ──
-    let scorer: { id: string; kind: 'rec' | 'rush' } | null = null;
+    let scorer: { id: string; kind: 'rec' | 'rush'; passer?: string } | null = null;
     let tackleEligible = false; // a run or completion ends in a tackle (unless a TD)
     if (attr) {
       if (pr.isPass) {
@@ -325,22 +341,26 @@ function simulateDrive(
             dl.tackles += 1; // a sack is also a tackle
           }
         } else {
-          if (attr.off.qb) line(attr.stats, attr.off.qb).passAttempts += 1;
+          // The starter takes most dropbacks; the backup gets occasional spot
+          // duty so no QB posts 100% of a team's season passing.
+          const passer =
+            attr.off.qb2 && prng.next() < BACKUP_QB_SHARE ? attr.off.qb2 : attr.off.qb;
+          if (passer) line(attr.stats, passer).passAttempts += 1;
           const recvId = pick(prng, attr.off.receivers);
           if (recvId) line(attr.stats, recvId).targets += 1;
-          if (pr.kind === 'complete' && attr.off.qb) {
-            const q = line(attr.stats, attr.off.qb);
+          if (pr.kind === 'complete' && passer) {
+            const q = line(attr.stats, passer);
             q.passCompletions += 1;
             q.passingYards += pr.gain;
             if (recvId) {
               const r = line(attr.stats, recvId);
               r.receptions += 1;
               r.receivingYards += pr.gain;
-              scorer = { id: recvId, kind: 'rec' };
+              scorer = { id: recvId, kind: 'rec', passer };
             }
             tackleEligible = true;
           } else if (pr.kind === 'int') {
-            if (attr.off.qb) line(attr.stats, attr.off.qb).interceptionsThrown += 1;
+            if (passer) line(attr.stats, passer).interceptionsThrown += 1;
             const d = pick(prng, attr.def.coverage);
             if (d) line(attr.stats, d).interceptions += 1;
           }
@@ -367,7 +387,7 @@ function simulateDrive(
       if (attr && scorer) {
         if (scorer.kind === 'rec') {
           line(attr.stats, scorer.id).receivingTds += 1;
-          if (attr.off.qb) line(attr.stats, attr.off.qb).passingTds += 1;
+          if (scorer.passer) line(attr.stats, scorer.passer).passingTds += 1;
         } else {
           line(attr.stats, scorer.id).rushingTds += 1;
         }
@@ -396,12 +416,45 @@ interface Side {
   pers: TeamPersonnel | null;
 }
 
-function runGame(prng: Prng, home: Side, away: Side, stats: Map<string, PlayerStatLine> | null): DriveGameResult {
+/** Home-field edge added to the home offense's drive context. Tuned so two
+ *  identical teams produce a ~55-57% home win rate (real NFL HFA). */
+const HOME_FIELD_EDGE = 9;
+
+interface GameOpts {
+  /** Resolve a regulation tie with overtime + a yardage/coin tiebreak so the
+   *  game always has a winner (the live season requires one). Off for the
+   *  Magistrate's facet-only path so OT drives don't skew its drive metrics. */
+  resolveTie?: boolean;
+}
+
+function runGame(
+  prng: Prng,
+  home: Side,
+  away: Side,
+  stats: Map<string, PlayerStatLine> | null,
+  opts: GameOpts = {},
+): DriveGameResult {
   const driveLog: DriveOutcome[] = [];
   let homeScore = 0;
   let awayScore = 0;
   let d = 0;
   let offense: 'home' | 'away' = 'home';
+
+  const playDrive = (tag: string): { result: DriveResult; plays: number; yards: number } => {
+    const off = offense === 'home' ? home : away;
+    const def = offense === 'home' ? away : home;
+    const attr: Attr | null = stats && off.pers && def.pers ? { off: off.pers, def: def.pers, stats } : null;
+    const drive = simulateDrive(prng.fork(tag), off.ctx, KICKOFF_START, attr);
+    driveLog.push({ offense, ...drive });
+    const pts = POINTS[drive.result] ?? 0;
+    if (offense === 'home') homeScore += pts;
+    else awayScore += pts;
+    if (drive.result === 'SAFETY') {
+      if (offense === 'home') awayScore += 2;
+      else homeScore += 2;
+    }
+    return drive;
+  };
 
   for (let half = 0; half < 2; half++) {
     let halfPlays = 0;
@@ -411,28 +464,39 @@ function runGame(prng: Prng, home: Side, away: Side, stats: Map<string, PlayerSt
         offense = offense === 'home' ? 'away' : 'home';
         break;
       }
-      const off = offense === 'home' ? home : away;
-      const def = offense === 'home' ? away : home;
-      const attr: Attr | null = stats && off.pers && def.pers ? { off: off.pers, def: def.pers, stats } : null;
-      const drive = simulateDrive(prng.fork(`drive:${half}:${d++}`), off.ctx, KICKOFF_START, attr);
+      const drive = playDrive(`drive:${half}:${d++}`);
       halfPlays += drive.plays;
-      driveLog.push({ offense, ...drive });
-      const pts = POINTS[drive.result] ?? 0;
-      if (offense === 'home') homeScore += pts;
-      else awayScore += pts;
-      if (drive.result === 'SAFETY') {
-        if (offense === 'home') awayScore += 2;
-        else homeScore += 2;
-      }
       offense = offense === 'home' ? 'away' : 'home';
     }
   }
+
+  // Overtime — the live game must produce a winner. Each round both teams get
+  // one possession; a round that ends with a lead ends the game. Capped, then
+  // broken by total OT yardage (else a coin flip) so it always terminates.
+  if (opts.resolveTie && homeScore === awayScore) {
+    let otYardsHome = 0;
+    let otYardsAway = 0;
+    for (let round = 0; round < 8 && homeScore === awayScore; round++) {
+      offense = 'home';
+      otYardsHome += Math.max(0, playDrive(`ot:${round}:h`).yards);
+      offense = 'away';
+      otYardsAway += Math.max(0, playDrive(`ot:${round}:a`).yards);
+    }
+    if (homeScore === awayScore) {
+      if (otYardsHome > otYardsAway) homeScore += 3;
+      else if (otYardsAway > otYardsHome) awayScore += 3;
+      else if (prng.next() < 0.5) homeScore += 3;
+      else awayScore += 3;
+    }
+  }
+
   const result: DriveGameResult = { homeScore, awayScore, driveLog };
   if (stats) result.playerStats = stats;
   return result;
 }
 
-/** Facet-only drive sim (no player attribution) — used by the Magistrate. */
+/** Facet-only drive sim (no player attribution, no HFA/OT) — used by the
+ *  Magistrate to validate drive realism. */
 export function simulateGameDrives(
   prng: Prng,
   homeFacets: MatchupFacets,
@@ -446,22 +510,35 @@ export function simulateGameDrives(
   );
 }
 
+export interface DriveGameOptions {
+  /** Disable home-field advantage (neutral-site games, e.g. the Super Bowl). */
+  neutralSite?: boolean;
+}
+
 /** Full bottom-up game: builds facets + personnel from the rosters and returns
- *  the drive log + emergent per-player stat lines (stage 1b). */
+ *  the drive log + emergent per-player stat lines. Applies home-field advantage
+ *  and resolves ties (the live season needs a winner). */
 export function simulateGameWithDrives(
   prng: Prng,
   homeTeam: TeamState,
   awayTeam: TeamState,
   league: LeagueState,
+  opts: DriveGameOptions = {},
 ): DriveGameResult {
   const playersOf = (t: TeamState): Player[] =>
     t.rosterIds.map((id) => league.players[id]).filter((p): p is Player => Boolean(p));
   const hf = matchupFacets(homeTeam, league);
   const af = matchupFacets(awayTeam, league);
+  const homeCtx = driveCtx(hf, af);
+  if (!opts.neutralSite) {
+    homeCtx.passEdge += HOME_FIELD_EDGE;
+    homeCtx.runEdge += HOME_FIELD_EDGE;
+  }
   return runGame(
     prng,
-    { ctx: driveCtx(hf, af), pers: buildTeamPersonnel(playersOf(homeTeam)) },
+    { ctx: homeCtx, pers: buildTeamPersonnel(playersOf(homeTeam)) },
     { ctx: driveCtx(af, hf), pers: buildTeamPersonnel(playersOf(awayTeam)) },
     new Map<string, PlayerStatLine>(),
+    { resolveTie: true },
   );
 }

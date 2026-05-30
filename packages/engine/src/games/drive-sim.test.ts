@@ -74,27 +74,30 @@ describe('drive sim (bottom-up)', () => {
 });
 
 describe('statEngine flag wiring', () => {
-  it('topdown (default) stores no playerStats; bottomup stores emergent lines', () => {
-    const legacy = createLeague({ seed: 'flag-test' });
-    const ids = Object.keys(legacy.teams);
-    const opts = (lg: typeof legacy) => ({
-      homeTeam: lg.teams[ids[0]!]!,
-      awayTeam: lg.teams[ids[1]!]!,
-      league: lg,
-      weekNumber: 1,
-      kind: 'REGULAR' as const,
-    });
+  it('default (bottomup) stores emergent lines; topdown opt-out does not', () => {
+    const opts = (lg: ReturnType<typeof createLeague>) => {
+      const ids = Object.keys(lg.teams);
+      return {
+        homeTeam: lg.teams[ids[0]!]!,
+        awayTeam: lg.teams[ids[1]!]!,
+        league: lg,
+        weekNumber: 1,
+        kind: 'REGULAR' as const,
+      };
+    };
 
-    const topGame = simulateGame(new Prng('g'), opts(legacy));
-    expect(topGame.result?.playerStats).toBeUndefined();
-    // top-down still derives lines from the box score.
-    expect(deriveGamePlayerStats(topGame, legacy).length).toBeGreaterThan(0);
-
-    const bottom = createLeague({ seed: 'flag-test', statEngine: 'bottomup' });
+    // Default league (no statEngine) is now bottom-up.
+    const bottom = createLeague({ seed: 'flag-test' });
     const botGame = simulateGame(new Prng('g'), opts(bottom));
     expect(botGame.result?.playerStats).toBeDefined();
     expect(botGame.result!.playerStats!.length).toBeGreaterThan(0);
     // deriveGamePlayerStats returns the stored emergent lines verbatim.
     expect(deriveGamePlayerStats(botGame, bottom)).toBe(botGame.result!.playerStats);
+
+    // Explicit topdown opt-out stores no playerStats and derives top-down.
+    const legacy = createLeague({ seed: 'flag-test', statEngine: 'topdown' });
+    const topGame = simulateGame(new Prng('g'), opts(legacy));
+    expect(topGame.result?.playerStats).toBeUndefined();
+    expect(deriveGamePlayerStats(topGame, legacy).length).toBeGreaterThan(0);
   });
 });

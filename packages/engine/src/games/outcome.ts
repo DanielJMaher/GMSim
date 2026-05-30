@@ -53,10 +53,10 @@ const VARIANCE_MIX = [
 export function simulateGame(prng: Prng, options: SimulateGameOptions): ScheduledGame {
   const { homeTeam, awayTeam, league, weekNumber, kind, neutralSite } = options;
 
-  // Bottom-up stat engine (v0.106+): the matchup-driven drive sim produces
-  // the score AND emergent per-player stat lines. Flag-gated on the league;
-  // legacy top-down stays the default until the stat guards are recalibrated.
-  if (league.statEngine === 'bottomup') {
+  // Bottom-up stat engine (v0.106+, now the DEFAULT): the matchup-driven drive
+  // sim produces the score AND emergent per-player stat lines. Opt back into
+  // the legacy top-down box-score path with `statEngine: 'topdown'`.
+  if (league.statEngine !== 'topdown') {
     return simulateGameBottomUp(prng, options);
   }
 
@@ -108,8 +108,10 @@ export function simulateGame(prng: Prng, options: SimulateGameOptions): Schedule
  * still roll on the shared per-game model.
  */
 function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): ScheduledGame {
-  const { homeTeam, awayTeam, league, weekNumber, kind } = options;
-  const sim = simulateGameWithDrives(prng.fork('drives'), homeTeam, awayTeam, league);
+  const { homeTeam, awayTeam, league, weekNumber, kind, neutralSite } = options;
+  const sim = simulateGameWithDrives(prng.fork('drives'), homeTeam, awayTeam, league, {
+    neutralSite: neutralSite ?? false,
+  });
   const stats = sim.playerStats ?? new Map<string, PlayerStatLine>();
 
   const playerStats: PlayerGameStats[] = [];
