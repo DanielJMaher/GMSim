@@ -59,6 +59,13 @@ export interface GmSpectrums {
   intangiblesWeighting: Spectrum;
   evolutionRate: Spectrum;
   relationshipQuality: Spectrum;
+  /**
+   * How much this GM lets the MEDIA consensus pull their draft board (1..10).
+   * High = a media-driven GM whose board chases public risers/darlings,
+   * especially on prospects their own staff scouted thinly; low = a
+   * film-room GM who ignores the noise and trusts only firsthand reads.
+   */
+  mediaTrust: Spectrum;
 }
 
 export type GmQuirk =

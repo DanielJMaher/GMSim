@@ -271,6 +271,8 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     collegePool: baseLeague.collegePool,
     observations: baseLeague.collegeObservations,
     addedOnTick: initialTick,
+    mediaObservations: baseLeague.mediaCollegeObservations,
+    gms: baseLeague.gms,
   });
   // Combine — universal physical reveal.
   const initialCombine = runCombine(

@@ -1,4 +1,4 @@
-import type { TeamId, PlayerId } from '../types/ids.js';
+import type { TeamId, PlayerId, GmId } from '../types/ids.js';
 import type { PositionGroup } from '../types/enums.js';
 import type {
   CollegePlayer,
@@ -10,7 +10,7 @@ import type {
 } from '../types/college.js';
 import type { TeamState } from '../types/team.js';
 import type { Player, PlayerSkills } from '../types/player.js';
-import type { HeadCoach } from '../types/personnel.js';
+import type { HeadCoach, Gm } from '../types/personnel.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { schemeFitForPlayer } from '../scheme/index.js';
 import { positionGroupFor } from '../players/position-group.js';
@@ -72,6 +72,11 @@ const SCHEME_BONUS_CAP = 6;
 const NEED_BONUS_SCALE = 12;
 const NEED_BONUS_CAP = 4;
 const CONFIDENCE_FLOOR = 0.8;
+/** Cap on how far the media consensus can pull a single board's talent read
+ * (#5). Even a max-trust GM with high-confidence media on an unscouted
+ * prospect blends media at most this fraction — firsthand scouting still
+ * anchors the board. */
+const MEDIA_BLEND_MAX = 0.5;
 
 /**
  * Combine read (v0.78). The combine is a public event — every team gets
@@ -230,6 +235,11 @@ export function regenerateDraftBoardsForLeague(args: {
   /** Class combine results — when supplied, the (public) combine is
    * blended into every board's athletic read. Omit pre-combine. */
   combineResults?: Readonly<Record<string, CombineMeasurables>>;
+  /** Media outlets' prospect reads (#5). When supplied with `gms`, each
+   * team blends the media consensus into its board, weighted by its GM's
+   * `mediaTrust`. Omit to disable media consumption (legacy behavior). */
+  mediaObservations?: readonly CollegePlayerObservation[];
+  gms?: Readonly<Record<GmId, Gm>>;
 }): Record<TeamId, DraftBoardEntry[]> {
   const needScoresByTeam = new Map<TeamId, Record<PositionGroup, number>>();
   for (const team of Object.values(args.teams)) {
@@ -247,6 +257,8 @@ function regenerateDraftBoardsInternal(args: {
   needScoresByTeam: Map<TeamId, Record<PositionGroup, number>>;
   addedOnTick: number;
   combineResults?: Readonly<Record<string, CombineMeasurables>>;
+  mediaObservations?: readonly CollegePlayerObservation[];
+  gms?: Readonly<Record<GmId, Gm>>;
 }): Record<TeamId, DraftBoardEntry[]> {
   const prospectById = new Map<PlayerId, CollegePlayer>();
   for (const cp of args.collegePool) prospectById.set(cp.id, cp);
@@ -310,10 +322,37 @@ function regenerateDraftBoardsInternal(args: {
     );
   }
 
+  // Media consensus read per prospect (#5 — GMs consume the media). Pooled
+  // across all outlets' observations, aggregated like a scouting read. Each
+  // team blends this in below, weighted by its GM's mediaTrust.
+  const mediaAggregateByProspect = new Map<
+    PlayerId,
+    { observedSkillScore: number; meanConfidence: number }
+  >();
+  if (args.mediaObservations && args.mediaObservations.length > 0) {
+    const mediaByProspect = new Map<PlayerId, CollegePlayerObservation[]>();
+    for (const obs of args.mediaObservations) {
+      const b = mediaByProspect.get(obs.collegePlayerId);
+      if (b) b.push(obs);
+      else mediaByProspect.set(obs.collegePlayerId, [obs]);
+    }
+    for (const [pid, obsList] of mediaByProspect) {
+      const prospect = prospectById.get(pid);
+      if (!prospect) continue;
+      mediaAggregateByProspect.set(
+        pid,
+        aggregateCollegeObservations(obsList, prospect, args.addedOnTick),
+      );
+    }
+  }
+
   const out: Record<TeamId, DraftBoardEntry[]> = {} as Record<TeamId, DraftBoardEntry[]>;
   for (const teamId of Object.keys(args.teams) as TeamId[]) {
     const team = args.teams[teamId]!;
     const hc = args.coaches[team.headCoachId];
+    // GM's trust in the media (0..1); drives how hard media pulls the board.
+    const gm = args.gms?.[team.gmId];
+    const mediaTrust01 = gm ? (gm.spectrums.mediaTrust - 1) / 9 : 0;
     const need = args.needScoresByTeam.get(teamId);
     if (!hc || !need) {
       out[teamId] = [];
@@ -328,6 +367,8 @@ function regenerateDraftBoardsInternal(args: {
       args.addedOnTick,
       leagueAggregateByProspect,
       combineObsByProspect,
+      mediaAggregateByProspect,
+      mediaTrust01,
     );
   }
   return out;
@@ -369,6 +410,11 @@ function buildBoardForTeamWithNeed(
     { observedSkillScore: number; meanConfidence: number }
   >,
   combineObsByProspect?: ReadonlyMap<PlayerId, CollegePlayerObservation>,
+  mediaAggregateByProspect?: ReadonlyMap<
+    PlayerId,
+    { observedSkillScore: number; meanConfidence: number }
+  >,
+  mediaTrust01 = 0,
 ): DraftBoardEntry[] {
   const byProspect = new Map<PlayerId, CollegePlayerObservation[]>();
   for (const obs of teamObservations) {
@@ -440,6 +486,19 @@ function buildBoardForTeamWithNeed(
       observationCount = 0;
     } else {
       continue;
+    }
+
+    // Blend the media consensus into the talent read (#5). Media pulls harder
+    // when the GM trusts it AND when own scouting is thin (it fills gaps) —
+    // a film-room GM (low mediaTrust) is unmoved; a media-driven GM chases
+    // the public read on prospects he hasn't scouted himself.
+    const mediaRead = mediaAggregateByProspect?.get(collegePlayerId);
+    if (mediaRead && mediaRead.meanConfidence > 0 && mediaTrust01 > 0) {
+      const w =
+        clamp01(mediaTrust01 * mediaRead.meanConfidence * (1.2 - meanConfidence)) *
+        MEDIA_BLEND_MAX;
+      observedSkillScore = observedSkillScore * (1 - w) + mediaRead.observedSkillScore * w;
+      meanConfidence = Math.min(1, meanConfidence + w * mediaRead.meanConfidence * 0.3);
     }
 
     const schemeFit = schemeFitForCollegeProspect(prospect, hc);
@@ -639,6 +698,11 @@ function clamp(v: number, lo: number, hi: number): number {
 /** Symmetric clamp to ±cap. */
 function clampSigned(v: number, cap: number): number {
   return Math.max(-cap, Math.min(cap, v));
+}
+
+/** Clamp to [0, 1]. */
+function clamp01(v: number): number {
+  return Math.max(0, Math.min(1, v));
 }
 
 function round1(v: number): number {

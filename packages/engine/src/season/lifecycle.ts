@@ -1102,6 +1102,8 @@ function applyCombine(league: LeagueState, prng: PrngClass): LeagueState {
     observations: reacted.collegeObservations,
     addedOnTick: reacted.tick,
     combineResults: reacted.combineResults,
+    mediaObservations: reacted.mediaCollegeObservations,
+    gms: reacted.gms,
   });
   return {
     ...reacted,
@@ -1157,6 +1159,8 @@ function applyTop30Visits(league: LeagueState, prng: PrngClass): LeagueState {
     addedOnTick: offseason.tick,
     // Keep the combine read in the final pre-draft board.
     combineResults: offseason.combineResults,
+    mediaObservations: offseason.mediaCollegeObservations,
+    gms: offseason.gms,
   });
   offseason = { ...offseason, draftBoards: refreshedBoards };
 
@@ -1569,6 +1573,8 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
           collegePool: league.collegePool,
           observations: nextCollegeObs,
           addedOnTick: league.tick,
+          mediaObservations: league.mediaCollegeObservations,
+          gms: league.gms,
         })
       : league.draftBoards;
 

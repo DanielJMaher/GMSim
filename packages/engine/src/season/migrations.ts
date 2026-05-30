@@ -23,6 +23,7 @@ import {
   outletGroupProfiles,
 } from '../media/generate.js';
 import type { MediaOutlet } from '../types/media.js';
+import type { Gm, GmSpectrums } from '../types/personnel.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -340,6 +341,21 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
         };
       }
       next = { ...next, mediaOutlets: backfilled } as LeagueState;
+    }
+  }
+
+  // GM mediaTrust spectrum (#5 — GMs consume the media). Pre-feature GMs
+  // have no `mediaTrust`; roll one deterministically per GM id.
+  {
+    const gms = next.gms as Record<string, Gm>;
+    const sample = Object.values(gms)[0];
+    if (sample && (sample.spectrums as Partial<GmSpectrums>).mediaTrust === undefined) {
+      const backfilled: Record<string, Gm> = {};
+      for (const [id, gm] of Object.entries(gms)) {
+        const roll = new Prng(`${next.seed}::gm-media-trust::${id}`).nextRange(1, 11);
+        backfilled[id] = { ...gm, spectrums: { ...gm.spectrums, mediaTrust: roll } };
+      }
+      next = { ...next, gms: backfilled } as LeagueState;
     }
   }
 

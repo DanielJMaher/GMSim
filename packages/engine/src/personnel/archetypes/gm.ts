@@ -23,6 +23,7 @@ export const GM_ARCHETYPES: readonly GmArchetype[] = [
       capManagement: [7, 10],
       freeAgencyDiscipline: [6, 9],
       evolutionRate: [6, 9],
+      mediaTrust: [1, 4], // trusts the model, not the buzz
     },
   },
   {
@@ -32,6 +33,7 @@ export const GM_ARCHETYPES: readonly GmArchetype[] = [
       analyticsReliance: [1, 3],
       evolutionRate: [1, 4],
       intangiblesWeighting: [7, 10],
+      mediaTrust: [2, 5], // trusts his own eyes / the film
     },
   },
   {
@@ -52,6 +54,7 @@ export const GM_ARCHETYPES: readonly GmArchetype[] = [
       patienceUnderPressure: [1, 4],
       freeAgencyDiscipline: [1, 4],
       capManagement: [3, 6],
+      mediaTrust: [6, 9], // chases the buzz under win-now pressure
     },
   },
   {
@@ -99,6 +102,7 @@ export const GM_ARCHETYPES: readonly GmArchetype[] = [
       patienceUnderPressure: [1, 3],
       relationshipQuality: [2, 5],
       tradeAggressiveness: [6, 9],
+      mediaTrust: [7, 10], // swayed by the public narrative when desperate
     },
   },
   {

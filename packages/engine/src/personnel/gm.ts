@@ -25,6 +25,7 @@ const GM_SPECTRUM_KEYS: readonly (keyof GmSpectrums)[] = [
   'intangiblesWeighting',
   'evolutionRate',
   'relationshipQuality',
+  'mediaTrust',
 ];
 
 /**
