@@ -275,9 +275,17 @@ const ACCOLADE_SLOTS: Partial<Record<Position, AccoladeSlots>> = {
   [Position.LS]: { proBowl: 1, allPro1: 1, allPro2: 0 },
 };
 
-/** Per-position season performance score. Box-score for production positions;
- *  talent (key-skill avg) for OL / special teams, which have no box stats. */
-function accoladeScore(player: Player, line: PlayerSeasonStats | undefined): number {
+/** Weight of the talent term in the talent-blended accolade score. The blend
+ *  is over z-scores (box production vs talent), so an ELITE player in a
+ *  low-box-score role — a shutdown CB QBs avoid, a run-stuffing DT, a blocking
+ *  TE — still rises instead of being buried under volume producers, while a top
+ *  producer at the position still places. 0 = pure production, 1 = pure talent;
+ *  0.6 lands realistic ELITE→Pro Bowl conversion without ignoring the box. */
+const TALENT_BLEND = 0.6;
+
+/** Per-position RAW season box production. 0 for OL/ST (no box stats — they
+ *  rank on talent alone) and for box players who didn't record a stat line. */
+function boxProduction(player: Player, line: PlayerSeasonStats | undefined): number {
   switch (player.positionGroup) {
     case PositionGroup.QB:
       return line ? line.passingYards + 25 * line.passingTds - 20 * line.interceptionsThrown : 0;
@@ -289,29 +297,63 @@ function accoladeScore(player: Player, line: PlayerSeasonStats | undefined): num
     case PositionGroup.LB:
     case PositionGroup.DB:
       return line ? line.tackles + 30 * line.sacks + 60 * line.interceptions : 0;
-    default: // OL, ST — no box stats; rank by talent (no line needed).
-      return keySkillAverage(player.current, player.archetype) * 100;
+    default:
+      return 0; // OL / ST — talent-only.
   }
+}
+
+function isBoxGroup(group: PositionGroup): boolean {
+  return (
+    group === PositionGroup.QB ||
+    group === PositionGroup.SKILL ||
+    group === PositionGroup.DL ||
+    group === PositionGroup.LB ||
+    group === PositionGroup.DB
+  );
+}
+
+interface AccoladeCand {
+  id: PlayerId;
+  box: number;
+  talent: number;
+  /** Recorded a stat line this season (box positions only). */
+  played: boolean;
+}
+
+function meanStd(values: readonly number[]): { mean: number; std: number } {
+  if (values.length === 0) return { mean: 0, std: 0 };
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length;
+  return { mean, std: Math.sqrt(variance) };
 }
 
 /**
  * Select Pro Bowl + All-Pro accolades for the just-played season. Returns
  * playerId → awarded kinds (each accolade winner gets PRO_BOWL; the very top
  * also get ALL_PRO_1ST / ALL_PRO_2ND). Pure & deterministic.
+ *
+ * Box positions are ranked by a talent-blended z-score (production + talent),
+ * so dominant-but-quiet roles (shutdown CB, run DT, blocking TE) aren't snubbed
+ * by raw volume. OL / ST have no box stats and rank on talent alone. A player
+ * who didn't play (no stat line) can't place at a box position regardless of
+ * talent — accolades reward what happened on the field, not the depth chart.
  */
 export function selectAccolades(league: LeagueState): Map<PlayerId, AwardKind[]> {
   const out = new Map<PlayerId, AwardKind[]>();
   if (!league.schedule) return out;
   const stats = seasonStatsForLeague(league);
 
-  const byPosition = new Map<Position, { id: PlayerId; score: number }[]>();
+  const byPosition = new Map<Position, AccoladeCand[]>();
   for (const player of Object.values(league.players)) {
     if (!player.teamId) continue;
-    // Box positions need a stat line (didn't play = score 0 = won't place);
-    // OL/ST rank by talent with no line.
-    const score = accoladeScore(player, stats.get(player.id));
+    const line = stats.get(player.id);
     const bucket = byPosition.get(player.position) ?? byPosition.set(player.position, []).get(player.position)!;
-    bucket.push({ id: player.id, score });
+    bucket.push({
+      id: player.id,
+      box: boxProduction(player, line),
+      talent: keySkillAverage(player.current, player.archetype),
+      played: Boolean(line),
+    });
   }
 
   const add = (id: PlayerId, kind: AwardKind): void => {
@@ -319,11 +361,31 @@ export function selectAccolades(league: LeagueState): Map<PlayerId, AwardKind[]>
     list.push(kind);
   };
 
-  for (const [position, ranked] of byPosition) {
+  for (const [position, cands] of byPosition) {
     const slots = ACCOLADE_SLOTS[position];
-    if (!slots) continue;
-    ranked.sort((a, b) => b.score - a.score);
-    const proBowlers = ranked.slice(0, slots.proBowl);
+    if (!slots || cands.length === 0) continue;
+    const group = positionGroupOf(cands, league);
+
+    let scored: { id: PlayerId; score: number }[];
+    if (!isBoxGroup(group)) {
+      // OL / ST — talent only.
+      scored = cands.map((c) => ({ id: c.id, score: c.talent }));
+    } else {
+      // z-blend box production with talent over the players who actually
+      // played; the rest can't place (score -Infinity).
+      const played = cands.filter((c) => c.played);
+      const box = meanStd(played.map((c) => c.box));
+      const tal = meanStd(played.map((c) => c.talent));
+      scored = cands.map((c) => {
+        if (!c.played) return { id: c.id, score: Number.NEGATIVE_INFINITY };
+        const zb = box.std > 0 ? (c.box - box.mean) / box.std : 0;
+        const zt = tal.std > 0 ? (c.talent - tal.mean) / tal.std : 0;
+        return { id: c.id, score: (1 - TALENT_BLEND) * zb + TALENT_BLEND * zt };
+      });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    const proBowlers = scored.slice(0, slots.proBowl).filter((c) => c.score > Number.NEGATIVE_INFINITY);
     proBowlers.forEach((c, i) => {
       add(c.id, 'PRO_BOWL');
       if (i < slots.allPro1) add(c.id, 'ALL_PRO_1ST');
@@ -331,4 +393,12 @@ export function selectAccolades(league: LeagueState): Map<PlayerId, AwardKind[]>
     });
   }
   return out;
+}
+
+/** All players in a position bucket share a position group — read it off the
+ *  first candidate's player record. */
+function positionGroupOf(cands: readonly AccoladeCand[], league: LeagueState): PositionGroup {
+  const first = cands[0];
+  const p = first ? league.players[first.id] : undefined;
+  return p?.positionGroup ?? PositionGroup.ST;
 }
