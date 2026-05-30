@@ -12,6 +12,7 @@
     "arbiter": "tsc -p tsconfig.json && node dist/arbiter.js",
     "class": "tsc -p tsconfig.json && node dist/arbiter-class.js",
     "outcomes": "tsc -p tsconfig.json && node dist/arbiter-outcomes.js",
+    "adjudicate": "tsc -p tsconfig.json && node dist/skill-adjudicator.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf .turbo dist"
   },

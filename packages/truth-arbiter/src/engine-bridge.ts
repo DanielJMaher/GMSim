@@ -56,6 +56,10 @@ interface EnginePlayer {
   draftOverallPick: number | null;
   experienceYears: number;
   tier: string;
+  talentGrade: string;
+  position: string;
+  positionGroup: string;
+  teamId: string | null;
   careerAwards: readonly { kind: string }[];
 }
 interface EngineLeague {
@@ -184,4 +188,42 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
     proBowls: r.proBowls,
     washedOutEarly: r.lastSeen < years - 1 && r.careerYears <= 3,
   }));
+}
+
+// ── Skill Adjudicator (2c): league talent-grade + accolade audit ─────────
+
+export interface AuditPlayer {
+  position: string;
+  positionGroup: string;
+  talentGrade: string;
+}
+export interface LeagueAudit {
+  seasons: number;
+  /** Rostered players at sim end (grade distribution after development). */
+  players: AuditPlayer[];
+  /** Total accolades over the sim, by kind (/ seasons = per-season rate). */
+  accolades: Record<string, number>;
+}
+
+/**
+ * Forward-sim a league `years` seasons and return the audit surface the Skill
+ * Adjudicator checks: the post-development talent-grade distribution + the
+ * per-season accolade counts (Pro Bowl / All-Pro).
+ */
+export async function auditLeague(seed: string, years: number): Promise<LeagueAudit> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed });
+  const accolades: Record<string, number> = {};
+  for (let y = 0; y < years; y++) {
+    league = eng.simulateSeason(league);
+    league = eng.advanceSeason(league);
+  }
+  const players: AuditPlayer[] = [];
+  for (const p of Object.values(league.players)) {
+    if (p.teamId) {
+      players.push({ position: p.position, positionGroup: p.positionGroup, talentGrade: p.talentGrade });
+    }
+    for (const a of p.careerAwards) accolades[a.kind] = (accolades[a.kind] ?? 0) + 1;
+  }
+  return { seasons: years, players, accolades };
 }

@@ -71,6 +71,11 @@ pnpm --filter @gmsim/truth-arbiter run outcomes
 # Phase B — generated outcomes via forward-sim (slow), compared to real curves.
 pnpm --filter @gmsim/truth-arbiter run outcomes sim [years]
 
+# Skill Adjudicator — talent-grade + accolade GUARDRAIL. Run after any
+# generation/development tweak to confirm we stayed in the tier guardrails.
+pnpm --filter @gmsim/truth-arbiter run adjudicate          # generated grade dist (fast)
+pnpm --filter @gmsim/truth-arbiter run adjudicate sim [N]  # post-development + Pro Bowl/All-Pro rates
+
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```
 
