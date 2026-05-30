@@ -6,10 +6,12 @@ import type {
   ScheduledGame,
   TeamGameStats,
 } from '../types/game.js';
+import { type PlayerGameStats, emptyPlayerGameStats } from '../types/stats.js';
 import type { TeamState } from '../types/team.js';
 import type { LeagueState } from '../types/league.js';
 import type { Prng } from '../prng/index.js';
 import { teamStrength, matchupFacets, applyAbilityBoosts, type MatchupFacets } from './strength.js';
+import { simulateGameWithDrives, type PlayerStatLine } from './drive-sim.js';
 
 export interface SimulateGameOptions {
   homeTeam: TeamState;
@@ -51,6 +53,13 @@ const VARIANCE_MIX = [
 export function simulateGame(prng: Prng, options: SimulateGameOptions): ScheduledGame {
   const { homeTeam, awayTeam, league, weekNumber, kind, neutralSite } = options;
 
+  // Bottom-up stat engine (v0.106+): the matchup-driven drive sim produces
+  // the score AND emergent per-player stat lines. Flag-gated on the league;
+  // legacy top-down stays the default until the stat guards are recalibrated.
+  if (league.statEngine === 'bottomup') {
+    return simulateGameBottomUp(prng, options);
+  }
+
   const homeStrength = teamStrength(homeTeam, league);
   const awayStrength = teamStrength(awayTeam, league);
   const hfa = neutralSite ? 0 : HOME_FIELD_ADVANTAGE;
@@ -89,6 +98,89 @@ export function simulateGame(prng: Prng, options: SimulateGameOptions): Schedule
     awayTeamId: awayTeam.identity.id,
     result,
     kind,
+  };
+}
+
+/**
+ * Bottom-up game (v0.106+): the matchup-driven drive sim produces the score
+ * and emergent per-player stat lines. Team box scores are summed from those
+ * lines so downstream consumers (standings, media) stay consistent; injuries
+ * still roll on the shared per-game model.
+ */
+function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): ScheduledGame {
+  const { homeTeam, awayTeam, league, weekNumber, kind } = options;
+  const sim = simulateGameWithDrives(prng.fork('drives'), homeTeam, awayTeam, league);
+  const stats = sim.playerStats ?? new Map<string, PlayerStatLine>();
+
+  const playerStats: PlayerGameStats[] = [];
+  for (const [pid, l] of stats) {
+    const g = emptyPlayerGameStats(pid as PlayerGameStats['playerId']);
+    g.passAttempts = l.passAttempts;
+    g.passCompletions = l.passCompletions;
+    g.passingYards = l.passingYards;
+    g.passingTds = l.passingTds;
+    g.interceptionsThrown = l.interceptionsThrown;
+    g.rushingAttempts = l.rushingAttempts;
+    g.rushingYards = l.rushingYards;
+    g.rushingTds = l.rushingTds;
+    g.targets = l.targets;
+    g.receptions = l.receptions;
+    g.receivingYards = l.receivingYards;
+    g.receivingTds = l.receivingTds;
+    g.tackles = l.tackles;
+    g.sacks = l.sacks;
+    g.interceptions = l.interceptions;
+    playerStats.push(g);
+  }
+
+  const result: GameResult = {
+    homeScore: sim.homeScore,
+    awayScore: sim.awayScore,
+    homeStats: teamStatsFromLines(homeTeam, stats),
+    awayStats: teamStatsFromLines(awayTeam, stats),
+    injuries: rollInjuries(prng, homeTeam, awayTeam, league),
+    variance: 'moderate',
+    playerStats,
+  };
+
+  return {
+    id: GameId(`G_S${league.seasonNumber}_W${weekNumber}_${homeTeam.identity.abbreviation}_${awayTeam.identity.abbreviation}`),
+    weekNumber,
+    homeTeamId: homeTeam.identity.id,
+    awayTeamId: awayTeam.identity.id,
+    result,
+    kind,
+  };
+}
+
+/** Sum a team's emergent player lines into its conventional box score.
+ *  `sacks` = defensive sacks the team generated; `turnovers` = offensive
+ *  giveaways (INTs thrown; the drive sim doesn't attribute fumbles to a
+ *  player, so this slightly undercounts — acceptable for the box score). */
+function teamStatsFromLines(
+  team: TeamState,
+  stats: Map<string, PlayerStatLine>,
+): TeamGameStats {
+  let passingYards = 0;
+  let rushingYards = 0;
+  let sacks = 0;
+  let turnovers = 0;
+  for (const id of team.rosterIds) {
+    const l = stats.get(id);
+    if (!l) continue;
+    passingYards += l.passingYards;
+    rushingYards += l.rushingYards;
+    sacks += l.sacks;
+    turnovers += l.interceptionsThrown;
+  }
+  return {
+    totalYards: passingYards + rushingYards,
+    passingYards,
+    rushingYards,
+    turnovers,
+    sacks,
+    thirdDownConversionPct: 40,
+    redZoneTdPct: 58,
   };
 }
 

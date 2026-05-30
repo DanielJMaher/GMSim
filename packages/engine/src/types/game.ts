@@ -1,4 +1,5 @@
 import type { GameId, TeamId, PlayerId } from './ids.js';
+import type { PlayerGameStats } from './stats.js';
 
 /**
  * One scheduled game. Lives in the LeagueState schedule until played,
@@ -32,6 +33,13 @@ export interface GameResult {
   injuries: readonly GameInjury[];
   /** Categorical reason for variance — useful for media narrative later. */
   variance: 'controlled' | 'moderate' | 'pure';
+  /**
+   * Emergent per-player stat lines (v0.106+, bottom-up stat engine only).
+   * Present when the game was simulated with `statEngine: 'bottomup'` —
+   * `deriveGamePlayerStats` returns these verbatim instead of distributing
+   * the team box score top-down. Absent for legacy top-down games.
+   */
+  playerStats?: readonly PlayerGameStats[];
 }
 
 export interface TeamGameStats {

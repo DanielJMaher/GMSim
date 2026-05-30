@@ -50,6 +50,12 @@ export interface CreateLeagueOptions {
   seed: string;
   /** Starting salary cap. Defaults to $255M (rough 2024 figure). */
   salaryCap?: number;
+  /**
+   * Game-stat engine (v0.106+). Defaults to `'topdown'` (legacy). Set
+   * `'bottomup'` to run the matchup-driven drive sim so player stats emerge
+   * from individual matchups. Persisted on `LeagueState.statEngine`.
+   */
+  statEngine?: 'topdown' | 'bottomup';
 }
 
 /**
@@ -66,7 +72,7 @@ export interface CreateLeagueOptions {
  *   - College draft class
  */
 export function createLeague(options: CreateLeagueOptions): LeagueState {
-  const { seed, salaryCap = 255_000_000 } = options;
+  const { seed, salaryCap = 255_000_000, statEngine } = options;
   const rootPrng = new PrngClass(seed);
 
   const teams: Record<string, TeamState> = {};
@@ -207,6 +213,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
 
   const baseLeague: LeagueState = {
     seed,
+    ...(statEngine ? { statEngine } : {}),
     tick: initialTick,
     seasonNumber: 1,
     phase: 'OFFSEASON_PRE_FA',

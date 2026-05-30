@@ -53,6 +53,7 @@ export interface PlayerStatLine {
   receptions: number;
   receivingYards: number;
   receivingTds: number;
+  tackles: number;
   sacks: number;
   interceptions: number;
 }
@@ -153,6 +154,9 @@ export interface TeamPersonnel {
   rushers: PRef[];
   passRush: PRef[];
   coverage: PRef[];
+  /** Tackle-eligible defenders, group-weighted (LB > DB > DL) so the
+   *  tackle leaderboard is LB-dominated like the real NFL. */
+  tacklers: PRef[];
 }
 
 const RECV_KEYS: (keyof PlayerSkills)[] = ['routeShort', 'routeMedium', 'routeDeep', 'releaseVsOff', 'catching', 'catchInTraffic'];
@@ -220,7 +224,24 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 6);
 
-  return { qb: qb?.id ?? null, receivers, rushers, passRush, coverage };
+  // Tacklers: real NFL tackle distribution is ~LB 55% / DB 30% / DL 15%,
+  // so weight each defender by his group factor × tackling-relevant skill.
+  const tackleGroup: Partial<Record<Position, number>> = {
+    [Position.ILB]: 1.0, [Position.OLB]: 0.9,
+    [Position.S]: 0.7, [Position.CB]: 0.55, [Position.NICKEL]: 0.55,
+    [Position.EDGE]: 0.4, [Position.DT]: 0.32, [Position.NT]: 0.32,
+  };
+  const tacklers: PRef[] = [];
+  for (const p of players) {
+    const g = tackleGroup[p.position];
+    if (!g) continue;
+    const weight = g * (p.current.tacklingTechnique * 0.5 + p.current.playRecognition * 0.5);
+    if (weight > 0) tacklers.push({ id: p.id, weight });
+  }
+  tacklers.sort((a, b) => b.weight - a.weight);
+  tacklers.splice(14);
+
+  return { qb: qb?.id ?? null, receivers, rushers, passRush, coverage, tacklers };
 }
 
 function pick(prng: Prng, refs: PRef[]): string | null {
@@ -239,7 +260,7 @@ function emptyLine(): PlayerStatLine {
   return {
     passAttempts: 0, passCompletions: 0, passingYards: 0, passingTds: 0, interceptionsThrown: 0,
     rushingAttempts: 0, rushingYards: 0, rushingTds: 0, targets: 0, receptions: 0,
-    receivingYards: 0, receivingTds: 0, sacks: 0, interceptions: 0,
+    receivingYards: 0, receivingTds: 0, tackles: 0, sacks: 0, interceptions: 0,
   };
 }
 function line(stats: Map<string, PlayerStatLine>, id: string): PlayerStatLine {
@@ -293,11 +314,16 @@ function simulateDrive(
 
     // ── Attribute the play's outcome to specific players (stage 1b). ──
     let scorer: { id: string; kind: 'rec' | 'rush' } | null = null;
+    let tackleEligible = false; // a run or completion ends in a tackle (unless a TD)
     if (attr) {
       if (pr.isPass) {
         if (pr.kind === 'sack') {
           const d = pick(prng, attr.def.passRush);
-          if (d) line(attr.stats, d).sacks += 1;
+          if (d) {
+            const dl = line(attr.stats, d);
+            dl.sacks += 1;
+            dl.tackles += 1; // a sack is also a tackle
+          }
         } else {
           if (attr.off.qb) line(attr.stats, attr.off.qb).passAttempts += 1;
           const recvId = pick(prng, attr.off.receivers);
@@ -312,6 +338,7 @@ function simulateDrive(
               r.receivingYards += pr.gain;
               scorer = { id: recvId, kind: 'rec' };
             }
+            tackleEligible = true;
           } else if (pr.kind === 'int') {
             if (attr.off.qb) line(attr.stats, attr.off.qb).interceptionsThrown += 1;
             const d = pick(prng, attr.def.coverage);
@@ -326,6 +353,7 @@ function simulateDrive(
           if (pr.kind === 'run') {
             r.rushingYards += pr.gain;
             scorer = { id: rbId, kind: 'rush' };
+            tackleEligible = true;
           }
         }
       }
@@ -345,6 +373,11 @@ function simulateDrive(
         }
       }
       return { result: 'TD', plays, yards: 100 - startYardline };
+    }
+    // A run/completion that didn't score ends in a tackle by the defense.
+    if (attr && tackleEligible) {
+      const t = pick(prng, attr.def.tacklers);
+      if (t) line(attr.stats, t).tackles += 1;
     }
     if (ballOn <= 0) return { result: 'SAFETY', plays, yards: ballOn - startYardline };
     togo -= pr.gain;

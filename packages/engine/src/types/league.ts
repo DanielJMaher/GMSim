@@ -37,6 +37,17 @@ export interface LeagueState {
   /** Stable seed used to construct the engine PRNG. Saves persist this. */
   seed: string;
 
+  /**
+   * Which game-stat engine to use (v0.106+). `'topdown'` (default when
+   * absent) = the legacy `rollStats` box-score-then-distribute path.
+   * `'bottomup'` = the matchup-driven drive sim (`simulateGameDrives`),
+   * where each play's outcome is attributed to specific players so stars
+   * separate. Read inside `simulateGame`, so flipping it routes every game
+   * (regular season + playoffs) through the chosen engine. Default stays
+   * legacy until the season/career stat guards are recalibrated.
+   */
+  statEngine?: 'topdown' | 'bottomup';
+
   /** Sim clock in weeks since league epoch. Single source of truth for time. */
   tick: number;
 

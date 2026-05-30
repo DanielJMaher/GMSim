@@ -44,6 +44,10 @@ export function deriveGamePlayerStats(
   league: LeagueState,
 ): readonly PlayerGameStats[] {
   if (!game.result) return [];
+  // Bottom-up stat engine (v0.106+): the drive sim already attributed every
+  // play to a specific player, so return the emergent lines verbatim instead
+  // of distributing the team box score top-down.
+  if (game.result.playerStats) return game.result.playerStats;
   const home = league.teams[game.homeTeamId];
   const away = league.teams[game.awayTeamId];
   if (!home || !away) return [];

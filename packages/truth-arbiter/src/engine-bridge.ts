@@ -45,7 +45,7 @@ interface EngineModule {
   ) => readonly GeneratedProspect[];
   getArchetypeById: (id: string) => EngineArchetype | undefined;
   boardPositionalFactor: (position: string) => number;
-  createLeague: (opts: { seed: string }) => EngineLeague;
+  createLeague: (opts: { seed: string; statEngine?: 'topdown' | 'bottomup' }) => EngineLeague;
   simulateSeason: (league: EngineLeague) => EngineLeague;
   advanceSeason: (league: EngineLeague) => EngineLeague;
   matchupFacets: (team: unknown, league: EngineLeague) => unknown;
@@ -180,6 +180,75 @@ export async function simulateSeasonPlayerStats(
     t.teamGames = p?.teamId ? (teamGames.get(p.teamId) ?? 0) : 0;
   }
   return [...totals.values()];
+}
+
+// ── Stage 2: ELITE→Pro Bowl conversion by talent grade ───────────────────
+
+export interface GradeConversion {
+  grade: string;
+  /** Rostered players at that grade going into the measured season. */
+  n: number;
+  /** How many made that season's Pro Bowl (any accolade). */
+  proBowl: number;
+  /** How many made first-team All-Pro. */
+  allPro1: number;
+}
+
+function awardCount(p: EnginePlayer, kind: string): number {
+  let c = 0;
+  for (const a of p.careerAwards) if (a.kind === kind) c++;
+  return c;
+}
+
+/**
+ * Forward-sim `years` seasons, then for the FINAL season measure — by the
+ * player's talent grade going INTO that season — what fraction earned a Pro
+ * Bowl / All-Pro. This is the Stage-2 payoff metric: bottom-up emergent stats
+ * should lift ELITE→Pro Bowl conversion well above the top-down ~56%.
+ *
+ * Accolades are appended during `advanceSeason` (off the just-played season's
+ * stats, using the pre-development grade), so we snapshot grade + award counts
+ * after the final `simulateSeason` and diff after the final `advanceSeason`.
+ */
+export async function simulateConversionByGrade(
+  seeds: readonly string[],
+  years: number,
+  statEngine?: 'topdown' | 'bottomup',
+): Promise<GradeConversion[]> {
+  const eng = await loadEngine();
+  const tally = new Map<string, { n: number; pb: number; ap1: number }>();
+
+  for (const seed of seeds) {
+    let league = statEngine ? eng.createLeague({ seed, statEngine }) : eng.createLeague({ seed });
+    for (let y = 0; y < years - 1; y++) {
+      league = eng.simulateSeason(league);
+      league = eng.advanceSeason(league);
+    }
+    league = eng.simulateSeason(league);
+    const before = new Map<string, { grade: string; pb: number; ap1: number }>();
+    for (const p of Object.values(league.players)) {
+      if (!p.teamId) continue;
+      before.set(p.id, { grade: p.talentGrade, pb: awardCount(p, 'PRO_BOWL'), ap1: awardCount(p, 'ALL_PRO_1ST') });
+    }
+    league = eng.advanceSeason(league);
+    for (const p of Object.values(league.players)) {
+      const b = before.get(p.id);
+      if (!b) continue;
+      const t = tally.get(b.grade) ?? { n: 0, pb: 0, ap1: 0 };
+      t.n += 1;
+      if (awardCount(p, 'PRO_BOWL') > b.pb) t.pb += 1;
+      if (awardCount(p, 'ALL_PRO_1ST') > b.ap1) t.ap1 += 1;
+      tally.set(b.grade, t);
+    }
+  }
+
+  const order = ['ELITE', 'STAR', 'HIGH_STARTER', 'STARTER', 'WEAK_STARTER', 'ROTATIONAL', 'BACKUP', 'FRINGE'];
+  return order
+    .filter((g) => tally.has(g))
+    .map((g) => {
+      const t = tally.get(g)!;
+      return { grade: g, n: t.n, proBowl: t.pb, allPro1: t.ap1 };
+    });
 }
 
 let cached: EngineModule | null = null;

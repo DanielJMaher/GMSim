@@ -3,6 +3,8 @@ import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/index.js';
 import { simulateGameDrives, simulateGameWithDrives, type PlayerStatLine } from './drive-sim.js';
 import { matchupFacets } from './strength.js';
+import { simulateGame } from './outcome.js';
+import { deriveGamePlayerStats } from './stats.js';
 
 describe('drive sim (bottom-up)', () => {
   it('is deterministic for the facet-only path', () => {
@@ -60,5 +62,39 @@ describe('drive sim (bottom-up)', () => {
     const ay = [...a.playerStats!.values()].reduce((s, l) => s + l.receivingYards, 0);
     const by = [...b.playerStats!.values()].reduce((s, l) => s + l.receivingYards, 0);
     expect(ay).toBe(by);
+  });
+
+  it('credits tackles to defenders', () => {
+    const league = createLeague({ seed: 'drive-test' });
+    const ids = Object.keys(league.teams);
+    const res = simulateGameWithDrives(new Prng('tk'), league.teams[ids[0]!]!, league.teams[ids[1]!]!, league);
+    const totalTackles = [...res.playerStats!.values()].reduce((s, l) => s + l.tackles, 0);
+    expect(totalTackles).toBeGreaterThan(20);
+  });
+});
+
+describe('statEngine flag wiring', () => {
+  it('topdown (default) stores no playerStats; bottomup stores emergent lines', () => {
+    const legacy = createLeague({ seed: 'flag-test' });
+    const ids = Object.keys(legacy.teams);
+    const opts = (lg: typeof legacy) => ({
+      homeTeam: lg.teams[ids[0]!]!,
+      awayTeam: lg.teams[ids[1]!]!,
+      league: lg,
+      weekNumber: 1,
+      kind: 'REGULAR' as const,
+    });
+
+    const topGame = simulateGame(new Prng('g'), opts(legacy));
+    expect(topGame.result?.playerStats).toBeUndefined();
+    // top-down still derives lines from the box score.
+    expect(deriveGamePlayerStats(topGame, legacy).length).toBeGreaterThan(0);
+
+    const bottom = createLeague({ seed: 'flag-test', statEngine: 'bottomup' });
+    const botGame = simulateGame(new Prng('g'), opts(bottom));
+    expect(botGame.result?.playerStats).toBeDefined();
+    expect(botGame.result!.playerStats!.length).toBeGreaterThan(0);
+    // deriveGamePlayerStats returns the stored emergent lines verbatim.
+    expect(deriveGamePlayerStats(botGame, bottom)).toBe(botGame.result!.playerStats);
   });
 });
