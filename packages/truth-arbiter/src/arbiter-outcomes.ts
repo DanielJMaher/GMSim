@@ -34,15 +34,18 @@ function avg(picks: DraftPickRecord[], get: (c: NonNullable<DraftPickRecord['car
  * compare the DECLINE-by-round shape — does the engine make early picks succeed
  * and late picks bust at realistic rates — not absolute scales.
  */
-async function reportGenerated(years: number): Promise<void> {
+async function reportGenerated(seedCount: number, years: number): Promise<void> {
   const corpus = JSON.parse(await readFile(CORPUS_PATH, 'utf8')) as Corpus;
   const realMature = corpus.picks.filter((p) => p.year <= MATURE_THROUGH);
 
-  console.log(`\nForward-simulating ${years} seasons (this is the slow check)…`);
-  const careers = await simulateDraftedCareers('outcome-sim', years);
-  // Mature generated cohorts = drafted early enough to have played out a career.
+  const seeds = Array.from({ length: seedCount }, (_, i) => `osim-${i}`);
+  console.log(`\nForward-simulating ${seeds.length} leagues × ${years} seasons (slow check)…`);
+  const careers = await simulateDraftedCareers(seeds, years);
   const MATURE_WINDOW = 6;
   const genMature = careers.filter((c) => c.draftedYear <= years - MATURE_WINDOW);
+  seedSpread('R1 Pro Bowl%', seeds, (s) =>
+    pct(genMature.filter((c) => c.seed === s && c.round === 1), (c) => c.proBowls >= 1),
+  );
 
   const realPB = (r: number): number =>
     pct(realMature.filter((p) => p.round === r && p.career), (p) => (p.career!.probowls ?? 0) >= 1);
@@ -71,6 +74,19 @@ function pct<T>(items: T[], pred: (t: T) => boolean): number {
   return items.length ? (items.filter(pred).length / items.length) * 100 : 0;
 }
 
+/** Print a metric's per-seed values + mean/range — so we see if a conclusion
+ *  is seed-robust or a single-league artifact. */
+function seedSpread(label: string, seeds: readonly string[], valueFor: (seed: string) => number): void {
+  const vals = seeds.map(valueFor);
+  const mean = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+  console.log(
+    `  [seed-spread] ${label}: mean ${mean.toFixed(1)}  range ${min.toFixed(1)}–${max.toFixed(1)}  ` +
+      `per-seed [${vals.map((v) => v.toFixed(1)).join(', ')}]`,
+  );
+}
+
 const GRADE_ORDER = [
   'ELITE', 'STAR', 'HIGH_STARTER', 'STARTER', 'WEAK_STARTER', 'ROTATIONAL', 'BACKUP', 'FRINGE',
 ];
@@ -80,11 +96,18 @@ const GRADE_ORDER = [
  * (A) does the draft concentrate talent in R1?  (B) does talent convert to
  * Pro Bowls, and is there enough elite talent to fill the slots?
  */
-async function reportDiagnostic(years: number): Promise<void> {
-  console.log(`\nForward-simulating ${years} seasons…`);
-  const careers = await simulateDraftedCareers('outcome-sim', years);
+async function reportDiagnostic(seedCount: number, years: number): Promise<void> {
+  const seeds = Array.from({ length: seedCount }, (_, i) => `osim-${i}`);
+  console.log(`\nForward-simulating ${seeds.length} leagues × ${years} seasons…`);
+  const careers = await simulateDraftedCareers(seeds, years);
   const mature = careers.filter((c) => c.draftedYear <= years - 6);
   const isES = (g: string): boolean => g === 'ELITE' || g === 'STAR';
+  seedSpread('R1 Pro Bowl%', seeds, (s) =>
+    pct(mature.filter((c) => c.seed === s && c.round === 1), (c) => c.proBowls >= 1),
+  );
+  seedSpread('R1 peak ELITE/STAR%', seeds, (s) =>
+    pct(mature.filter((c) => c.seed === s && c.round === 1), (c) => isES(c.peakGrade)),
+  );
 
   console.log(`\n=== A) talent by draft round — is the draft concentrating talent? ===`);
   console.log(`  ${'rnd'.padEnd(4)} ${'n'.padStart(5)} ${'draftES%'.padStart(9)} ${'peakES%'.padStart(8)} ${'ProBowl%'.padStart(9)}`);
@@ -110,12 +133,13 @@ async function reportDiagnostic(years: number): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  // `outcomes <diag|sim> [seeds] [years]` — defaults 5 seeds × 12 seasons.
   if (process.argv[2] === 'diag') {
-    await reportDiagnostic(Number(process.argv[3]) || 14);
+    await reportDiagnostic(Number(process.argv[3]) || 5, Number(process.argv[4]) || 12);
     return;
   }
   if (process.argv[2] === 'sim') {
-    await reportGenerated(Number(process.argv[3]) || 14);
+    await reportGenerated(Number(process.argv[3]) || 5, Number(process.argv[4]) || 12);
     return;
   }
   const corpus = JSON.parse(await readFile(CORPUS_PATH, 'utf8')) as Corpus;

@@ -128,6 +128,8 @@ export interface DraftedCareer {
   /** Fine 8-grade at draft (rookie) and the best grade reached (diagnostic). */
   draftGrade: string;
   peakGrade: string;
+  /** Which independent league seed this career came from (for seed-variance). */
+  seed: string;
   /** Disappeared from the league before sim end with a short career. */
   washedOutEarly: boolean;
 }
@@ -141,27 +143,23 @@ const RANK_TO_GRADE = [
   'ELITE', 'STAR', 'HIGH_STARTER', 'STARTER', 'WEAK_STARTER', 'ROTATIONAL', 'BACKUP', 'FRINGE',
 ] as const;
 
-/**
- * Forward-simulate a league `years` seasons and track the realized career of
- * every player DRAFTED in-sim (registered as a true rookie, experienceYears 0).
- * This is the first SLOW Arbiter check — a full season sim per year.
- */
-export async function simulateDraftedCareers(seed: string, years: number): Promise<DraftedCareer[]> {
-  const eng = await loadEngine();
+interface CareerRec {
+  round: number;
+  overallPick: number | null;
+  draftedYear: number;
+  careerYears: number;
+  peakTierRank: number;
+  draftGradeRank: number;
+  peakGradeRank: number;
+  awards: number;
+  proBowls: number;
+  lastSeen: number;
+}
+
+/** Track one independent league's drafted careers over `years` seasons. */
+function simulateOneLeague(eng: EngineModule, seed: string, years: number): DraftedCareer[] {
   let league = eng.createLeague({ seed });
-  interface Rec {
-    round: number;
-    overallPick: number | null;
-    draftedYear: number;
-    careerYears: number;
-    peakTierRank: number;
-    draftGradeRank: number;
-    peakGradeRank: number;
-    awards: number;
-    proBowls: number;
-    lastSeen: number;
-  }
-  const tracked = new Map<string, Rec>();
+  const tracked = new Map<string, CareerRec>();
   for (let y = 0; y < years; y++) {
     league = eng.simulateSeason(league);
     league = eng.advanceSeason(league);
@@ -202,8 +200,25 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
     proBowls: r.proBowls,
     draftGrade: RANK_TO_GRADE[r.draftGradeRank] ?? 'FRINGE',
     peakGrade: RANK_TO_GRADE[r.peakGradeRank] ?? 'FRINGE',
+    seed,
     washedOutEarly: r.lastSeen < years - 1 && r.careerYears <= 3,
   }));
+}
+
+/**
+ * Forward-simulate `seeds.length` INDEPENDENT leagues `years` seasons each and
+ * pool every in-sim-drafted player's realized career. Multiple seeds make the
+ * outcome conclusions seed-robust, not a single-league artifact. The first
+ * SLOW Arbiter check — a full season sim per year per seed.
+ */
+export async function simulateDraftedCareers(
+  seeds: readonly string[],
+  years: number,
+): Promise<DraftedCareer[]> {
+  const eng = await loadEngine();
+  const all: DraftedCareer[] = [];
+  for (const seed of seeds) all.push(...simulateOneLeague(eng, seed, years));
+  return all;
 }
 
 // ── Skill Adjudicator (2c): league talent-grade + accolade audit ─────────
