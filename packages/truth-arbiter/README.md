@@ -65,6 +65,10 @@ pnpm --filter @gmsim/truth-arbiter run class variance [N]      # variance vs rea
 pnpm --filter @gmsim/truth-arbiter run class name "deep WR class" <seed>
 pnpm --filter @gmsim/truth-arbiter run class list
 
+# Real career-outcome curves by round ("did the pick pan out": wAV, Pro Bowl
+# rate, starter tenure, bust rate) — the reference for the development model.
+pnpm --filter @gmsim/truth-arbiter run outcomes
+
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```
 

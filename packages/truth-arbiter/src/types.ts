@@ -40,6 +40,27 @@ export interface CombineResults {
   pfrId: string | null;
 }
 
+/**
+ * Real NFL career outcome for a drafted player (from the open nflverse
+ * draft_picks dataset, joined by draft year + overall pick). The "did the
+ * pick pan out" truth — used to validate the engine's development model
+ * (do the right players succeed?), not just generation realism.
+ */
+export interface CareerOutcome {
+  /** Career Approximate Value (PFR) — catch-all career-value metric. */
+  carAv: number | null;
+  /** Weighted career AV. */
+  wAv: number | null;
+  probowls: number | null;
+  allpro: number | null;
+  /** Seasons as a primary starter. */
+  seasonsStarted: number | null;
+  /** Career games played. */
+  games: number | null;
+  hof: boolean;
+  pfrId: string | null;
+}
+
 /** One real drafted player, as scraped from the round tracker page. */
 export interface DraftPickRecord {
   year: number;
@@ -57,6 +78,8 @@ export interface DraftPickRecord {
   scores: NgsScores;
   /** Combine athletic testing, joined from nflverse (null if no match). */
   combine: CombineResults | null;
+  /** Real NFL career outcome, joined from nflverse (null if no match). */
+  career: CareerOutcome | null;
   /** The scout write-up ("PROSPECT ANALYSIS"). */
   analysis: string | null;
   analyst: string | null;

@@ -2,6 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { cachedFetch } from './fetch.js';
 import { parseRoundPage } from './parse-round.js';
 import { mergeCombine } from './combine.js';
+import { mergeOutcomes } from './outcomes.js';
 import { YEARS, ROUNDS, roundUrl, DATA_DIR, CORPUS_PATH } from './config.js';
 import type { Corpus, DraftPickRecord } from './types.js';
 
@@ -49,6 +50,10 @@ async function main(): Promise<void> {
     `\nCombine merge: ${merge.matched}/${merge.total} picks matched ` +
       `(${merge.byOvr} by overall pick, ${merge.byName} by name).`,
   );
+
+  // Join real NFL career outcomes (nflverse draft_picks).
+  const outcomeMerge = await mergeOutcomes(picks);
+  console.log(`Career-outcome merge: ${outcomeMerge.matched}/${outcomeMerge.total} picks matched.`);
 
   const corpus: Corpus = {
     generatedAt: new Date().toISOString(),

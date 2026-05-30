@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { DATA_DIR } from './config.js';
+import { splitCsvLine, csvNum as n } from './csv.js';
 import type { CombineResults, DraftPickRecord } from './types.js';
 
 /**
@@ -45,43 +46,6 @@ async function loadCsv(force = false): Promise<string> {
   const csv = await res.text();
   await writeFile(COMBINE_CSV_PATH, csv, 'utf8');
   return csv;
-}
-
-/** Minimal CSV split that respects double-quoted fields. */
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let cur = '';
-  let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQ) {
-      if (c === '"' && line[i + 1] === '"') {
-        cur += '"';
-        i++;
-      } else if (c === '"') {
-        inQ = false;
-      } else {
-        cur += c;
-      }
-    } else if (c === '"') {
-      inQ = true;
-    } else if (c === ',') {
-      out.push(cur);
-      cur = '';
-    } else {
-      cur += c;
-    }
-  }
-  out.push(cur);
-  return out;
-}
-
-function n(s: string | undefined): number | null {
-  if (s === undefined) return null;
-  const t = s.trim();
-  if (t === '' || t === 'NA') return null;
-  const v = Number(t);
-  return Number.isFinite(v) ? v : null;
 }
 
 function parseCombineCsv(csv: string): CombineRow[] {

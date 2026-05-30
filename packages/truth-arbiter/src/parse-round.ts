@@ -83,6 +83,7 @@ function parseCard(
     measurables,
     scores,
     combine: null, // joined from nflverse by the scraper
+    career: null, // joined from nflverse by the scraper
     analysis,
     analyst,
     prospectSlug: slug,
