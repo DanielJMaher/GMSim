@@ -54,6 +54,19 @@ interface EngineModule {
     homeFacets: unknown,
     awayFacets: unknown,
   ) => { driveLog: SimDrive[] };
+  simulateGameWithDrives: (
+    prng: unknown,
+    homeTeam: unknown,
+    awayTeam: unknown,
+    league: EngineLeague,
+  ) => { homeScore: number; awayScore: number; playerStats: Map<string, PlayerStatLine> };
+}
+
+export interface PlayerStatLine {
+  passAttempts: number; passCompletions: number; passingYards: number; passingTds: number;
+  interceptionsThrown: number; rushingAttempts: number; rushingYards: number; rushingTds: number;
+  targets: number; receptions: number; receivingYards: number; receivingTds: number;
+  sacks: number; interceptions: number;
 }
 
 export interface SimDrive {
@@ -100,6 +113,73 @@ export async function simulateDriveLogs(seed: string, numGames: number): Promise
     out.push(...res.driveLog);
   }
   return out;
+}
+
+// ── Star separation (stage 1b): emergent per-player season stat lines ─────
+
+export interface SeasonPlayerStat extends PlayerStatLine {
+  id: string;
+  position: string;
+  talentGrade: string;
+  teamGames: number;
+}
+
+/**
+ * Run the bottom-up (`simulateGameWithDrives`) sim across a generated league's
+ * season schedule and pool every player's EMERGENT season stat line. The
+ * star-separation check reads this to confirm elite players out-produce — the
+ * whole point of the bottom-up rewrite.
+ */
+export async function simulateSeasonPlayerStats(
+  seed: string,
+  gamesPerTeam = 17,
+): Promise<SeasonPlayerStat[]> {
+  const eng = await loadEngine();
+  const league = eng.createLeague({ seed });
+  const teamIds = Object.keys(league.teams);
+  const n = teamIds.length;
+  const totals = new Map<string, SeasonPlayerStat>();
+  const teamGames = new Map<string, number>();
+
+  const blank = (p: EnginePlayer): SeasonPlayerStat => ({
+    id: p.id, position: p.position, talentGrade: p.talentGrade, teamGames: 0,
+    passAttempts: 0, passCompletions: 0, passingYards: 0, passingTds: 0, interceptionsThrown: 0,
+    rushingAttempts: 0, rushingYards: 0, rushingTds: 0, targets: 0, receptions: 0,
+    receivingYards: 0, receivingTds: 0, sacks: 0, interceptions: 0,
+  });
+
+  for (let round = 0; round < gamesPerTeam; round++) {
+    for (let i = 0; i < n; i++) {
+      const home = teamIds[i]!;
+      const away = teamIds[(i + round + 1) % n]!;
+      if (home === away) continue;
+      teamGames.set(home, (teamGames.get(home) ?? 0) + 1);
+      teamGames.set(away, (teamGames.get(away) ?? 0) + 1);
+      const res = eng.simulateGameWithDrives(
+        new eng.Prng(`${seed}:r${round}:g${i}`),
+        league.teams[home],
+        league.teams[away],
+        league,
+      );
+      for (const [pid, l] of res.playerStats) {
+        const p = league.players[pid];
+        if (!p) continue;
+        let t = totals.get(pid);
+        if (!t) { t = blank(p); totals.set(pid, t); }
+        t.passAttempts += l.passAttempts; t.passCompletions += l.passCompletions;
+        t.passingYards += l.passingYards; t.passingTds += l.passingTds;
+        t.interceptionsThrown += l.interceptionsThrown; t.rushingAttempts += l.rushingAttempts;
+        t.rushingYards += l.rushingYards; t.rushingTds += l.rushingTds; t.targets += l.targets;
+        t.receptions += l.receptions; t.receivingYards += l.receivingYards;
+        t.receivingTds += l.receivingTds; t.sacks += l.sacks; t.interceptions += l.interceptions;
+      }
+    }
+  }
+  for (const t of totals.values()) {
+    const p = league.players[t.id];
+    t.teamGames = p?.teamId ? (teamGames.get(p.teamId) ?? 0) : 0;
+  }
+  return [...totals.values()];
 }
 
 let cached: EngineModule | null = null;

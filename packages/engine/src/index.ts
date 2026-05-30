@@ -106,8 +106,8 @@ export type {
 } from './contracts/index.js';
 
 // Phase 2 — Game simulation + season runner
-export { teamStrength, simulateGame, matchupFacets, simulateGameDrives } from './games/index.js';
-export type { SimulateGameOptions, MatchupFacets, DriveOutcome, DriveResult, DriveGameResult } from './games/index.js';
+export { teamStrength, simulateGame, matchupFacets, simulateGameDrives, simulateGameWithDrives, buildTeamPersonnel } from './games/index.js';
+export type { SimulateGameOptions, MatchupFacets, DriveOutcome, DriveResult, DriveGameResult, PlayerStatLine, TeamPersonnel } from './games/index.js';
 export { deriveGamePlayerStats } from './games/stats.js';
 export {
   generateSchedule,
