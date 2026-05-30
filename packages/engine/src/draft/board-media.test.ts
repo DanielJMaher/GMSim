@@ -116,6 +116,42 @@ describe('GMs consume the media (#5)', () => {
     expect(sharp).toBeGreaterThan(junk + 0.5);
   });
 
+  it('a media riser climbs a trusting GM’s board RANK → gets drafted higher (#5 slice 2b)', () => {
+    // The draft picks top-of-board and trade-ups target highest-board-priority,
+    // so a higher RANK directly means picked/traded-for higher. We prove media
+    // moves rank, which is how picks inherit media consumption.
+    const league = createLeague({ seed: 'media-pick-rank' });
+    const teamId = (Object.keys(league.teams) as TeamId[])[0]!;
+    const gmId = league.teams[teamId]!.gmId;
+
+    const baseBoard = regen(league, league.gms, [])[teamId]!;
+    // Pick a mid-board prospect (room to climb), not already a top pick.
+    const target = baseBoard[Math.floor(baseBoard.length / 2)]!;
+    const pid = target.collegePlayerId;
+    const baseRank = baseBoard.findIndex((e) => e.collegePlayerId === pid);
+
+    const prospect = league.collegePool.find((p) => p.id === pid)!;
+    const skills: Partial<Record<keyof PlayerSkills, number>> = {};
+    const confidence: Partial<Record<keyof PlayerSkills, number>> = {};
+    for (const k of Object.keys(prospect.current) as (keyof PlayerSkills)[]) {
+      skills[k] = 99;
+      confidence[k] = 0.95;
+    }
+    const mediaObs: CollegePlayerObservation[] = [0, 1, 2].map((i) => ({
+      scoutId: ScoutId(`MEDIA_OUTLET_${i}`),
+      collegePlayerId: pid,
+      observedOnTick: league.tick,
+      skills,
+      confidence,
+    }));
+
+    const trustingBoard = regen(league, withTrust(league, gmId, 10), mediaObs)[teamId]!;
+    const newRank = trustingBoard.findIndex((e) => e.collegePlayerId === pid);
+
+    // Lower index = higher on the board = picked/traded-for sooner.
+    expect(newRank).toBeLessThan(baseRank);
+  });
+
   it('GM mediaTrust spectrum is populated for every generated GM', () => {
     const league = createLeague({ seed: 'media-trust-gen' });
     for (const gm of Object.values(league.gms)) {
