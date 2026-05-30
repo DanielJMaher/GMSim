@@ -2,6 +2,17 @@ import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { DATA_DIR } from './config.js';
 import { splitCsvLine, csvNum } from './csv.js';
+import { simulateDriveLogs, type SimDrive } from './engine-bridge.js';
+
+/** Locked real-NFL drive bar (2015-2024, 61,493 drives) — what the sim must hit. */
+const BAR = {
+  outcomePct: { TD: 21.7, FG: 14.6, 'Missed FG': 2.6, Punt: 37.2, Turnover: 11.5, Downs: 4.7, Safety: 0.3, 'End of half/game': 7.4 } as Record<string, number>,
+  pointsPerDrive: 1.95,
+  playsPerDrive: 5.5,
+  yardsPerDrive: 30.9,
+  yardsPerPlay: 5.52,
+  scoringDrivePct: 36.3,
+};
 
 /**
  * The Magistrate — the DRIVE-LEVEL realism authority for the game sim.
@@ -140,7 +151,67 @@ function pointsPerDrive(outcomes: Record<string, number>, drives: number): numbe
   return drives ? pts / drives : 0;
 }
 
+/** Engine DriveResult token → bar bucket. */
+function simBucket(result: string): string {
+  switch (result) {
+    case 'TD': return 'TD';
+    case 'FG': return 'FG';
+    case 'MISSED_FG': return 'Missed FG';
+    case 'PUNT': return 'Punt';
+    case 'TURNOVER': return 'Turnover';
+    case 'DOWNS': return 'Downs';
+    case 'SAFETY': return 'Safety';
+    case 'END_HALF': return 'End of half/game';
+    default: return result;
+  }
+}
+
+/** Compare the matchup-driven sim's drives to the locked real bar (enforce). */
+async function reportSim(numGames: number): Promise<void> {
+  console.log(`\nSimulating ${numGames} games of the matchup-driven drive sim…`);
+  const drives: SimDrive[] = await simulateDriveLogs('magistrate-sim', numGames);
+  const n = drives.length;
+  const buckets: Record<string, number> = {};
+  let plays = 0;
+  let yards = 0;
+  let pts = 0;
+  for (const d of drives) {
+    const b = simBucket(d.result);
+    buckets[b] = (buckets[b] ?? 0) + 1;
+    plays += d.plays;
+    yards += d.yards;
+    if (d.result === 'TD') pts += 6.95;
+    else if (d.result === 'FG') pts += 3;
+  }
+
+  const order = ['TD', 'FG', 'Missed FG', 'Punt', 'Turnover', 'Downs', 'Safety', 'End of half/game'];
+  console.log(`\n=== Magistrate: matchup-driven sim vs real bar (${n.toLocaleString()} drives) ===`);
+  console.log(`  ${'outcome'.padEnd(18)} ${'sim%'.padStart(7)} ${'real%'.padStart(7)} ${'Δpp'.padStart(7)}`);
+  for (const b of order) {
+    const simPct = ((buckets[b] ?? 0) / n) * 100;
+    const realPct = BAR.outcomePct[b] ?? 0;
+    const d = simPct - realPct;
+    const flag = Math.abs(d) >= 3 ? '  <-- DRIFT' : '';
+    console.log(`  ${b.padEnd(18)} ${simPct.toFixed(1).padStart(7)} ${realPct.toFixed(1).padStart(7)} ${d.toFixed(1).padStart(7)}${flag}`);
+  }
+  const row = (label: string, sim: number, real: number, tol: number): void => {
+    const flag = Math.abs(sim - real) > tol ? '  <-- DRIFT' : '';
+    console.log(`  ${label.padEnd(20)} sim ${sim.toFixed(2).padStart(7)}  real ${real.toFixed(2).padStart(7)}${flag}`);
+  };
+  console.log('');
+  row('points/drive', pts / n, BAR.pointsPerDrive, 0.2);
+  row('plays/drive', plays / n, BAR.playsPerDrive, 0.5);
+  row('yards/drive', yards / n, BAR.yardsPerDrive, 3);
+  const scoring = (((buckets['TD'] ?? 0) + (buckets['FG'] ?? 0)) / n) * 100;
+  row('scoring drive %', scoring, BAR.scoringDrivePct, 3);
+  console.log('');
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === 'sim') {
+    await reportSim(Number(process.argv[3]) || 400);
+    return;
+  }
   const start = Number(process.argv[2]) || 2015;
   const end = Number(process.argv[3]) || 2024;
   const agg = emptyAgg();

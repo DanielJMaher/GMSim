@@ -48,6 +48,19 @@ interface EngineModule {
   createLeague: (opts: { seed: string }) => EngineLeague;
   simulateSeason: (league: EngineLeague) => EngineLeague;
   advanceSeason: (league: EngineLeague) => EngineLeague;
+  matchupFacets: (team: unknown, league: EngineLeague) => unknown;
+  simulateGameDrives: (
+    prng: unknown,
+    homeFacets: unknown,
+    awayFacets: unknown,
+  ) => { driveLog: SimDrive[] };
+}
+
+export interface SimDrive {
+  offense: string;
+  result: string;
+  plays: number;
+  yards: number;
 }
 
 interface EnginePlayer {
@@ -64,6 +77,29 @@ interface EnginePlayer {
 }
 interface EngineLeague {
   players: Record<string, EnginePlayer>;
+  teams: Record<string, unknown>;
+}
+
+/**
+ * Run the matchup-driven drive sim across `numGames` matchups in a generated
+ * league and pool every drive — the Magistrate aggregates these vs the real
+ * NFL drive bar.
+ */
+export async function simulateDriveLogs(seed: string, numGames: number): Promise<SimDrive[]> {
+  const eng = await loadEngine();
+  const league = eng.createLeague({ seed });
+  const teamIds = Object.keys(league.teams);
+  const n = teamIds.length;
+  const out: SimDrive[] = [];
+  for (let g = 0; g < numGames; g++) {
+    const home = teamIds[g % n]!;
+    const away = teamIds[(g * 7 + 1) % n] === home ? teamIds[(g * 7 + 2) % n]! : teamIds[(g * 7 + 1) % n]!;
+    const hf = eng.matchupFacets(league.teams[home], league);
+    const af = eng.matchupFacets(league.teams[away], league);
+    const res = eng.simulateGameDrives(new eng.Prng(`${seed}:g${g}`), hf, af);
+    out.push(...res.driveLog);
+  }
+  return out;
 }
 
 let cached: EngineModule | null = null;
