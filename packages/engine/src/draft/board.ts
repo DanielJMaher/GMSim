@@ -11,6 +11,8 @@ import type {
 import type { TeamState } from '../types/team.js';
 import type { Player, PlayerSkills } from '../types/player.js';
 import type { HeadCoach, Gm } from '../types/personnel.js';
+import type { MediaOutlet } from '../types/media.js';
+import type { MediaOutletId } from '../types/ids.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { schemeFitForPlayer } from '../scheme/index.js';
 import { positionGroupFor } from '../players/position-group.js';
@@ -240,6 +242,10 @@ export function regenerateDraftBoardsForLeague(args: {
    * `mediaTrust`. Omit to disable media consumption (legacy behavior). */
   mediaObservations?: readonly CollegePlayerObservation[];
   gms?: Readonly<Record<GmId, Gm>>;
+  /** Media outlets (#5 slice 2a). When supplied, each media read is weighted
+   * by its outlet's per-position-group accuracy, so a sharp outlet's read
+   * moves boards and a junk outlet's barely registers. */
+  mediaOutlets?: Readonly<Record<MediaOutletId, MediaOutlet>>;
 }): Record<TeamId, DraftBoardEntry[]> {
   const needScoresByTeam = new Map<TeamId, Record<PositionGroup, number>>();
   for (const team of Object.values(args.teams)) {
@@ -259,6 +265,7 @@ function regenerateDraftBoardsInternal(args: {
   combineResults?: Readonly<Record<string, CombineMeasurables>>;
   mediaObservations?: readonly CollegePlayerObservation[];
   gms?: Readonly<Record<GmId, Gm>>;
+  mediaOutlets?: Readonly<Record<MediaOutletId, MediaOutlet>>;
 }): Record<TeamId, DraftBoardEntry[]> {
   const prospectById = new Map<PlayerId, CollegePlayer>();
   for (const cp of args.collegePool) prospectById.set(cp.id, cp);
@@ -339,9 +346,17 @@ function regenerateDraftBoardsInternal(args: {
     for (const [pid, obsList] of mediaByProspect) {
       const prospect = prospectById.get(pid);
       if (!prospect) continue;
+      // Weight each outlet's read by its per-group accuracy (#5 slice 2a):
+      // scale the observation's confidence by outletAccuracy/10 so sharp
+      // outlets dominate the consensus (and drag meanConfidence — hence the
+      // per-team blend weight — down for junk outlets).
+      const grp = positionGroupFor(prospect.nflProjectedPosition);
+      const weighted = args.mediaOutlets
+        ? obsList.map((o) => weightObsByOutlet(o, args.mediaOutlets!, grp))
+        : obsList;
       mediaAggregateByProspect.set(
         pid,
-        aggregateCollegeObservations(obsList, prospect, args.addedOnTick),
+        aggregateCollegeObservations(weighted, prospect, args.addedOnTick),
       );
     }
   }
@@ -703,6 +718,32 @@ function clampSigned(v: number, cap: number): number {
 /** Clamp to [0, 1]. */
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
+}
+
+/** Media evaluator scoutId is `${outletId}::e${n}`; strip the evaluator suffix. */
+function outletIdOf(scoutId: string): string {
+  const i = scoutId.indexOf('::');
+  return i === -1 ? scoutId : scoutId.slice(0, i);
+}
+
+/** Scale a media observation's confidence by its outlet's accuracy for the
+ * prospect's position group (1-10 → ×0.1-1.0). A sharp outlet keeps full
+ * weight; a junk outlet's read is heavily discounted. */
+function weightObsByOutlet(
+  obs: CollegePlayerObservation,
+  outlets: Readonly<Record<MediaOutletId, MediaOutlet>>,
+  group: PositionGroup,
+): CollegePlayerObservation {
+  const outlet = outlets[outletIdOf(obs.scoutId) as MediaOutletId];
+  if (!outlet) return obs;
+  const acc = outlet.accuracyByGroup[group] ?? outlet.accuracySpectrum;
+  const w = clamp01(acc / 10);
+  if (w >= 1) return obs;
+  const scaled: Partial<Record<keyof PlayerSkills, number>> = {};
+  for (const k of Object.keys(obs.confidence) as (keyof PlayerSkills)[]) {
+    scaled[k] = (obs.confidence[k] ?? 0) * w;
+  }
+  return { ...obs, confidence: scaled };
 }
 
 function round1(v: number): number {

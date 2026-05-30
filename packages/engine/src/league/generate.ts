@@ -273,6 +273,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     addedOnTick: initialTick,
     mediaObservations: baseLeague.mediaCollegeObservations,
     gms: baseLeague.gms,
+    mediaOutlets: baseLeague.mediaOutlets,
   });
   // Combine — universal physical reveal.
   const initialCombine = runCombine(
