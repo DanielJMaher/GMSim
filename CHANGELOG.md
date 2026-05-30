@@ -16,6 +16,46 @@ _Nothing yet._
 
 ---
 
+## [0.106.0] — 2026-05-30
+
+### Changed
+
+- **The matchup-driven drive sim is now the default game engine.** Games are
+  simulated bottom-up — as a sequence of drives whose plays are resolved from
+  the specific players' matchup edges and attributed to specific players — so
+  production EMERGES and stars separate, rather than a team box score being
+  divided among players by talent-weighted shares. Opt back into the legacy
+  top-down path with `statEngine: 'topdown'` on the league. Effect: the league
+  passing/rushing/receiving/sack leaderboards are now driven by who wins their
+  matchups; an elite player elevates and is fed more, posting elite stats even
+  on a mediocre team.
+- **Talent-blended Pro Bowl / All-Pro selection.** `selectAccolades` ranks box
+  positions by a z-score blend of production and talent, so dominant-but-quiet
+  roles — a shutdown corner QBs avoid, a run-stuffing nose tackle, a blocking
+  tight end — are no longer snubbed by raw volume. Lifted ELITE→Pro Bowl
+  conversion from ~32% to ~57% (a realistic per-season rate) with the grade
+  hierarchy staying cleanly monotonic.
+
+### Added
+
+- **Bottom-up game engine internals.** A new drive sim with realistic drive
+  outcomes (calibrated against a decade of real NFL drive data — the new
+  Magistrate tool), per-play attribution to QB / targeted receiver / ball
+  carrier / pass rusher / coverage defender / tackler, home-field advantage
+  (~55% home win for even teams), and overtime (no ties). The starting QB is
+  picked by tier then depth-chart order; a backup takes a small share of
+  dropbacks so the league passing leader lands in a realistic range.
+
+### Fixed
+
+- **Accolade slots no longer go empty at thin positions.** Players with no stat
+  line rank below every producer but can still fill a leftover slot as the
+  best-talent alternate, so the league always names a full Pro Bowl roster (the
+  earlier apparent under-fill was a measurement artifact — Pro Bowlers who
+  retired dropped out of the audit's career-award tally).
+
+---
+
 ## [0.105.0] — 2026-05-30
 
 ### Added
