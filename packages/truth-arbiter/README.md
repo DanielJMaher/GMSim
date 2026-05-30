@@ -76,6 +76,11 @@ pnpm --filter @gmsim/truth-arbiter run outcomes sim [years]
 pnpm --filter @gmsim/truth-arbiter run adjudicate          # generated grade dist (fast)
 pnpm --filter @gmsim/truth-arbiter run adjudicate sim [N]  # post-development + Pro Bowl/All-Pro rates
 
+# Magistrate — DRIVE-LEVEL realism bar from real NFL play-by-play (nflverse).
+# Outcome mix, points/plays/yards per drive, 3rd-down %, red-zone TD % — the
+# targets the (forthcoming) matchup-driven sim must hit.
+pnpm --filter @gmsim/truth-arbiter run magistrate [startYear endYear]
+
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```
 
