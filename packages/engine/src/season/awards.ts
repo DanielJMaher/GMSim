@@ -372,20 +372,23 @@ export function selectAccolades(league: LeagueState): Map<PlayerId, AwardKind[]>
       scored = cands.map((c) => ({ id: c.id, score: c.talent }));
     } else {
       // z-blend box production with talent over the players who actually
-      // played; the rest can't place (score -Infinity).
+      // played. Players with no stat line rank BELOW every producer (offset
+      // by -1000) but stay ordered by talent, so leftover slots at a thin
+      // position are filled by the best-talent alternate — the NFL always
+      // names a full Pro Bowl roster — rather than going empty.
       const played = cands.filter((c) => c.played);
       const box = meanStd(played.map((c) => c.box));
       const tal = meanStd(played.map((c) => c.talent));
       scored = cands.map((c) => {
-        if (!c.played) return { id: c.id, score: Number.NEGATIVE_INFINITY };
-        const zb = box.std > 0 ? (c.box - box.mean) / box.std : 0;
         const zt = tal.std > 0 ? (c.talent - tal.mean) / tal.std : 0;
+        if (!c.played) return { id: c.id, score: -1000 + zt };
+        const zb = box.std > 0 ? (c.box - box.mean) / box.std : 0;
         return { id: c.id, score: (1 - TALENT_BLEND) * zb + TALENT_BLEND * zt };
       });
     }
 
     scored.sort((a, b) => b.score - a.score);
-    const proBowlers = scored.slice(0, slots.proBowl).filter((c) => c.score > Number.NEGATIVE_INFINITY);
+    const proBowlers = scored.slice(0, slots.proBowl);
     proBowlers.forEach((c, i) => {
       add(c.id, 'PRO_BOWL');
       if (i < slots.allPro1) add(c.id, 'ALL_PRO_1ST');

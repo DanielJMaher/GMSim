@@ -86,11 +86,12 @@ interface EnginePlayer {
   position: string;
   positionGroup: string;
   teamId: string | null;
-  careerAwards: readonly { kind: string }[];
+  careerAwards: readonly { kind: string; seasonNumber: number }[];
 }
 interface EngineLeague {
   players: Record<string, EnginePlayer>;
   teams: Record<string, unknown>;
+  seasonNumber: number;
 }
 
 /**
@@ -417,8 +418,14 @@ export interface LeagueAudit {
   seasons: number;
   /** Rostered players at sim end (grade distribution after development). */
   players: AuditPlayer[];
-  /** Total accolades over the sim, by kind (/ seasons = per-season rate). */
+  /** Total accolades over the sim, by kind (/ seasons = per-season rate).
+   *  Undercounts: players who retired/were purged before sim end no longer
+   *  carry their awards in `league.players`. Use `lastSeasonAccolades` for the
+   *  true per-season naming rate. */
   accolades: Record<string, number>;
+  /** Accolades named in the FINAL simulated season, by kind. No roster churn
+   *  has removed those players yet, so this is the accurate per-season count. */
+  lastSeasonAccolades: Record<string, number>;
 }
 
 /**
@@ -434,12 +441,22 @@ export async function auditLeague(seed: string, years: number): Promise<LeagueAu
     league = eng.simulateSeason(league);
     league = eng.advanceSeason(league);
   }
+  // Awards are stamped with the seasonNumber they were earned. The most recent
+  // stamped season is the cleanest per-season count (no churn yet).
+  let lastSeason = 0;
+  for (const p of Object.values(league.players)) {
+    for (const a of p.careerAwards) if (a.seasonNumber > lastSeason) lastSeason = a.seasonNumber;
+  }
   const players: AuditPlayer[] = [];
+  const lastSeasonAccolades: Record<string, number> = {};
   for (const p of Object.values(league.players)) {
     if (p.teamId) {
       players.push({ position: p.position, positionGroup: p.positionGroup, talentGrade: p.talentGrade });
     }
-    for (const a of p.careerAwards) accolades[a.kind] = (accolades[a.kind] ?? 0) + 1;
+    for (const a of p.careerAwards) {
+      accolades[a.kind] = (accolades[a.kind] ?? 0) + 1;
+      if (a.seasonNumber === lastSeason) lastSeasonAccolades[a.kind] = (lastSeasonAccolades[a.kind] ?? 0) + 1;
+    }
   }
-  return { seasons: years, players, accolades };
+  return { seasons: years, players, accolades, lastSeasonAccolades };
 }

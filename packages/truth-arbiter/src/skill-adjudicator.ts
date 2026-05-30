@@ -79,13 +79,16 @@ async function main(): Promise<void> {
   }
 
   if (sim) {
-    console.log(`\n=== per-season accolades vs target ===`);
-    console.log(`  ${'award'.padEnd(13)} ${'per-yr'.padStart(7)} ${'target'.padStart(7)} ${'Δ'.padStart(7)}`);
+    // Use the final season's named accolades — the per-season total averaged
+    // over the whole sim undercounts because players who retired/were purged
+    // no longer carry their awards in the league.
+    console.log(`\n=== final-season accolades vs target ===`);
+    console.log(`  ${'award'.padEnd(13)} ${'named'.padStart(7)} ${'target'.padStart(7)} ${'Δ'.padStart(7)}`);
     for (const k of Object.keys(ACCOLADE_TARGET)) {
-      const perYr = (audit.accolades[k] ?? 0) / years;
+      const named = audit.lastSeasonAccolades[k] ?? 0;
       const t = ACCOLADE_TARGET[k]!;
-      const flag = Math.abs(perYr - t) > t * 0.2 ? `  <-- DRIFT` : '';
-      console.log(`  ${k.padEnd(13)} ${perYr.toFixed(0).padStart(7)} ${String(t).padStart(7)} ${(perYr - t).toFixed(0).padStart(7)}${flag}`);
+      const flag = Math.abs(named - t) > t * 0.2 ? `  <-- DRIFT` : '';
+      console.log(`  ${k.padEnd(13)} ${String(named).padStart(7)} ${String(t).padStart(7)} ${(named - t).toFixed(0).padStart(7)}${flag}`);
     }
   }
   console.log('');
