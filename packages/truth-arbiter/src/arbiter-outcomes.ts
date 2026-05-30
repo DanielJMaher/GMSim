@@ -71,7 +71,49 @@ function pct<T>(items: T[], pred: (t: T) => boolean): number {
   return items.length ? (items.filter(pred).length / items.length) * 100 : 0;
 }
 
+const GRADE_ORDER = [
+  'ELITE', 'STAR', 'HIGH_STARTER', 'STARTER', 'WEAK_STARTER', 'ROTATIONAL', 'BACKUP', 'FRINGE',
+];
+
+/**
+ * Diagnostic: WHY do early picks under-develop? Distinguishes three causes —
+ * (A) does the draft concentrate talent in R1?  (B) does talent convert to
+ * Pro Bowls, and is there enough elite talent to fill the slots?
+ */
+async function reportDiagnostic(years: number): Promise<void> {
+  console.log(`\nForward-simulating ${years} seasons…`);
+  const careers = await simulateDraftedCareers('outcome-sim', years);
+  const mature = careers.filter((c) => c.draftedYear <= years - 6);
+  const isES = (g: string): boolean => g === 'ELITE' || g === 'STAR';
+
+  console.log(`\n=== A) talent by draft round — is the draft concentrating talent? ===`);
+  console.log(`  ${'rnd'.padEnd(4)} ${'n'.padStart(5)} ${'draftES%'.padStart(9)} ${'peakES%'.padStart(8)} ${'ProBowl%'.padStart(9)}`);
+  for (let r = 1; r <= 7; r++) {
+    const rp = mature.filter((c) => c.round === r);
+    if (rp.length === 0) continue;
+    console.log(
+      `  R${String(r).padEnd(3)} ${String(rp.length).padStart(5)} ${pct(rp, (c) => isES(c.draftGrade)).toFixed(1).padStart(9)} ` +
+        `${pct(rp, (c) => isES(c.peakGrade)).toFixed(1).padStart(8)} ${pct(rp, (c) => c.proBowls >= 1).toFixed(1).padStart(9)}`,
+    );
+  }
+
+  console.log(`\n=== B) Pro Bowl rate by PEAK grade — does talent convert, and is there enough? ===`);
+  console.log(`  ${'grade'.padEnd(13)} ${'count'.padStart(6)} ${'ProBowl%'.padStart(9)}`);
+  for (const g of GRADE_ORDER) {
+    const gp = mature.filter((c) => c.peakGrade === g);
+    console.log(`  ${g.padEnd(13)} ${String(gp.length).padStart(6)} ${pct(gp, (c) => c.proBowls >= 1).toFixed(1).padStart(9)}`);
+  }
+  console.log(
+    `\n  (real anchors: R1 ProBowl ~43%; a healthy talent→outcome link has ELITE` +
+      ` peaks Pro-Bowling most years and enough ELITE/STAR to fill ~91 slots/yr.)\n`,
+  );
+}
+
 async function main(): Promise<void> {
+  if (process.argv[2] === 'diag') {
+    await reportDiagnostic(Number(process.argv[3]) || 14);
+    return;
+  }
   if (process.argv[2] === 'sim') {
     await reportGenerated(Number(process.argv[3]) || 14);
     return;

@@ -125,12 +125,21 @@ export interface DraftedCareer {
   awards: number;
   /** Career Pro Bowl selections (2b) — directly comparable to real probowls. */
   proBowls: number;
+  /** Fine 8-grade at draft (rookie) and the best grade reached (diagnostic). */
+  draftGrade: string;
+  peakGrade: string;
   /** Disappeared from the league before sim end with a short career. */
   washedOutEarly: boolean;
 }
 
 const TIER_RANK: Record<string, number> = { FRINGE: 0, BACKUP: 1, STARTER: 2, STAR: 3 };
 const RANK_TO_TIER = ['FRINGE', 'BACKUP', 'STARTER', 'STAR'] as const;
+const GRADE_RANK: Record<string, number> = {
+  ELITE: 0, STAR: 1, HIGH_STARTER: 2, STARTER: 3, WEAK_STARTER: 4, ROTATIONAL: 5, BACKUP: 6, FRINGE: 7,
+};
+const RANK_TO_GRADE = [
+  'ELITE', 'STAR', 'HIGH_STARTER', 'STARTER', 'WEAK_STARTER', 'ROTATIONAL', 'BACKUP', 'FRINGE',
+] as const;
 
 /**
  * Forward-simulate a league `years` seasons and track the realized career of
@@ -146,6 +155,8 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
     draftedYear: number;
     careerYears: number;
     peakTierRank: number;
+    draftGradeRank: number;
+    peakGradeRank: number;
     awards: number;
     proBowls: number;
     lastSeen: number;
@@ -165,6 +176,8 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
           draftedYear: y,
           careerYears: 0,
           peakTierRank: 0,
+          draftGradeRank: GRADE_RANK[p.talentGrade] ?? 7,
+          peakGradeRank: GRADE_RANK[p.talentGrade] ?? 7,
           awards: 0,
           proBowls: 0,
           lastSeen: y,
@@ -172,6 +185,7 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
         tracked.set(p.id, rec);
       }
       rec.peakTierRank = Math.max(rec.peakTierRank, TIER_RANK[p.tier] ?? 0);
+      rec.peakGradeRank = Math.min(rec.peakGradeRank, GRADE_RANK[p.talentGrade] ?? 7);
       rec.awards = p.careerAwards.length;
       rec.proBowls = p.careerAwards.filter((a) => a.kind === 'PRO_BOWL').length;
       rec.careerYears = p.experienceYears;
@@ -186,6 +200,8 @@ export async function simulateDraftedCareers(seed: string, years: number): Promi
     peakTier: RANK_TO_TIER[r.peakTierRank] ?? 'FRINGE',
     awards: r.awards,
     proBowls: r.proBowls,
+    draftGrade: RANK_TO_GRADE[r.draftGradeRank] ?? 'FRINGE',
+    peakGrade: RANK_TO_GRADE[r.peakGradeRank] ?? 'FRINGE',
     washedOutEarly: r.lastSeen < years - 1 && r.careerYears <= 3,
   }));
 }
