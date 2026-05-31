@@ -16,6 +16,31 @@ _Nothing yet._
 
 ---
 
+## [0.107.0] — 2026-05-31
+
+### Changed
+
+- **Contracts are position-weighted.** Seed contracts were tier-based but
+  position-agnostic, so the cap structure was flat — a STAR QB and a STAR RB
+  cost about the same (QB/RB top-of-market ratio 1.10x vs the real NFL ~4.6x).
+  The tier templates are now scaled by a per-position factor derived from real
+  OverTheCap top-of-market data, blended toward 1.0 at minimum-salary tiers
+  (minimum deals are position-agnostic in reality). Premium positions
+  (QB/EDGE/LT/WR/CB) command meaningfully more; specialists (K/P/LS/FB) far
+  less. The spread is currently dampened to ~2.3x — the full real spread is
+  gated on cap-aware roster generation (a future slice), since GMSim assigns
+  talent to teams without a cap budget.
+
+### Added
+
+- **The Liquidator** — a salary-cap realism tool (joining the Truth Arbiter /
+  Skill Adjudicator / Magistrate) that ingests real NFL contract data from
+  OverTheCap (via the open nflverse mirror) and compares GMSim's contracts to
+  it: APY as % of cap by position, top-of-market, guaranteed %. It surfaced and
+  now verifies the position-weighting above.
+
+---
+
 ## [0.106.0] — 2026-05-30
 
 ### Changed
