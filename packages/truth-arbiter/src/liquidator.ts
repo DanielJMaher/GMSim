@@ -113,9 +113,18 @@ function pct(values: number[], q: number): number {
   return s[i]!;
 }
 
+/** Mean of the top `n` values — the elite top-of-market. Robust to pool size
+ *  (p95 understates positions like QB where ~10 franchise deals sit far above a
+ *  cliff of backup/bridge deals). */
+function topMean(values: number[], n: number): number {
+  if (values.length === 0) return 0;
+  const s = [...values].sort((a, b) => b - a).slice(0, Math.min(n, values.length));
+  return s.reduce((a, b) => a + b, 0) / s.length;
+}
+
 interface Bench {
   n: number;
-  top: number; // p95 APY cap %
+  top: number; // mean of top-3 APY cap % — elite top-of-market
   median: number; // p50
   gtdMedian: number;
   yearsMedian: number;
@@ -124,7 +133,7 @@ interface Bench {
 function bench(rows: { apyCapPct: number; guaranteedPct: number; years: number }[]): Bench {
   return {
     n: rows.length,
-    top: pct(rows.map((r) => r.apyCapPct), 0.95),
+    top: topMean(rows.map((r) => r.apyCapPct), 3),
     median: pct(rows.map((r) => r.apyCapPct), 0.5),
     gtdMedian: pct(rows.map((r) => r.guaranteedPct), 0.5),
     yearsMedian: pct(rows.map((r) => r.years), 0.5),
@@ -153,7 +162,7 @@ async function main(): Promise<void> {
     arr.push(r);
   }
 
-  console.log('=== Top-of-market APY as % of cap (p95) — real vs GMSim seeds ===');
+  console.log('=== Elite top-of-market APY as % of cap (mean of top 3) — real vs GMSim seeds ===');
   console.log(`  ${'pos'.padEnd(5)} ${'real top'.padStart(9)} ${'sim top'.padStart(9)} ${'Δpp'.padStart(7)}   ${'real med'.padStart(9)} ${'sim med'.padStart(9)}`);
   for (const pos of POS_ORDER) {
     const r = realByPos.get(pos);

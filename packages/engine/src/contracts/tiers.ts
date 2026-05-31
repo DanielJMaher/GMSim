@@ -2,6 +2,7 @@ import type { TalentTier } from '../players/skills.js';
 import type { PlayerSkills } from '../types/player.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import type { ArchetypeId } from '../types/player.js';
+import { Position } from '../types/enums.js';
 
 /**
  * Salary tier templates. Each tier defines the contract shape — length,
@@ -57,6 +58,76 @@ export const TIER_TEMPLATES: Record<TalentTier, TierTemplate> = {
     noTradeClauseProb: 0.0,
   },
 };
+
+/**
+ * Per-position salary multiplier on the (position-agnostic) tier template.
+ *
+ * The NFL cap is wildly position-dependent: a top QB eats ~17-18% of the cap, a
+ * top RB ~4%, a long snapper <1%. The tier templates above produce a STAR deal
+ * at ~7% of cap regardless of position; these factors scale that to each
+ * position's real top-of-market.
+ *
+ * Derived by The Liquidator from real OverTheCap data (contracts signed 2021+,
+ * mean of the top-10 APY-as-%-of-cap per position): factor = realElite% ÷ 7.06,
+ * where 7.06% is the STAR template's position-agnostic APY. Re-run
+ * `pnpm --filter @gmsim/truth-arbiter run liquidator` to recheck against the
+ * market.
+ */
+export const POSITION_SALARY_FACTOR: Record<Position, number> = {
+  [Position.QB]: 2.5,
+  [Position.WR]: 1.57,
+  [Position.EDGE]: 1.37,
+  [Position.LT]: 1.26,
+  [Position.CB]: 1.17,
+  [Position.NICKEL]: 1.17,
+  [Position.DT]: 1.06,
+  [Position.NT]: 1.06,
+  [Position.S]: 0.99,
+  [Position.OLB]: 0.97,
+  [Position.ILB]: 0.97,
+  [Position.RT]: 0.93,
+  [Position.TE]: 0.86,
+  [Position.RG]: 0.76,
+  [Position.C]: 0.74,
+  [Position.LG]: 0.67,
+  [Position.RB]: 0.54,
+  [Position.K]: 0.27,
+  [Position.P]: 0.2,
+  [Position.FB]: 0.17,
+  [Position.LS]: 0.1,
+};
+
+/**
+ * How strongly the positional premium applies at each tier. The premium is a
+ * top-of-market phenomenon — minimum-salary deals are position-agnostic in the
+ * real NFL (the CBA minimum is the same for a fringe QB and a fringe LS) — so
+ * the factor is blended toward 1.0 as tier falls.
+ */
+const TIER_PREMIUM_WEIGHT: Record<TalentTier, number> = {
+  STAR: 1.0,
+  STARTER: 0.65,
+  BACKUP: 0.3,
+  FRINGE: 0.1,
+};
+
+/**
+ * Effective salary multiplier for a player at `position` and `tier`: the
+ * position's market factor, blended toward 1.0 by tier so stars get the full
+ * positional premium while fringe deals stay near the (position-agnostic)
+ * minimum.
+ */
+export function positionSalaryFactor(position: Position, tier: TalentTier): number {
+  const raw = POSITION_SALARY_FACTOR[position] ?? 1.0;
+  // Dampen the raw market spread toward 1.0. GMSim assigns talent to teams
+  // without cap-awareness, so the full real spread (an 18%-of-cap QB) lets a
+  // team randomly stack premium stars far past the cap, beyond what offseason
+  // compliance can unwind. Dampening keeps a strong, realistic positional
+  // ordering while bounding the worst-case team total to a compliable overage.
+  const damped = 1 + (raw - 1) * PREMIUM_DAMPEN;
+  return 1 + (damped - 1) * TIER_PREMIUM_WEIGHT[tier];
+}
+
+const PREMIUM_DAMPEN = 0.5;
 
 /**
  * Derive a talent tier from a player's actual skill profile. We use

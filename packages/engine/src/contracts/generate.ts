@@ -2,7 +2,7 @@ import { ContractId } from '../types/ids.js';
 import type { Contract, ContractGuarantee } from '../types/contract.js';
 import type { Player } from '../types/player.js';
 import type { Prng } from '../prng/index.js';
-import { TIER_TEMPLATES } from './tiers.js';
+import { TIER_TEMPLATES, positionSalaryFactor } from './tiers.js';
 import { WEEKS_PER_LEAGUE_YEAR } from './constants.js';
 
 export interface GenerateContractOptions {
@@ -39,6 +39,10 @@ export function generateContract(prng: Prng, options: GenerateContractOptions): 
   // re-derivation can drift if skill rolls happen to land near a boundary.
   const tier = options.player.tier;
   const template = TIER_TEMPLATES[tier];
+  // Scale the position-agnostic tier template to the player's position so the
+  // cap structure matches the real NFL (a STAR QB ≫ a STAR RB). Derived from
+  // real OverTheCap top-of-market by The Liquidator.
+  const posFactor = positionSalaryFactor(options.player.position, tier);
 
   const realYears = prng.nextRange(template.yearsRange[0], template.yearsRange[1] + 1);
   const yearsRemaining = options.fresh ? realYears : prng.nextRange(1, realYears + 1);
@@ -46,13 +50,14 @@ export function generateContract(prng: Prng, options: GenerateContractOptions): 
   const signedOnTick = options.currentTick - yearsElapsed * WEEKS_PER_LEAGUE_YEAR;
 
   const signingBonus = roundMoney(
-    prng.nextRange(template.signingBonusRange[0], template.signingBonusRange[1] + 1),
+    prng.nextRange(template.signingBonusRange[0], template.signingBonusRange[1] + 1) * posFactor,
   );
 
   const baseSalaries: number[] = [];
   for (let i = 0; i < realYears; i++) {
     const base = roundMoney(
-      prng.nextRange(template.baseSalaryPerYearRange[0], template.baseSalaryPerYearRange[1] + 1),
+      prng.nextRange(template.baseSalaryPerYearRange[0], template.baseSalaryPerYearRange[1] + 1) *
+        posFactor,
     );
     baseSalaries.push(base);
   }

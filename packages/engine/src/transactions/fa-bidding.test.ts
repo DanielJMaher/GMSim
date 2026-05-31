@@ -143,6 +143,7 @@ describe('auctionFreeAgent', () => {
     const poorTeam = teams[1]!;
     let league = withWrNeedAtOnly(base, richTeam.identity.id);
     league = withWrNeedAtAlso(league, poorTeam.identity.id);
+    league = freeTeamCap(league, richTeam.identity.id);
     league = crushTeamCap(league, poorTeam.identity.id);
     const fa = makeWrFreeAgent(league, 'STARTER');
     const result = auctionFreeAgent(league, fa);
@@ -413,6 +414,28 @@ function setTeamMarketSize(
  * cleaner than spiking base salaries (top-51 rule can absorb a single
  * spike) and directly forces `teamCapUsage > salaryCap`.
  */
+/** Guarantee a team has ample cap room by cheapening every rostered player's
+ *  contract. Position-weighting means a default team can be cap-tight, so a
+ *  test that needs a "rich" bidder must establish that premise explicitly. */
+function freeTeamCap(league: LeagueState, teamId: TeamId): LeagueState {
+  const team = league.teams[teamId]!;
+  const contracts = { ...league.contracts };
+  for (const pid of team.rosterIds) {
+    const p = league.players[pid];
+    if (!p?.contractId) continue;
+    const c = contracts[p.contractId];
+    if (!c) continue;
+    contracts[p.contractId] = {
+      ...c,
+      baseSalaries: c.baseSalaries.map(() => 1_000_000),
+      signingBonus: 0,
+      rosterBonuses: c.rosterBonuses.map(() => 0),
+      workoutBonuses: c.workoutBonuses.map(() => 0),
+    };
+  }
+  return { ...league, contracts } as LeagueState;
+}
+
 function crushTeamCap(league: LeagueState, teamId: TeamId): LeagueState {
   const team = league.teams[teamId]!;
   return {

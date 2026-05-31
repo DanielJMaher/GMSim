@@ -14,6 +14,27 @@ function freshLeague(seed: string): LeagueState {
   return createLeague({ seed });
 }
 
+/** Cheapen a team's contracts so it has ample cap room (to exercise mechanics
+ *  that gate on room, independent of the seed's generated cap state). */
+function giveTeamCapRoom(league: LeagueState, teamId: TeamId): LeagueState {
+  const team = league.teams[teamId]!;
+  const contracts = { ...league.contracts };
+  for (const pid of team.rosterIds) {
+    const p = league.players[pid];
+    if (!p?.contractId) continue;
+    const c = contracts[p.contractId];
+    if (!c) continue;
+    contracts[p.contractId] = {
+      ...c,
+      baseSalaries: c.baseSalaries.map(() => 1_000_000),
+      signingBonus: 0,
+      rosterBonuses: c.rosterBonuses.map(() => 0),
+      workoutBonuses: c.workoutBonuses.map(() => 0),
+    };
+  }
+  return { ...league, contracts } as LeagueState;
+}
+
 /**
  * Manufacture an in-season scenario: release one player from each of
  * a few teams. Released players become FAs; the same teams now have
@@ -37,8 +58,12 @@ function setupGapWithFAs(
 describe('runWeeklyFreeAgentSignings', () => {
   it('signs a FA to fill a roster gap when below 53', () => {
     const base = freshLeague('mid-fa-basic');
-    const { league: scenario, gappedTeams } = setupGapWithFAs(base, 1);
+    const { league: gapped, gappedTeams } = setupGapWithFAs(base, 1);
     const teamId = gappedTeams[0]!;
+    // Position-weighted contracts can leave this seed's team cap-jammed; the
+    // mechanic-under-test (filling a gap) requires room, so establish it (the
+    // cap-room gate itself is covered by the "skips signing" test below).
+    const scenario = giveTeamCapRoom(gapped, teamId);
     expect(scenario.teams[teamId]!.rosterIds.length).toBe(52);
 
     const next = runWeeklyFreeAgentSignings(new Prng('m1'), scenario, 100);

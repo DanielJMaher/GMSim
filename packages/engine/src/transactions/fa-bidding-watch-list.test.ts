@@ -18,6 +18,28 @@ function pickFreeAgentVia(seed: string): { league: LeagueState; playerId: Player
   return { league, playerId: starId! };
 }
 
+/** Cheapen a team's contracts so it has ample cap room. Position-weighted STAR
+ *  contracts are expensive, so a test that needs the auction to FIND a winner
+ *  must guarantee at least one bidder can afford the star. */
+function giveTeamCapRoom(league: LeagueState, teamId: TeamId): LeagueState {
+  const team = league.teams[teamId]!;
+  const contracts = { ...league.contracts };
+  for (const pid of team.rosterIds) {
+    const p = league.players[pid];
+    if (!p?.contractId) continue;
+    const c = contracts[p.contractId];
+    if (!c) continue;
+    contracts[p.contractId] = {
+      ...c,
+      baseSalaries: c.baseSalaries.map(() => 1_000_000),
+      signingBonus: 0,
+      rosterBonuses: c.rosterBonuses.map(() => 0),
+      workoutBonuses: c.workoutBonuses.map(() => 0),
+    };
+  }
+  return { ...league, contracts } as LeagueState;
+}
+
 describe('watch-list bid boost', () => {
   it('perceivedBid is cash × preference (watch boost lives inside cash)', () => {
     const { league, playerId } = pickFreeAgentVia('wl-bid-formula');
@@ -122,8 +144,14 @@ describe('watch-list bid boost', () => {
   });
 
   it('fa-sign transaction persists watch-list fields on each bidder', () => {
-    const { league, playerId } = pickFreeAgentVia('wl-bid-persist');
-    const player = league.players[playerId]!;
+    const picked = pickFreeAgentVia('wl-bid-persist');
+    const player = picked.league.players[picked.playerId]!;
+    // Guarantee an affordable bidder exists — position-weighted STAR deals can
+    // exceed every team's cap room on some seeds, leaving no auction winner.
+    const otherTeamId = Object.keys(picked.league.teams).find(
+      (id) => id !== player.teamId,
+    ) as TeamId;
+    const league = giveTeamCapRoom(picked.league, otherTeamId);
     // Drive the full auction → signing pipeline via offseason.refillRosters
     // path; in this test we just confirm the auction result has the
     // fields, which signAuctionWinner maps through verbatim.
