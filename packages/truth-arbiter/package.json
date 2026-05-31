@@ -14,6 +14,7 @@
     "outcomes": "tsc -p tsconfig.json && node dist/arbiter-outcomes.js",
     "adjudicate": "tsc -p tsconfig.json && node dist/skill-adjudicator.js",
     "magistrate": "tsc -p tsconfig.json && node dist/magistrate.js",
+    "liquidator": "tsc -p tsconfig.json && node dist/liquidator.js",
     "star": "tsc -p tsconfig.json && node dist/star-separation.js",
     "conversion": "tsc -p tsconfig.json && node dist/conversion.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",

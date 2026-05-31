@@ -252,6 +252,67 @@ export async function simulateConversionByGrade(
     });
 }
 
+// ── The Liquidator: GMSim seed-contract cap structure ────────────────────
+
+export interface LeagueContractRow {
+  position: string;
+  /** Total contract value ÷ real years (avg per year). */
+  apy: number;
+  /** APY as a fraction of the league salary cap — comparable across eras. */
+  apyCapPct: number;
+  /** Guaranteed money (signing bonus + guaranteed base) as a fraction of value. */
+  guaranteedPct: number;
+  years: number;
+  tier: string;
+  talentGrade: string;
+}
+
+interface RawContract {
+  realYears: number;
+  baseSalaries: number[];
+  signingBonus: number;
+  rosterBonuses: number[];
+  workoutBonuses: number[];
+  guarantees: { baseGuaranteedPct: number }[];
+}
+
+/**
+ * Extract every rostered player's contract as a cap-structure row from a fresh
+ * GMSim league — the surface The Liquidator compares against real OTC data.
+ */
+export async function loadLeagueContracts(seed: string): Promise<LeagueContractRow[]> {
+  const eng = await loadEngine();
+  const league = eng.createLeague({ seed }) as unknown as {
+    salaryCap: number;
+    players: Record<string, { position: string; contractId: string | null; teamId: string | null; tier: string; talentGrade: string }>;
+    contracts: Record<string, RawContract>;
+  };
+  const cap = league.salaryCap;
+  const rows: LeagueContractRow[] = [];
+  for (const p of Object.values(league.players)) {
+    if (!p.teamId || !p.contractId) continue;
+    const c = league.contracts[p.contractId];
+    if (!c) continue;
+    const sum = (a: number[]): number => a.reduce((s, v) => s + v, 0);
+    const value = sum(c.baseSalaries) + c.signingBonus + sum(c.rosterBonuses) + sum(c.workoutBonuses);
+    const apy = c.realYears > 0 ? value / c.realYears : 0;
+    let guaranteed = c.signingBonus; // signing bonus is fully guaranteed
+    for (let i = 0; i < c.realYears; i++) {
+      guaranteed += (c.baseSalaries[i] ?? 0) * ((c.guarantees[i]?.baseGuaranteedPct ?? 0) / 100);
+    }
+    rows.push({
+      position: p.position,
+      apy,
+      apyCapPct: cap > 0 ? apy / cap : 0,
+      guaranteedPct: value > 0 ? guaranteed / value : 0,
+      years: c.realYears,
+      tier: p.tier,
+      talentGrade: p.talentGrade,
+    });
+  }
+  return rows;
+}
+
 let cached: EngineModule | null = null;
 async function loadEngine(): Promise<EngineModule> {
   if (cached) return cached;
