@@ -9,6 +9,7 @@ import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { positionSalaryFactor } from '../contracts/tiers.js';
 /**
  * Free-agent bidding auction — v0.20.0 Doc 7 follow-up.
  *
@@ -154,6 +155,26 @@ const BID_MULTIPLIER_FLOOR = 0.7;
 const BID_MULTIPLIER_CEIL = 1.2;
 
 /**
+ * Position-scaled tier anchor — the dollar reference for THIS player's
+ * auction. The real FA market is steeply position-dependent (a top QB
+ * signs for ~5× a top RB), but `TIER_STANDARD_Y1` is position-agnostic.
+ * Multiplying by the shared `positionSalaryFactor` (the same damped
+ * top-of-market premium The Liquidator derived for seed contracts) makes
+ * a premium-position FA cost more and a commodity-position FA cost less,
+ * so cash valuations and the cap-room reservation both reflect the
+ * positional market. The Liquidator's `run liquidator fa` report verifies
+ * the resulting QB/RB top-of-market spread against real OTC data.
+ *
+ * NOTE: the *valuationMultiplier divisor* in `auctionFreeAgent` stays the
+ * UNSCALED `TIER_STANDARD_Y1` on purpose — that lets the position premium
+ * flow through into the contract that `makeFreeAgentContract` scales from
+ * the tier shape, rather than cancelling out.
+ */
+function positionScaledStandardY1(player: Player): number {
+  return TIER_STANDARD_Y1[player.tier] * positionSalaryFactor(player.position, player.tier);
+}
+
+/**
  * Run a single free agent's auction. Returns `{ winnerTeamId: null }`
  * if no team has roster space, positional need, and cap room for any
  * bid above the league minimum — callers fall back to a vet-min
@@ -185,6 +206,11 @@ export function auctionFreeAgent(
 
   const winner = bids[0]!;
   const runnerUp = bids[1];
+  // UNSCALED tier anchor on purpose: `finalPrice` is already position-scaled
+  // (cash bids use `positionScaledStandardY1`), so dividing by the unscaled
+  // standard yields a multiplier that carries the position premium into the
+  // contract `makeFreeAgentContract` scales from the tier shape. Scaling the
+  // divisor too would cancel the premium out (multiplier → ~1.0).
   const standardY1 = TIER_STANDARD_Y1[player.tier];
 
   // Second-price with a 2% nudge above the runner-up's cash valuation,
@@ -260,7 +286,7 @@ function collectBids(
   player: Player,
   blueprintByPos: Map<Position, number>,
 ): Bid[] {
-  const standardY1 = TIER_STANDARD_Y1[player.tier];
+  const standardY1 = positionScaledStandardY1(player);
   const bids: Bid[] = [];
   for (const team of Object.values(league.teams)) {
     if (team.rosterIds.length >= 53) continue;
@@ -327,7 +353,7 @@ export function computeTeamCashBid(
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
 ): number {
-  const standard = TIER_STANDARD_Y1[player.tier];
+  const standard = positionScaledStandardY1(player);
 
   const hc = league.coaches[team.headCoachId];
   if (!hc) return 0;

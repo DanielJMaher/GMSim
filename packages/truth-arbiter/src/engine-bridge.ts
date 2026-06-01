@@ -313,6 +313,85 @@ export async function loadLeagueContracts(seed: string): Promise<LeagueContractR
   return rows;
 }
 
+// ── The Liquidator (Slice 2): GMSim free-agent signing cap structure ─────
+
+export interface FreeAgentSigningRow {
+  position: string;
+  /** Total contract value ÷ real years (avg per year). */
+  apy: number;
+  /** APY as a fraction of the league salary cap — comparable to real OTC. */
+  apyCapPct: number;
+  /** Guaranteed money (signing bonus + guaranteed base) as a fraction of value. */
+  guaranteedPct: number;
+  years: number;
+  tier: string;
+  /** True for offseason-auction deals; false for mid-season vet-min street signings. */
+  marketContract: boolean;
+}
+
+/**
+ * Forward-sim a fresh GMSim league `years` seasons and pool every free-agent
+ * signing's contract as a cap-structure row — the surface The Liquidator
+ * compares against real OTC veteran-market deals. Each offseason's FA refill
+ * appends `fa-sign` transactions; the new contracts still exist in
+ * `league.contracts` immediately after that offseason, so we resolve each
+ * newly-logged signing right after the advance that created it.
+ */
+export async function loadFreeAgentSignings(
+  seed: string,
+  years: number,
+): Promise<FreeAgentSigningRow[]> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed }) as unknown as LiquidatorLeague;
+  const cap = league.salaryCap;
+  const rows: FreeAgentSigningRow[] = [];
+
+  const sum = (a: number[]): number => a.reduce((s, v) => s + v, 0);
+
+  for (let y = 0; y < years; y++) {
+    const before = league.transactionLog.length;
+    league = eng.simulateSeason(league as unknown as EngineLeague) as unknown as LiquidatorLeague;
+    league = eng.advanceSeason(league as unknown as EngineLeague) as unknown as LiquidatorLeague;
+    for (let i = before; i < league.transactionLog.length; i++) {
+      const tx = league.transactionLog[i];
+      if (!tx || tx.kind !== 'fa-sign') continue;
+      const c = league.contracts[tx.contractId];
+      if (!c) continue;
+      const player = league.players[tx.playerId];
+      if (!player) continue;
+      const value = sum(c.baseSalaries) + c.signingBonus + sum(c.rosterBonuses) + sum(c.workoutBonuses);
+      const apy = c.realYears > 0 ? value / c.realYears : 0;
+      let guaranteed = c.signingBonus;
+      for (let j = 0; j < c.realYears; j++) {
+        guaranteed += (c.baseSalaries[j] ?? 0) * ((c.guarantees[j]?.baseGuaranteedPct ?? 0) / 100);
+      }
+      rows.push({
+        position: player.position,
+        apy,
+        apyCapPct: cap > 0 ? apy / cap : 0,
+        guaranteedPct: value > 0 ? guaranteed / value : 0,
+        years: c.realYears,
+        tier: player.tier,
+        marketContract: tx.marketContract,
+      });
+    }
+  }
+  return rows;
+}
+
+interface LiquidatorLeague {
+  salaryCap: number;
+  seasonNumber: number;
+  transactionLog: {
+    kind: string;
+    contractId: string;
+    playerId: string;
+    marketContract: boolean;
+  }[];
+  players: Record<string, { position: string; tier: string }>;
+  contracts: Record<string, RawContract>;
+}
+
 let cached: EngineModule | null = null;
 async function loadEngine(): Promise<EngineModule> {
   if (cached) return cached;
