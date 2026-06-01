@@ -150,6 +150,76 @@ const PREMIUM_DAMPEN = 0.5;
 export const FA_PREMIUM_DAMPEN = 0.85;
 
 /**
+ * Target guaranteed money as a fraction of total contract value for a
+ * top-of-market (STAR) deal at each position — The Liquidator Slice 3.
+ *
+ * Real guaranteed % is steeply position-dependent (an elite QB locks in ~69% of
+ * the deal; a RB ~25%, a long snapper ~10%), because guaranteed money is what
+ * makes a player expensive to move — teams commit it to franchise cornerstones
+ * and withhold it from commodity positions. GMSim's pre-Slice-3 generator scaled
+ * signing bonus AND base by the same `positionSalaryFactor`, so the
+ * guaranteed/value RATIO was position-invariant (flat ~55-60% everywhere). These
+ * targets restore the spread.
+ *
+ * Numbers are the real value-weighted guaranteed % per OTC position bucket
+ * (contracts signed 2021+), mapped onto GMSim positions. Re-derive with
+ * `pnpm --filter @gmsim/truth-arbiter run liquidator gtd`.
+ */
+export const POSITION_GUARANTEE_AT_STAR: Record<Position, number> = {
+  [Position.QB]: 0.69,
+  [Position.EDGE]: 0.47,
+  [Position.LT]: 0.46,
+  [Position.WR]: 0.44,
+  [Position.RT]: 0.43,
+  [Position.DT]: 0.41,
+  [Position.NT]: 0.41,
+  [Position.CB]: 0.4,
+  [Position.NICKEL]: 0.4,
+  [Position.LG]: 0.39,
+  [Position.C]: 0.38,
+  [Position.S]: 0.36,
+  [Position.OLB]: 0.36,
+  [Position.ILB]: 0.36,
+  [Position.TE]: 0.36,
+  [Position.RG]: 0.34,
+  [Position.FB]: 0.26,
+  [Position.P]: 0.26,
+  [Position.RB]: 0.25,
+  [Position.K]: 0.25,
+  [Position.LS]: 0.1,
+};
+
+/**
+ * Per-tier guarantee-depth multiplier on `POSITION_GUARANTEE_AT_STAR`. The
+ * position spread is a top-of-market phenomenon: fringe/vet-minimum deals carry
+ * ~no guarantees regardless of position, while franchise deals lock in the full
+ * positional share. STAR exceeds 1.0 because the targets are the *value-weighted*
+ * real numbers (which already blend in cheaper lower-tier deals); the league's
+ * value-weighted guaranteed % only lands on the real target if the franchise
+ * deals that dominate the weighting sit above it. Calibrated against
+ * `run liquidator gtd` so GMSim's value-weighted guaranteed % matches real.
+ */
+const TIER_GUARANTEE_WEIGHT: Record<TalentTier, number> = {
+  STAR: 1.25,
+  STARTER: 0.95,
+  BACKUP: 0.5,
+  FRINGE: 0.0,
+};
+
+/**
+ * Target guaranteed fraction of total value for a player at `position`+`tier`.
+ * The seed contract generator builds the signing-bonus / guaranteed-base split
+ * to hit this, keeping total value (APY) fixed so the cap calibration from the
+ * position SALARY factor is untouched — only the guaranteed share (and hence
+ * dead money on a trade/release) moves. Clamped to ≤0.95 so a contract never
+ * needs more guaranteed money than it has value.
+ */
+export function positionGuaranteeTarget(position: Position, tier: TalentTier): number {
+  const star = POSITION_GUARANTEE_AT_STAR[position] ?? 0.4;
+  return Math.min(0.95, star * TIER_GUARANTEE_WEIGHT[tier]);
+}
+
+/**
  * Derive a talent tier from a player's actual skill profile. We use
  * the average of skills the player's archetype emphasizes (skillWeight ≥ 1.2)
  * as a one-number summary. Falls back to a neutral set of skills if
