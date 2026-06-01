@@ -126,19 +126,19 @@ interface FreeAgentDealShape {
 const FA_DEAL_BY_TIER: Record<TalentTier, FreeAgentDealShape> = {
   STAR: {
     realYears: 4,
-    baseSalary: 7_000_000,
-    signingBonus: 14_000_000,
+    baseSalary: 9_000_000,
+    signingBonus: 24_000_000,
     guaranteedYears: 2,
   },
   STARTER: {
     realYears: 3,
-    baseSalary: 3_000_000,
-    signingBonus: 3_000_000,
+    baseSalary: 2_400_000,
+    signingBonus: 2_400_000,
     guaranteedYears: 1,
   },
   BACKUP: {
     realYears: 2,
-    baseSalary: 1_100_000,
+    baseSalary: 900_000,
     signingBonus: 200_000,
     guaranteedYears: 1,
   },

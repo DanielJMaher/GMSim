@@ -115,19 +115,39 @@ const TIER_PREMIUM_WEIGHT: Record<TalentTier, number> = {
  * position's market factor, blended toward 1.0 by tier so stars get the full
  * positional premium while fringe deals stay near the (position-agnostic)
  * minimum.
+ *
+ * `dampen` pulls the raw market spread toward 1.0 (see `PREMIUM_DAMPEN`). The
+ * seed generator uses the default low dampen because it assigns talent to teams
+ * without cap-awareness; the free-agent auction is cap-gated (teams only bid
+ * within real cap room, falling back to vet-min when no one can afford) so it
+ * passes a higher `FA_PREMIUM_DAMPEN` for a steeper, more realistic spread.
  */
-export function positionSalaryFactor(position: Position, tier: TalentTier): number {
+export function positionSalaryFactor(
+  position: Position,
+  tier: TalentTier,
+  dampen: number = PREMIUM_DAMPEN,
+): number {
   const raw = POSITION_SALARY_FACTOR[position] ?? 1.0;
-  // Dampen the raw market spread toward 1.0. GMSim assigns talent to teams
-  // without cap-awareness, so the full real spread (an 18%-of-cap QB) lets a
-  // team randomly stack premium stars far past the cap, beyond what offseason
-  // compliance can unwind. Dampening keeps a strong, realistic positional
-  // ordering while bounding the worst-case team total to a compliable overage.
-  const damped = 1 + (raw - 1) * PREMIUM_DAMPEN;
+  const damped = 1 + (raw - 1) * dampen;
   return 1 + (damped - 1) * TIER_PREMIUM_WEIGHT[tier];
 }
 
+/**
+ * Seed-generation dampen. GMSim assigns talent to teams without cap-awareness,
+ * so the full real spread (an 18%-of-cap QB) lets a team randomly stack premium
+ * stars far past the cap, beyond what offseason compliance can unwind. Dampening
+ * keeps a strong, realistic positional ordering while bounding the worst-case
+ * team total to a compliable overage.
+ */
 const PREMIUM_DAMPEN = 0.5;
+
+/**
+ * Free-agency dampen — higher than the seed dampen because the auction is
+ * cap-gated, so a steeper positional premium can't blow up team cap totals the
+ * way un-cap-aware seed assignment can. Lifts the premium-position top-of-market
+ * (a STAR QB FA) toward real OTC without breaking cap-compliance tests.
+ */
+export const FA_PREMIUM_DAMPEN = 0.85;
 
 /**
  * Derive a talent tier from a player's actual skill profile. We use

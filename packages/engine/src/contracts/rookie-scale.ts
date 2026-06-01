@@ -141,3 +141,38 @@ export function generateRookieContract(options: GenerateRookieContractOptions): 
 function roundMoney(value: number): number {
   return Math.round(value / 1000) * 1000;
 }
+
+/**
+ * Representative overall pick for the *middle* of each round in a
+ * 32-team draft (round 1 → pick 16, round 2 → pick 48, …). Used to
+ * estimate a round's typical rookie cap hit without knowing the exact
+ * slot — good enough for the free-agency rookie-pool reserve.
+ */
+const ROUND_REPRESENTATIVE_PICK: Readonly<Record<number, number>> = {
+  1: 16,
+  2: 48,
+  3: 80,
+  4: 112,
+  5: 144,
+  6: 176,
+  7: 208,
+};
+
+/**
+ * Estimated Year-1 cap hit for a typical pick in `round` (base salary
+ * year-1 + evenly-prorated signing bonus), computed from the same
+ * rookie-scale formulas `generateRookieContract` uses so the two can't
+ * drift. Feeds the free-agency rookie-pool reserve: at FA time a team
+ * holds back roughly its incoming draft class's first-year cap so the
+ * post-draft roster stays cap-compliant. Rounds outside 1..7 fall back
+ * to the round-7 (cheapest) estimate.
+ */
+export function estimatedRookieYear1CapHit(round: number): number {
+  const pick = ROUND_REPRESENTATIVE_PICK[round] ?? ROUND_REPRESENTATIVE_PICK[7]!;
+  const total = totalValueForPick(pick);
+  const signingBonus = roundMoney(total * signingBonusShareForPick(pick));
+  const avgBase = (total - signingBonus) / ROOKIE_YEARS;
+  // Year-1 base uses the 0.85 ramp factor from generateRookieContract.
+  const baseYear1 = Math.max(LEAGUE_MINIMUM_SALARY, roundMoney(avgBase * 0.85));
+  return baseYear1 + Math.round(signingBonus / ROOKIE_YEARS);
+}

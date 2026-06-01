@@ -9,7 +9,8 @@ import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
-import { positionSalaryFactor } from '../contracts/tiers.js';
+import { positionSalaryFactor, FA_PREMIUM_DAMPEN } from '../contracts/tiers.js';
+import { estimatedRookieYear1CapHit } from '../contracts/rookie-scale.js';
 /**
  * Free-agent bidding auction — v0.20.0 Doc 7 follow-up.
  *
@@ -128,16 +129,18 @@ export interface PreferenceFactors {
 
 /**
  * Standard Year-1 cap hit for each tier — the anchor the auction
- * scales around. Matches the pre-v0.20 flat-tier Y1 cap hit so the
- * league-wide cap band stays stable; per-FA prices vary inside a
- * bounded window (see `BID_MULTIPLIER_FLOOR` / `BID_MULTIPLIER_CEIL`)
- * rather than letting fit × need × cap composition push individual
- * bids unbounded above the anchor.
+ * scales around. Tier separation is deliberately steep (a STAR anchor
+ * ~15× a FRINGE one) so the position-scaled top-of-market (a STAR QB)
+ * reaches real OTC territory while the common STARTER/BACKUP churn stays
+ * cheap — the two tells The Liquidator's `run liquidator fa` flagged.
+ * Per-FA prices vary inside a bounded window (see `BID_MULTIPLIER_FLOOR`
+ * / `BID_MULTIPLIER_CEIL`) rather than letting fit × need × cap
+ * composition push individual bids unbounded above the anchor.
  */
 const TIER_STANDARD_Y1: Record<Player['tier'], number> = {
-  STAR: 10_500_000,
-  STARTER: 4_000_000,
-  BACKUP: 1_200_000,
+  STAR: 15_000_000,
+  STARTER: 3_200_000,
+  BACKUP: 1_000_000,
   FRINGE: 900_000,
 };
 
@@ -171,7 +174,45 @@ const BID_MULTIPLIER_CEIL = 1.2;
  * the tier shape, rather than cancelling out.
  */
 function positionScaledStandardY1(player: Player): number {
-  return TIER_STANDARD_Y1[player.tier] * positionSalaryFactor(player.position, player.tier);
+  return (
+    TIER_STANDARD_Y1[player.tier] *
+    positionSalaryFactor(player.position, player.tier, FA_PREMIUM_DAMPEN)
+  );
+}
+
+/**
+ * Fraction of a team's gross incoming rookie-pool Year-1 cap that the
+ * FA auction holds back. The draft fires AFTER free agency in the same
+ * offseason, so a team that spends right up to the cap in FA tips over
+ * once its rookies sign — the v0.107 cap-overage The Liquidator's fix #3
+ * exposed. Reserving the rookie pool keeps the post-draft roster
+ * cap-compliant without cutting a veteran after the draft.
+ *
+ * The factor is below 1.0 because offseason cap accounting is Top-51:
+ * each incoming rookie displaces the cheapest counted contract, so the
+ * NET cap added by the draft is smaller than the gross rookie Year-1
+ * sum. 0.7 tracks the observed net (~$8.5M added vs ~$12M gross for a
+ * full 7-pick class) — enough to stay compliant without making FA
+ * needlessly timid.
+ */
+const ROOKIE_RESERVE_FACTOR = 0.7;
+
+/**
+ * Estimated cap room a team should hold back in free agency for its
+ * incoming draft class — the sum of per-round Year-1 rookie cap hits
+ * for the picks it currently owns in the upcoming draft (the draft that
+ * fires later this same offseason, i.e. `seasonNumber === league.seasonNumber`),
+ * scaled by `ROOKIE_RESERVE_FACTOR`. Picks traded away lower the reserve;
+ * picks traded in raise it, so the reserve self-sizes to actual capital.
+ */
+function rookiePoolReserve(league: LeagueState, teamId: TeamId): number {
+  let gross = 0;
+  for (const pick of league.draftPicks) {
+    if (pick.currentTeamId !== teamId) continue;
+    if (pick.seasonNumber !== league.seasonNumber) continue;
+    gross += estimatedRookieYear1CapHit(pick.round);
+  }
+  return gross * ROOKIE_RESERVE_FACTOR;
 }
 
 /**
@@ -311,7 +352,14 @@ function collectBids(
     const capRoom = league.salaryCap - teamCapUsage(team, league);
     const remainingSlotsAfterSigning = Math.max(0, 53 - team.rosterIds.length - 1);
     const fillUpReserve = remainingSlotsAfterSigning * LEAGUE_MINIMUM_SALARY;
-    if (capRoom < standardY1 + fillUpReserve) continue;
+    // Hold back the incoming draft class's first-year cap: the draft
+    // fires after FA this same offseason, so spending all the way to the
+    // cap here tips the team over once rookies sign. Reserving the rookie
+    // pool is what real GMs do — and it keeps the steep position-scaled
+    // FA market (fix #3) without forcing a post-draft veteran cut.
+    const rookieReserve = rookiePoolReserve(league, team.identity.id);
+    const effectiveCapRoom = Math.max(0, capRoom - rookieReserve);
+    if (effectiveCapRoom < standardY1 + fillUpReserve) continue;
 
     // Effective cash is the team's desired valuation capped at their
     // cap room — they can't bid more than they can pay, but they can
@@ -323,7 +371,9 @@ function collectBids(
     const baselineCash = computeTeamCashBid(team, player, league, blueprintByPos);
     const watch = watchListBoost(league, team.identity.id, player.id);
     const boostedCash = baselineCash * watch.multiplier;
-    const cash = Math.min(boostedCash, capRoom);
+    // Cap at the rookie-reserved cap room (not the gross) so a qualifying
+    // team can't bid into the room it must keep for its draft class.
+    const cash = Math.min(boostedCash, effectiveCapRoom);
 
     const preferenceFactors = computePlayerPreferenceBreakdown(team, player, league);
     bids.push({
