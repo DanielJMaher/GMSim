@@ -55,6 +55,10 @@ interface RealRow {
   apyCapPct: number;
   guaranteedPct: number;
   years: number;
+  /** Raw total contract value ($) — kept for value-weighted aggregates. */
+  value: number;
+  /** Raw guaranteed money ($) — kept for value-weighted aggregates. */
+  guaranteed: number;
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -120,6 +124,8 @@ async function loadReal(veteranFaOnly = false): Promise<RealRow[]> {
       apyCapPct: apyPct,
       guaranteedPct: value > 0 ? gtd / value : 0,
       years: csvNum(f[iYears]) ?? 0,
+      value,
+      guaranteed: gtd,
     });
   }
   return rows;
@@ -283,12 +289,102 @@ async function reportFreeAgency(seed: string): Promise<void> {
   console.log('');
 }
 
+/**
+ * Slice 3 — guaranteed-money realism (the dead-money / cap-out driver).
+ *
+ * Why guaranteed money is the trade slice: the real OTC corpus has no trade
+ * events, so trade OUTCOMES can't be benchmarked directly. But the thing that
+ * makes a trade or release expensive — dead money — is driven by GUARANTEED
+ * money (guaranteed base becomes dead money the moment a player is moved, on
+ * top of accelerated signing-bonus proration). Real guaranteed % is steeply
+ * position- AND tier-dependent (an elite QB locks in ~70-100% guaranteed; a
+ * RB far less). If GMSim's guarantees are flat, every position is equally
+ * (un)tradeable and cap-out behaves nothing like the NFL. This report
+ * quantifies that gap from the OTC `guaranteed` / `value` columns.
+ */
+async function reportGuarantees(seed: string): Promise<void> {
+  console.log(
+    `\nThe Liquidator — GUARANTEED-MONEY realism (dead-money / cap-out driver; real market: signed ${MARKET_SINCE}+)`,
+  );
+
+  const real = await loadReal();
+  const realByPos = new Map<string, RealRow[]>();
+  for (const r of real) {
+    const arr = realByPos.get(r.position) ?? realByPos.set(r.position, []).get(r.position)!;
+    arr.push(r);
+  }
+  console.log(`  real contracts: ${real.length.toLocaleString()} across ${realByPos.size} positions\n`);
+
+  const sim = await loadLeagueContracts(seed);
+  const simByPos = new Map<string, LeagueContractRow[]>();
+  for (const r of sim) {
+    const bucket = OTC_BUCKET[r.position];
+    if (!bucket) continue;
+    const arr = simByPos.get(bucket) ?? simByPos.set(bucket, []).get(bucket)!;
+    arr.push(r);
+  }
+
+  // Value-weighted guaranteed % = Σ guaranteed ÷ Σ value across a position.
+  // This is the right lens for dead-money exposure: it weights toward the big
+  // multi-year deals (where cap-out actually happens) and de-emphasizes the
+  // mass of $0-guaranteed minimum/tender deals that swamp the raw median.
+  const realVwGtd = (rows: RealRow[]): number => {
+    let g = 0, v = 0;
+    for (const r of rows) { g += r.guaranteed; v += r.value; }
+    return v > 0 ? g / v : 0;
+  };
+  const simVwGtd = (rows: LeagueContractRow[]): number => {
+    let g = 0, v = 0;
+    for (const r of rows) {
+      const value = r.apy * r.years;
+      g += r.guaranteedPct * value;
+      v += value;
+    }
+    return v > 0 ? g / v : 0;
+  };
+
+  console.log('=== Value-weighted guaranteed money as % of contract value — real vs GMSim seeds ===');
+  console.log(`  (median in parens — real median ~0% across the board: most of a real roster is on $0-gtd minimums)`);
+  console.log(`  ${'pos'.padEnd(5)} ${'real gtd'.padStart(9)} ${'sim gtd'.padStart(9)} ${'Δpp'.padStart(7)}   ${'real med'.padStart(9)} ${'sim med'.padStart(9)} ${'n'.padStart(5)}`);
+  for (const pos of POS_ORDER) {
+    const r = realByPos.get(pos);
+    const s = simByPos.get(pos);
+    if (!r) continue;
+    const realGtd = realVwGtd(r);
+    const simGtd = s ? simVwGtd(s) : null;
+    const realMed = bench(r).gtdMedian;
+    const simMed = s ? bench(s).gtdMedian : null;
+    const d = simGtd !== null ? ((simGtd - realGtd) * 100).toFixed(0) : '—';
+    const flag = simGtd !== null && Math.abs(simGtd - realGtd) > 0.15 ? '  <-- DRIFT' : '';
+    const simN = s ? String(s.length) : '—';
+    console.log(
+      `  ${pos.padEnd(5)} ${((realGtd * 100).toFixed(0) + '%').padStart(9)} ${(simGtd !== null ? (simGtd * 100).toFixed(0) + '%' : '—').padStart(9)} ${d.padStart(7)}   ${((realMed * 100).toFixed(0) + '%').padStart(9)} ${(simMed !== null ? (simMed * 100).toFixed(0) + '%' : '—').padStart(9)} ${simN.padStart(5)}${flag}`,
+    );
+  }
+
+  // Headline: the QB-vs-RB guaranteed spread. Real QBs lock in far more
+  // guaranteed money than RBs; if GMSim's are equal, guarantees are flat.
+  const realQbR = realByPos.get('QB') ?? [];
+  const realRbR = realByPos.get('RB') ?? [];
+  const simQbR = simByPos.get('QB');
+  const simRbR = simByPos.get('RB');
+  console.log('\n=== Guaranteed-money spread (the flat-guarantee tell) ===');
+  console.log(`  real  QB gtd ${(realVwGtd(realQbR) * 100).toFixed(0)}%  vs RB gtd ${(realVwGtd(realRbR) * 100).toFixed(0)}%  → QB-RB gap ${((realVwGtd(realQbR) - realVwGtd(realRbR)) * 100).toFixed(0)}pp`);
+  if (simQbR && simRbR) {
+    console.log(`  GMSim QB gtd ${(simVwGtd(simQbR) * 100).toFixed(0)}%  vs RB gtd ${(simVwGtd(simRbR) * 100).toFixed(0)}%  → QB-RB gap ${((simVwGtd(simQbR) - simVwGtd(simRbR)) * 100).toFixed(0)}pp`);
+  }
+  console.log('');
+}
+
 async function main(): Promise<void> {
   // `run liquidator [seed]`        → seed cap-structure report (Slice 1)
   // `run liquidator fa [seed]`     → free-agency cap-structure report (Slice 2)
+  // `run liquidator gtd [seed]`    → guaranteed-money realism (Slice 3)
   const mode = process.argv[2];
   if (mode === 'fa') {
     await reportFreeAgency(process.argv[3] ?? 'liquidator');
+  } else if (mode === 'gtd') {
+    await reportGuarantees(process.argv[3] ?? 'liquidator');
   } else {
     await reportSeeds(mode ?? 'liquidator');
   }
