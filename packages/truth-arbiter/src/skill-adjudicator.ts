@@ -316,6 +316,86 @@ function printCorrelationRealism(players: AuditPlayer[], field: SkillField, labe
   );
 }
 
+// ── Expected NON-linkage: anti-correlations + independence (Daniel 2026-06-02)
+// Some pairs should NOT move together. Two guardrails, especially for after the
+// generation fix lands (so we don't over-link):
+//   • strength↔speed should be NEGATIVE — big strong players (DT/OL) are slow,
+//     fast players (CB/WR) are light. Measured RAW across ALL positions (the
+//     tradeoff is positional/size-driven, not within-tier), expect r ≲ -0.2.
+//   • ballSkills↔coverage should be ~INDEPENDENT — Sauce Gardner covers elite
+//     but picks few. Measured within-grade among DB+LB; flag if |r| drifts high.
+interface RelationCheck {
+  name: string;
+  kind: 'negative' | 'independent';
+  a: string;
+  b: readonly string[];
+  groups: readonly string[] | 'ALL';
+  residualize: boolean;
+  bound: number;
+}
+const RELATION_CHECKS: readonly RelationCheck[] = [
+  { name: 'strength↔speed', kind: 'negative', a: 'strength', b: ['speed'], groups: 'ALL', residualize: false, bound: -0.2 },
+  { name: 'ballSkills↔coverage', kind: 'independent', a: 'ballSkills', b: ['manCoverage', 'zoneCoverage', 'pressCoverage'], groups: ['DB', 'LB'], residualize: true, bound: 0.3 },
+];
+
+/** Mean Pearson r of attribute `a` against each of `bs` (grade-residualized if asked). */
+function corrOneToMany(
+  players: AuditPlayer[],
+  a: string,
+  bs: readonly string[],
+  field: SkillField,
+  residualize: boolean,
+): number {
+  const gm = residualize ? gradeMeans(players, [a, ...bs], field) : null;
+  const val = (p: AuditPlayer, k: string): number | undefined => {
+    const v = p[field][k];
+    if (v === undefined) return undefined;
+    return gm ? v - (gm.get(p.talentGrade)?.get(k) ?? v) : v;
+  };
+  let sum = 0;
+  let pairs = 0;
+  for (const b of bs) {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (const p of players) {
+      const x = val(p, a);
+      const y = val(p, b);
+      if (x === undefined || y === undefined) continue;
+      xs.push(x);
+      ys.push(y);
+    }
+    const r = pearson(xs, ys);
+    if (!Number.isNaN(r)) {
+      sum += r;
+      pairs++;
+    }
+  }
+  return pairs ? sum / pairs : NaN;
+}
+
+function printRelationChecks(players: AuditPlayer[], field: SkillField): void {
+  console.log(`\n=== Expected NON-linkage — ${field} ===`);
+  console.log(`  pairs that should be negative or independent (guardrails the fix must not violate).`);
+  console.log(`  ${'relation'.padEnd(22)} ${'kind'.padStart(12)} ${'n'.padStart(5)} ${'r'.padStart(7)} ${'expected'.padStart(12)}`);
+  for (const c of RELATION_CHECKS) {
+    const pop = c.groups === 'ALL' ? players : players.filter((p) => c.groups.includes(p.positionGroup));
+    const r = corrOneToMany(pop, c.a, c.b, field, c.residualize);
+    let flag = '';
+    let expected = '';
+    if (c.kind === 'negative') {
+      expected = `r <= ${c.bound.toFixed(2)}`;
+      if (Number.isNaN(r) || r > c.bound) flag = '  <-- NOT NEGATIVE ENOUGH';
+    } else {
+      expected = `|r| <= ${c.bound.toFixed(2)}`;
+      if (!Number.isNaN(r) && Math.abs(r) > c.bound) flag = '  <-- SPURIOUSLY LINKED';
+    }
+    console.log(
+      `  ${c.name.padEnd(22)} ${c.kind.padStart(12)} ${String(pop.length).padStart(5)}` +
+        ` ${(Number.isNaN(r) ? 'n/a' : r.toFixed(2)).padStart(7)} ${expected.padStart(12)}${flag}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const sim = process.argv[2] === 'sim';
   const years = sim ? Number(process.argv[3]) || 6 : 0;
@@ -359,6 +439,7 @@ async function main(): Promise<void> {
     'ceiling',
     sim ? `rostered after ${years} seasons` : 'freshly generated',
   );
+  printRelationChecks(audit.players, 'ceiling');
 
   if (sim) {
     // Use the final season's named accolades — the per-season total averaged
