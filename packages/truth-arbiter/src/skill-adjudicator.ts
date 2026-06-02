@@ -151,6 +151,155 @@ function printCeilingRealism(players: AuditPlayer[], field: SkillField, label: s
   }
 }
 
+// ── Linked-rating (attribute-correlation) realism (Daniel 2026-06-02) ─────
+// The engine rolls every attribute independently (`prng.normal` per skill), so
+// within a talent grade there's ~zero correlation between linked ratings — a
+// 99-speed / 75-acceleration player is common, which is unrealistic.
+// Real-world basis (Madden School / combine): the 40-yard dash drives BOTH
+// Speed and Acceleration; the 3-cone couples Acceleration+Agility; the 20-yd
+// shuttle couples Agility+Change-of-Direction → those four form one tightly
+// correlated "athleticism" cluster. Other skill families cluster similarly
+// (a QB accurate short is usually accurate medium; a rusher with one move has
+// the family). The fix (engine) is a shared per-player latent per cluster +
+// a small idiosyncratic perturbation; this audit measures whether the linkage
+// is there. Targets are mean pairwise Pearson r WITHIN the relevant position
+// group (so grade structure isn't the only thing creating correlation).
+interface CorrCluster {
+  name: string;
+  attrs: readonly string[];
+  groups: readonly string[];
+  target: number;
+}
+// Targets are WITHIN-GRADE (grade-residualized) mean pairwise r — i.e. the
+// attribute linkage that remains after removing the shared talent-grade factor.
+// This is what the engine currently lacks (independent rolls → ~0 within grade)
+// and what the generation fix adds. Athleticism is the tightest (combine tests
+// are physically linked regardless of overall grade); power-vs-finesse families
+// (pass-rush) legitimately diverge by archetype, so they target lower.
+const CORR_CLUSTERS: readonly CorrCluster[] = [
+  { name: 'athleticism', groups: ['SKILL', 'DB'], target: 0.7,
+    attrs: ['speed', 'acceleration', 'agility', 'changeOfDirection'] },
+  { name: 'qb-accuracy', groups: ['QB'], target: 0.55,
+    attrs: ['accuracyShort', 'accuracyMedium', 'accuracyDeep', 'accuracyLeft', 'accuracyMiddle', 'accuracyRight'] },
+  { name: 'pass-rush', groups: ['DL', 'LB'], target: 0.45,
+    attrs: ['bullRush', 'longArm', 'pushPull', 'swimMove', 'ripMove', 'spinRush', 'crossChop', 'ghostMove', 'getOff', 'bend', 'handTechnique'] },
+  { name: 'coverage', groups: ['DB', 'LB'], target: 0.5,
+    attrs: ['manCoverage', 'zoneCoverage', 'pressCoverage', 'ballSkills'] },
+  { name: 'blocking', groups: ['OL'], target: 0.5,
+    attrs: ['runBlockPower', 'runBlockFinesse', 'passBlockPower', 'passBlockFinesse', 'impactBlock', 'leadBlock'] },
+  { name: 'receiving-hands', groups: ['SKILL'], target: 0.55,
+    attrs: ['catching', 'catchInTraffic', 'contestedCatch'] },
+  { name: 'route-running', groups: ['SKILL'], target: 0.6,
+    attrs: ['routeShort', 'routeMedium', 'routeDeep'] },
+];
+const CORR_FLAG_SLACK = 0.15; // flag when within-grade r is this far below target
+
+function pearson(xs: readonly number[], ys: readonly number[]): number {
+  const n = xs.length;
+  if (n < 3) return NaN;
+  let sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+  for (let i = 0; i < n; i++) {
+    const x = xs[i]!;
+    const y = ys[i]!;
+    sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y;
+  }
+  const cov = sxy - (sx * sy) / n;
+  const vx = sxx - (sx * sx) / n;
+  const vy = syy - (sy * sy) / n;
+  const d = Math.sqrt(vx * vy);
+  return d === 0 ? NaN : cov / d;
+}
+
+/**
+ * Per-(grade, attr) mean for grade-residualization. Subtracting it isolates
+ * within-tier attribute linkage from the shared talent-grade factor (which on
+ * its own makes every attribute correlate ~0.65).
+ */
+function gradeMeans(
+  players: AuditPlayer[],
+  attrs: readonly string[],
+  field: SkillField,
+): Map<string, Map<string, number>> {
+  const acc = new Map<string, Map<string, { sum: number; n: number }>>();
+  for (const p of players) {
+    let byAttr = acc.get(p.talentGrade);
+    if (!byAttr) {
+      byAttr = new Map();
+      acc.set(p.talentGrade, byAttr);
+    }
+    for (const a of attrs) {
+      const v = p[field][a];
+      if (v === undefined) continue;
+      const cur = byAttr.get(a) ?? { sum: 0, n: 0 };
+      cur.sum += v;
+      cur.n += 1;
+      byAttr.set(a, cur);
+    }
+  }
+  const out = new Map<string, Map<string, number>>();
+  for (const [g, byAttr] of acc) {
+    const m = new Map<string, number>();
+    for (const [a, s] of byAttr) m.set(a, s.n ? s.sum / s.n : 0);
+    out.set(g, m);
+  }
+  return out;
+}
+
+/** Mean pairwise within-grade Pearson r across a cluster's attributes. */
+function meanPairwiseCorr(players: AuditPlayer[], attrs: readonly string[], field: SkillField): number {
+  const gm = gradeMeans(players, attrs, field);
+  const resid = (p: AuditPlayer, a: string): number | undefined => {
+    const v = p[field][a];
+    if (v === undefined) return undefined;
+    return v - (gm.get(p.talentGrade)?.get(a) ?? v);
+  };
+  let sum = 0;
+  let pairs = 0;
+  for (let i = 0; i < attrs.length; i++) {
+    for (let j = i + 1; j < attrs.length; j++) {
+      const xs: number[] = [];
+      const ys: number[] = [];
+      for (const p of players) {
+        const x = resid(p, attrs[i]!);
+        const y = resid(p, attrs[j]!);
+        if (x === undefined || y === undefined) continue;
+        xs.push(x);
+        ys.push(y);
+      }
+      const r = pearson(xs, ys);
+      if (!Number.isNaN(r)) {
+        sum += r;
+        pairs++;
+      }
+    }
+  }
+  return pairs ? sum / pairs : NaN;
+}
+
+function printCorrelationRealism(players: AuditPlayer[], field: SkillField, label: string): void {
+  console.log(`\n=== Linked-rating realism — ${field}, ${label} ===`);
+  console.log(`  within-GRADE mean pairwise Pearson r (grade factor removed) per cluster's position group(s).`);
+  console.log(`  ${'cluster'.padEnd(16)} ${'grp'.padStart(8)} ${'n'.padStart(5)} ${'attrs'.padStart(6)} ${'r'.padStart(7)} ${'target'.padStart(7)}`);
+  for (const c of CORR_CLUSTERS) {
+    const pop = players.filter((p) => c.groups.includes(p.positionGroup));
+    const r = meanPairwiseCorr(pop, c.attrs, field);
+    const flag = !Number.isNaN(r) && r < c.target - CORR_FLAG_SLACK ? '  <-- TOO LOOSE' : '';
+    console.log(
+      `  ${c.name.padEnd(16)} ${c.groups.join('+').padStart(8)} ${String(pop.length).padStart(5)}` +
+        ` ${String(c.attrs.length).padStart(6)} ${(Number.isNaN(r) ? 'n/a' : r.toFixed(2)).padStart(7)}` +
+        ` ${c.target.toFixed(2).padStart(7)}${flag}`,
+    );
+  }
+  // Marquee example: speed vs acceleration (Daniel's "99 speed / 75 accel"),
+  // grade-residualized like the clusters above.
+  const speedPop = players.filter((p) => ['SKILL', 'DB'].includes(p.positionGroup));
+  const sr = meanPairwiseCorr(speedPop, ['speed', 'acceleration'], field);
+  console.log(
+    `  speed↔acceleration (SKILL+DB, within-grade): r=${Number.isNaN(sr) ? 'n/a' : sr.toFixed(2)}` +
+      ` (real: tightly linked even within a tier, ~0.7+)`,
+  );
+}
+
 async function main(): Promise<void> {
   const sim = process.argv[2] === 'sim';
   const years = sim ? Number(process.argv[3]) || 6 : 0;
@@ -186,6 +335,14 @@ async function main(): Promise<void> {
   if (sim) {
     printCeilingRealism(audit.players, 'current', `realized after ${years} seasons (Madden-comparable)`);
   }
+
+  // Linked-rating realism — do attributes that move together in real life
+  // move together here? Audited on ceilings (the generation knob).
+  printCorrelationRealism(
+    audit.players,
+    'ceiling',
+    sim ? `rostered after ${years} seasons` : 'freshly generated',
+  );
 
   if (sim) {
     // Use the final season's named accolades — the per-season total averaged
