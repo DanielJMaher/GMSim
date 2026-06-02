@@ -54,6 +54,103 @@ function printGradeTable(players: AuditPlayer[], compareTarget: boolean): void {
   }
 }
 
+// ── Rating-ceiling realism (Daniel 2026-06-02) ───────────────────────────
+// The engine rolls each player's hidden attribute CEILINGS independently, so
+// the count of "can hit 99" players scales with the pool — nothing enforces
+// real-world scarcity. Anchors:
+//   • Madden NFL 26 (~2,035 players): ~5 at 99 OVR (~0.25%); exactly ONE
+//     player at 99 SPEED (Tyreek Hill), a handful at 97-98. A literal 99 in
+//     any single attribute is league-unique-rare.
+//   • PFF grade scale (per-facet): mean ~65, sd ~8, Elite 90+ (~0.1%).
+// So only a tiny fixed handful of players should be CAPABLE of a 99 in a
+// given attribute — "not everyone can be the fastest player in the league."
+// These are per-1,000-player rates so they scale with pool size. Ceilings
+// (potential) get head-room over Madden's realized counts; the `current`
+// table in sim mode is the Madden-comparable one.
+const PER1K_99_TARGET = 1.5; // ceiling == 99 per 1,000 players
+const PER1K_97_TARGET = 6;
+const PER1K_95_TARGET = 15;
+const ANY99_PCT_TARGET = 1.0; // % of pool allowed ANY maxed (99) attribute
+
+type SkillField = 'ceiling' | 'current';
+
+interface AttrTail {
+  attr: string;
+  n99: number;
+  n97: number;
+  n95: number;
+  mean: number;
+  sd: number;
+}
+
+function attrTails(players: AuditPlayer[], field: SkillField): AttrTail[] {
+  if (players.length === 0) return [];
+  const keys = Object.keys(players[0]![field]);
+  const rows: AttrTail[] = [];
+  for (const attr of keys) {
+    let n99 = 0;
+    let n97 = 0;
+    let n95 = 0;
+    let sum = 0;
+    let sumsq = 0;
+    let n = 0;
+    for (const p of players) {
+      const v = p[field][attr];
+      if (v === undefined) continue;
+      n++;
+      sum += v;
+      sumsq += v * v;
+      if (v >= 99) n99++;
+      if (v >= 97) n97++;
+      if (v >= 95) n95++;
+    }
+    const mean = n ? sum / n : 0;
+    const sd = n ? Math.sqrt(Math.max(0, sumsq / n - mean * mean)) : 0;
+    rows.push({ attr, n99, n97, n95, mean, sd });
+  }
+  rows.sort((a, b) => b.n99 - a.n99 || b.n97 - a.n97 || b.n95 - a.n95);
+  return rows;
+}
+
+function printCeilingRealism(players: AuditPlayer[], field: SkillField, label: string): void {
+  const N = players.length || 1;
+  const per1k = (c: number): number => (c / N) * 1000;
+
+  let anyMax = 0;
+  for (const p of players) {
+    if (Object.values(p[field]).some((v) => v >= 99)) anyMax++;
+  }
+  const anyPct = (anyMax / N) * 100;
+
+  console.log(`\n=== Rating ${field} realism — ${label} (${players.length} players) ===`);
+  console.log(
+    `  anchor: Madden ~1 player at 99 SPD / 2035; ~5 at 99 OVR (~0.25%). PFF facet mean~65 sd~8.`,
+  );
+  console.log(
+    `  players with ANY ${field}==99 attribute: ${anyMax} (${anyPct.toFixed(1)}%)` +
+      `  [target ≲ ${ANY99_PCT_TARGET}%]${anyPct > ANY99_PCT_TARGET ? '  <-- TOO MANY' : ''}`,
+  );
+
+  const rows = attrTails(players, field).filter((r) => r.n95 > 0);
+  console.log(
+    `\n  per-attribute scarcity — worst first; flag = ${field}==99 over ${PER1K_99_TARGET}/1k` +
+      ` (≥97 ${PER1K_97_TARGET}/1k, ≥95 ${PER1K_95_TARGET}/1k):`,
+  );
+  console.log(
+    `  ${'attr'.padEnd(18)} ${'99'.padStart(5)} ${'>=97'.padStart(5)} ${'>=95'.padStart(5)}` +
+      ` ${'99/1k'.padStart(7)} ${'mean'.padStart(6)} ${'sd'.padStart(5)}`,
+  );
+  for (const r of rows) {
+    const p99 = per1k(r.n99);
+    const flag = p99 > PER1K_99_TARGET ? '  <-- TOO MANY' : '';
+    console.log(
+      `  ${r.attr.padEnd(18)} ${String(r.n99).padStart(5)} ${String(r.n97).padStart(5)}` +
+        ` ${String(r.n95).padStart(5)} ${p99.toFixed(1).padStart(7)} ${r.mean.toFixed(1).padStart(6)}` +
+        ` ${r.sd.toFixed(1).padStart(5)}${flag}`,
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const sim = process.argv[2] === 'sim';
   const years = sim ? Number(process.argv[3]) || 6 : 0;
@@ -76,6 +173,18 @@ async function main(): Promise<void> {
     const elite = gp.filter((p) => p.talentGrade === 'ELITE').length;
     const star = gp.filter((p) => p.talentGrade === 'STAR').length;
     console.log(`    ${grp.padEnd(6)} ${String(elite).padStart(3)} ELITE  ${String(star).padStart(3)} STAR   (${gp.length} rostered)`);
+  }
+
+  // Rating-ceiling realism — the "not everyone can be the fastest" guardrail.
+  // Ceilings are the generation knob (audited in both modes); current is the
+  // realized, Madden-comparable distribution (sim mode only).
+  printCeilingRealism(
+    audit.players,
+    'ceiling',
+    sim ? `ceilings, rostered after ${years} seasons` : 'freshly generated',
+  );
+  if (sim) {
+    printCeilingRealism(audit.players, 'current', `realized after ${years} seasons (Madden-comparable)`);
   }
 
   if (sim) {

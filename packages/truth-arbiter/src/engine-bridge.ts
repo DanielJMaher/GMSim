@@ -87,6 +87,8 @@ interface EnginePlayer {
   positionGroup: string;
   teamId: string | null;
   careerAwards: readonly { kind: string; seasonNumber: number }[];
+  current: Record<string, number>;
+  ceiling: Record<string, number>;
 }
 interface EngineLeague {
   players: Record<string, EnginePlayer>;
@@ -553,6 +555,11 @@ export interface AuditPlayer {
   position: string;
   positionGroup: string;
   talentGrade: string;
+  /** Hidden max-potential ratings (the generation knob behind "everyone's a
+   *  99"). Keyed by PlayerSkills attribute name. */
+  ceiling: Record<string, number>;
+  /** Hidden current ratings (realized after development in sim mode). */
+  current: Record<string, number>;
 }
 export interface LeagueAudit {
   seasons: number;
@@ -591,7 +598,13 @@ export async function auditLeague(seed: string, years: number): Promise<LeagueAu
   const lastSeasonAccolades: Record<string, number> = {};
   for (const p of Object.values(league.players)) {
     if (p.teamId) {
-      players.push({ position: p.position, positionGroup: p.positionGroup, talentGrade: p.talentGrade });
+      players.push({
+        position: p.position,
+        positionGroup: p.positionGroup,
+        talentGrade: p.talentGrade,
+        ceiling: p.ceiling,
+        current: p.current,
+      });
     }
     for (const a of p.careerAwards) {
       accolades[a.kind] = (accolades[a.kind] ?? 0) + 1;
