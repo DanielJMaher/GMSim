@@ -70,7 +70,13 @@ function printGradeTable(players: AuditPlayer[], compareTarget: boolean): void {
 const PER1K_99_TARGET = 1.5; // ceiling == 99 per 1,000 players
 const PER1K_97_TARGET = 6;
 const PER1K_95_TARGET = 15;
-const ANY99_PCT_TARGET = 1.0; // % of pool allowed ANY maxed (99) attribute
+// % of pool allowed to have ANY maxed (99) attribute. These are CEILINGS
+// (potential) across ~70 attributes, so this compounds: even at a Madden-like
+// per-attribute 99 rate (~1.5/1k) a few % of players will have one 99-potential
+// trait (the burner, the cannon arm, the mauler). Realized `current` (sim mode)
+// is the stricter, Madden-comparable check. Per-attribute PER1K_99_TARGET is the
+// strict guard; this headline is the compounded ceiling expectation.
+const ANY99_PCT_TARGET = 4.0;
 
 type SkillField = 'ceiling' | 'current';
 

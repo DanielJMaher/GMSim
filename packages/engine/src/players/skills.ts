@@ -112,15 +112,117 @@ export interface RolledSkills {
 }
 
 /**
+ * Linked-rating clusters (Skill Adjudicator, 2026-06-02). Real NFL attributes
+ * within a family move together — a 99-speed player is also explosive; a QB
+ * accurate short is usually accurate medium. We roll a per-player latent per
+ * cluster and add a small idiosyncratic perturbation per skill, so cluster-
+ * mates correlate WITHOUT being identical. `rho` is the target WITHIN-grade
+ * (grade-residualized) mean pairwise correlation the Adjudicator audits. The
+ * linkage is deliberately MODERATE — it must preserve individual strengths and
+ * weaknesses (a rusher's go-to move, a QB's hot/cold zones, a man-vs-zone CB).
+ * Athleticism is the only tight cluster (combine tests are physically linked).
+ * Skills not listed here are unclustered (pure idiosyncratic roll). NOTE: kept
+ * in sync with the Adjudicator's CORR_CLUSTERS (truth-arbiter); `ballSkills` is
+ * intentionally NOT in `coverage` (elite coverage ≠ INT production).
+ */
+type SkillClusterId =
+  | 'athleticism'
+  | 'qbAccuracy'
+  | 'passRushFundamentals'
+  | 'passRushMoves'
+  | 'coverage'
+  | 'blocking'
+  | 'receivingHands'
+  | 'routeRunning';
+
+const CLUSTER_RHO: Record<SkillClusterId, number> = {
+  athleticism: 0.7,
+  qbAccuracy: 0.4,
+  passRushFundamentals: 0.45,
+  passRushMoves: 0.25,
+  coverage: 0.4,
+  blocking: 0.5,
+  receivingHands: 0.4,
+  routeRunning: 0.55,
+};
+
+const SKILL_CLUSTER: Readonly<Record<string, SkillClusterId>> = {
+  speed: 'athleticism', acceleration: 'athleticism', agility: 'athleticism', changeOfDirection: 'athleticism',
+  accuracyShort: 'qbAccuracy', accuracyMedium: 'qbAccuracy', accuracyDeep: 'qbAccuracy',
+  accuracyLeft: 'qbAccuracy', accuracyMiddle: 'qbAccuracy', accuracyRight: 'qbAccuracy',
+  getOff: 'passRushFundamentals', bend: 'passRushFundamentals', handTechnique: 'passRushFundamentals',
+  bullRush: 'passRushMoves', longArm: 'passRushMoves', pushPull: 'passRushMoves', swimMove: 'passRushMoves',
+  ripMove: 'passRushMoves', spinRush: 'passRushMoves', crossChop: 'passRushMoves', ghostMove: 'passRushMoves',
+  manCoverage: 'coverage', zoneCoverage: 'coverage', pressCoverage: 'coverage',
+  runBlockPower: 'blocking', runBlockFinesse: 'blocking', passBlockPower: 'blocking',
+  passBlockFinesse: 'blocking', impactBlock: 'blocking', leadBlock: 'blocking',
+  catching: 'receivingHands', catchInTraffic: 'receivingHands', contestedCatch: 'receivingHands',
+  routeShort: 'routeRunning', routeMedium: 'routeRunning', routeDeep: 'routeRunning',
+};
+
+const CLUSTER_IDS = Object.keys(CLUSTER_RHO) as SkillClusterId[];
+
+/** Marginal per-skill standard deviation (preserved from the pre-factor-model
+ *  generation so single-skill distributions, and thus tier/accolade rates,
+ *  barely move when linkage is added). */
+const SKILL_SD = 7;
+
+/**
+ * Scarcity (Skill Adjudicator): the old generation rolled each ceiling as
+ * `normal(weightedMean, 7)` with weightedMean up to 99, so high-grade weighted
+ * skills piled at the 99 cap — ~15% of players had a maxed attribute and ~19
+ * could hit 99 speed (Madden: ~1). `softCap` compresses the top end so a literal
+ * 99 takes an extreme (outlier) draw — rare, not impossible. After this: ~3 at
+ * 99-ceiling speed, ~1.4/1k per attribute. Mid/low ratings (≤ knee) untouched.
+ */
+// Linear compression with a raw-max clamp: raw ratings above the knee are
+// squeezed toward 99, and only raw >= RAWMAX (the outlier tail) actually reaches
+// 99 — so a literal 99 is rare but POSSIBLE (the freak escape). RAWMAX tunes the
+// 99 count directly (lower = more 99s). Slope (99-KNEE)/(RAWMAX-KNEE) < 1 means
+// no inflation of mid-high values.
+const SOFTCAP_KNEE = 86;
+const SOFTCAP_RAWMAX = 115;
+
+/**
+ * Outlier component — the freak escape hatch. Clusters and scarcity are
+ * TENDENCIES, not laws: a few players must break them (DK Metcalf / Calvin
+ * Johnson big-and-fast, Anthony Richardson freak-athlete-poor-accuracy, a
+ * freak-athletic TE like Kenyon Sadiq). Each latent draw has a small chance of
+ * an amplified ("heavy tail") value, letting a rare player punch a single skill
+ * or a whole cluster through the soft cap, or deviate sharply from his cluster.
+ */
+const OUTLIER_RATE = 0.04;
+const OUTLIER_AMP = 2.6;
+
+/** Standard-normal draw with a rare amplified tail (see OUTLIER_*). */
+function latentDraw(prng: Prng): number {
+  const z = prng.gaussian();
+  return prng.next() < OUTLIER_RATE ? z * OUTLIER_AMP : z;
+}
+
+/** Compress values above the knee toward 99 so the cap is reached only by the
+ *  extreme (outlier) tail. Identity at/below the knee. */
+function softCap(x: number): number {
+  if (x <= SOFTCAP_KNEE) return x;
+  const t = Math.min(1, (x - SOFTCAP_KNEE) / (SOFTCAP_RAWMAX - SOFTCAP_KNEE));
+  return SOFTCAP_KNEE + (99 - SOFTCAP_KNEE) * t;
+}
+
+/**
  * Roll current and ceiling skill ratings for a player.
  *
- * Algorithm:
- *   1. Pick talent tier (5/35/40/20 STAR/STARTER/BACKUP/FRINGE).
- *   2. For each skill: roll ceiling = gaussian(tier_mean × archetype_weight, σ=7).
- *   3. For each skill: current = ceiling × stage_realization + noise.
- *   4. Clamp current ≤ ceiling, both within [1, 99].
+ * Factor model (2026-06-02): per-player cluster latents + a small idiosyncratic
+ * perturbation make linked ratings correlate (speed↔acceleration) without being
+ * identical, and a soft cap makes 99s rare — with a heavy-tailed outlier
+ * component so freaks still break through. Per skill:
  *
- * Output is deterministic for a given prng + archetype + ageStage.
+ *   weightedMean = GRADE_CEILING_MEAN[grade] + (archetypeWeight - 1)·7
+ *   ceiling      = softCap( weightedMean + a_c·Z_cluster + b_c·E_skill )
+ *                  where a_c = 7·√ρ_c, b_c = 7·√(1-ρ_c)  → marginal σ ≈ 7,
+ *                  within-grade cluster correlation ≈ ρ_c
+ *   current      = ceiling · stage_realization + small noise   (≤ ceiling)
+ *
+ * Deterministic for a given prng + archetype + ageStage.
  */
 export function rollSkills(
   prng: Prng,
@@ -132,6 +234,11 @@ export function rollSkills(
   const ceilingBaseline = GRADE_CEILING_MEAN[talentGrade];
   const realization = REALIZATION_BY_STAGE[ageStage];
 
+  // One shared latent per cluster for this player — the source of within-cluster
+  // linkage. Drawn up front in a stable order for determinism.
+  const clusterLatent: Record<string, number> = {};
+  for (const c of CLUSTER_IDS) clusterLatent[c] = latentDraw(prng);
+
   const ceiling = {} as PlayerSkills;
   const current = {} as PlayerSkills;
 
@@ -139,16 +246,22 @@ export function rollSkills(
     // Granular skills inherit their parent umbrella's weight unless the
     // archetype overrides them specifically (see skill-keys.ts).
     const weight = effectiveSkillWeight(archetype.skillWeights, key);
-    // Linear weight bias: each unit of weight above/below 1.0 shifts the
-    // mean by ~7 points. This preserves *tier* separation across all
-    // skills (stars have higher means than starters even on weighted
-    // skills) while still letting archetype priorities show through.
-    //
-    // Earlier formulation (multiplicative + 95-cap) was buggy: stars
-    // and starters both pinned at 95 on weighted skills, which in turn
-    // made deriveTier read everyone as a star and inflated cap usage.
+    // Linear weight bias: each unit of weight above/below 1.0 shifts the mean by
+    // ~7 points — preserves tier separation while letting archetype priorities
+    // show through.
     const weightedMean = clamp(ceilingBaseline + (weight - 1) * 7, 25, 99);
-    const ceilVal = Math.round(prng.normal(weightedMean, 7, { min: 1, max: 99 }));
+
+    // Variance split: shared cluster component (a_c·Z) + idiosyncratic
+    // perturbation (b_c·E). a_c² + b_c² = SKILL_SD² preserves the marginal
+    // spread; a_c²/SKILL_SD² = ρ_c sets the within-grade cluster correlation.
+    const cluster = SKILL_CLUSTER[key];
+    const rho = cluster ? CLUSTER_RHO[cluster] : 0;
+    const a = SKILL_SD * Math.sqrt(rho);
+    const b = SKILL_SD * Math.sqrt(1 - rho);
+    const z = cluster ? clusterLatent[cluster]! : 0;
+    const e = latentDraw(prng);
+    const raw = weightedMean + a * z + b * e;
+    const ceilVal = Math.round(clamp(softCap(raw), 1, 99));
     ceiling[key] = ceilVal;
 
     const cat = categoryFor(key);
