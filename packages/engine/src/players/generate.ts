@@ -61,7 +61,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
   const age = options.forceAgeStage
     ? rollForcedAge(prng.fork('age'), options.forceAgeStage)
     : rollAgeProfile(prng.fork('age'));
-  const skills = rollSkills(prng.fork('skills'), archetype, age.stage);
+  const skills = rollSkills(prng.fork('skills'), archetype, age.stage, options.position);
   const development = rollDevelopmentArchetype(prng.fork('dev'));
   const moodProfile = rollMoodProfile(prng.fork('mood'));
   const name = generateName(prng.fork('name'));

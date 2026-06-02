@@ -136,7 +136,7 @@ export function generateCollegePlayer(
   // Use ROOKIE realization curve — college prospects are physically
   // close to their ceiling but not yet polished. Same dial NFL rookies
   // get when they enter the league.
-  const skillRoll = rollSkills(prng.fork('skills'), archetype, 'ROOKIE');
+  const skillRoll = rollSkills(prng.fork('skills'), archetype, 'ROOKIE', projection.projected);
   // Override the rolled tier with our explicit one so the skill output
   // is keyed off the tier we're tracking.
   const current = skillRoll.current;

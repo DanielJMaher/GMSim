@@ -11,7 +11,7 @@ function meanSkill(archetypeId: ArchetypeId, key: keyof PlayerSkills, n = 200): 
   let sum = 0;
   const prng = new Prng(`gran:${archetypeId}:${key}`);
   for (let i = 0; i < n; i++) {
-    sum += rollSkills(prng.fork(`p${i}`), arch, 'PRIME').current[key];
+    sum += rollSkills(prng.fork(`p${i}`), arch, 'PRIME', arch.positions[0]!).current[key];
   }
   return sum / n;
 }
@@ -19,7 +19,7 @@ function meanSkill(archetypeId: ArchetypeId, key: keyof PlayerSkills, n = 200): 
 describe('granular skill differentiation (Stage 2)', () => {
   it('every roll populates the full granular set', () => {
     const arch = getArchetypeById('DL_EDGE_PASS_RUSHER')!;
-    const skills = rollSkills(new Prng('full'), arch, 'PRIME').current;
+    const skills = rollSkills(new Prng('full'), arch, 'PRIME', arch.positions[0]!).current;
     for (const key of GRANULAR_KEYS) {
       expect(skills[key]).toBeGreaterThanOrEqual(1);
       expect(skills[key]).toBeLessThanOrEqual(99);

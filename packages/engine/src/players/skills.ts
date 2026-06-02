@@ -6,8 +6,10 @@ import type {
   TalentGrade,
 } from '../types/player.js';
 import type { PlayerArchetype } from '../archetypes/types.js';
+import type { Position } from '../types/enums.js';
 import type { AgeStage } from './age.js';
 import { ALL_SKILL_KEYS, categoryFor, effectiveSkillWeight } from './skill-keys.js';
+import { athleticBaseline, POSITION_BASELINED_SKILLS, type AthleticBaseline } from './athletic-baselines.js';
 
 export type { TalentTier, TalentGrade } from '../types/player.js';
 
@@ -194,6 +196,15 @@ const SOFTCAP_RAWMAX = 115;
 const OUTLIER_RATE = 0.04;
 const OUTLIER_AMP = 2.6;
 
+/**
+ * How much talent grade nudges PHYSICAL attributes (Slice 3). Physical
+ * baselines come from POSITION (athletic-baselines.ts), but better players are
+ * weakly more athletic on average — so grade adds a small ± lift (ELITE +~3.5,
+ * FRINGE −~3.5) rather than driving physicals outright. Kept small so the
+ * position size/speed tradeoff (strength↔speed) dominates.
+ */
+const PHYS_GRADE_LIFT = 1.0;
+
 /** Standard-normal draw with a rare amplified tail (see OUTLIER_*). */
 function latentDraw(prng: Prng): number {
   const z = prng.gaussian();
@@ -228,14 +239,23 @@ export function rollSkills(
   prng: Prng,
   archetype: PlayerArchetype,
   ageStage: AgeStage,
+  position: Position,
 ): RolledSkills {
   const talentGrade = rollTalentGrade(prng);
   const tier = gradeToTier(talentGrade);
   const ceilingBaseline = GRADE_CEILING_MEAN[talentGrade];
   const realization = REALIZATION_BY_STAGE[ageStage];
 
+  // Slice 3: PHYSICAL attributes are baselined off POSITION, not talent grade —
+  // a CB is fast/light, a DT slow/strong, so strength↔speed comes out negative.
+  // Grade adds only a small ± lift on top (better players weakly more athletic).
+  const athBase = athleticBaseline(position);
+  const gradeIdx = GRADE_ORDER.indexOf(talentGrade);
+  const physLift = (3.5 - gradeIdx) * PHYS_GRADE_LIFT;
+
   // One shared latent per cluster for this player — the source of within-cluster
-  // linkage. Drawn up front in a stable order for determinism.
+  // linkage. For the athleticism cluster this latent is the player's reproduced
+  // RAS (how athletic he is FOR his position). Drawn up front for determinism.
   const clusterLatent: Record<string, number> = {};
   for (const c of CLUSTER_IDS) clusterLatent[c] = latentDraw(prng);
 
@@ -243,13 +263,16 @@ export function rollSkills(
   const current = {} as PlayerSkills;
 
   for (const key of ALL_SKILL_KEYS) {
-    // Granular skills inherit their parent umbrella's weight unless the
-    // archetype overrides them specifically (see skill-keys.ts).
-    const weight = effectiveSkillWeight(archetype.skillWeights, key);
-    // Linear weight bias: each unit of weight above/below 1.0 shifts the mean by
-    // ~7 points — preserves tier separation while letting archetype priorities
-    // show through.
-    const weightedMean = clamp(ceilingBaseline + (weight - 1) * 7, 25, 99);
+    // Physical attrs: position baseline + small grade lift. Everything else:
+    // grade baseline + archetype weight bias (each weight unit ≈ ±7 points,
+    // preserving tier separation while letting archetype priorities show).
+    let mean: number;
+    if (POSITION_BASELINED_SKILLS.has(key)) {
+      mean = athBase[key as keyof AthleticBaseline] + physLift;
+    } else {
+      const weight = effectiveSkillWeight(archetype.skillWeights, key);
+      mean = clamp(ceilingBaseline + (weight - 1) * 7, 25, 99);
+    }
 
     // Variance split: shared cluster component (a_c·Z) + idiosyncratic
     // perturbation (b_c·E). a_c² + b_c² = SKILL_SD² preserves the marginal
@@ -260,7 +283,7 @@ export function rollSkills(
     const b = SKILL_SD * Math.sqrt(1 - rho);
     const z = cluster ? clusterLatent[cluster]! : 0;
     const e = latentDraw(prng);
-    const raw = weightedMean + a * z + b * e;
+    const raw = mean + a * z + b * e;
     const ceilVal = Math.round(clamp(softCap(raw), 1, 99));
     ceiling[key] = ceilVal;
 
