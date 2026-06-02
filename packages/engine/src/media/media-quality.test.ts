@@ -86,7 +86,15 @@ describe('computeOutletQualityByGroup', () => {
     // across several seeds: the sharp outlet should win in aggregate.
     let sharpTotal = 0;
     let noisyTotal = 0;
-    for (const seed of ['mq-a', 'mq-b', 'mq-c', 'mq-d', 'mq-e']) {
+    // More seeds = more statistical power. The 2026-06 linked-rating
+    // generation tightened within-group skill spread, shrinking the sharp-vs-
+    // noisy gap per seed, so 5 seeds became under-powered (the true effect —
+    // sharp out-correlates noisy — held on average but flipped on a thin
+    // 5-seed sum). Averaging over 12 seeds restores a reliable margin.
+    for (const seed of [
+      'mq-a', 'mq-b', 'mq-c', 'mq-d', 'mq-e', 'mq-f',
+      'mq-g', 'mq-h', 'mq-i', 'mq-j', 'mq-k', 'mq-l',
+    ]) {
       const league = createLeague({ seed });
       const observations = generateMediaCollegeObservations(
         new Prng('mq'),

@@ -62,9 +62,12 @@ describe('regenerateDraftBoardsForLeague (slice 3)', () => {
     // Some overlap is expected (BLUE_CHIPS appear on most boards) but
     // boards should not be identical. Loose bound. (v0.96 role-based scheme
     // fit dampens the scheme-driven divergence for non-elite players —
-    // blue-chips still swing by scheme — nudging top-25 agreement up a hair,
-    // so the bound is 0.90.)
-    expect(jaccard).toBeLessThan(0.9);
+    // blue-chips still swing by scheme — nudging top-25 agreement up a hair.
+    // The 2026-06 linked-rating + 99-scarcity generation tightens the elite
+    // tail, so teams agree on the blue-chips even more — top-25 set overlap
+    // rose to ~0.92, which is realistic (real boards converge at the top and
+    // diverge in the mid-rounds). Bound 0.90 → 0.96.)
+    expect(jaccard).toBeLessThan(0.96);
   });
 
   it('CONVERSION_PROJECTION reason fires for at least some prospects', () => {
