@@ -212,8 +212,10 @@ function latentDraw(prng: Prng): number {
 }
 
 /** Compress values above the knee toward 99 so the cap is reached only by the
- *  extreme (outlier) tail. Identity at/below the knee. */
-function softCap(x: number): number {
+ *  extreme (outlier) tail. Identity at/below the knee. Exported so the draft
+ *  board can center its athletic-deviation reference on what generation actually
+ *  produces (a high position baseline like WR speed 91 generates ~88 post-cap). */
+export function softCap(x: number): number {
   if (x <= SOFTCAP_KNEE) return x;
   const t = Math.min(1, (x - SOFTCAP_KNEE) / (SOFTCAP_RAWMAX - SOFTCAP_KNEE));
   return SOFTCAP_KNEE + (99 - SOFTCAP_KNEE) * t;

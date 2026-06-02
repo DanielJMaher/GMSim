@@ -16,6 +16,8 @@ import type { MediaOutletId } from '../types/ids.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { schemeFitForPlayer } from '../scheme/index.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { athleticBaseline, POSITION_BASELINED_SKILLS, type AthleticBaseline } from '../players/athletic-baselines.js';
+import { softCap } from '../players/skills.js';
 import { boardPositionalFactor } from './position-value.js';
 import { recencyWeight } from '../scouting/recency.js';
 import { combineAthleticSkills } from './measurables.js';
@@ -92,6 +94,18 @@ const MEDIA_BLEND_MAX = 0.5;
  */
 const COMBINE_OBS_CONFIDENCE = 0.7;
 const COMBINE_SCOUT_ID = ScoutId('COMBINE');
+
+/**
+ * How much a prospect's athletic DEVIATION from his position baseline shades his
+ * observed grade. Post-Slice-3, physical skills are position-baselined, so their
+ * ABSOLUTE value is ~constant within a position (every edge tests ~the same) and
+ * adds no talent signal — including it just inflated every athletic-position
+ * grade uniformly and flooded the board with EDGE/OLB/DT. Instead the grade is
+ * built from football skills, plus a bonus for testing ABOVE position average
+ * (a freak) and a penalty for below (a stiff). 0 = athleticism ignored in the
+ * grade; 1 = a +10 athletic outlier adds +10. Tuning knob.
+ */
+const PHYS_DEV_WEIGHT = 0.5;
 
 /**
  * Build one synthetic, league-wide combine observation per attending
@@ -311,6 +325,11 @@ function regenerateDraftBoardsInternal(args: {
     args.addedOnTick,
   );
 
+  // Athletic-deviation reference (league observed mean per position) so the
+  // board grades athleticism relative to position norm, not absolute — see
+  // aggregateCollegeObservations / PHYS_DEV_WEIGHT.
+  const athleticRef = computeAthleticRefByPosition(args.observations, prospectById);
+
   const leagueAggregateByProspect = new Map<
     PlayerId,
     { observedSkillScore: number; meanConfidence: number }
@@ -325,7 +344,7 @@ function regenerateDraftBoardsInternal(args: {
     const merged = combineObs ? [...obsList, combineObs] : obsList;
     leagueAggregateByProspect.set(
       pid,
-      aggregateCollegeObservations(merged, prospect, args.addedOnTick),
+      aggregateCollegeObservations(merged, prospect, args.addedOnTick, athleticRef),
     );
   }
 
@@ -368,6 +387,7 @@ function regenerateDraftBoardsInternal(args: {
             args.addedOnTick,
             gm?.perceivedOutletReliability,
             args.mediaOutlets,
+            athleticRef,
           )
         : undefined;
     const teamObs = obsByTeam.get(teamId) ?? [];
@@ -381,6 +401,7 @@ function regenerateDraftBoardsInternal(args: {
       combineObsByProspect,
       mediaAggregateByProspect,
       mediaTrust01,
+      athleticRef,
     );
   }
   return out;
@@ -427,6 +448,7 @@ function buildBoardForTeamWithNeed(
     { observedSkillScore: number; meanConfidence: number }
   >,
   mediaTrust01 = 0,
+  athleticRefByPos?: ReadonlyMap<string, ReadonlyMap<string, number>>,
 ): DraftBoardEntry[] {
   const byProspect = new Map<PlayerId, CollegePlayerObservation[]>();
   for (const obs of teamObservations) {
@@ -477,7 +499,7 @@ function buildBoardForTeamWithNeed(
 
     const ownObs = byProspect.get(collegePlayerId);
     const aggregated = ownObs
-      ? aggregateCollegeObservations(ownObs, prospect, addedOnTick)
+      ? aggregateCollegeObservations(ownObs, prospect, addedOnTick, athleticRefByPos)
       : null;
 
     // Pull from own scouts if available; otherwise from the league
@@ -573,10 +595,50 @@ interface AggregatedCollegeObservation {
  * `currentTick` is the tick the board is being regenerated at;
  * per-observation age = `currentTick - obs.observedOnTick`.
  */
+/**
+ * League-wide OBSERVED mean of each position-baselined physical skill, per
+ * position. Used as the athletic-deviation reference so the deviation averages
+ * to zero per position (no athletic positional bias in the observed grade — a
+ * prospect is only credited for testing ABOVE his position's norm). Built from
+ * scout observations (the same space the grade is read in).
+ */
+function computeAthleticRefByPosition(
+  observations: readonly CollegePlayerObservation[],
+  prospectById: Map<PlayerId, CollegePlayer>,
+): Map<string, Map<string, number>> {
+  const sums = new Map<string, Map<string, { sum: number; n: number }>>();
+  for (const obs of observations) {
+    const prospect = prospectById.get(obs.collegePlayerId);
+    if (!prospect) continue;
+    const pos = prospect.nflProjectedPosition as string;
+    let bySkill = sums.get(pos);
+    if (!bySkill) {
+      bySkill = new Map();
+      sums.set(pos, bySkill);
+    }
+    for (const key of POSITION_BASELINED_SKILLS) {
+      const v = obs.skills[key as keyof PlayerSkills];
+      if (v === undefined) continue;
+      const cur = bySkill.get(key) ?? { sum: 0, n: 0 };
+      cur.sum += v;
+      cur.n += 1;
+      bySkill.set(key, cur);
+    }
+  }
+  const out = new Map<string, Map<string, number>>();
+  for (const [pos, bySkill] of sums) {
+    const m = new Map<string, number>();
+    for (const [k, s] of bySkill) if (s.n > 0) m.set(k, s.sum / s.n);
+    out.set(pos, m);
+  }
+  return out;
+}
+
 function aggregateCollegeObservations(
   observations: readonly CollegePlayerObservation[],
   prospect: CollegePlayer,
   currentTick: number,
+  athleticRefByPos?: ReadonlyMap<string, ReadonlyMap<string, number>>,
 ): AggregatedCollegeObservation {
   const archetype = getArchetypeById(prospect.archetype);
   const keys: (keyof PlayerSkills)[] = archetype
@@ -586,8 +648,20 @@ function aggregateCollegeObservations(
     : ['technicalSkill', 'footballIq', 'speed'];
   if (keys.length === 0) keys.push('technicalSkill');
 
-  let skillSum = 0;
-  let skillWeight = 0;
+  // Football skills (grade-driven, the real talent signal) are averaged
+  // directly; position-baselined PHYSICAL skills contribute only their
+  // DEVIATION from the position's athletic baseline (a freak edge grades up, a
+  // stiff edge down) so the position-constant athleticism doesn't inflate every
+  // grade at the position. See PHYS_DEV_WEIGHT.
+  const athBase = athleticBaseline(prospect.nflProjectedPosition as Parameters<typeof athleticBaseline>[0]);
+  // Deviation reference: the league's OBSERVED per-position athletic mean when
+  // available (self-centering → zero average athletic bias per position), else
+  // softCap(baseline) as an approximation of what generation produces.
+  const posRef = athleticRefByPos?.get(prospect.nflProjectedPosition as string);
+  let footballSum = 0;
+  let footballWeight = 0;
+  let devSum = 0;
+  let devWeight = 0;
   let confidenceSum = 0;
   let confidenceWeightCount = 0;
 
@@ -598,8 +672,14 @@ function aggregateCollegeObservations(
       const conf = obs.confidence[key];
       if (value === undefined || conf === undefined) continue;
       const weight = conf * recency;
-      skillSum += value * weight;
-      skillWeight += weight;
+      if (POSITION_BASELINED_SKILLS.has(key as string)) {
+        const base = posRef?.get(key as string) ?? softCap(athBase[key as keyof AthleticBaseline]);
+        devSum += (value - base) * weight;
+        devWeight += weight;
+      } else {
+        footballSum += value * weight;
+        footballWeight += weight;
+      }
     }
     for (const conf of Object.values(obs.confidence)) {
       if (typeof conf !== 'number') continue;
@@ -608,10 +688,27 @@ function aggregateCollegeObservations(
     }
   }
 
+  const football = footballWeight > 0 ? footballSum / footballWeight : null;
+  const athleticDev = devWeight > 0 ? devSum / devWeight : 0;
+  // Normal case: football grade + athletic deviation bonus/penalty. If the
+  // archetype's key skills are ALL physical (no football signal), fall back to
+  // the absolute physical read so we still return a sane grade.
+  const observedSkillScore =
+    football !== null
+      ? football + athleticDev * PHYS_DEV_WEIGHT
+      : devWeight > 0
+        ? devSum / devWeight + averageBaseline(athBase)
+        : 0;
+
   return {
-    observedSkillScore: skillWeight > 0 ? skillSum / skillWeight : 0,
+    observedSkillScore,
     meanConfidence: confidenceWeightCount > 0 ? confidenceSum / confidenceWeightCount : 0,
   };
+}
+
+/** Mean of a position's athletic baseline (fallback grade for all-physical archetypes). */
+function averageBaseline(b: AthleticBaseline): number {
+  return (b.speed + b.acceleration + b.agility + b.changeOfDirection + b.jumping + b.strength) / 6;
 }
 
 /**
@@ -738,6 +835,7 @@ function buildMediaAggregateForGm(
   addedOnTick: number,
   perceived: PerceivedOutletReliability | undefined,
   outlets: Readonly<Record<MediaOutletId, MediaOutlet>> | undefined,
+  athleticRefByPos?: ReadonlyMap<string, ReadonlyMap<string, number>>,
 ): Map<PlayerId, { observedSkillScore: number; meanConfidence: number }> {
   const out = new Map<PlayerId, { observedSkillScore: number; meanConfidence: number }>();
   for (const [pid, obsList] of mediaByProspect) {
@@ -745,7 +843,7 @@ function buildMediaAggregateForGm(
     if (!prospect) continue;
     const group = positionGroupFor(prospect.nflProjectedPosition);
     const weighted = obsList.map((o) => weightMediaObs(o, group, perceived, outlets));
-    out.set(pid, aggregateCollegeObservations(weighted, prospect, addedOnTick));
+    out.set(pid, aggregateCollegeObservations(weighted, prospect, addedOnTick, athleticRefByPos));
   }
   return out;
 }

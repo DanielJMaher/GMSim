@@ -94,7 +94,7 @@ export const POSITION_DRAFT_VALUE: Readonly<Record<Position, number>> = {
  * knob — raise to push premium positions earlier, lower to let raw talent
  * dominate.
  */
-export const BOARD_PREMIUM_STRENGTH = 0.25;
+export const BOARD_PREMIUM_STRENGTH = 0.15;
 
 /**
  * Compressed positional factor applied multiplicatively to a prospect's
