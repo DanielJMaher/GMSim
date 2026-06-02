@@ -386,6 +386,7 @@ export function App() {
           <DraftBoardsPanel league={league} />
           <MediaMockBoardsPanel league={league} />
           <MediaReliabilityPanel league={league} />
+          <GmMediaTrustPanel league={league} />
           <DraftReplayPanel league={league} />
           <DraftTradesPanel league={league} />
           <DraftResultsPanel league={league} />
@@ -9051,6 +9052,176 @@ function correlationCellClass(corr: number | null): string {
   if (corr >= 0.3) return 'text-emerald-300/70';
   if (corr >= 0.0) return 'text-amber-300/80';
   return 'text-rose-400';
+}
+
+// ─── GM Media Trust (perceived vs real) ─────────────────────────────────
+// "Perceived always shows real" (CLAUDE.md inspector convention). Each GM
+// carries its own belief about how reliable each outlet is per position
+// group (`perceivedOutletReliability`); the draft board blends a media read
+// by THIS belief, not by the outlet's true accuracy. This panel shows the
+// gap so Daniel can judge whether the miscalibration feels right: sharp
+// evaluators land near truth, buzz-chasers over-rate loud outlets and chase
+// the wrong voice. Dev-only — the game UI never shows these numbers.
+
+/** Colour a perceived value by how far (and which way) it is off the truth. */
+function gmTrustCellClass(perceived: number, real: number): string {
+  const gap = perceived - real;
+  if (Math.abs(gap) <= 1) return 'text-emerald-400'; // calibrated
+  if (gap > 2.5) return 'text-rose-500'; // badly over-trusts a weaker outlet
+  if (gap > 1) return 'text-rose-300/80'; // over-trusts
+  if (gap < -2.5) return 'text-sky-500'; // badly sleeps on a sharp outlet
+  return 'text-sky-300/70'; // under-trusts
+}
+
+function GmMediaTrustPanel({ league }: { league: LeagueState }) {
+  const teams = useMemo(
+    () =>
+      Object.values(league.teams).sort((a, b) =>
+        a.identity.abbreviation.localeCompare(b.identity.abbreviation),
+      ),
+    [league.teams],
+  );
+  const [teamId, setTeamId] = useState<TeamId | null>(teams[0]?.identity.id ?? null);
+  const team = teamId ? league.teams[teamId] : undefined;
+  const gm = team ? league.gms[team.gmId] : undefined;
+
+  // Draft-relevant outlets (those that cover college), sorted by their REAL
+  // headline accuracy so the calibration gradient reads top-to-bottom.
+  const outlets = useMemo(
+    () =>
+      Object.values(league.mediaOutlets)
+        .filter((o) => o.focus !== 'NFL')
+        .sort((a, b) => b.accuracySpectrum - a.accuracySpectrum),
+    [league.mediaOutlets],
+  );
+
+  const perceived = gm?.perceivedOutletReliability;
+
+  // Overall calibration error: mean |perceived − real| across outlet × group.
+  const calErr = useMemo(() => {
+    if (!perceived) return null;
+    let sum = 0;
+    let n = 0;
+    for (const o of outlets) {
+      const per = perceived[o.id];
+      if (!per) continue;
+      for (const g of POSITION_GROUPS_ORDERED) {
+        const p = per[g];
+        const r = o.accuracyByGroup[g];
+        if (p === undefined || r === undefined) continue;
+        sum += Math.abs(p - r);
+        n++;
+      }
+    }
+    return n ? sum / n : null;
+  }, [perceived, outlets]);
+
+  if (!gm) return null;
+
+  return (
+    <section className="mt-6 rounded border border-fuchsia-500/25 bg-fuchsia-500/[0.04] p-4">
+      <h2 className="mb-1 text-lg font-semibold text-fuchsia-200">
+        GM Media Trust — perceived vs real
+      </h2>
+      <p className="mb-3 text-xs text-zinc-500">
+        What this GM <em>believes</em> about each outlet's reliability (left) next to the outlet's{' '}
+        <em>real</em> hidden accuracy (right), per position group.{' '}
+        <span className="text-emerald-400">Green</span> = well-calibrated;{' '}
+        <span className="text-rose-400">red</span> = over-trusts a weaker outlet (chases the wrong
+        voice → reaches at the draft); <span className="text-sky-400">blue</span> = sleeps on a sharp
+        outlet. Sharp evaluators (high talent-eval) land near truth; buzz-chasers (high media-trust)
+        over-rate loud outlets. The board blends each media read by the PERCEIVED number, not the
+        real one. <span className="text-zinc-600">(dev-only; never the game UI)</span>
+      </p>
+
+      <div className="mb-3 flex flex-wrap items-center gap-3 text-xs">
+        <select
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-200"
+          value={teamId ?? ''}
+          onChange={(e) => setTeamId(e.target.value as TeamId)}
+        >
+          {teams.map((t) => (
+            <option key={t.identity.id} value={t.identity.id}>
+              {t.identity.abbreviation} — {league.gms[t.gmId]?.name ?? 'GM'}
+            </option>
+          ))}
+        </select>
+        <span className="text-zinc-400">
+          {gm.name} · media-trust{' '}
+          <span className="font-mono text-zinc-200">{gm.spectrums.mediaTrust}</span> · talent-eval{' '}
+          <span className="font-mono text-zinc-200">{gm.spectrums.talentEvaluationAccuracy}</span>
+          {calErr !== null && (
+            <>
+              {' '}
+              · mean miscalibration{' '}
+              <span className="font-mono text-zinc-200">{calErr.toFixed(2)}</span>
+            </>
+          )}
+        </span>
+      </div>
+
+      {!perceived ? (
+        <p className="text-xs text-zinc-500">No perceived-reliability data (legacy GM).</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="text-left text-zinc-500">
+                <th className="px-2 py-1 font-medium">Outlet</th>
+                <th
+                  className="px-2 py-1 text-center font-medium"
+                  title="real headline accuracy / hype"
+                >
+                  acc·hype
+                </th>
+                {POSITION_GROUPS_ORDERED.map((g) => (
+                  <th key={g} className="px-2 py-1 text-center font-medium">
+                    {g}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {outlets.map((o) => {
+                const per = perceived[o.id];
+                return (
+                  <tr key={o.id} className="border-t border-zinc-800/60">
+                    <td className="px-2 py-1 text-zinc-200" title={o.name}>
+                      {abbreviateOutlet(o.name)}
+                    </td>
+                    <td className="px-2 py-1 text-center font-mono tabular-nums text-zinc-500">
+                      {o.accuracySpectrum}·{o.hypeSpectrum}
+                    </td>
+                    {POSITION_GROUPS_ORDERED.map((g) => {
+                      const p = per?.[g];
+                      const r = o.accuracyByGroup[g];
+                      if (p === undefined || r === undefined) {
+                        return (
+                          <td key={g} className="px-2 py-1 text-center text-zinc-700">
+                            —
+                          </td>
+                        );
+                      }
+                      return (
+                        <td
+                          key={g}
+                          className="px-2 py-1 text-center font-mono tabular-nums"
+                          title={`${g}: perceived ${p.toFixed(1)} vs real ${r} · hype ${o.hypeByGroup[g]}`}
+                        >
+                          <span className={gmTrustCellClass(p, r)}>{p.toFixed(1)}</span>
+                          <span className="text-zinc-600">/{r}</span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
 }
 
 function MediaReliabilityPanel({ league }: { league: LeagueState }) {
