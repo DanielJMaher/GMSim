@@ -2,7 +2,8 @@ import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
 import type { CollegeScout, CollegePlayerObservation } from '../types/college.js';
-import type { PlayerId, ScoutId, TeamId } from '../types/ids.js';
+import type { PlayerId, ScoutId, TeamId, GmId } from '../types/ids.js';
+import { seedPerceivedOutletReliability } from '../personnel/perceived-outlet-trust.js';
 import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
@@ -355,6 +356,27 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       for (const [id, gm] of Object.entries(gms)) {
         const roll = new Prng(`${next.seed}::gm-media-trust::${id}`).nextRange(1, 11);
         backfilled[id] = { ...gm, spectrums: { ...gm.spectrums, mediaTrust: roll } };
+      }
+      next = { ...next, gms: backfilled } as LeagueState;
+    }
+  }
+
+  // GM perceivedOutletReliability (Slice 2 — GMs consume the media). Pre-
+  // feature GMs weighted media by the outlet's TRUE accuracy (omniscient);
+  // backfill each GM's own (possibly miscalibrated) belief deterministically.
+  // Runs after the mediaTrust + mediaOutlets backfills above so both inputs
+  // exist.
+  {
+    const gms = next.gms as Record<GmId, Gm>;
+    const sample = Object.values(gms)[0];
+    if (sample && sample.perceivedOutletReliability === undefined) {
+      const backfilled: Record<GmId, Gm> = {};
+      for (const [id, gm] of Object.entries(gms) as [GmId, Gm][]) {
+        const prng = new Prng(`${next.seed}::perceived-outlet-trust::${id}`);
+        backfilled[id] = {
+          ...gm,
+          perceivedOutletReliability: seedPerceivedOutletReliability(prng, gm, next.mediaOutlets),
+        };
       }
       next = { ...next, gms: backfilled } as LeagueState;
     }

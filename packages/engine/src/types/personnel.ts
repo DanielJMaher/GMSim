@@ -1,4 +1,5 @@
-import type { OwnerId, GmId, CoachId } from './ids.js';
+import type { OwnerId, GmId, CoachId, MediaOutletId } from './ids.js';
+import type { PositionGroup } from './enums.js';
 import type { CareerAward } from './awards.js';
 
 /**
@@ -88,6 +89,22 @@ export interface PositionalBias {
   bias: -2 | -1 | 1 | 2;
 }
 
+/**
+ * A GM's *perceived* reliability of each media outlet, per position group
+ * (1-10, mirroring `MediaOutlet.accuracyByGroup`). This is the GM's BELIEF
+ * about which outlets to trust and WHERE — correlated with the outlet's true
+ * accuracy but deliberately miscalibrated: sharp GMs (high
+ * `talentEvaluationAccuracy`) start near the truth; poor GMs sit near a flat
+ * prior with noise; buzz-chasers (high `mediaTrust`) over-rate loud
+ * (high-hype) outlets. The draft board blends a media read by THIS, not by
+ * the outlet's ground-truth accuracy — so a GM can chase the wrong voice and
+ * bust. Evolves toward the truth over seasons (learning). Ground truth, never
+ * shown numerically in the game UI (North Star); the dev inspector exposes it.
+ */
+export type PerceivedOutletReliability = Readonly<
+  Record<MediaOutletId, Readonly<Record<PositionGroup, number>>>
+>;
+
 export interface Gm {
   id: GmId;
   name: string;
@@ -95,6 +112,14 @@ export interface Gm {
   positionalBias: PositionalBias;
   quirks: readonly GmQuirk[];
   personality: PersonalityTraits;
+  /**
+   * Per-outlet, per-group perceived reliability (see
+   * `PerceivedOutletReliability`). Optional for forward-compat: leagues
+   * created before this feature backfill it deterministically in
+   * `runMigrations`, and the board blend falls back to the outlet's true
+   * accuracy when it is absent.
+   */
+  perceivedOutletReliability?: PerceivedOutletReliability;
 }
 
 // ─── HEAD COACH ─────────────────────────────────────────────────────────────

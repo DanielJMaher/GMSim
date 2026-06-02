@@ -22,6 +22,7 @@ import type { Contract } from '../types/contract.js';
 import type { LeagueState } from '../types/league.js';
 import { FranchiseHistory, CompetitiveWindow } from '../types/enums.js';
 import { generateTeamPersonnel } from '../personnel/generate-team-personnel.js';
+import { seedPerceivedReliabilityForGms } from '../personnel/perceived-outlet-trust.js';
 import { generateRoster } from '../players/roster.js';
 import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
@@ -267,6 +268,15 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     allStarGames: [],
     heismanHistory: [],
   };
+
+  // Seed each GM's *perceived* media-outlet reliability now that both GMs
+  // and outlets exist (Slice 2 — GMs consume the media). Boards blend a
+  // media read by this belief, not by the outlet's ground-truth accuracy.
+  baseLeague.gms = seedPerceivedReliabilityForGms(
+    rootPrng.fork('perceived-outlet-trust'),
+    baseLeague.gms,
+    baseLeague.mediaOutlets,
+  ) as Readonly<Record<GmId, Gm>>;
 
   // Initial boards first (we need them so pro-day attendance can
   // score schools by board interest).

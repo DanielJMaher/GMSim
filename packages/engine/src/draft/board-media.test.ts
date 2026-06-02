@@ -7,6 +7,8 @@ import type { Gm } from '../types/personnel.js';
 import type { MediaOutlet } from '../types/media.js';
 import type { PlayerSkills } from '../types/player.js';
 import { ScoutId, type TeamId, type GmId, type MediaOutletId } from '../types/ids.js';
+import type { PositionGroup } from '../types/enums.js';
+import { positionGroupFor } from '../players/position-group.js';
 
 function regen(
   league: LeagueState,
@@ -75,7 +77,7 @@ describe('GMs consume the media (#5)', () => {
     expect(highScore).toBeGreaterThan(lowScore + 1);
   });
 
-  it('a sharp outlet moves the board more than a junk outlet (#5 slice 2a)', () => {
+  it('an outlet a GM PERCEIVES as sharp moves the board more than one it reads as junk (#5 slice 2)', () => {
     const league = createLeague({ seed: 'media-outlet-weight' });
     const teamId = (Object.keys(league.teams) as TeamId[])[0]!;
     const gmId = league.teams[teamId]!.gmId;
@@ -91,29 +93,86 @@ describe('GMs consume the media (#5)', () => {
       skills[k] = 99;
       confidence[k] = 0.95;
     }
-    // One outlet, one evaluator — identical read; only the outlet's accuracy differs.
     const outletId = (Object.keys(league.mediaOutlets) as MediaOutletId[])[0]!;
-    const baseOutlet = league.mediaOutlets[outletId]!;
     const mediaObs: CollegePlayerObservation[] = [
       { scoutId: ScoutId(`${outletId}::e0`), collegePlayerId: pid, observedOnTick: league.tick, skills, confidence },
     ];
-    const withAccuracy = (acc: number): Record<MediaOutletId, MediaOutlet> => {
-      const byGroup = Object.fromEntries(
-        Object.keys(baseOutlet.accuracyByGroup).map((g) => [g, acc]),
-      ) as MediaOutlet['accuracyByGroup'];
-      return { [outletId]: { ...baseOutlet, accuracySpectrum: acc, accuracyByGroup: byGroup } } as Record<
-        MediaOutletId,
-        MediaOutlet
-      >;
+
+    // Slice 2: weighting follows the GM's PERCEIVED reliability of the outlet,
+    // not the outlet's ground truth. Override this GM's belief about the outlet
+    // (all groups) to elite vs junk; keep mediaTrust high so the blend is live.
+    const groups = Object.keys(league.mediaOutlets[outletId]!.accuracyByGroup) as PositionGroup[];
+    const withPerceived = (acc: number): Record<GmId, Gm> => {
+      const gm = league.gms[gmId]!;
+      const perGroup = Object.fromEntries(groups.map((g) => [g, acc])) as Record<PositionGroup, number>;
+      return {
+        ...league.gms,
+        [gmId]: {
+          ...gm,
+          spectrums: { ...gm.spectrums, mediaTrust: 10 },
+          perceivedOutletReliability: { ...gm.perceivedOutletReliability, [outletId]: perGroup },
+        },
+      };
     };
 
-    const gms = withTrust(league, gmId, 10);
-    const scoreFor = (outlets: Record<MediaOutletId, MediaOutlet>): number =>
-      regen(league, gms, mediaObs, outlets)[teamId]!.find((e) => e.collegePlayerId === pid)!.observedSkillScore;
+    const scoreFor = (gms: Record<GmId, Gm>): number =>
+      regen(league, gms, mediaObs, league.mediaOutlets)[teamId]!.find((e) => e.collegePlayerId === pid)!
+        .observedSkillScore;
 
-    const sharp = scoreFor(withAccuracy(10));
-    const junk = scoreFor(withAccuracy(2));
+    const sharp = scoreFor(withPerceived(10));
+    const junk = scoreFor(withPerceived(2));
     expect(sharp).toBeGreaterThan(junk + 0.5);
+  });
+
+  it('two GMs with EQUAL mediaTrust but different perceptions read the same outlet differently (#5 slice 2)', () => {
+    // The omniscience fix: pre-Slice-2 these two GMs would have been identical
+    // (both weight by the outlet's true accuracy). Now the believer is pulled
+    // and the doubter is not.
+    const league = createLeague({ seed: 'media-perceive-divergence' });
+    const teamId = (Object.keys(league.teams) as TeamId[])[0]!;
+    const gmId = league.teams[teamId]!.gmId;
+
+    const baseBoard = regen(league, league.gms, [])[teamId]!;
+    const entry = baseBoard.find((e) => e.observedSkillScore < 85) ?? baseBoard[0]!;
+    const pid = entry.collegePlayerId;
+    const prospect = league.collegePool.find((p) => p.id === pid)!;
+    const baseScore = entry.observedSkillScore;
+
+    const skills: Partial<Record<keyof PlayerSkills, number>> = {};
+    const confidence: Partial<Record<keyof PlayerSkills, number>> = {};
+    for (const k of Object.keys(prospect.current) as (keyof PlayerSkills)[]) {
+      skills[k] = 99;
+      confidence[k] = 0.95;
+    }
+    const outletId = (Object.keys(league.mediaOutlets) as MediaOutletId[])[0]!;
+    const grp = positionGroupFor(prospect.nflProjectedPosition);
+    const mediaObs: CollegePlayerObservation[] = [
+      { scoutId: ScoutId(`${outletId}::e0`), collegePlayerId: pid, observedOnTick: league.tick, skills, confidence },
+    ];
+
+    const gmWith = (acc: number): Record<GmId, Gm> => {
+      const gm = league.gms[gmId]!;
+      const existing = gm.perceivedOutletReliability?.[outletId];
+      return {
+        ...league.gms,
+        [gmId]: {
+          ...gm,
+          spectrums: { ...gm.spectrums, mediaTrust: 8 }, // EQUAL trust for both
+          perceivedOutletReliability: {
+            ...gm.perceivedOutletReliability,
+            [outletId]: { ...(existing as Record<PositionGroup, number>), [grp]: acc },
+          },
+        },
+      };
+    };
+    const scoreFor = (gms: Record<GmId, Gm>): number =>
+      regen(league, gms, mediaObs, league.mediaOutlets)[teamId]!.find((e) => e.collegePlayerId === pid)!
+        .observedSkillScore;
+
+    const believer = scoreFor(gmWith(10));
+    const doubter = scoreFor(gmWith(1));
+    expect(believer).toBeGreaterThan(doubter);
+    expect(believer).toBeGreaterThan(baseScore);
   });
 
   it('a media riser climbs a trusting GM’s board RANK → gets drafted higher (#5 slice 2b)', () => {

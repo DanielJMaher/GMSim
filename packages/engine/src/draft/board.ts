@@ -10,7 +10,7 @@ import type {
 } from '../types/college.js';
 import type { TeamState } from '../types/team.js';
 import type { Player, PlayerSkills } from '../types/player.js';
-import type { HeadCoach, Gm } from '../types/personnel.js';
+import type { HeadCoach, Gm, PerceivedOutletReliability } from '../types/personnel.js';
 import type { MediaOutlet } from '../types/media.js';
 import type { MediaOutletId } from '../types/ids.js';
 import { getArchetypeById } from '../archetypes/index.js';
@@ -329,35 +329,18 @@ function regenerateDraftBoardsInternal(args: {
     );
   }
 
-  // Media consensus read per prospect (#5 — GMs consume the media). Pooled
-  // across all outlets' observations, aggregated like a scouting read. Each
-  // team blends this in below, weighted by its GM's mediaTrust.
-  const mediaAggregateByProspect = new Map<
-    PlayerId,
-    { observedSkillScore: number; meanConfidence: number }
-  >();
-  if (args.mediaObservations && args.mediaObservations.length > 0) {
-    const mediaByProspect = new Map<PlayerId, CollegePlayerObservation[]>();
+  // Media reads grouped by prospect (#5 — GMs consume the media), kept
+  // UNWEIGHTED here. Slice 2: each team weights these by its own GM's
+  // *perceived* outlet reliability below, so two GMs can read the same
+  // outlet very differently — a sharp GM discounts the junk voice a
+  // buzz-chaser chases. (Pre-Slice-2 this was a single league-wide
+  // aggregate weighted by the outlets' TRUE accuracy — omniscient.)
+  const mediaByProspect = new Map<PlayerId, CollegePlayerObservation[]>();
+  if (args.mediaObservations) {
     for (const obs of args.mediaObservations) {
       const b = mediaByProspect.get(obs.collegePlayerId);
       if (b) b.push(obs);
       else mediaByProspect.set(obs.collegePlayerId, [obs]);
-    }
-    for (const [pid, obsList] of mediaByProspect) {
-      const prospect = prospectById.get(pid);
-      if (!prospect) continue;
-      // Weight each outlet's read by its per-group accuracy (#5 slice 2a):
-      // scale the observation's confidence by outletAccuracy/10 so sharp
-      // outlets dominate the consensus (and drag meanConfidence — hence the
-      // per-team blend weight — down for junk outlets).
-      const grp = positionGroupFor(prospect.nflProjectedPosition);
-      const weighted = args.mediaOutlets
-        ? obsList.map((o) => weightObsByOutlet(o, args.mediaOutlets!, grp))
-        : obsList;
-      mediaAggregateByProspect.set(
-        pid,
-        aggregateCollegeObservations(weighted, prospect, args.addedOnTick),
-      );
     }
   }
 
@@ -373,6 +356,20 @@ function regenerateDraftBoardsInternal(args: {
       out[teamId] = [];
       continue;
     }
+    // Build THIS GM's media consensus, weighting each outlet by the GM's
+    // perceived reliability (falls back to the outlet's true accuracy for
+    // legacy GMs without a seeded belief). Skipped for media-skeptics
+    // (mediaTrust01 === 0), who ignore it downstream anyway.
+    const mediaAggregateByProspect =
+      mediaByProspect.size > 0 && mediaTrust01 > 0
+        ? buildMediaAggregateForGm(
+            mediaByProspect,
+            prospectById,
+            args.addedOnTick,
+            gm?.perceivedOutletReliability,
+            args.mediaOutlets,
+          )
+        : undefined;
     const teamObs = obsByTeam.get(teamId) ?? [];
     out[teamId] = buildBoardForTeamWithNeed(
       teamObs,
@@ -726,17 +723,51 @@ function outletIdOf(scoutId: string): string {
   return i === -1 ? scoutId : scoutId.slice(0, i);
 }
 
-/** Scale a media observation's confidence by its outlet's accuracy for the
- * prospect's position group (1-10 → ×0.1-1.0). A sharp outlet keeps full
- * weight; a junk outlet's read is heavily discounted. */
-function weightObsByOutlet(
+/**
+ * Build one GM's media consensus read per prospect, weighting each outlet's
+ * observation by how reliable THIS GM perceives that outlet to be on the
+ * prospect's position group (Slice 2 — GMs consume the media). A GM who
+ * (wrongly) trusts a loud outlet lets its read dominate; a sharp GM who reads
+ * it as junk barely registers it. Falls back to the outlet's true accuracy
+ * when the GM has no seeded belief (legacy saves), and to full weight for an
+ * unknown outlet id (e.g. synthetic test reads).
+ */
+function buildMediaAggregateForGm(
+  mediaByProspect: ReadonlyMap<PlayerId, CollegePlayerObservation[]>,
+  prospectById: Map<PlayerId, CollegePlayer>,
+  addedOnTick: number,
+  perceived: PerceivedOutletReliability | undefined,
+  outlets: Readonly<Record<MediaOutletId, MediaOutlet>> | undefined,
+): Map<PlayerId, { observedSkillScore: number; meanConfidence: number }> {
+  const out = new Map<PlayerId, { observedSkillScore: number; meanConfidence: number }>();
+  for (const [pid, obsList] of mediaByProspect) {
+    const prospect = prospectById.get(pid);
+    if (!prospect) continue;
+    const group = positionGroupFor(prospect.nflProjectedPosition);
+    const weighted = obsList.map((o) => weightMediaObs(o, group, perceived, outlets));
+    out.set(pid, aggregateCollegeObservations(weighted, prospect, addedOnTick));
+  }
+  return out;
+}
+
+/**
+ * Scale a media observation's confidence by the GM's perceived reliability of
+ * its outlet for `group` (1-10 → ×0.1-1.0). Perception first; outlet true
+ * accuracy as a legacy fallback; full weight if the outlet is unknown.
+ */
+function weightMediaObs(
   obs: CollegePlayerObservation,
-  outlets: Readonly<Record<MediaOutletId, MediaOutlet>>,
   group: PositionGroup,
+  perceived: PerceivedOutletReliability | undefined,
+  outlets: Readonly<Record<MediaOutletId, MediaOutlet>> | undefined,
 ): CollegePlayerObservation {
-  const outlet = outlets[outletIdOf(obs.scoutId) as MediaOutletId];
-  if (!outlet) return obs;
-  const acc = outlet.accuracyByGroup[group] ?? outlet.accuracySpectrum;
+  const outletId = outletIdOf(obs.scoutId) as MediaOutletId;
+  let acc = perceived?.[outletId]?.[group];
+  if (acc === undefined && outlets) {
+    const outlet = outlets[outletId];
+    if (outlet) acc = outlet.accuracyByGroup[group] ?? outlet.accuracySpectrum;
+  }
+  if (acc === undefined) return obs;
   const w = clamp01(acc / 10);
   if (w >= 1) return obs;
   const scaled: Partial<Record<keyof PlayerSkills, number>> = {};
