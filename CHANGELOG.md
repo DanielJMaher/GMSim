@@ -16,6 +16,56 @@ _Nothing yet._
 
 ---
 
+## [0.108.0] — 2026-06-02
+
+### Changed
+
+- **Player skill generation overhaul (linked ratings, scarcity, position
+  athletics).** `rollSkills` (shared by NFL veterans + college prospects) moved
+  from independent per-attribute rolls to a factor model:
+  - **Linked ratings** — attributes within a family (athleticism, QB accuracy,
+    pass-rush, coverage, blocking, route-running, hands) now correlate via a
+    per-player shared latent + a small idiosyncratic perturbation. Within-grade
+    speed↔acceleration went from r≈0.04 to ≈0.75; linkage is deliberately
+    moderate so individual strengths/weaknesses survive (go-to moves, a QB's
+    hot/cold zones, man-vs-zone CBs).
+  - **99 scarcity** — a soft cap makes a 99 ceiling rare (any-maxed attribute
+    14.9% → ~4.6%, 99-speed ceilings 19 → 3) while a heavy-tailed outlier
+    component preserves freaks (a big-and-fast WR, a freak-athletic TE).
+  - **Position-differentiated physicals** — speed/acceleration/agility/COD/
+    jumping/strength are baselined off POSITION (from nflverse combine data),
+    not talent grade, so a CB is fast/light and a DT slow/strong. strength↔speed
+    went from +0.61 to −0.52 (the real size tradeoff). Applies to newly
+    generated players only (no migration).
+- **GMs consume the media by their own (fallible) trust.** Each GM now carries a
+  perceived per-outlet, per-position-group reliability — seeded near the truth
+  for sharp evaluators, noisy for poor ones, and skewed to over-rate loud
+  outlets for buzz-chasers. Draft boards blend a media read by this perception
+  instead of the outlet's ground-truth accuracy, so two equally media-trusting
+  GMs can chase different (and wrong) voices. Migration backfills existing saves.
+- **The Liquidator — guaranteed-money realism.** Seed and free-agency contracts
+  now carry position-aware guaranteed money (e.g. QB ~69% vs RB ~24%, matching
+  real OverTheCap), via an APY-preserving bonus/base re-split.
+
+### Added
+
+- **Skill Adjudicator — rating-realism audits.** The talent-tier/accolade
+  guardrail grew four lenses on player ratings: 99-ceiling scarcity (per
+  attribute + "any maxed"), linked-rating correlation (within-grade, per
+  cluster), expected NON-linkage (strength↔speed should be negative,
+  ballSkills↔coverage independent), and per-position athletic realism
+  (generated vs combine targets). Anchored to Madden (99-count scarcity), PFF
+  (grade scale), and nflverse combine (per-position athletics).
+- **RAS / athletic-baseline tool** (`truth-arbiter run ras`) — derives
+  per-position measurable distributions and a reproduced position-adjusted RAS
+  from the open nflverse combine dataset (the data ras.football is built on),
+  used to ground position-differentiated generation.
+- **GM Media Trust inspector panel** — shows each GM's perceived outlet
+  reliability next to the outlet's real accuracy, colored by calibration gap
+  (dev-only; "perceived always shows real").
+
+---
+
 ## [0.107.0] — 2026-05-31
 
 ### Changed
