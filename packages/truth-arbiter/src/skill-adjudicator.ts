@@ -170,26 +170,42 @@ interface CorrCluster {
   groups: readonly string[];
   target: number;
 }
-// Targets are WITHIN-GRADE (grade-residualized) mean pairwise r — i.e. the
-// attribute linkage that remains after removing the shared talent-grade factor.
-// This is what the engine currently lacks (independent rolls → ~0 within grade)
-// and what the generation fix adds. Athleticism is the tightest (combine tests
-// are physically linked regardless of overall grade); power-vs-finesse families
-// (pass-rush) legitimately diverge by archetype, so they target lower.
+// Targets are WITHIN-GRADE (grade-residualized) mean pairwise r — the attribute
+// linkage that remains after removing the shared talent-grade factor. The engine
+// currently lacks this (independent rolls → ~0 within grade); the generation fix
+// adds it. KEY CALIBRATION (Daniel 2026-06-02): linkage is MODERATE on purpose —
+// it must preserve individual strengths/weaknesses, not make everyone uniform:
+//   • athleticism is the ONLY tight cluster (~0.7) — combine tests are
+//     physically linked regardless of overall grade.
+//   • pass-rush is SPLIT: fundamentals (get-off / bend / hands) modestly link,
+//     but the named MOVES link only loosely — rushers have go-to moves and are
+//     bad at others; we must NOT make every finesse rusher good at every move.
+//   • coverage EXCLUDES ballSkills — elite coverage ≠ INT production (Sauce
+//     Gardner covers great, picks few). man vs zone also diverge (great zone /
+//     poor man), so the target is moderate.
+//   • qb-accuracy is loose — QBs have hot/cold zones (great deep-right, poor
+//     deep-left; JJ McCarthy), so accuracy cells must be allowed to diverge.
+//   • receiving-hands is loose — reliable hands can still be bad in
+//     traffic / contested.
+// ballSkills, tackling, ball-carrier, mental, ST etc. are intentionally NOT yet
+// clustered (open scope) — and strength↔speed should be NEGATIVE (size), which a
+// within-cluster positive model doesn't capture.
 const CORR_CLUSTERS: readonly CorrCluster[] = [
   { name: 'athleticism', groups: ['SKILL', 'DB'], target: 0.7,
     attrs: ['speed', 'acceleration', 'agility', 'changeOfDirection'] },
-  { name: 'qb-accuracy', groups: ['QB'], target: 0.55,
+  { name: 'qb-accuracy', groups: ['QB'], target: 0.4,
     attrs: ['accuracyShort', 'accuracyMedium', 'accuracyDeep', 'accuracyLeft', 'accuracyMiddle', 'accuracyRight'] },
-  { name: 'pass-rush', groups: ['DL', 'LB'], target: 0.45,
-    attrs: ['bullRush', 'longArm', 'pushPull', 'swimMove', 'ripMove', 'spinRush', 'crossChop', 'ghostMove', 'getOff', 'bend', 'handTechnique'] },
-  { name: 'coverage', groups: ['DB', 'LB'], target: 0.5,
-    attrs: ['manCoverage', 'zoneCoverage', 'pressCoverage', 'ballSkills'] },
+  { name: 'pass-rush-fundamentals', groups: ['DL', 'LB'], target: 0.45,
+    attrs: ['getOff', 'bend', 'handTechnique'] },
+  { name: 'pass-rush-moves', groups: ['DL', 'LB'], target: 0.25,
+    attrs: ['bullRush', 'longArm', 'pushPull', 'swimMove', 'ripMove', 'spinRush', 'crossChop', 'ghostMove'] },
+  { name: 'coverage', groups: ['DB', 'LB'], target: 0.4,
+    attrs: ['manCoverage', 'zoneCoverage', 'pressCoverage'] },
   { name: 'blocking', groups: ['OL'], target: 0.5,
     attrs: ['runBlockPower', 'runBlockFinesse', 'passBlockPower', 'passBlockFinesse', 'impactBlock', 'leadBlock'] },
-  { name: 'receiving-hands', groups: ['SKILL'], target: 0.55,
+  { name: 'receiving-hands', groups: ['SKILL'], target: 0.4,
     attrs: ['catching', 'catchInTraffic', 'contestedCatch'] },
-  { name: 'route-running', groups: ['SKILL'], target: 0.6,
+  { name: 'route-running', groups: ['SKILL'], target: 0.55,
     attrs: ['routeShort', 'routeMedium', 'routeDeep'] },
 ];
 const CORR_FLAG_SLACK = 0.15; // flag when within-grade r is this far below target
@@ -279,13 +295,13 @@ function meanPairwiseCorr(players: AuditPlayer[], attrs: readonly string[], fiel
 function printCorrelationRealism(players: AuditPlayer[], field: SkillField, label: string): void {
   console.log(`\n=== Linked-rating realism — ${field}, ${label} ===`);
   console.log(`  within-GRADE mean pairwise Pearson r (grade factor removed) per cluster's position group(s).`);
-  console.log(`  ${'cluster'.padEnd(16)} ${'grp'.padStart(8)} ${'n'.padStart(5)} ${'attrs'.padStart(6)} ${'r'.padStart(7)} ${'target'.padStart(7)}`);
+  console.log(`  ${'cluster'.padEnd(22)} ${'grp'.padStart(8)} ${'n'.padStart(5)} ${'attrs'.padStart(6)} ${'r'.padStart(7)} ${'target'.padStart(7)}`);
   for (const c of CORR_CLUSTERS) {
     const pop = players.filter((p) => c.groups.includes(p.positionGroup));
     const r = meanPairwiseCorr(pop, c.attrs, field);
     const flag = !Number.isNaN(r) && r < c.target - CORR_FLAG_SLACK ? '  <-- TOO LOOSE' : '';
     console.log(
-      `  ${c.name.padEnd(16)} ${c.groups.join('+').padStart(8)} ${String(pop.length).padStart(5)}` +
+      `  ${c.name.padEnd(22)} ${c.groups.join('+').padStart(8)} ${String(pop.length).padStart(5)}` +
         ` ${String(c.attrs.length).padStart(6)} ${(Number.isNaN(r) ? 'n/a' : r.toFixed(2)).padStart(7)}` +
         ` ${c.target.toFixed(2).padStart(7)}${flag}`,
     );
