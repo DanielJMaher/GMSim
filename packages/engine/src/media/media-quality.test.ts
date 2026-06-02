@@ -78,24 +78,31 @@ describe('computeOutletQualityByGroup', () => {
     expect(qb?.rankCorrelation ?? null).toBeNull();
   });
 
-  it('a sharp outlet out-correlates a noisy one across seeds', () => {
-    // Per-group correlations are small-sample (the media covers only the
-    // top ~50 names, split across 7 groups) and, since v0.91, every outlet
-    // carries the same shared misread — so a single seed / single group is
-    // noisy and can flip. Aggregate a sample-size-weighted mean correlation
-    // across several seeds: the sharp outlet should win in aggregate.
-    let sharpTotal = 0;
-    let noisyTotal = 0;
-    // More seeds = more statistical power. The 2026-06 linked-rating
-    // generation tightened within-group skill spread, shrinking the sharp-vs-
-    // noisy gap per seed, so 5 seeds became under-powered (the true effect —
-    // sharp out-correlates noisy — held on average but flipped on a thin
-    // 5-seed sum). Averaging over 12 seeds restores a reliable margin.
-    for (const seed of [
-      'mq-a', 'mq-b', 'mq-c', 'mq-d', 'mq-e', 'mq-f',
-      'mq-g', 'mq-h', 'mq-i', 'mq-j', 'mq-k', 'mq-l',
-    ]) {
+  it('a sharp outlet reads closer to the truth than a noisy one', () => {
+    // We measure the property directly via READ ERROR (mean |perceived −
+    // real| overall grade), pooled across seeds. This is far more robust than
+    // the within-group rank-correlation used previously: the media covers only
+    // ~50 names split across 7 groups, all outlets carry a shared misread
+    // (v0.91), and the 2026-06 linked-rating + Slice-3 generation tightened
+    // within-group skill spread — so rank-correlation no longer separates a
+    // sharp from a noisy outlet (it sat on a knife edge and flipped). Read
+    // error does: a high-accuracy outlet's reads are closer to truth by
+    // construction, and that holds cleanly in aggregate.
+    const cpById = new Map<string, CollegePlayer>();
+    const perceivedOverall = (o: CollegePlayerObservation): number => {
+      const vals = Object.values(o.skills).filter((v): v is number => typeof v === 'number');
+      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
+    };
+    const outletIdOf = (scoutId: string): string => scoutId.split('::')[0] ?? scoutId;
+
+    let sharpErr = 0;
+    let sharpN = 0;
+    let noisyErr = 0;
+    let noisyN = 0;
+    for (const seed of ['mq-a', 'mq-b', 'mq-c', 'mq-d', 'mq-e', 'mq-f', 'mq-g', 'mq-h']) {
       const league = createLeague({ seed });
+      cpById.clear();
+      for (const cp of league.collegePool) cpById.set(cp.id, cp);
       const observations = generateMediaCollegeObservations(
         new Prng('mq'),
         league.mediaOutlets,
@@ -108,21 +115,24 @@ describe('computeOutletQualityByGroup', () => {
       const noisy = college.reduce((a, b) => (b.accuracySpectrum < a.accuracySpectrum ? b : a));
       if (sharp.accuracySpectrum <= noisy.accuracySpectrum) continue;
 
-      const weightedCorr = (outletId: string) => {
-        const rows = computeOutletQualityByGroup(observations, league.collegePool, outletId).filter(
-          (r) => r.rankCorrelation !== null,
-        );
-        let ws = 0;
-        let w = 0;
-        for (const r of rows) {
-          ws += (r.rankCorrelation ?? 0) * r.sampleSize;
-          w += r.sampleSize;
+      for (const o of observations) {
+        const cp = cpById.get(o.collegePlayerId);
+        if (!cp) continue;
+        const err = Math.abs(perceivedOverall(o) - realGrade(cp));
+        if (Number.isNaN(err)) continue;
+        const oid = outletIdOf(o.scoutId);
+        if (oid === sharp.id) {
+          sharpErr += err;
+          sharpN += 1;
+        } else if (oid === noisy.id) {
+          noisyErr += err;
+          noisyN += 1;
         }
-        return w > 0 ? ws / w : 0;
-      };
-      sharpTotal += weightedCorr(sharp.id);
-      noisyTotal += weightedCorr(noisy.id);
+      }
     }
-    expect(sharpTotal).toBeGreaterThan(noisyTotal);
+    expect(sharpN).toBeGreaterThan(0);
+    expect(noisyN).toBeGreaterThan(0);
+    // The sharp outlet's reads are closer to the truth (lower mean error).
+    expect(sharpErr / sharpN).toBeLessThan(noisyErr / noisyN);
   });
 });
