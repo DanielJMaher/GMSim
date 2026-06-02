@@ -18,7 +18,8 @@
     "star": "tsc -p tsconfig.json && node dist/star-separation.js",
     "conversion": "tsc -p tsconfig.json && node dist/conversion.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "clean": "rimraf .turbo dist"
+    "clean": "rimraf .turbo dist",
+    "ras": "tsc -p tsconfig.json && node dist/ras.js"
   },
   "dependencies": {
     "node-html-parser": "^6.1.13"
