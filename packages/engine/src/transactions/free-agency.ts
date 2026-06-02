@@ -1,6 +1,6 @@
 import type { LeagueState } from '../types/league.js';
 import type { Player, TalentTier } from '../types/player.js';
-import type { Contract, ContractGuarantee } from '../types/contract.js';
+import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
 import type { Transaction } from '../types/transaction.js';
 import { currentCapHit } from '../contracts/cap.js';
@@ -12,6 +12,7 @@ import type {
 import { ContractId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { buildGuaranteedSplit } from '../contracts/tiers.js';
 
 /**
  * All players currently without a team. A player is a free agent when
@@ -119,34 +120,33 @@ interface FreeAgentDealShape {
   realYears: number;
   baseSalary: number;
   signingBonus: number;
-  /** Number of leading years where the base salary is fully guaranteed. */
-  guaranteedYears: number;
 }
 
+// NOTE: `baseSalary` + `signingBonus` here only set the deal's TOTAL value (and
+// thus its APY / Y1 cap hit, which the auction is gated on). The actual
+// bonus/base split + guarantee depth are derived position-by-position from the
+// total via `buildGuaranteedSplit` (Liquidator Slice 3b) — so these per-tier
+// numbers no longer fix the guaranteed structure, only the headline value.
 const FA_DEAL_BY_TIER: Record<TalentTier, FreeAgentDealShape> = {
   STAR: {
     realYears: 4,
     baseSalary: 9_000_000,
     signingBonus: 24_000_000,
-    guaranteedYears: 2,
   },
   STARTER: {
     realYears: 3,
     baseSalary: 2_400_000,
     signingBonus: 2_400_000,
-    guaranteedYears: 1,
   },
   BACKUP: {
     realYears: 2,
     baseSalary: 900_000,
     signingBonus: 200_000,
-    guaranteedYears: 1,
   },
   FRINGE: {
     realYears: 1,
     baseSalary: LEAGUE_MINIMUM_SALARY,
     signingBonus: 0,
-    guaranteedYears: 0,
   },
 };
 
@@ -173,23 +173,20 @@ export function makeFreeAgentContract(
   const shape = FA_DEAL_BY_TIER[player.tier];
   const scaledBase = Math.round(shape.baseSalary * valuationMultiplier);
   const scaledBonus = Math.round(shape.signingBonus * valuationMultiplier);
-  // No LEAGUE_MIN floor on the per-year base — the auction filters
-  // teams on the cash valuation they're committing to, and the
-  // resulting contract Y1 cap hit must equal that valuation. Adding
-  // a min-salary floor here would push the contract above the auction
-  // price and produce small cap-room overflows. At multiplier 1.0
-  // every tier's standard base is already at/above the league
-  // minimum, so this only affects sub-1.0 single-bidder auctions on
-  // FRINGE players. (Caller-driven sign primitives keep multiplier 1.)
-  const baseSalaries = new Array(shape.realYears).fill(scaledBase);
-  const guarantees: ContractGuarantee[] = [];
-  for (let y = 0; y < shape.realYears; y++) {
-    if (y < shape.guaranteedYears) {
-      guarantees.push({ baseGuaranteedPct: 100, type: 'FULLY_GUARANTEED' });
-    } else {
-      guarantees.push({ baseGuaranteedPct: 0, type: 'NONE' });
-    }
-  }
+  // Total deal value the auction priced — its APY / Y1 cap hit. We hold this
+  // fixed and let `buildGuaranteedSplit` re-divide it into a position-aware
+  // bonus/base split + guarantee depth (Liquidator Slice 3b). Because the base
+  // is split evenly, Y1 cap hit stays = totalValue / realYears regardless of the
+  // bonus share, so the auction's cap gate (which assumes Y1 == the priced
+  // valuation) is unaffected — only guaranteed money / dead-money moves.
+  const totalValue = scaledBase * shape.realYears + scaledBonus;
+  const { signingBonus, baseSalaries, guarantees } = buildGuaranteedSplit({
+    totalValue,
+    realYears: shape.realYears,
+    baseShape: new Array<number>(shape.realYears).fill(1),
+    position: player.position,
+    tier: player.tier,
+  });
   return {
     id: ContractId(`C_${idSuffix}`),
     playerId: player.id,
@@ -199,7 +196,7 @@ export function makeFreeAgentContract(
     voidYears: 0,
     yearsRemaining: shape.realYears,
     baseSalaries,
-    signingBonus: scaledBonus,
+    signingBonus,
     rosterBonuses: new Array(shape.realYears).fill(0),
     workoutBonuses: new Array(shape.realYears).fill(0),
     guarantees,

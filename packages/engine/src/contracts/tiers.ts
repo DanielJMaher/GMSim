@@ -1,5 +1,6 @@
 import type { TalentTier } from '../players/skills.js';
 import type { PlayerSkills } from '../types/player.js';
+import type { ContractGuarantee } from '../types/contract.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import type { ArchetypeId } from '../types/player.js';
 import { Position } from '../types/enums.js';
@@ -217,6 +218,77 @@ const TIER_GUARANTEE_WEIGHT: Record<TalentTier, number> = {
 export function positionGuaranteeTarget(position: Position, tier: TalentTier): number {
   const star = POSITION_GUARANTEE_AT_STAR[position] ?? 0.4;
   return Math.min(0.95, star * TIER_GUARANTEE_WEIGHT[tier]);
+}
+
+/**
+ * Share of a contract's guaranteed money that comes as signing bonus (the rest
+ * is fully-guaranteed base). Real deals run ~50-70% bonus; 0.6 keeps a realistic
+ * mix where the bonus dominates the guaranteed component — and it's the bonus
+ * proration that accelerates into dead money on a trade/release, so a
+ * higher-guarantee (premium) position is also harder to move.
+ */
+export const BONUS_SHARE_OF_GUARANTEE = 0.6;
+
+function roundMoneyTo1k(value: number): number {
+  return Math.round(value / 1000) * 1000;
+}
+
+/**
+ * Split a contract's `totalValue` into a signing bonus + per-year base salaries
+ * + guarantee structure so the guaranteed money lands on the position+tier
+ * target (`positionGuaranteeTarget`). Total value is preserved
+ * (`signingBonus + Σ baseSalaries === totalValue`, modulo $1k rounding), so the
+ * APY / cap hit is unchanged — only the guaranteed share, and hence dead money
+ * on a trade or release, moves. The signing bonus is `BONUS_SHARE_OF_GUARANTEE`
+ * of the guaranteed dollars; the rest fully-guarantees the leading base years
+ * (front-loaded, like real deals).
+ *
+ * `baseShape` gives relative per-year base weights (length === realYears): the
+ * seed generator passes its rolled per-year bases to preserve their ramp/noise;
+ * the flat free-agent deal passes equal weights. Shared by both the seed
+ * (`generateContract`) and free-agent (`makeFreeAgentContract`) paths so the two
+ * never drift — The Liquidator Slice 3 / 3b.
+ */
+export function buildGuaranteedSplit(args: {
+  totalValue: number;
+  realYears: number;
+  baseShape: readonly number[];
+  position: Position;
+  tier: TalentTier;
+}): { signingBonus: number; baseSalaries: number[]; guarantees: ContractGuarantee[] } {
+  const { totalValue, realYears, baseShape, position, tier } = args;
+  const guaranteedDollars = positionGuaranteeTarget(position, tier) * totalValue;
+  const signingBonus = roundMoneyTo1k(BONUS_SHARE_OF_GUARANTEE * guaranteedDollars);
+  const baseTotal = Math.max(0, totalValue - signingBonus);
+  const shapeSum = baseShape.reduce((s, w) => s + w, 0);
+
+  const baseSalaries: number[] = [];
+  for (let i = 0; i < realYears; i++) {
+    const w = baseShape[i] ?? 0;
+    baseSalaries.push(
+      roundMoneyTo1k(shapeSum > 0 ? (baseTotal * w) / shapeSum : baseTotal / realYears),
+    );
+  }
+
+  // Front-load: fully guarantee leading base years until the guaranteed-base
+  // budget is spent, partially guarantee the boundary year.
+  let guaranteedBaseRemaining = Math.max(0, guaranteedDollars - signingBonus);
+  const guarantees: ContractGuarantee[] = [];
+  for (let i = 0; i < realYears; i++) {
+    const yearBase = baseSalaries[i] ?? 0;
+    if (yearBase <= 0 || guaranteedBaseRemaining <= 0) {
+      guarantees.push({ baseGuaranteedPct: 0, type: 'NONE' });
+    } else if (guaranteedBaseRemaining >= yearBase) {
+      guarantees.push({ baseGuaranteedPct: 100, type: 'FULLY_GUARANTEED' });
+      guaranteedBaseRemaining -= yearBase;
+    } else {
+      const pct = Math.round((guaranteedBaseRemaining / yearBase) * 100);
+      guarantees.push({ baseGuaranteedPct: pct, type: 'INJURY_ONLY' });
+      guaranteedBaseRemaining = 0;
+    }
+  }
+
+  return { signingBonus, baseSalaries, guarantees };
 }
 
 /**

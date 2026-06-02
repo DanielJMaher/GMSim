@@ -376,15 +376,97 @@ async function reportGuarantees(seed: string): Promise<void> {
   console.log('');
 }
 
+/**
+ * Slice 3b — guaranteed-money realism on the FREE-AGENT market. Same lens as
+ * `reportGuarantees`, but over offseason-auction FA signings vs the real
+ * veteran-FA market. Validates that the position-aware guarantee split now
+ * applies to FA deals (`makeFreeAgentContract`), not just seed contracts.
+ */
+async function reportFaGuarantees(seed: string): Promise<void> {
+  console.log(
+    `\nThe Liquidator — FA GUARANTEED-MONEY realism (real veteran-FA: signed ${MARKET_SINCE}+, ≥${VETERAN_FA_MIN_YEARS_SINCE_DRAFT}yr post-draft)`,
+  );
+
+  const real = await loadReal(true);
+  const realByPos = new Map<string, RealRow[]>();
+  for (const r of real) {
+    const arr = realByPos.get(r.position) ?? realByPos.set(r.position, []).get(r.position)!;
+    arr.push(r);
+  }
+  console.log(`  real veteran-FA deals: ${real.length.toLocaleString()} across ${realByPos.size} positions`);
+
+  const signings = await loadFreeAgentSignings(seed, FA_SAMPLE_SEASONS);
+  const market = signings.filter((s) => s.marketContract);
+  const simByPos = new Map<string, FreeAgentSigningRow[]>();
+  for (const s of market) {
+    const bucket = OTC_BUCKET[s.position];
+    if (!bucket) continue;
+    const arr = simByPos.get(bucket) ?? simByPos.set(bucket, []).get(bucket)!;
+    arr.push(s);
+  }
+  console.log(
+    `  GMSim FA signings over ${FA_SAMPLE_SEASONS} seasons (seed "${seed}"): ${market.length} offseason-market\n`,
+  );
+
+  const realVwGtd = (rows: RealRow[]): number => {
+    let g = 0, v = 0;
+    for (const r of rows) { g += r.guaranteed; v += r.value; }
+    return v > 0 ? g / v : 0;
+  };
+  const simVwGtd = (rows: FreeAgentSigningRow[]): number => {
+    let g = 0, v = 0;
+    for (const r of rows) {
+      const value = r.apy * r.years;
+      g += r.guaranteedPct * value;
+      v += value;
+    }
+    return v > 0 ? g / v : 0;
+  };
+
+  console.log('=== Value-weighted guaranteed money as % of value — real vs GMSim FA signings ===');
+  console.log(`  ${'pos'.padEnd(5)} ${'real gtd'.padStart(9)} ${'sim gtd'.padStart(9)} ${'Δpp'.padStart(7)}   ${'n'.padStart(5)}`);
+  for (const pos of POS_ORDER) {
+    const r = realByPos.get(pos);
+    const s = simByPos.get(pos);
+    if (!r) continue;
+    const realGtd = realVwGtd(r);
+    const simGtd = s ? simVwGtd(s) : null;
+    const d = simGtd !== null ? ((simGtd - realGtd) * 100).toFixed(0) : '—';
+    const flag = simGtd !== null && Math.abs(simGtd - realGtd) > 0.15 ? '  <-- DRIFT' : '';
+    const simN = s ? String(s.length) : '—';
+    console.log(
+      `  ${pos.padEnd(5)} ${((realGtd * 100).toFixed(0) + '%').padStart(9)} ${(simGtd !== null ? (simGtd * 100).toFixed(0) + '%' : '—').padStart(9)} ${d.padStart(7)}   ${simN.padStart(5)}${flag}`,
+    );
+  }
+
+  const realQbR = realByPos.get('QB') ?? [];
+  const realRbR = realByPos.get('RB') ?? [];
+  const simQbR = simByPos.get('QB');
+  const simRbR = simByPos.get('RB');
+  console.log('\n=== FA guaranteed-money spread (the flat-guarantee tell) ===');
+  console.log(`  real  QB gtd ${(realVwGtd(realQbR) * 100).toFixed(0)}%  vs RB gtd ${(realVwGtd(realRbR) * 100).toFixed(0)}%  → QB-RB gap ${((realVwGtd(realQbR) - realVwGtd(realRbR)) * 100).toFixed(0)}pp`);
+  if (simQbR && simRbR) {
+    console.log(`  GMSim QB gtd ${(simVwGtd(simQbR) * 100).toFixed(0)}%  vs RB gtd ${(simVwGtd(simRbR) * 100).toFixed(0)}%  → QB-RB gap ${((simVwGtd(simQbR) - simVwGtd(simRbR)) * 100).toFixed(0)}pp`);
+  } else {
+    console.log('  GMSim QB/RB: insufficient market-FA samples at one of the positions');
+  }
+  console.log('');
+}
+
 async function main(): Promise<void> {
   // `run liquidator [seed]`        → seed cap-structure report (Slice 1)
   // `run liquidator fa [seed]`     → free-agency cap-structure report (Slice 2)
-  // `run liquidator gtd [seed]`    → guaranteed-money realism (Slice 3)
+  // `run liquidator gtd [seed]`    → seed guaranteed-money realism (Slice 3)
+  // `run liquidator gtd fa [seed]` → FA-signing guaranteed-money realism (Slice 3b)
   const mode = process.argv[2];
   if (mode === 'fa') {
     await reportFreeAgency(process.argv[3] ?? 'liquidator');
   } else if (mode === 'gtd') {
-    await reportGuarantees(process.argv[3] ?? 'liquidator');
+    if (process.argv[3] === 'fa') {
+      await reportFaGuarantees(process.argv[4] ?? 'liquidator');
+    } else {
+      await reportGuarantees(process.argv[3] ?? 'liquidator');
+    }
   } else {
     await reportSeeds(mode ?? 'liquidator');
   }
