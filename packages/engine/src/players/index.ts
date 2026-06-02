@@ -10,6 +10,11 @@ export {
 } from './roster-blueprint.js';
 export { positionGroupFor } from './position-group.js';
 export {
+  athleticBaseline,
+  POSITION_BASELINED_SKILLS,
+  type AthleticBaseline,
+} from './athletic-baselines.js';
+export {
   ABILITIES,
   ABILITY_HINTS,
   getAbility,

@@ -1,4 +1,4 @@
-import { auditLeague, type AuditPlayer } from './engine-bridge.js';
+import { auditLeague, type AuditPlayer, type AthleticBaseline } from './engine-bridge.js';
 
 /**
  * The Skill Adjudicator — the talent-tier + accolade guardrail.
@@ -402,6 +402,50 @@ function printRelationChecks(players: AuditPlayer[], field: SkillField): void {
   }
 }
 
+// ── RAS realism: per-position athletic distributions (Slice 3c) ───────────
+// Closes the loop on the size/athletics work: do GENERATED players land on the
+// real per-position athletic baselines (CB fast, DT slow/strong)? Compares each
+// position's generated mean physical ceiling to the engine's combine-derived
+// target (athletic-baselines.ts ← nflverse, the data RAS is built on). Drift
+// here means generation broke the position differentiation. The cross-position
+// strength↔speed tradeoff is covered by the NON-linkage check above; this is
+// the per-position detail.
+const ATHLETIC_ATTRS = ['speed', 'acceleration', 'agility', 'changeOfDirection', 'jumping', 'strength'] as const;
+const ATHLETIC_DRIFT_FLAG = 5; // points of |generated mean − target|
+
+function printPositionAthleticRealism(
+  players: AuditPlayer[],
+  targets: Record<string, AthleticBaseline>,
+): void {
+  const byPos = new Map<string, AuditPlayer[]>();
+  for (const p of players) {
+    const b = byPos.get(p.position);
+    if (b) b.push(p);
+    else byPos.set(p.position, [p]);
+  }
+  // Fastest target first, so the speed gradient reads top-to-bottom.
+  const positions = [...byPos.keys()]
+    .filter((pos) => targets[pos])
+    .sort((a, b) => (targets[b]!.speed) - (targets[a]!.speed));
+
+  console.log(`\n=== RAS realism — per-position athletic means (generated ceiling vs combine target) ===`);
+  console.log(`  flag = |gen − target| > ${ATHLETIC_DRIFT_FLAG}. Confirms position differentiation (CB fast, DT slow/strong).`);
+  console.log(`  ${'pos'.padEnd(7)} ${'N'.padStart(4)} ${ATHLETIC_ATTRS.map((a) => a.slice(0, 5).padStart(12)).join('')}`);
+  for (const pos of positions) {
+    const ps = byPos.get(pos)!;
+    const tgt = targets[pos]!;
+    let line = `  ${pos.padEnd(7)} ${String(ps.length).padStart(4)}`;
+    for (const attr of ATHLETIC_ATTRS) {
+      const vals = ps.map((p) => p.ceiling[attr]).filter((v): v is number => v !== undefined);
+      const gen = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : NaN;
+      const t = tgt[attr];
+      const flag = !Number.isNaN(gen) && Math.abs(gen - t) > ATHLETIC_DRIFT_FLAG ? '!' : ' ';
+      line += `${(Number.isNaN(gen) ? '—' : `${gen.toFixed(0)}/${t.toFixed(0)}${flag}`).padStart(12)}`;
+    }
+    console.log(line);
+  }
+}
+
 async function main(): Promise<void> {
   const sim = process.argv[2] === 'sim';
   const years = sim ? Number(process.argv[3]) || 6 : 0;
@@ -446,6 +490,7 @@ async function main(): Promise<void> {
     sim ? `rostered after ${years} seasons` : 'freshly generated',
   );
   printRelationChecks(audit.players, 'ceiling');
+  printPositionAthleticRealism(audit.players, audit.athleticTargets);
 
   if (sim) {
     // Use the final season's named accolades — the per-season total averaged

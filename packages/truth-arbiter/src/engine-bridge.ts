@@ -37,7 +37,16 @@ export interface GeneratedProspect {
 interface EngineArchetype {
   skillWeights: Record<string, number | undefined>;
 }
+export interface AthleticBaseline {
+  speed: number;
+  acceleration: number;
+  agility: number;
+  changeOfDirection: number;
+  jumping: number;
+  strength: number;
+}
 interface EngineModule {
+  athleticBaseline: (position: string) => AthleticBaseline;
   Prng: new (seed: string) => unknown;
   generateInitialCollegePool: (
     prng: unknown,
@@ -573,6 +582,10 @@ export interface LeagueAudit {
   /** Accolades named in the FINAL simulated season, by kind. No roster churn
    *  has removed those players yet, so this is the accurate per-season count. */
   lastSeasonAccolades: Record<string, number>;
+  /** Per-position athletic baseline TARGETS (from the engine's combine-derived
+   *  generation), keyed by position — the RAS-realism reference the audit
+   *  compares generated players against. */
+  athleticTargets: Record<string, AthleticBaseline>;
 }
 
 /**
@@ -611,5 +624,9 @@ export async function auditLeague(seed: string, years: number): Promise<LeagueAu
       if (a.seasonNumber === lastSeason) lastSeasonAccolades[a.kind] = (lastSeasonAccolades[a.kind] ?? 0) + 1;
     }
   }
-  return { seasons: years, players, accolades, lastSeasonAccolades };
+  const athleticTargets: Record<string, AthleticBaseline> = {};
+  for (const p of players) {
+    if (!athleticTargets[p.position]) athleticTargets[p.position] = eng.athleticBaseline(p.position);
+  }
+  return { seasons: years, players, accolades, lastSeasonAccolades, athleticTargets };
 }
