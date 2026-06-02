@@ -12,7 +12,7 @@ import type {
 import { ContractId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
-import { buildGuaranteedSplit } from '../contracts/tiers.js';
+import { buildGuaranteedSplit, positionGuaranteeTargetFa } from '../contracts/tiers.js';
 
 /**
  * All players currently without a team. A player is a free agent when
@@ -184,8 +184,7 @@ export function makeFreeAgentContract(
     totalValue,
     realYears: shape.realYears,
     baseShape: new Array<number>(shape.realYears).fill(1),
-    position: player.position,
-    tier: player.tier,
+    guaranteedFraction: positionGuaranteeTargetFa(player.position, player.tier),
   });
   return {
     id: ContractId(`C_${idSuffix}`),

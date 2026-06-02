@@ -2,7 +2,12 @@ import { ContractId } from '../types/ids.js';
 import type { Contract } from '../types/contract.js';
 import type { Player } from '../types/player.js';
 import type { Prng } from '../prng/index.js';
-import { TIER_TEMPLATES, positionSalaryFactor, buildGuaranteedSplit } from './tiers.js';
+import {
+  TIER_TEMPLATES,
+  positionSalaryFactor,
+  positionGuaranteeTarget,
+  buildGuaranteedSplit,
+} from './tiers.js';
 import { WEEKS_PER_LEAGUE_YEAR } from './constants.js';
 
 export interface GenerateContractOptions {
@@ -77,8 +82,7 @@ export function generateContract(prng: Prng, options: GenerateContractOptions): 
     totalValue,
     realYears,
     baseShape: rolledBase,
-    position: options.player.position,
-    tier,
+    guaranteedFraction: positionGuaranteeTarget(options.player.position, tier),
   });
 
   const noTradeClause = prng.next() < template.noTradeClauseProb;

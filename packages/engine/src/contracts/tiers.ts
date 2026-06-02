@@ -221,6 +221,46 @@ export function positionGuaranteeTarget(position: Position, tier: TalentTier): n
 }
 
 /**
+ * Free-agent guarantee targets (Slice 3c). The real VETERAN-FA market guarantees
+ * commodity/mid positions more generously than the all-market average that
+ * `POSITION_GUARANTEE_AT_STAR` is built from (a veteran who reaches free agency
+ * and signs a real deal locks in more than the league-wide median, which the
+ * mass of $0-gtd minimums drags down). These are the seed STAR targets scaled by
+ * the measured real-veteran-FA ÷ GMSim-FA ratio per position, so the FA market's
+ * value-weighted guaranteed % lands on real. Re-derive with
+ * `run liquidator gtd fa`.
+ */
+export const POSITION_GUARANTEE_AT_STAR_FA: Record<Position, number> = {
+  [Position.QB]: 0.69,
+  [Position.DT]: 0.51,
+  [Position.NT]: 0.51,
+  [Position.WR]: 0.49,
+  [Position.RT]: 0.49,
+  [Position.LG]: 0.49,
+  [Position.S]: 0.46,
+  [Position.TE]: 0.46,
+  [Position.LT]: 0.46,
+  [Position.EDGE]: 0.45,
+  [Position.RG]: 0.45,
+  [Position.CB]: 0.44,
+  [Position.NICKEL]: 0.44,
+  [Position.OLB]: 0.42,
+  [Position.ILB]: 0.42,
+  [Position.C]: 0.4,
+  [Position.K]: 0.37,
+  [Position.P]: 0.35,
+  [Position.RB]: 0.33,
+  [Position.FB]: 0.33,
+  [Position.LS]: 0.15,
+};
+
+/** Free-agent variant of `positionGuaranteeTarget` (uses the veteran-FA map). */
+export function positionGuaranteeTargetFa(position: Position, tier: TalentTier): number {
+  const star = POSITION_GUARANTEE_AT_STAR_FA[position] ?? 0.45;
+  return Math.min(0.95, star * TIER_GUARANTEE_WEIGHT[tier]);
+}
+
+/**
  * Share of a contract's guaranteed money that comes as signing bonus (the rest
  * is fully-guaranteed base). Real deals run ~50-70% bonus; 0.6 keeps a realistic
  * mix where the bonus dominates the guaranteed component — and it's the bonus
@@ -245,19 +285,19 @@ function roundMoneyTo1k(value: number): number {
  *
  * `baseShape` gives relative per-year base weights (length === realYears): the
  * seed generator passes its rolled per-year bases to preserve their ramp/noise;
- * the flat free-agent deal passes equal weights. Shared by both the seed
- * (`generateContract`) and free-agent (`makeFreeAgentContract`) paths so the two
- * never drift — The Liquidator Slice 3 / 3b.
+ * the flat free-agent deal passes equal weights. `guaranteedFraction` is the
+ * resolved target (caller picks the seed vs FA market map). Shared by both the
+ * seed (`generateContract`) and free-agent (`makeFreeAgentContract`) paths so the
+ * two never drift — The Liquidator Slice 3 / 3b / 3c.
  */
 export function buildGuaranteedSplit(args: {
   totalValue: number;
   realYears: number;
   baseShape: readonly number[];
-  position: Position;
-  tier: TalentTier;
+  guaranteedFraction: number;
 }): { signingBonus: number; baseSalaries: number[]; guarantees: ContractGuarantee[] } {
-  const { totalValue, realYears, baseShape, position, tier } = args;
-  const guaranteedDollars = positionGuaranteeTarget(position, tier) * totalValue;
+  const { totalValue, realYears, baseShape, guaranteedFraction } = args;
+  const guaranteedDollars = guaranteedFraction * totalValue;
   const signingBonus = roundMoneyTo1k(BONUS_SHARE_OF_GUARANTEE * guaranteedDollars);
   const baseTotal = Math.max(0, totalValue - signingBonus);
   const shapeSum = baseShape.reduce((s, w) => s + w, 0);
