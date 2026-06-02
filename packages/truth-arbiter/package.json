@@ -19,7 +19,8 @@
     "conversion": "tsc -p tsconfig.json && node dist/conversion.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf .turbo dist",
-    "ras": "tsc -p tsconfig.json && node dist/ras.js"
+    "ras": "tsc -p tsconfig.json && node dist/ras.js",
+    "nmdd": "tsc -p tsconfig.json && node dist/nmdd.js"
   },
   "dependencies": {
     "node-html-parser": "^6.1.13"
