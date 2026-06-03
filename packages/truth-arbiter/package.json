@@ -20,7 +20,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "clean": "rimraf .turbo dist",
     "ras": "tsc -p tsconfig.json && node dist/ras.js",
-    "nmdd": "tsc -p tsconfig.json && node dist/nmdd.js"
+    "nmdd": "tsc -p tsconfig.json && node dist/nmdd.js",
+    "class-talent": "tsc -p tsconfig.json && node dist/class-talent.js"
   },
   "dependencies": {
     "node-html-parser": "^6.1.13"

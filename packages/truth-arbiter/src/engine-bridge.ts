@@ -45,8 +45,18 @@ export interface AthleticBaseline {
   jumping: number;
   strength: number;
 }
+interface ConsensusEntry {
+  collegePlayerId: string;
+}
+interface CollegeProspect {
+  id: string;
+  nflProjectedPosition: string;
+  current: Record<string, number>;
+}
 interface EngineModule {
   athleticBaseline: (position: string) => AthleticBaseline;
+  computeConsensusBoard: (perTeamBoards: Record<string, unknown>) => ConsensusEntry[];
+  positionGroupFor: (position: string) => string;
   Prng: new (seed: string) => unknown;
   generateInitialCollegePool: (
     prng: unknown,
@@ -103,6 +113,8 @@ interface EngineLeague {
   players: Record<string, EnginePlayer>;
   teams: Record<string, unknown>;
   seasonNumber: number;
+  collegePool: readonly CollegeProspect[];
+  draftBoards: Record<string, unknown>;
 }
 
 /**
@@ -629,4 +641,46 @@ export async function auditLeague(seed: string, years: number): Promise<LeagueAu
     if (!athleticTargets[p.position]) athleticTargets[p.position] = eng.athleticBaseline(p.position);
   }
   return { seasons: years, players, accolades, lastSeasonAccolades, athleticTargets };
+}
+
+// ── Class-talent facet: a generated prospect class as a consensus board ──────
+
+export interface ClassProspect {
+  /** Consensus rank (1 = top of the league's aggregate board). */
+  rank: number;
+  /** Engine position (QB, EDGE, CB, …). */
+  position: string;
+  /** Engine position group (QB, SKILL, OL, DL, LB, DB, ST). */
+  positionGroup: string;
+  /** Ground-truth overall (mean of true current skills) — the talent signal. */
+  realOverall: number;
+}
+
+/**
+ * A freshly generated draft class, ranked by the league's CONSENSUS board
+ * (aggregate of all 32 team boards), with each prospect's ground-truth overall.
+ * The class-talent facet compares this to the real NMDD consensus (position mix
+ * + talent steepness).
+ */
+export async function generatedClass(seed: string): Promise<ClassProspect[]> {
+  const eng = await loadEngine();
+  const league = eng.createLeague({ seed });
+  const consensus = eng.computeConsensusBoard(league.draftBoards);
+  const byId = new Map(league.collegePool.map((cp) => [cp.id, cp] as const));
+  const out: ClassProspect[] = [];
+  let rank = 0;
+  for (const e of consensus) {
+    const cp = byId.get(e.collegePlayerId);
+    if (!cp) continue;
+    rank += 1;
+    const vals = Object.values(cp.current);
+    const realOverall = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    out.push({
+      rank,
+      position: cp.nflProjectedPosition,
+      positionGroup: eng.positionGroupFor(cp.nflProjectedPosition),
+      realOverall,
+    });
+  }
+  return out;
 }
