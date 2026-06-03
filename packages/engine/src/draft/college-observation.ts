@@ -23,6 +23,19 @@ const OBSERVATIONS_PER_SCOUT = 6;
 const BASE_NOISE_STDEV = 18;
 
 /**
+ * Prospect projection (Lever 1 of the talent-spread fix, 2026-06-02). College
+ * prospects are evaluated on PROJECTED NFL ability, not raw current college
+ * skill — at the rookie stage `current` is far below `ceiling` and nearly flat
+ * across prospects, so a board reading current alone can't tell a blue-chip
+ * from a camp body (it surfaced only ~8/32 of the true-best; top-32 was mostly
+ * FRINGE). Scouts instead grade the upside: read value = current + this
+ * fraction of the gap to ceiling. Higher → boards chase upside harder; the
+ * scout's accuracy still governs the noise, so a poor evaluator misjudges the
+ * projection. Tuning knob, validated by the Truth Arbiter class-talent facet.
+ */
+const PROSPECT_PROJECTION = 0.6;
+
+/**
  * Regional accuracy bonus when scout's `preferredRegion` matches the
  * prospect's hometown OR school state. Modest — 0.06 — so the bonus
  * is felt across many observations but doesn't dominate base accuracy.
@@ -220,7 +233,12 @@ export function generateCollegeObservation(
   const confidence: Partial<Record<keyof PlayerSkills, number>> = {};
 
   for (const skill of PLAYER_SKILL_KEYS) {
-    const trueValue = prospect.current[skill];
+    // Scouts grade PROJECTED NFL ability, not raw current college skill —
+    // blend current toward the prospect's ceiling so high-upside (blue-chip)
+    // prospects read higher and surface on the board. See PROSPECT_PROJECTION.
+    const cur = prospect.current[skill];
+    const ceil = prospect.ceiling[skill];
+    const trueValue = cur + PROSPECT_PROJECTION * (ceil - cur);
     // The NFL quirk pool reads from `Player`-shaped fields. The
     // CollegePlayer mirrors PlayerSkills + tier + experience, but
     // not all the NFL fields the quirks read (career awards, mood
