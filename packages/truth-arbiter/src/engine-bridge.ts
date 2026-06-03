@@ -52,6 +52,8 @@ interface CollegeProspect {
   id: string;
   nflProjectedPosition: string;
   current: Record<string, number>;
+  ceiling: Record<string, number>;
+  tier: string;
 }
 interface MediaObs {
   scoutId: string;
@@ -662,6 +664,10 @@ export interface ClassProspect {
   positionGroup: string;
   /** Ground-truth overall (mean of true current skills) — the talent signal. */
   realOverall: number;
+  /** Ground-truth CEILING overall (mean of true ceiling skills) — true potential. */
+  ceilingOverall: number;
+  /** Generation-time talent tier (STAR/STARTER/BACKUP/FRINGE). */
+  tier: string;
 }
 
 /**
@@ -683,11 +689,15 @@ export async function generatedClass(seed: string): Promise<ClassProspect[]> {
     rank += 1;
     const vals = Object.values(cp.current);
     const realOverall = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+    const cv = Object.values(cp.ceiling);
+    const ceilingOverall = cv.length ? cv.reduce((a, b) => a + b, 0) / cv.length : 0;
     out.push({
       rank,
       position: cp.nflProjectedPosition,
       positionGroup: eng.positionGroupFor(cp.nflProjectedPosition),
       realOverall,
+      ceilingOverall,
+      tier: cp.tier,
     });
   }
   return out;

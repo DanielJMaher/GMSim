@@ -129,6 +129,33 @@ async function main(): Promise<void> {
   const drop = top5 - tail;
   console.log(`\n  top-5 minus rank-33-100 drop = ${Number.isNaN(drop) ? '—' : drop.toFixed(1)}` +
     `  ${drop < 8 ? '<-- TOO FLAT (no blue-chip separation; pool needs talent spread)' : '(separation present)'}`);
+
+  // ── Pinpoint: generation vs board ────────────────────────────────────────
+  // CEILING (true potential) by band tells us if GENERATION makes blue-chips;
+  // the tier mix of the consensus top-32 + whether the pool's true-best surface
+  // there tells us if the BOARD finds them.
+  console.log(`\nPINPOINT — true CEILING (potential) by consensus-rank band:`);
+  for (const [label, lo, hi] of bands) {
+    const vals: number[] = [];
+    for (const cls of gmClasses) for (const p of cls.slice(lo, hi)) vals.push(p.ceilingOverall);
+    console.log(`  rank ${label.padEnd(8)} ceiling ${Number.isNaN(mean(vals)) ? '—' : mean(vals).toFixed(1)}`);
+  }
+  const tierMix = (rows: ClassProspect[]): string => {
+    const c: Record<string, number> = {};
+    for (const p of rows) c[p.tier] = (c[p.tier] ?? 0) + 1;
+    return ['STAR', 'STARTER', 'BACKUP', 'FRINGE'].map((t) => `${t}:${((c[t] ?? 0) / gmClasses.length).toFixed(1)}`).join(' ');
+  };
+  console.log(`\n  consensus top-32 tier mix (per class): ${tierMix(gmClasses.flatMap((c) => c.slice(0, 32)))}`);
+  // Does the board surface the true best? Overlap of consensus top-32 with the
+  // ceiling-top-32 of the same class.
+  let overlap = 0;
+  for (const cls of gmClasses) {
+    const consTop = new Set(cls.slice(0, 32).map((p) => p.rank));
+    const ceilTop = new Set([...cls].sort((a, b) => b.ceilingOverall - a.ceilingOverall).slice(0, 32).map((p) => p.rank));
+    for (const r of consTop) if (ceilTop.has(r)) overlap += 1;
+  }
+  console.log(`  board surfaces true-best: consensus top-32 ∩ ceiling top-32 = ${(overlap / gmClasses.length).toFixed(1)}/32` +
+    `  ${overlap / gmClasses.length < 16 ? '<-- BOARD weak at finding talent' : '(board finds most)'}`);
   /* eslint-enable no-console */
 }
 
