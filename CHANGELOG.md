@@ -16,6 +16,34 @@ _Nothing yet._
 
 ---
 
+## [0.115.0] — 2026-06-03
+
+### Changed
+
+- **Talent-spread Lever 3 — blue-chips now TOWER.** The top of the ceiling curve
+  is steepened so genuine elite prospects separate from the pack (the shallow
+  pyramid was the convergent bottleneck behind weak board-surfacing, the
+  team-board blue-chip-lock gap, and the media-spread gradient cap). `ELITE`
+  94→99 / `STAR` 88→93 ceiling means, with the softCap RESHAPED in tandem
+  (knee 86→90 to uncompress the upper band, RAWMAX 115→120) so the blue-chip
+  OVERALL rises while individual maxed (99) attributes stay rare — the two are
+  separable. Results (Truth Arbiter gates):
+  - class-talent: ceiling top-5 → 33-100 drop **5.2 → 8.0**; board-surfaces-
+    true-best **16.7 → 18.7 / 32**; consensus top-32 STAR mix **12.7 → 14.3**.
+  - Skill Adjudicator 99-scarcity **4.5% → 3.2%** (was over the ≲4% guard — now
+    comfortably under); tier distribution + cluster/RAS realism unchanged.
+  - reach `bigReachRatio` steady (~0.41 < 0.45).
+  - media-spread gradient ~3.0x (held; that residual is leaking-bound in the
+    grade-lean mechanism, not pyramid-bound — a deeper fix perturbs rank, not
+    grade). The media + scout uncertainty bands were re-anchored to the new,
+    higher ceiling distribution (88/74); the media disagreement lean rose 13→19
+    (steeper pyramid tolerates more before mids leap over blue-chips).
+
+  Newly generated players only; no migration. League-wide (the steeper top
+  applies to NFL veterans + prospects alike for consistency).
+
+---
+
 ## [0.114.0] — 2026-06-03
 
 ### Changed

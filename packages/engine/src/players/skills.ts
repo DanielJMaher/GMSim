@@ -35,15 +35,20 @@ const GRADE_WEIGHTS = [
  *  mid/low grades drop harder (STARTER 76→75, WEAK_STARTER 70→68, ROTATIONAL
  *  64→61, BACKUP 58→55, FRINGE 52→49) so blue-chips separate from replacement
  *  level — the flat-pool root cause behind the board flood + draft-reach
- *  blow-up. The TOP (ELITE 94 / STAR 88) is deliberately UNCHANGED: the softCap
- *  (knee 86) already compresses it, and raising it only inflates the 99-ceiling
- *  rate the Skill Adjudicator guards (≲4%) without helping the board surface
- *  the top (which is positional-weighting-bound, not ceiling-bound). Validated
- *  by the Skill Adjudicator (tier dist + 99 scarcity) + Truth Arbiter
- *  class-talent (ceiling pyramid). */
+ *  blow-up. Lever 3 (2026-06-03) then STEEPENED THE TOP: ELITE 94→99,
+ *  STAR 88→93, HIGH_STARTER 82→85, so genuine blue-chips TOWER (the shallow
+ *  pyramid was the convergent bottleneck behind weak board-surfacing, the
+ *  team-board blue-chip-lock gap, and the media-spread gradient cap). Raising
+ *  the top means would normally inflate the 99-ceiling rate the Skill
+ *  Adjudicator guards (≲4%) — so the softCap is RESHAPED in tandem (knee
+ *  86→89 to uncompress the upper band, RAWMAX 115→132 so a literal 99 still
+ *  needs an extreme draw): the blue-chip OVERALL rises while individual maxed
+ *  attributes stay rare (the two are separable). Validated by the Skill
+ *  Adjudicator (tier dist + 99 scarcity) + Truth Arbiter class-talent + the
+ *  Ombudsman media gradient. */
 const GRADE_CEILING_MEAN: Record<TalentGrade, number> = {
-  ELITE: 94,
-  STAR: 88,
+  ELITE: 99,
+  STAR: 93,
   HIGH_STARTER: 82,
   STARTER: 75,
   WEAK_STARTER: 68,
@@ -190,8 +195,8 @@ const SKILL_SD = 7;
 // 99 — so a literal 99 is rare but POSSIBLE (the freak escape). RAWMAX tunes the
 // 99 count directly (lower = more 99s). Slope (99-KNEE)/(RAWMAX-KNEE) < 1 means
 // no inflation of mid-high values.
-const SOFTCAP_KNEE = 86;
-const SOFTCAP_RAWMAX = 115;
+const SOFTCAP_KNEE = 90;
+const SOFTCAP_RAWMAX = 120;
 
 /**
  * Outlier component — the freak escape hatch. Clusters and scarcity are

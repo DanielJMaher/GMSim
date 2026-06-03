@@ -111,17 +111,18 @@ const SHARED_MISREAD_STDEV = 2.0;
  * the obvious ones) + a hash of (outlet, id), so it's deterministic and
  * round-stable. Tuning knob, validated by `run ombudsman` (the tier gradient).
  */
-const OUTLET_DISAGREEMENT_STDEV = 13;
+const OUTLET_DISAGREEMENT_STDEV = 19;
 /** Ceiling-overall band mapping a prospect's TRUE ceiling to [lock, contested].
  *  ≥ HI is a media lock (uncertainty 0, no added disagreement); ≤ LO is
- *  maximally contested (uncertainty 1). The magnitude (~13) is deliberately
- *  bounded: GMSim's talent pyramid is shallow (blue-chip-to-mid projection gap
- *  ~7 pts), so a larger lean would leap contested mid prospects OVER the
- *  blue-chips and scramble the consensus order — the real 6.6x tier gradient is
- *  ultimately bottlenecked by pyramid steepness (the generation lever). Tuned
- *  vs `run ombudsman`. */
-const UNCERTAINTY_CEIL_HI = 84;
-const UNCERTAINTY_CEIL_LO = 68;
+ *  maximally contested (uncertainty 1). Re-anchored to the Lever-3 steepened
+ *  pyramid (blue-chip ceiling ~88+, mid-board ~78): the lean magnitude (19) was
+ *  raised from 13 once the pyramid steepened, since the bigger talent gaps now
+ *  tolerate more disagreement before contested mids leap OVER the blue-chips.
+ *  The tier gradient still tops out ~3x (real 6.6x): beyond that the grade-lean
+ *  itself scrambles the mid-board tiers (a deeper fix would perturb RANK
+ *  directly, not grade). Tuned vs `run ombudsman`. */
+const UNCERTAINTY_CEIL_HI = 88;
+const UNCERTAINTY_CEIL_LO = 74;
 
 /** 0 (lock) … 1 (contested), from the prospect's true ceiling mean. Blue-chips
  *  genuinely ARE the obvious ones, so this is keyed off ground truth. */

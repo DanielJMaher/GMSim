@@ -54,8 +54,8 @@ export const PROSPECT_PROJECTION = 0.75;
  * knobs, validated by the class-talent gate + inter-team divergence.
  */
 const NOISE_UNCERTAINTY_FLOOR = 0.45;
-const NOISE_CEIL_HI = 84;
-const NOISE_CEIL_LO = 68;
+const NOISE_CEIL_HI = 88;
+const NOISE_CEIL_LO = 74;
 
 /** Read-noise multiplier (FLOOR…1) from a prospect's true ceiling — low for
  *  blue-chip locks, full for contested mid/late prospects. */
