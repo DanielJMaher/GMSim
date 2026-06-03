@@ -252,14 +252,17 @@ describe('draft reach distribution (v0.51 damped priority formula)', () => {
     // 2026-06 DEBT: the big-board de-flood (grading athleticism by deviation,
     // not absolute) removed the position-CONSTANT athletic signal that was
     // creating a false inter-team CONSENSUS. With it gone, the FLAT football-
-    // talent pool (every prospect ~47, no clear blue-chips) leaves little
-    // shared signal, so boards diverge and this ratio jumped to ~0.59 (mean
-    // reach stays ~0 — symmetric noise, not bias). The proper fix is realistic
-    // class TALENT SPREAD (the approved Truth Arbiter class-talent work): real
-    // blue-chips create genuine consensus → top picks stop looking like
-    // reaches. RE-TIGHTEN this bound back toward 0.35 once talent-spread
-    // generation lands. Bound temporarily relaxed to 0.62.
-    expect(bigReachRatio).toBeLessThan(0.62);
+    // talent pool (every prospect ~47, no clear blue-chips) left little shared
+    // signal, so boards diverged and this ratio jumped to ~0.59 (mean reach
+    // stays ~0 — symmetric noise, not bias). The proper fix was realistic class
+    // TALENT SPREAD (Truth Arbiter class-talent work): real blue-chips create
+    // genuine consensus → top picks stop looking like reaches.
+    // Talent-spread Lever 2 (2026-06-03: tier↔skill coherence + a steeper
+    // ceiling pyramid + lower scout noise) landed and dropped this to ~0.41, so
+    // the bound is RE-TIGHTENED 0.62→0.45. It did NOT reach the original 0.35:
+    // ~0.41 is the honest floor with the current pyramid — the residual is the
+    // board's intentional positional weighting, not flat-pool noise.
+    expect(bigReachRatio).toBeLessThan(0.45);
   });
 });
 

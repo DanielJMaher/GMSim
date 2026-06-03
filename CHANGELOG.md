@@ -16,6 +16,39 @@ _Nothing yet._
 
 ---
 
+## [0.109.0] — 2026-06-03
+
+### Changed
+
+- **Prospect talent spread — real blue-chips now exist and the board finds
+  them** (the long-deferred flat-pool root fix behind the big-board flood + the
+  draft-reach blow-up). Verified end-to-end by the Truth Arbiter `class-talent`
+  facet. Two levers:
+  - **Lever 1 — scouts grade UPSIDE, not flat rookie skill.** College reads are
+    `current + 0.6→0.75 · (ceiling − current)`, so a blue-chip's potential
+    surfaces instead of being lost in a near-flat rookie current.
+  - **Lever 2 — generation + board coherence:**
+    - **tier ↔ skill decoupling FIXED.** A prospect's stored talent tier was a
+      separate independent roll, fully decoupled from the skills `rollSkills`
+      actually generated — so tier, recruiting stars, college production and
+      character had nothing to do with his real talent. Tier is now keyed off
+      the skill roll, making the whole prospect coherent (blue-chips get
+      blue-chip recruiting + production). This alone took the consensus board's
+      top-32 tier mix from ~random (STAR ≈ 1) to STAR ≈ 12, FRINGE → 0.
+    - **Ceiling curve steepened into a real pyramid** by dropping the long tail
+      (`GRADE_CEILING_MEAN`: STARTER→FRINGE lowered ~1–3 pts each); the top
+      (ELITE/STAR) is left unchanged so the 99-ceiling scarcity guard (≲4%) and
+      tier distribution are untouched.
+    - **Scout noise lowered** (`BASE_NOISE_STDEV` 18→12) so the steeper talent
+      signal beats the read noise — board-surfaces-true-best rose from ~13/32 to
+      ~16/32 and big draft reaches (`|reach| ≥ 30`) fell from ~59% to ~41% of
+      picks (reach-distribution guard re-tightened 0.62→0.45).
+
+  Newly generated prospects only; no migration. Skill Adjudicator (tier dist +
+  99 scarcity + cluster/RAS realism) unchanged.
+
+---
+
 ## [0.108.0] — 2026-06-02
 
 ### Changed

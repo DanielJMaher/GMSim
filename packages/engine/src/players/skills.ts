@@ -30,18 +30,26 @@ const GRADE_WEIGHTS = [
   { value: 'FRINGE' as TalentGrade, weight: 8 }, // → FRINGE 20
 ];
 
-/** Mean ceiling (max-potential) baseline per fine grade. Each coarse group's
- *  weighted average matches the legacy tier mean (STAR≈90/STARTER78/BACKUP66/
- *  FRINGE54), so coarse-derived skills don't shift. */
+/** Mean ceiling (max-potential) baseline per fine grade. Talent-spread fix
+ *  Lever 2 (2026-06-03) STEEPENED the long tail into a real pyramid: the
+ *  mid/low grades drop harder (STARTER 76→75, WEAK_STARTER 70→68, ROTATIONAL
+ *  64→61, BACKUP 58→55, FRINGE 52→49) so blue-chips separate from replacement
+ *  level — the flat-pool root cause behind the board flood + draft-reach
+ *  blow-up. The TOP (ELITE 94 / STAR 88) is deliberately UNCHANGED: the softCap
+ *  (knee 86) already compresses it, and raising it only inflates the 99-ceiling
+ *  rate the Skill Adjudicator guards (≲4%) without helping the board surface
+ *  the top (which is positional-weighting-bound, not ceiling-bound). Validated
+ *  by the Skill Adjudicator (tier dist + 99 scarcity) + Truth Arbiter
+ *  class-talent (ceiling pyramid). */
 const GRADE_CEILING_MEAN: Record<TalentGrade, number> = {
   ELITE: 94,
   STAR: 88,
   HIGH_STARTER: 82,
-  STARTER: 76,
-  WEAK_STARTER: 70,
-  ROTATIONAL: 64,
-  BACKUP: 58,
-  FRINGE: 52,
+  STARTER: 75,
+  WEAK_STARTER: 68,
+  ROTATIONAL: 61,
+  BACKUP: 55,
+  FRINGE: 49,
 };
 
 /** Fine grade → legacy coarse tier (preserves the 5/35/40/20 split). */

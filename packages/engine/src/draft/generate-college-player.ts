@@ -2,7 +2,7 @@ import type { Prng } from '../prng/index.js';
 import { PlayerId } from '../types/ids.js';
 import { Position } from '../types/enums.js';
 import type { CollegePlayer, ClassYear, CollegeSchool } from '../types/college.js';
-import { rollSkills, rollDevelopmentArchetype, rollTalentTier } from '../players/skills.js';
+import { rollSkills, rollDevelopmentArchetype } from '../players/skills.js';
 import { ageToBirthDate } from '../players/age.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { generateName } from '../personnel/name-generator.js';
@@ -132,15 +132,22 @@ export function generateCollegePlayer(
   const archetype = getArchetypeById(archetypeId);
   if (!archetype) throw new Error(`Archetype lookup failed for id: ${archetypeId}`);
 
-  const tier = rollTalentTier(prng.fork('tier'));
   // Use ROOKIE realization curve — college prospects are physically
   // close to their ceiling but not yet polished. Same dial NFL rookies
   // get when they enter the league.
   const skillRoll = rollSkills(prng.fork('skills'), archetype, 'ROOKIE', projection.projected);
-  // Override the rolled tier with our explicit one so the skill output
-  // is keyed off the tier we're tracking.
   const current = skillRoll.current;
   const ceiling = skillRoll.ceiling;
+  // Talent-spread fix Lever 2 (2026-06-03): the prospect's tier is the tier the
+  // generated SKILLS actually express — NOT a separate independent roll. The old
+  // code rolled `tier` from its own fork, fully decoupled from `rollSkills`'
+  // internal grade, so a prospect's recruiting stars / stats / character AND the
+  // stored tier had nothing to do with his real talent. That decoupling is why
+  // the consensus board's top-32 tier mix read ~random (STAR ≈ 5%×32 ≈ 1.6): a
+  // skill-ranked board can't concentrate a tier that was rolled independently of
+  // skills. Keying tier off the skill roll makes the whole prospect coherent —
+  // blue-chips now get blue-chip recruiting + production too.
+  const tier = skillRoll.tier;
   const developmentArchetype = rollDevelopmentArchetype(prng.fork('dev'));
 
   const assumedArchetype = pickAssumedArchetype(

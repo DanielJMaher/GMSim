@@ -13,14 +13,18 @@ const SCHOOL_BY_ID = new Map(COLLEGE_SCHOOLS.map((s) => [s.id, s] as const));
 const OBSERVATIONS_PER_SCOUT = 6;
 
 /**
- * Base noise stdev (in raw 0..100 skill points) at zero accuracy.
- * Higher than NFL's 15 — college evaluation is harder (less film,
- * less data, prospect still developing). Scaled by
- * `(1 - scout.trueAccuracy[group])` so a perfect scout reads true
- * skills cleanly and a floor-accuracy scout's reads are dominated
- * by noise.
+ * Base noise stdev (in raw 0..100 skill points) at zero accuracy. Scaled by
+ * `(1 - scout.trueAccuracy[group])` so a perfect scout reads true skills
+ * cleanly and a floor-accuracy scout's reads are dominated by noise.
+ *
+ * Talent-spread fix Lever 2 (2026-06-03): lowered 18→14 (now ~NFL's 15). At 18,
+ * scout noise SWAMPED the (now-steeper) true talent signal — the board surfaced
+ * only ~13/32 of the true-best because a blue-chip's elite ceiling was lost in
+ * the read. Cutting noise lets the steeper generation curve actually sort the
+ * top of the board. Paired with the Lever-1 upside projection + the Lever-2
+ * ceiling steepening; tuned against the Truth Arbiter class-talent gate.
  */
-const BASE_NOISE_STDEV = 18;
+const BASE_NOISE_STDEV = 12;
 
 /**
  * Prospect projection (Lever 1 of the talent-spread fix, 2026-06-02). College
@@ -33,7 +37,7 @@ const BASE_NOISE_STDEV = 18;
  * scout's accuracy still governs the noise, so a poor evaluator misjudges the
  * projection. Tuning knob, validated by the Truth Arbiter class-talent facet.
  */
-const PROSPECT_PROJECTION = 0.6;
+const PROSPECT_PROJECTION = 0.75;
 
 /**
  * Regional accuracy bonus when scout's `preferredRegion` matches the
