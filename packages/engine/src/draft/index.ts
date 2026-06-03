@@ -80,6 +80,20 @@ export {
 
 export { advanceCollegeScoutingCycle } from './college-cycle.js';
 
+// Draft grades (NFL.com 8-point scale): every prospect's perceived/real grade
+export {
+  DRAFT_GRADE_BANDS,
+  DRAFT_GRADE_FLOOR,
+  NO_DRAFT_GRADE_LABEL,
+  draftGradeFromOverall,
+  draftGradeLabel,
+  formatDraftGrade,
+  prospectProjectedOverall,
+  prospectRealDraftGrade,
+  type DraftGradeBand,
+  type ProjectableProspect,
+} from './draft-grade.js';
+
 // Slice 3: per-team draft boards
 export { regenerateDraftBoards, regenerateDraftBoardsForLeague } from './board.js';
 

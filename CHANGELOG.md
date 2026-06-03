@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.110.0] — 2026-06-03
+
+### Added
+
+- **Draft grades — every prospect on the NFL.com 8-point scouting scale.** A
+  single number (e.g. `6.34`) that rolls up to a plain-English projection
+  ("Will eventually be plus starter") across the full ladder: 8.0 perfect
+  prospect → 7.3–7.5 perennial All-Pro → 7.0–7.1 Pro Bowl → 6.7–6.9 Year-1
+  starter → … → 5.5–5.59 priority UDFA, with "No grade" for the not-yet-scouted.
+  - New engine module `draft/draft-grade.ts` (`draftGradeFromOverall`,
+    `draftGradeLabel`, `prospectProjectedOverall`, `prospectRealDraftGrade`, +
+    the `DRAFT_GRADE_BANDS` table). The grade maps a 0–100 *projected* overall
+    (mean of a prospect's archetype key skills, blended toward his ceiling by
+    the same projection the scouts use) so perceived and real sit on one scale.
+    Anchors calibrated to GMSim's generated classes → a realistic shape (~3
+    All-Pro, ~12 Pro-Bowl-or-better, ~45 Year-1-starter-or-better grades).
+  - Inspector shows it as **perceived / real** (board belief vs ground truth,
+    per the "perceived always shows real" convention) in the **consensus big
+    board**, the **per-team draft boards**, and **draft results** — amber when
+    the board over-grades, cyan when a prospect is slept on, emerald on an
+    honest read.
+
+---
+
 ## [0.109.0] — 2026-06-03
 
 ### Changed

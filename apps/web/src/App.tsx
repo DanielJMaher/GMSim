@@ -61,7 +61,7 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall } from '@gmsim/engine';
 import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
 import type { PositionNeed } from '@gmsim/engine';
@@ -754,6 +754,7 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-left">Pos</th>
               <th className="px-2 py-1 text-left">NFL proj</th>
               <th className="px-2 py-1 text-right" title="perceived (league avg observed) / real overall">Grade</th>
+              <th className="px-2 py-1 text-right" title="Draft grade (NFL.com 8-pt scale) — perceived (league consensus) / real (ground truth)">Draft grd</th>
               <th className="px-2 py-1 text-center" title="Teams (of 32) with this prospect on their top-50 board">Boards</th>
               <th className="px-2 py-1 text-center" title="Mean priority across teams that carry the prospect">Avg pri</th>
               <th className="px-2 py-1 text-center" title="Mean board rank across teams that carry the prospect">Avg rk</th>
@@ -786,7 +787,7 @@ function CollegePoolPanel({ league }: { league: LeagueState }) {
                   />
                   {isOpen && (
                     <tr className="border-t border-zinc-800 bg-zinc-950/60">
-                      <td colSpan={15} className="px-3 py-3">
+                      <td colSpan={16} className="px-3 py-3">
                         <CollegeProspectDetail prospect={cp} league={league} />
                       </td>
                     </tr>
@@ -899,6 +900,12 @@ function CollegeProspectRow({
         <GradeCell
           perceived={perceivedGrade}
           real={prospectRealGradeFromCp(prospect)}
+        />
+      </td>
+      <td className="px-2 py-1 text-right">
+        <DraftGradeCell
+          perceivedOverall={perceivedGrade}
+          realOverall={prospectProjectedOverall(prospect)}
         />
       </td>
       <td className="px-2 py-1 text-center font-mono text-zinc-300">
@@ -1760,6 +1767,7 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-left">NFL proj</th>
               <th className="px-2 py-1 text-right">Priority</th>
               <th className="px-2 py-1 text-right" title="perceived / real overall">Grade</th>
+              <th className="px-2 py-1 text-right" title="Draft grade (NFL.com 8-pt scale) — perceived (team board) / real (ground truth)">Draft grd</th>
               <th className="px-2 py-1 text-right">Fit</th>
               <th className="px-2 py-1 text-right">Conf</th>
               <th className="px-2 py-1 text-center">N</th>
@@ -1846,6 +1854,12 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
                     <GradeCell
                       perceived={Math.round(entry.observedSkillScore)}
                       real={prospectRealGrade(league, entry.collegePlayerId)}
+                    />
+                  </td>
+                  <td className="px-2 py-1 text-right">
+                    <DraftGradeCell
+                      perceivedOverall={entry.observedSkillScore}
+                      realOverall={cp ? prospectProjectedOverall(cp) : null}
                     />
                   </td>
                   <td className="px-2 py-1 text-right font-mono text-zinc-300">{entry.schemeFit.toFixed(2)}</td>
@@ -2750,6 +2764,27 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
     return consensusRankIndex(computeConsensusBoard(snapshot));
   }, [effectiveSeason, league.draftBoardSnapshots]);
 
+  // Perceived projected overall per prospect at draft time — mean observed-skill
+  // across all 32 boards in the season's snapshot. Feeds the perceived draft
+  // grade (shown next to the rookie's real grade). Null when no snapshot.
+  const perceivedOverallForSeason = useMemo(() => {
+    if (effectiveSeason === null) return null;
+    const snapshot = league.draftBoardSnapshots[effectiveSeason];
+    if (!snapshot) return null;
+    const agg = new Map<string, { s: number; n: number }>();
+    for (const board of Object.values(snapshot)) {
+      for (const e of board) {
+        const cur = agg.get(e.collegePlayerId) ?? { s: 0, n: 0 };
+        cur.s += e.observedSkillScore;
+        cur.n += 1;
+        agg.set(e.collegePlayerId, cur);
+      }
+    }
+    const m = new Map<string, number>();
+    for (const [id, { s, n }] of agg) m.set(id, s / n);
+    return m;
+  }, [effectiveSeason, league.draftBoardSnapshots]);
+
   if (seasons.length === 0) {
     return (
       <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
@@ -2798,6 +2833,7 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
               <th className="px-2 py-1 text-left">Team</th>
               <th className="px-2 py-1 text-left">Rookie</th>
               <th className="px-2 py-1 text-left">Pos</th>
+              <th className="px-2 py-1 text-right" title="Draft grade (NFL.com 8-pt scale) — perceived (board consensus at draft time) / real (ground truth)">Draft grd</th>
               <th className="px-2 py-1 text-left">From</th>
               <th className="px-2 py-1 text-center">Board rank</th>
               <th
@@ -2840,6 +2876,12 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
                     )}
                   </td>
                   <td className="px-2 py-1 font-mono text-zinc-400">{player?.position ?? '?'}</td>
+                  <td className="px-2 py-1 text-right">
+                    <DraftGradeCell
+                      perceivedOverall={perceivedOverallForSeason?.get(pick.collegePlayerId) ?? null}
+                      realOverall={player ? prospectProjectedOverall(player) : null}
+                    />
+                  </td>
                   <td className="px-2 py-1 text-[10px] text-zinc-500">
                     {school?.name ?? '—'}
                   </td>
@@ -8484,6 +8526,42 @@ function GradeCell({
     <span className="font-mono tabular-nums" title="perceived / real">
       <span className={cls}>{perceived ?? '—'}</span>
       <span className="text-zinc-600">/{real ?? '—'}</span>
+    </span>
+  );
+}
+
+// ─── Draft grade: NFL.com 8-point scale (2026-06-03) ────────────────────────
+//
+// The plain-English scouting grade every prospect carries, shown as
+// PERCEIVED / REAL — the board's belief next to ground truth (per the
+// inspector "perceived always shows real" convention). Inputs are PROJECTED
+// overalls (0-100): perceived = consensus observed-skill score, real = the
+// prospect's true projected overall. Amber = the board over-grades (hype),
+// cyan = slept on, emerald = honest read. "—" perceived = not yet scouted.
+function DraftGradeCell({
+  perceivedOverall,
+  realOverall,
+}: {
+  /** Board's perceived projected overall (mean observed-skill), or null if unscouted. */
+  perceivedOverall: number | null;
+  /** Ground-truth projected overall. */
+  realOverall: number | null;
+}) {
+  const perceived = draftGradeFromOverall(perceivedOverall);
+  const real = draftGradeFromOverall(realOverall);
+  let cls = 'text-zinc-300';
+  if (perceived !== null && real !== null) {
+    const d = perceived - real;
+    cls = d > 0.15 ? 'text-amber-300' : d < -0.15 ? 'text-cyan-300' : 'text-emerald-300';
+  }
+  const title =
+    `Draft grade (perceived / real)\n` +
+    `perceived: ${formatDraftGrade(perceived)} — ${draftGradeLabel(perceived)}\n` +
+    `real: ${formatDraftGrade(real)} — ${draftGradeLabel(real)}`;
+  return (
+    <span className="font-mono tabular-nums" title={title}>
+      <span className={cls}>{formatDraftGrade(perceived)}</span>
+      <span className="text-zinc-600">/{formatDraftGrade(real)}</span>
     </span>
   );
 }

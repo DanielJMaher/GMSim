@@ -37,7 +37,7 @@ const BASE_NOISE_STDEV = 12;
  * scout's accuracy still governs the noise, so a poor evaluator misjudges the
  * projection. Tuning knob, validated by the Truth Arbiter class-talent facet.
  */
-const PROSPECT_PROJECTION = 0.75;
+export const PROSPECT_PROJECTION = 0.75;
 
 /**
  * Regional accuracy bonus when scout's `preferredRegion` matches the

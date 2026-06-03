@@ -340,6 +340,15 @@ export {
   consensusRankIndex,
   // v0.55 — team-needs scorer
   computeTeamNeeds,
+  // draft grades — NFL.com 8-point scale (perceived/real per prospect)
+  DRAFT_GRADE_BANDS,
+  DRAFT_GRADE_FLOOR,
+  NO_DRAFT_GRADE_LABEL,
+  draftGradeFromOverall,
+  draftGradeLabel,
+  formatDraftGrade,
+  prospectProjectedOverall,
+  prospectRealDraftGrade,
 } from './draft/index.js';
 export type {
   PromoteOptions,
@@ -353,6 +362,8 @@ export type {
   PickTradeEvaluation,
   ConsensusBoardEntry,
   PositionNeed,
+  DraftGradeBand,
+  ProjectableProspect,
 } from './draft/index.js';
 export type {
   GenerateCollegePlayerOptions,
