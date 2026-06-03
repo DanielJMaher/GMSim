@@ -87,6 +87,69 @@ describe('generateMediaCollegeObservations', () => {
     }
   });
 
+  it('outlets disagree MORE on uncertain (low-ceiling) prospects than on blue-chips', () => {
+    // The Ombudsman gradient (2026-06-03): real media locks on blue-chips and
+    // scatters down-board. Verify the cross-outlet rank spread is larger for
+    // low-ceiling prospects than for high-ceiling locks.
+    const league = createLeague({ seed: 'media-spread-gradient' });
+    const obs = generateMediaCollegeObservations(
+      new Prng('spread'),
+      league.mediaOutlets,
+      league.collegePool,
+      0,
+      { readsPerEvaluator: 60 },
+    );
+
+    // Each outlet ranks its covered prospects by mean observed grade.
+    const byOutlet = new Map<string, Map<string, { sum: number; n: number }>>();
+    for (const o of obs) {
+      const oid = outletIdOf(o.scoutId);
+      let per = byOutlet.get(oid);
+      if (!per) { per = new Map(); byOutlet.set(oid, per); }
+      const cur = per.get(o.collegePlayerId) ?? { sum: 0, n: 0 };
+      cur.sum += meanObserved(o.skills as Record<string, number | undefined>);
+      cur.n += 1;
+      per.set(o.collegePlayerId, cur);
+    }
+    const ranksByProspect = new Map<string, number[]>();
+    for (const per of byOutlet.values()) {
+      const ranked = [...per.entries()]
+        .map(([pid, g]) => ({ pid, grade: g.sum / g.n }))
+        .sort((a, b) => b.grade - a.grade);
+      ranked.forEach((r, i) => {
+        const arr = ranksByProspect.get(r.pid) ?? [];
+        arr.push(i + 1);
+        ranksByProspect.set(r.pid, arr);
+      });
+    }
+
+    const meanCeil = (id: string): number => {
+      const cp = league.collegePool.find((c) => c.id === id);
+      if (!cp) return 0;
+      const vals = Object.values(cp.ceiling) as number[];
+      return vals.reduce((a, b) => a + b, 0) / vals.length;
+    };
+    const stdev = (xs: number[]): number => {
+      const m = xs.reduce((a, b) => a + b, 0) / xs.length;
+      return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / xs.length);
+    };
+
+    // Covered by enough outlets to have a meaningful spread, sorted by ceiling.
+    const covered = [...ranksByProspect.entries()]
+      .filter(([, ranks]) => ranks.length >= 4)
+      .map(([id, ranks]) => ({ id, ceil: meanCeil(id), spread: stdev(ranks) }))
+      .sort((a, b) => b.ceil - a.ceil);
+    expect(covered.length).toBeGreaterThan(20);
+
+    const topQuartile = covered.slice(0, Math.floor(covered.length / 4));
+    const bottomQuartile = covered.slice(-Math.floor(covered.length / 4));
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const topSpread = mean(topQuartile.map((p) => p.spread));
+    const bottomSpread = mean(bottomQuartile.map((p) => p.spread));
+    // Low-ceiling prospects are more contested → bigger cross-outlet rank spread.
+    expect(bottomSpread).toBeGreaterThan(topSpread);
+  });
+
   // ── Combine reactivity (v0.76) ─────────────────────────────────────
   function meanByOutlet(obs: ReturnType<typeof generateMediaCollegeObservations>) {
     const sum = new Map<string, { sum: number; n: number }>();

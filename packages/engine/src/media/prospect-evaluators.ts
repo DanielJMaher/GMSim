@@ -97,6 +97,63 @@ const ATHLETIC_COVERAGE_WEIGHT = 0.35;
  */
 const SHARED_MISREAD_STDEV = 2.0;
 
+/**
+ * Per-outlet UNCERTAINTY DISAGREEMENT (2026-06-03, the Ombudsman fix). Real
+ * draft media barely disagree on blue-chips (everyone has Trevor Lawrence #1)
+ * but disagree WILDLY down-board (a Day-2 guy is one outlet's 1st-rounder and
+ * another's 5th) — the spread-by-tier gradient explodes ~6.6x from the top-10 to
+ * the mid-board. GMSim's shared misread shifts the CONSENSUS but creates no
+ * inter-outlet disagreement, so every outlet read alike and the spread was flat
+ * (~1.1x). This adds a stable, idiosyncratic per-(outlet, prospect) lean whose
+ * magnitude SCALES WITH the prospect's uncertainty — ~0 on a true blue-chip,
+ * full on a fringe mid-rounder — so outlets converge at the top and scatter
+ * down-board. Keyed off the prospect's true ceiling (blue-chips genuinely ARE
+ * the obvious ones) + a hash of (outlet, id), so it's deterministic and
+ * round-stable. Tuning knob, validated by `run ombudsman` (the tier gradient).
+ */
+const OUTLET_DISAGREEMENT_STDEV = 13;
+/** Ceiling-overall band mapping a prospect's TRUE ceiling to [lock, contested].
+ *  ≥ HI is a media lock (uncertainty 0, no added disagreement); ≤ LO is
+ *  maximally contested (uncertainty 1). The magnitude (~13) is deliberately
+ *  bounded: GMSim's talent pyramid is shallow (blue-chip-to-mid projection gap
+ *  ~7 pts), so a larger lean would leap contested mid prospects OVER the
+ *  blue-chips and scramble the consensus order — the real 6.6x tier gradient is
+ *  ultimately bottlenecked by pyramid steepness (the generation lever). Tuned
+ *  vs `run ombudsman`. */
+const UNCERTAINTY_CEIL_HI = 84;
+const UNCERTAINTY_CEIL_LO = 68;
+
+/** 0 (lock) … 1 (contested), from the prospect's true ceiling mean. Blue-chips
+ *  genuinely ARE the obvious ones, so this is keyed off ground truth. */
+function prospectUncertainty(cp: CollegePlayer): number {
+  const vals = Object.values(cp.ceiling) as number[];
+  if (vals.length === 0) return 1;
+  let s = 0;
+  for (const v of vals) s += v;
+  const ceilMean = s / vals.length;
+  return clamp(
+    (UNCERTAINTY_CEIL_HI - ceilMean) / (UNCERTAINTY_CEIL_HI - UNCERTAINTY_CEIL_LO),
+    0,
+    1,
+  );
+}
+
+/**
+ * Stable idiosyncratic per-(outlet, prospect) read lean, ~N(0, σ·uncertainty).
+ * Shared by all of an outlet's evaluators (it's the OUTLET's take on the guy),
+ * so it shifts the whole outlet's read and shows up as inter-outlet spread —
+ * scaled so blue-chips barely move and mid-rounders scatter.
+ */
+function outletProspectLean(outletId: string, cp: CollegePlayer): number {
+  const u = prospectUncertainty(cp);
+  if (u <= 0 || OUTLET_DISAGREEMENT_STDEV <= 0) return 0;
+  const id = cp.id as string;
+  const u1 = (fnv1a(`olean1:${outletId}:${id}`) + 1) / 4294967297;
+  const u2 = (fnv1a(`olean2:${outletId}:${id}`) + 1) / 4294967297;
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return z * OUTLET_DISAGREEMENT_STDEV * u;
+}
+
 const SCHOOL_PRESTIGE: Record<ConferenceTier, number> = {
   POWER: 1.0,
   GROUP_OF_5: 0.5,
@@ -277,7 +334,8 @@ export function generateMediaCollegeObservations(
         const bias =
           optimism * (HYPE_BASE_GAIN + HYPE_FLASH_GAIN * flash + COMBINE_LEAN_GAIN * athletic) +
           (darlings.has(cp.id as string) ? DARLING_BONUS : 0) +
-          sharedMisread(cp.id as string);
+          sharedMisread(cp.id as string) +
+          outletProspectLean(outlet.id, cp);
         observations.push(
           generateMediaObservation(
             evalPrng.fork(`p:${cp.id}`),
@@ -379,7 +437,8 @@ export function generateWeeklyMediaObservations(
           clamp(FORM_READ_SCALE * form, -FORM_READ_CAP, FORM_READ_CAP) +
           optimism * (HYPE_BASE_GAIN + HYPE_FLASH_GAIN * flash) +
           (darlings.has(cp.id as string) ? DARLING_BONUS : 0) +
-          sharedMisread(cp.id as string);
+          sharedMisread(cp.id as string) +
+          outletProspectLean(outlet.id, cp);
         observations.push(
           generateMediaObservation(
             evalPrng.fork(`p:${cp.id}`),

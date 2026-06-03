@@ -16,6 +16,28 @@ _Nothing yet._
 
 ---
 
+## [0.113.0] — 2026-06-03
+
+### Changed
+
+- **Media disagreement now grows down-board (the Ombudsman gradient).** Real
+  draft media barely disagree on blue-chips (everyone has the same #1) but
+  disagree wildly on the mid-board (one outlet's 1st-rounder is another's
+  5th) — the spread-by-consensus-tier explodes ~6.6x from the top-10 to the
+  mid-board. GMSim's media all read alike (a flat ~1.1x), so listening to one
+  outlet vs another told you nothing down-board. Each outlet now carries a
+  stable, idiosyncratic per-prospect read lean whose magnitude scales with the
+  prospect's UNCERTAINTY (~0 on a true blue-chip, full on a fringe mid-rounder,
+  keyed off true ceiling), so outlets converge at the top and scatter
+  down-board. Verified by `run ombudsman`: the tier gradient rose 1.1x → ~3.1x
+  (top-10 spread 3.5 ≈ real 2.8; mid-board ~3x wider). The remaining gap to the
+  full real 6.6x is bottlenecked by GMSim's shallow talent pyramid — a larger
+  lean would leap contested mid prospects over the blue-chips and scramble the
+  order; closing it fully is the generation steepness lever. Tuning knob
+  `OUTLET_DISAGREEMENT_STDEV`.
+
+---
+
 ## [0.112.0] — 2026-06-03
 
 ### Added
