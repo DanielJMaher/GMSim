@@ -249,6 +249,35 @@ export function computeTeamNeeds(
   return needs;
 }
 
+/**
+ * Per-position NEED PRESSURE (2026-06-03) — a lightweight, league-free version
+ * of the `computeTeamNeeds` shortfall, keyed by canonical `Position` rather than
+ * sorted/scored. `pressure[pos] = max(0, starterSlots - qualityEquivalents)`:
+ * 0 means the team is stacked at the spot, higher means a bigger hole. Used by
+ * the draft board to decide whether to convert a prospect to an adjacent spot
+ * (a team with high LT pressure plays a drafted RT at LT). Deliberately omits
+ * the age bonus + positional-value scaling that `computeTeamNeeds` applies —
+ * the board weighs positional value separately, and conversion shouldn't hinge
+ * on a starter being a year from decline.
+ */
+export function positionNeedPressure(
+  team: TeamState,
+  players: Readonly<Record<string, Player>>,
+): Record<Position, number> {
+  const qse = {} as Record<Position, number>;
+  for (const pos of Object.keys(STARTER_SLOTS) as Position[]) qse[pos] = 0;
+  for (const pid of team.rosterIds) {
+    const p = players[pid];
+    if (!p) continue;
+    qse[p.position] += TIER_WEIGHT[p.tier];
+  }
+  const pressure = {} as Record<Position, number>;
+  for (const pos of Object.keys(STARTER_SLOTS) as Position[]) {
+    pressure[pos] = Math.max(0, STARTER_SLOTS[pos] - qse[pos]);
+  }
+  return pressure;
+}
+
 function tierRank(tier: Player['tier']): number {
   switch (tier) {
     case 'STAR':

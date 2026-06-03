@@ -55,6 +55,8 @@ export {
   ROSTER_BLUEPRINT_53,
   ROSTER_SIZE,
   positionGroupFor,
+  convertiblePositions,
+  canConvertTo,
   athleticBaseline,
   POSITION_BASELINED_SKILLS,
   rollAgeProfile,

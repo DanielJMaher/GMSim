@@ -1848,6 +1848,14 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
                           : cp.nflProjectedPosition
                         : meta?.position ?? '?'}
                     </span>
+                    {cp && entry.assignedPosition && entry.assignedPosition !== cp.nflProjectedPosition && (
+                      <span
+                        className="ml-1 rounded bg-sky-500/20 px-1 text-[9px] font-mono text-sky-300"
+                        title={`This team would convert him to ${entry.assignedPosition} (roster need at that spot)`}
+                      >
+                        ⇄{entry.assignedPosition}
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-1 text-right font-mono text-amber-300">{entry.priority.toFixed(1)}</td>
                   <td className="px-2 py-1 text-right">
@@ -2875,7 +2883,17 @@ function DraftResultsPanel({ league }: { league: LeagueState }) {
                       <span className="ml-1 text-[10px] text-zinc-500">{player.tier.toLowerCase()}</span>
                     )}
                   </td>
-                  <td className="px-2 py-1 font-mono text-zinc-400">{player?.position ?? '?'}</td>
+                  <td className="px-2 py-1 font-mono text-zinc-400">
+                    {player?.position ?? '?'}
+                    {pick.convertedFromPosition && (
+                      <span
+                        className="ml-1 rounded bg-sky-500/20 px-1 text-[9px] text-sky-300"
+                        title={`Drafted as a ${pick.convertedFromPosition}, converting to ${player?.position ?? '?'} (team need)`}
+                      >
+                        ←{pick.convertedFromPosition}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-2 py-1 text-right">
                     <DraftGradeCell
                       perceivedOverall={perceivedOverallForSeason?.get(pick.collegePlayerId) ?? null}

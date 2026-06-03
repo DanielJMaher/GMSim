@@ -177,7 +177,7 @@ export {
 export type { ChartModifiers } from './chart-modifiers.js';
 
 // v0.55: positional team-needs scorer (inspector + future AI input)
-export { computeTeamNeeds } from './team-needs.js';
+export { computeTeamNeeds, positionNeedPressure } from './team-needs.js';
 export type { PositionNeed } from './team-needs.js';
 
 // v0.68: scout sleepers (tape + measurables channels) — board divergence

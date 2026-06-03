@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createLeague } from '../league/generate.js';
-import { computeTeamNeeds } from './team-needs.js';
+import { computeTeamNeeds, positionNeedPressure } from './team-needs.js';
 import { POSITION_DRAFT_VALUE } from './position-value.js';
 import type { TeamId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
@@ -152,5 +152,34 @@ describe('computeTeamNeeds', () => {
       // stacked at every position.
       expect(top5[0]!.score).toBeGreaterThan(-1);
     }
+  });
+});
+
+describe('positionNeedPressure', () => {
+  it('is non-negative everywhere and produces an entry per position', () => {
+    const league = createLeague({ seed: 'pressure-shape' });
+    const team = Object.values(league.teams)[0]!;
+    const pressure = positionNeedPressure(team, league.players);
+    const positions: Position[] = [
+      'QB', 'RB', 'FB', 'WR', 'TE', 'LT', 'LG', 'C', 'RG', 'RT',
+      'EDGE', 'DT', 'NT', 'ILB', 'OLB', 'CB', 'S', 'NICKEL', 'K', 'P', 'LS',
+    ];
+    for (const p of positions) {
+      expect(pressure[p]).toBeDefined();
+      expect(pressure[p]).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('reports a hole where the roster has no quality at a position', () => {
+    const league = createLeague({ seed: 'pressure-hole' });
+    const team = Object.values(league.teams)[0]!;
+    // Strip every left tackle from the roster → a clear LT hole.
+    const ltIds = new Set(
+      team.rosterIds.filter((id) => league.players[id]?.position === 'LT'),
+    );
+    const stripped = { ...team, rosterIds: team.rosterIds.filter((id) => !ltIds.has(id)) };
+    const pressure = positionNeedPressure(stripped, league.players);
+    // STARTER_SLOTS.LT === 1, so with nobody there pressure is the full slot.
+    expect(pressure.LT).toBeGreaterThanOrEqual(0.9);
   });
 });

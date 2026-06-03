@@ -1,5 +1,5 @@
 import type { TeamId, PlayerId, GmId } from '../types/ids.js';
-import type { PositionGroup } from '../types/enums.js';
+import type { PositionGroup, Position } from '../types/enums.js';
 import type {
   CollegePlayer,
   CollegePlayerObservation,
@@ -19,6 +19,8 @@ import { positionGroupFor } from '../players/position-group.js';
 import { athleticBaseline, POSITION_BASELINED_SKILLS, type AthleticBaseline } from '../players/athletic-baselines.js';
 import { softCap } from '../players/skills.js';
 import { boardPositionalFactor } from './position-value.js';
+import { positionNeedPressure } from './team-needs.js';
+import { convertiblePositions } from '../players/position-conversion.js';
 import { recencyWeight } from '../scouting/recency.js';
 import { combineAthleticSkills } from './measurables.js';
 import { ScoutId } from '../types/ids.js';
@@ -106,6 +108,56 @@ const COMBINE_SCOUT_ID = ScoutId('COMBINE');
  * grade; 1 = a +10 athletic outlier adds +10. Tuning knob.
  */
 export const PHYS_DEV_WEIGHT = 0.5;
+
+/**
+ * Position conversion for need (2026-06-03, Daniel-directed). A team values a
+ * prospect at the spot it would actually PLAY him: usually his natural
+ * projected position, but a team with a real hole at a convertible position
+ * (see `convertiblePositions`) plays him THERE — a team needing a left tackle
+ * drafts a projected RIGHT tackle and kicks him to LT. The prospect is then
+ * valued at the assigned position's draft premium (`boardPositionalFactor`), so
+ * a high-graded RT rises on the board of a team that needs an LT.
+ *
+ * Conversion is NEED-driven, NOT value-driven. A prospect doesn't "become" a
+ * left tackle just because LT is worth more — WHERE a team plays a versatile
+ * prospect is decided by where its hole is (need pressure), not by the position
+ * premium (otherwise every team would convert its cheaper prospects up to the
+ * premium spots). The premium only enters the VALUE he provides once assigned
+ * (the `boardPositionalFactor` on his priority). A team converts only when a
+ * convertible spot's hole is real (`MIN_CONVERSION_PRESSURE`) and CLEARLY
+ * bigger than the need at his natural spot (`CONVERSION_RETENTION` keeps him
+ * home on a tie).
+ */
+const MIN_CONVERSION_PRESSURE = 0.6;
+const CONVERSION_RETENTION = 0.85;
+
+/**
+ * The position this team would draft + play `natural` at, given its per-position
+ * `needPressure`. Picks the convertible spot with the biggest HOLE (need
+ * pressure) — off-natural spots taxed by CONVERSION_RETENTION and gated at
+ * MIN_CONVERSION_PRESSURE — so a team plays him where it actually needs a body,
+ * not at whichever convertible spot is most valuable. Returns `natural` when no
+ * pressure map is supplied (legacy callers) or no conversion clears the bar.
+ */
+function assignedPositionFor(
+  natural: Position,
+  needPressure: Readonly<Record<Position, number>> | undefined,
+): Position {
+  if (!needPressure) return natural;
+  let best = natural;
+  let bestPressure = needPressure[natural] ?? 0;
+  for (const c of convertiblePositions(natural)) {
+    if (c === natural) continue;
+    const pc = needPressure[c] ?? 0;
+    if (pc < MIN_CONVERSION_PRESSURE) continue;
+    const taxed = pc * CONVERSION_RETENTION;
+    if (taxed > bestPressure) {
+      bestPressure = taxed;
+      best = c;
+    }
+  }
+  return best;
+}
 
 /**
  * Build one synthetic, league-wide combine observation per attending
@@ -262,10 +314,12 @@ export function regenerateDraftBoardsForLeague(args: {
   mediaOutlets?: Readonly<Record<MediaOutletId, MediaOutlet>>;
 }): Record<TeamId, DraftBoardEntry[]> {
   const needScoresByTeam = new Map<TeamId, Record<PositionGroup, number>>();
+  const pressureByTeam = new Map<TeamId, Record<Position, number>>();
   for (const team of Object.values(args.teams)) {
     needScoresByTeam.set(team.identity.id, computeDraftNeedScores(team, args.players));
+    pressureByTeam.set(team.identity.id, positionNeedPressure(team, args.players));
   }
-  return regenerateDraftBoardsInternal({ ...args, needScoresByTeam });
+  return regenerateDraftBoardsInternal({ ...args, needScoresByTeam, pressureByTeam });
 }
 
 function regenerateDraftBoardsInternal(args: {
@@ -275,6 +329,9 @@ function regenerateDraftBoardsInternal(args: {
   collegePool: readonly CollegePlayer[];
   observations: readonly CollegePlayerObservation[];
   needScoresByTeam: Map<TeamId, Record<PositionGroup, number>>;
+  /** Per-team, per-position need pressure (for convert-to-need; optional —
+   *  legacy/test callers without rosters skip conversion). */
+  pressureByTeam?: Map<TeamId, Record<Position, number>>;
   addedOnTick: number;
   combineResults?: Readonly<Record<string, CombineMeasurables>>;
   mediaObservations?: readonly CollegePlayerObservation[];
@@ -402,6 +459,7 @@ function regenerateDraftBoardsInternal(args: {
       mediaAggregateByProspect,
       mediaTrust01,
       athleticRef,
+      args.pressureByTeam?.get(teamId),
     );
   }
   return out;
@@ -449,6 +507,7 @@ function buildBoardForTeamWithNeed(
   >,
   mediaTrust01 = 0,
   athleticRefByPos?: ReadonlyMap<string, ReadonlyMap<string, number>>,
+  needPressure?: Readonly<Record<Position, number>>,
 ): DraftBoardEntry[] {
   const byProspect = new Map<PlayerId, CollegePlayerObservation[]>();
   for (const obs of teamObservations) {
@@ -544,12 +603,19 @@ function buildBoardForTeamWithNeed(
     );
     const needBonus = clampSigned((need - 1) * NEED_BONUS_SCALE, NEED_BONUS_CAP);
     const confFactor = CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * meanConfidence;
+    // Position conversion for need (2026-06-03): the spot THIS team would play
+    // him at — his natural position, or a convertible one where the team has a
+    // real hole (a team needing an LT plays a projected RT there). Drives both
+    // the positional premium below and the actual position on draft.
+    const assignedPosition = assignedPositionFor(prospect.nflProjectedPosition, needPressure);
     // Positional value (v0.91): shade the talent signal by how much draft
     // capital the position is worth, so an equal-graded QB/EDGE/LT out-ranks
     // a replaceable spot (a safety doesn't go top-5 on talent alone). Applied
     // uniformly across all 32 boards, so the consensus shifts with it and the
-    // pick-vs-consensus reach distribution stays in equilibrium.
-    const posFactor = boardPositionalFactor(prospect.nflProjectedPosition);
+    // pick-vs-consensus reach distribution stays in equilibrium. Uses the
+    // ASSIGNED position so a convert-to-need prospect earns the premium of the
+    // spot he'd actually play (the RT a team will start at LT is valued as an LT).
+    const posFactor = boardPositionalFactor(assignedPosition);
     const priority = Math.max(
       0,
       (observedSkillScore * posFactor + schemeBonus + needBonus) * confFactor,
@@ -571,6 +637,7 @@ function buildBoardForTeamWithNeed(
       meanConfidence: round2(meanConfidence),
       observationCount,
       addedOnTick,
+      assignedPosition,
     });
   }
 

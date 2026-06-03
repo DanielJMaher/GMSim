@@ -8,6 +8,7 @@ import { simulateSeason } from '../season/runner.js';
 import { advanceSeason } from '../season/advance.js';
 import { computeRecords } from '../season/standings.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { canConvertTo } from '../players/position-conversion.js';
 import type { TeamId } from '../types/ids.js';
 import { DraftPickId as DraftPickIdFactory } from '../types/ids.js';
 import type { DraftPickAsset } from '../types/college.js';
@@ -72,7 +73,7 @@ describe('runDraft (slice 5a)', () => {
     expect(onBoardCount).toBeGreaterThanOrEqual(28);
   });
 
-  it('produces a promoted Player at the prospect\'s NFL projected position', () => {
+  it('produces a promoted Player at his NFL projected position or a need-driven conversion of it', () => {
     const baseLeague = createLeague({ seed: 'draft-promote' });
     const league = {
       ...baseLeague,
@@ -88,8 +89,11 @@ describe('runDraft (slice 5a)', () => {
     for (const player of result.newPlayers) {
       const cp = poolById.get(player.id);
       expect(cp).toBeDefined();
-      expect(player.position).toBe(cp!.nflProjectedPosition);
-      expect(player.positionGroup).toBe(positionGroupFor(cp!.nflProjectedPosition));
+      // Lands at his natural projected spot, or a realistic convert-to-need
+      // position (a team with an LT hole plays a projected RT at LT). Either
+      // way the position group always matches where he actually lines up.
+      expect(canConvertTo(cp!.nflProjectedPosition, player.position)).toBe(true);
+      expect(player.positionGroup).toBe(positionGroupFor(player.position));
       expect(player.experienceYears).toBe(0);
       expect(player.contractId).not.toBeNull();
     }

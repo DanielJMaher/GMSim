@@ -629,6 +629,16 @@ export interface DraftBoardEntry {
   observationCount: number;
   /** Sim tick when this entry was added (= regeneration tick). */
   addedOnTick: number;
+  /**
+   * The position THIS team would play the prospect at (2026-06-03). Usually his
+   * `nflProjectedPosition`, but a team with a hole at a convertible spot values
+   * (and would draft + play) him there instead — e.g. a team needing a left
+   * tackle assigns a projected RIGHT tackle to LT. When it differs from the
+   * prospect's natural position the prospect is a planned CONVERSION, and the
+   * board values him at the assigned position's premium. Optional for
+   * back-compat (legacy boards / hand-built test entries → treat as natural).
+   */
+  assignedPosition?: Position;
 }
 
 // ─── Combine + Pro Days (Doc 3 — slice 4) ───────────────────────────────
@@ -804,6 +814,13 @@ export interface DraftPickRecord {
   boardPriorityAtPick: number | null;
   /** Reason badge from the picking team's board, or null. */
   boardReasonAtPick: DraftBoardReason | null;
+  /**
+   * The prospect's NATURAL projected position when the team drafted him to
+   * CONVERT to a different spot (2026-06-03) — e.g. a projected RT drafted to
+   * play LT records `convertedFromPosition: 'RT'` while the promoted player's
+   * `position` is `LT`. Absent for the common case (played at his natural spot).
+   */
+  convertedFromPosition?: Position;
   /**
    * Draft pick asset that was consumed for this pick (v0.44.0+).
    * Lets the inspector cross-reference picks with their tradeable

@@ -217,11 +217,20 @@ export function runDraft(
     }
     if (!chosen) break; // pool exhausted — abort the draft
 
+    // Convert-to-need: if this team's board planned to play the prospect at a
+    // different (convertible) spot, draft him there. The promoted player lines
+    // up at the assigned position; the pick records what he converted FROM.
+    const assignedPosition = boardEntry?.assignedPosition;
+    const convertedFromPosition =
+      assignedPosition && assignedPosition !== chosen.nflProjectedPosition
+        ? chosen.nflProjectedPosition
+        : undefined;
     const promoted = promoteProspectToPlayer(prng.fork(`pick:${overallPick}`), {
       prospect: chosen,
       teamId,
       signedOnTick: options.pickedOnTick,
       overallPick,
+      ...(assignedPosition ? { assignedPosition } : {}),
     });
     newPlayers.push(promoted.player);
     newContracts.push(promoted.contract);
@@ -241,6 +250,7 @@ export function runDraft(
       boardRankAtPick: boardRank,
       boardPriorityAtPick: boardEntry?.priority ?? null,
       boardReasonAtPick: boardEntry?.reason ?? null,
+      ...(convertedFromPosition ? { convertedFromPosition } : {}),
       ...(pickAsset
         ? { pickAssetId: pickAsset.id, originalTeamId: pickAsset.originalTeamId }
         : {}),

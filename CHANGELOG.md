@@ -16,6 +16,33 @@ _Nothing yet._
 
 ---
 
+## [0.111.0] — 2026-06-03
+
+### Added
+
+- **Draft-and-convert for positional need.** A team now drafts a prospect at
+  the position it would actually PLAY him — not just his natural projected spot.
+  A team with a hole at a convertible position values (and drafts + plays) a
+  prospect there: the classic case is a left-tackle-needy team drafting a
+  projected RIGHT tackle and kicking him to LT, but it spans the interchangeable
+  spots (tackle↔tackle/guard, interior OL, edge↔off-ball-LB, interior DL,
+  corner↔slot↔safety).
+  - New `players/position-conversion.ts` (`convertiblePositions`, `canConvertTo`)
+    encodes which NFL positions a prospect can realistically convert to.
+  - `draft/team-needs.ts` gains `positionNeedPressure` (per-position roster
+    shortfall). The draft board assigns each prospect to the convertible spot
+    with the biggest hole and values him at THAT position's draft premium, so a
+    high-graded RT rises on the board of a team that needs an LT. Conversion is
+    **need-driven, not value-driven** — a prospect doesn't "become" an LT just
+    because LT is worth more; the team must have a real hole there (and a
+    retention bias keeps him at his natural spot on a tie).
+  - The drafted player lines up at the assigned position (his skills/ceiling are
+    unchanged — only where he plays moves); the board entry and pick record note
+    the conversion, surfaced in the inspector's team boards (`⇄LT`) and draft
+    results (`←RT`).
+
+---
+
 ## [0.110.0] — 2026-06-03
 
 ### Added

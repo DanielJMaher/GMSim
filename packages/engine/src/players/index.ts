@@ -9,6 +9,7 @@ export {
   type RosterPositionSlot,
 } from './roster-blueprint.js';
 export { positionGroupFor } from './position-group.js';
+export { convertiblePositions, canConvertTo } from './position-conversion.js';
 export {
   athleticBaseline,
   POSITION_BASELINED_SKILLS,

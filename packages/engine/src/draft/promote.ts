@@ -1,6 +1,7 @@
 import type { Prng } from '../prng/index.js';
 import type { CollegePlayer } from '../types/college.js';
 import type { Player } from '../types/player.js';
+import type { Position } from '../types/enums.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamId, ContractId } from '../types/ids.js';
 import { generateRookieContract } from '../contracts/rookie-scale.js';
@@ -28,6 +29,14 @@ export interface PromoteOptions {
    * don't have a real pick number (e.g. tests).
    */
   overallPick?: number;
+  /**
+   * The NFL position to play this rookie at — overrides the prospect's
+   * `nflProjectedPosition` when a team drafts him to CONVERT to a needed spot
+   * (a projected RT a left-tackle-needy team plays at LT). Must be his natural
+   * position or a realistic conversion of it (the board guarantees this). When
+   * omitted, he lands at his natural projected position.
+   */
+  assignedPosition?: Position;
 }
 
 export interface PromoteResult {
@@ -61,7 +70,13 @@ export function promoteProspectToPlayer(
   options: PromoteOptions,
 ): PromoteResult {
   const { prospect, teamId, signedOnTick, overallPick = 32 } = options;
-  const player = buildBaseRookiePlayer(prng, prospect, teamId, provenanceFromOverallPick(overallPick));
+  const player = buildBaseRookiePlayer(
+    prng,
+    prospect,
+    teamId,
+    provenanceFromOverallPick(overallPick),
+    options.assignedPosition,
+  );
   const contract = generateRookieContract({
     player,
     idSuffix: String(player.id),
@@ -116,8 +131,12 @@ function buildBaseRookiePlayer(
   prospect: CollegePlayer,
   teamId: TeamId | null,
   provenance: DraftProvenance = { round: null, overallPick: null },
+  assignedPosition?: Position,
 ): Player {
-  const position = prospect.nflProjectedPosition;
+  // A team that drafts him to convert plays him at the assigned spot; otherwise
+  // his natural projected position. Skills/ceiling/archetype carry through
+  // unchanged — only where he lines up moves.
+  const position = assignedPosition ?? prospect.nflProjectedPosition;
   const positionGroup = positionGroupFor(position);
   const moodProfile = rollMoodProfile(prng.fork('mood'));
   return {
