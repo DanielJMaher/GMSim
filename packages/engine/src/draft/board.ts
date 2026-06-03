@@ -105,7 +105,7 @@ const COMBINE_SCOUT_ID = ScoutId('COMBINE');
  * (a freak) and a penalty for below (a stiff). 0 = athleticism ignored in the
  * grade; 1 = a +10 athletic outlier adds +10. Tuning knob.
  */
-const PHYS_DEV_WEIGHT = 0.5;
+export const PHYS_DEV_WEIGHT = 0.5;
 
 /**
  * Build one synthetic, league-wide combine observation per attending

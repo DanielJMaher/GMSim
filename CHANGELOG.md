@@ -27,11 +27,13 @@ _Nothing yet._
   starter → … → 5.5–5.59 priority UDFA, with "No grade" for the not-yet-scouted.
   - New engine module `draft/draft-grade.ts` (`draftGradeFromOverall`,
     `draftGradeLabel`, `prospectProjectedOverall`, `prospectRealDraftGrade`, +
-    the `DRAFT_GRADE_BANDS` table). The grade maps a 0–100 *projected* overall
-    (mean of a prospect's archetype key skills, blended toward his ceiling by
-    the same projection the scouts use) so perceived and real sit on one scale.
-    Anchors calibrated to GMSim's generated classes → a realistic shape (~3
-    All-Pro, ~12 Pro-Bowl-or-better, ~45 Year-1-starter-or-better grades).
+    the `DRAFT_GRADE_BANDS` table). The grade maps a 0–100 *projected* overall —
+    the board's football + athletic-deviation score (the exact quantity the
+    scouts' `observedSkillScore` estimates), so the **perceived and real grades
+    sit on one scale** and a freak athlete no longer reads perceived ≫ real.
+    Anchors calibrated to GMSim's generated classes; the 8.0 "perfect prospect"
+    window opens above the realistic max so it stays mythical (the genuine elite
+    tops out at "Perennial All-Pro"), with a long backup/UDFA tail.
   - Inspector shows it as **perceived / real** (board belief vs ground truth,
     per the "perceived always shows real" convention) in the **consensus big
     board**, the **per-team draft boards**, and **draft results** — amber when

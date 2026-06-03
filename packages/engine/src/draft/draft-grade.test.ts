@@ -44,10 +44,10 @@ describe('draftGradeFromOverall', () => {
     expect(draftGradeLabel(draftGradeFromOverall(82.5))).toBe('Pro Bowl talent');
     // ~81 → Year 1 starter.
     expect(draftGradeLabel(draftGradeFromOverall(81))).toBe('Year 1 starter');
-    // ~74.5 (≈ last drafted) → Average backup or special-teamer.
-    expect(draftGradeLabel(draftGradeFromOverall(74.5))).toBe('Average backup or special-teamer');
-    // ~71 → Priority undrafted free agent.
-    expect(draftGradeLabel(draftGradeFromOverall(71))).toBe('Priority undrafted free agent');
+    // ~73 (≈ last drafted) → Average backup or special-teamer.
+    expect(draftGradeLabel(draftGradeFromOverall(73))).toBe('Average backup or special-teamer');
+    // ~69 → Priority undrafted free agent.
+    expect(draftGradeLabel(draftGradeFromOverall(69))).toBe('Priority undrafted free agent');
   });
 
   it('caps at 8.0 and floors at 5.5', () => {
