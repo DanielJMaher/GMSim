@@ -104,10 +104,14 @@ export function parseBoard(htmlText: string, year: number): NmddProspect[] {
     const position = tokens[0] ?? '';
     if (!/^[A-Za-z/]{1,4}$/.test(position)) continue; // skip non-prospect anchors
 
+    // Rank = the "#N" consensus badge. The DOM renders prospects OUT of
+    // consensus order (e.g. a #11 prospect can appear 5th in the markup), but
+    // the badge order matches the real consensus, so we rank by it (falling
+    // back to DOM order only if a badge is missing).
     const rankMatch = after.match(/#(\d+)/);
     const rank = rankMatch ? Number(rankMatch[1]) : out.length + 1;
 
-    // college = tokens between position and the "#rank"; team = token after.
+    // college = tokens between position and the "#" badge; team = token after.
     let college: string | null = null;
     let draftedBy: string | null = null;
     const hashIdx = tokens.findIndex((t) => t.startsWith('#'));
