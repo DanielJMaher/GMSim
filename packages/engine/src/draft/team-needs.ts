@@ -132,6 +132,29 @@ function isFranchiseDevQb(p: Player): boolean {
   );
 }
 
+/**
+ * True when a team has NO answer at quarterback (2026-06-03) — no starter-
+ * quality-or-better QB AND no recent first-round developmental QB. This is the
+ * same condition that floors QB near the top of `computeTeamNeeds`; the draft
+ * uses it to let a QB-desperate team REACH for a passer (take its best available
+ * QB even when a non-QB outranks him on the board). A backup journeyman doesn't
+ * satisfy the need; last year's top-5 pick does.
+ */
+export function hasDesperateQbNeed(
+  team: TeamState,
+  players: Readonly<Record<string, Player>>,
+): boolean {
+  let hasStarterQb = false;
+  let hasFranchiseDev = false;
+  for (const pid of team.rosterIds) {
+    const p = players[pid];
+    if (!p || p.position !== 'QB') continue;
+    if (p.tier === 'STAR' || p.tier === 'STARTER') hasStarterQb = true;
+    if (isFranchiseDevQb(p)) hasFranchiseDev = true;
+  }
+  return !hasStarterQb && !hasFranchiseDev;
+}
+
 export interface PositionNeed {
   position: Position;
   /** Higher = bigger need. Negative values mean stacked at this slot.

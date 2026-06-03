@@ -16,6 +16,28 @@ _Nothing yet._
 
 ---
 
+## [0.112.0] — 2026-06-03
+
+### Added
+
+- **QB-need reach in the draft.** A team with NO answer at quarterback (no
+  starter-quality QB and no recent first-round developmental QB) now takes its
+  best available QB even when a non-QB outranks him on the board — the classic
+  "team reaches for a passer." The reach is gated so it isn't a blind grab: the
+  QB must be a credible pick (board priority ≥ 85% of the would-be pick's AND
+  inside the team's top 12), which keeps round-1 QB volume realistic (~3-4)
+  instead of every QB-needy team grabbing a camp arm. New `hasDesperateQbNeed`
+  helper; knobs `QB_REACH_PRIORITY_RATIO` / `QB_REACH_MAX_BOARD_RANK`.
+
+### Changed
+
+- **Inspector — draft trades show the selected player.** Each trade-up card now
+  shows who the team actually drafted with the slot it moved up to grab (with
+  position + any convert-to-need note), and flags an "(off-target)" pick when
+  the board shifted between the trade and the selection.
+
+---
+
 ## [0.111.0] — 2026-06-03
 
 ### Added

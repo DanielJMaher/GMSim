@@ -6,6 +6,7 @@ import type { TeamState } from '../types/team.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import { promoteProspectToPlayer } from './promote.js';
+import { hasDesperateQbNeed } from './team-needs.js';
 import {
   evaluateTradeUpForPick,
   applyTradeUpToWorkingAssets,
@@ -17,6 +18,20 @@ import {
   qbPremiumForGm,
   QB_CURRENT_PICK_PREMIUM,
 } from './chart-modifiers.js';
+
+/**
+ * How credible the best available QB must be for a QB-desperate team to REACH
+ * for him over a higher-ranked non-QB. BOTH gates must clear, so the reach is a
+ * modest "take the QB a bit early," not a blind grab:
+ *   - his board priority ≥ this fraction of the would-be pick's, AND
+ *   - he sits within the team's top `QB_REACH_MAX_BOARD_RANK` (i.e. he's a
+ *     genuinely good prospect, just not #1).
+ * The rank cap is what keeps QB supply realistic — only a handful of QBs per
+ * class are top-12 talents, so only a handful of teams can reach in round 1
+ * (instead of every QB-needy team grabbing a camp arm). Tuning knobs.
+ */
+const QB_REACH_PRIORITY_RATIO = 0.85;
+const QB_REACH_MAX_BOARD_RANK = 12;
 
 export interface RunDraftOptions {
   /** Order in which teams pick. Length sets how many picks fire. */
@@ -207,6 +222,30 @@ export function runDraft(
         boardRank = r + 1;
         boardEntry = entry;
         break;
+      }
+    }
+
+    // QB-need REACH (2026-06-03): a team with NO answer at quarterback takes its
+    // best available QB even when a non-QB outranks him on the board — the
+    // classic "team reaches for a passer." Gated so it isn't a blind grab: the
+    // QB must be a CREDIBLE pick (his board priority ≥ QB_REACH_PRIORITY_RATIO ×
+    // the would-be pick's), so a desperate team reaches ~a round for a real QB
+    // but won't burn a premium slot on a camp arm. Only the top available QB on
+    // the board is considered (the others are worse). Fires whether the team's
+    // top pick was a board entry or it's about to fall to BPA.
+    if (chosen && chosen.nflProjectedPosition !== 'QB' && team && hasDesperateQbNeed(team, league.players)) {
+      const topPriority = boardEntry?.priority ?? 0;
+      for (let r = 0; r < board.length && r < QB_REACH_MAX_BOARD_RANK; r++) {
+        const entry = board[r]!;
+        const cp = availableById.get(entry.collegePlayerId);
+        if (!cp) continue;
+        if (cp.nflProjectedPosition !== 'QB') continue;
+        if (entry.priority >= QB_REACH_PRIORITY_RATIO * topPriority) {
+          chosen = cp;
+          boardRank = r + 1;
+          boardEntry = entry;
+        }
+        break; // first QB found is the highest-priority available QB
       }
     }
 

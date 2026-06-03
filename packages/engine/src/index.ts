@@ -342,6 +342,8 @@ export {
   consensusRankIndex,
   // v0.55 — team-needs scorer
   computeTeamNeeds,
+  positionNeedPressure,
+  hasDesperateQbNeed,
   // draft grades — NFL.com 8-point scale (perceived/real per prospect)
   DRAFT_GRADE_BANDS,
   DRAFT_GRADE_FLOOR,

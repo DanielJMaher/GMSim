@@ -2596,6 +2596,16 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
     return m;
   }, [league.collegePool, league.players]);
 
+  // The pick actually MADE at each (season, overall-slot) — so a trade-up can
+  // show who the team selected with the slot it moved up to grab, not just who
+  // it targeted (usually the same, but the board can shift between the trade
+  // and the pick).
+  const pickAtSlot = useMemo(() => {
+    const m = new Map<string, DraftPickRecord>();
+    for (const p of league.draftHistory) m.set(`${p.seasonNumber}#${p.overallPick}`, p);
+    return m;
+  }, [league.draftHistory]);
+
   if (tradesBySeason.length === 0) {
     return (
       <section className="mb-8 rounded border border-zinc-800 bg-zinc-900/40 p-4">
@@ -2645,6 +2655,9 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
             const droppingTeam = league.teams[tu.onClockTeamId];
             const target = nameByCpId.get(tu.targetCollegePlayerId);
             const swapInfo = pickInfoById.get(tu.swapAssetId);
+            // Who they actually drafted with the slot they moved up to.
+            const selPick = pickAtSlot.get(`${tu.seasonNumber}#${tu.overallPick}`);
+            const selPlayer = selPick ? league.players[selPick.promotedPlayerId] : undefined;
             return (
               <div
                 key={`${tu.seasonNumber}-${tu.overallPick}-${tu.tradingUpTeamId}`}
@@ -2678,6 +2691,24 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
                     </div>
                     <div className="text-zinc-300">
                       Slot #{tu.overallPick} (R{tu.round})
+                    </div>
+                    <div className="mt-1 text-[11px]">
+                      {selPlayer ? (
+                        <span className="text-emerald-200">
+                          selected: {selPlayer.firstName} {selPlayer.lastName}
+                          <span className="ml-1 text-[10px] text-zinc-500">({selPlayer.position})</span>
+                          {selPick?.convertedFromPosition && (
+                            <span className="ml-1 text-[10px] text-sky-300">←{selPick.convertedFromPosition}</span>
+                          )}
+                          {selPick && selPick.collegePlayerId !== tu.targetCollegePlayerId && (
+                            <span className="ml-1 text-[10px] text-amber-300/80" title="Not the prospect the trade-up targeted — the board moved by the time the pick fired.">
+                              (off-target)
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-600">selected: — (pick not yet made)</span>
+                      )}
                     </div>
                   </div>
                   <div className="rounded border border-rose-500/30 bg-zinc-950/40 p-2">
