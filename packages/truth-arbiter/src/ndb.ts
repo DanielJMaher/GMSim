@@ -23,7 +23,9 @@ import { DATA_DIR, RAW_HTML_DIR, USER_AGENT, FETCH_DELAY_MS } from './config.js'
  *   pnpm --filter @gmsim/truth-arbiter run ndb 2024       # one year
  */
 
-const NDB_YEARS: readonly number[] = [2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025];
+// NFLDraftBuzz only embeds the per-source rank chart from 2021 on (older player
+// pages exist but carry no multi-source spread), so the spread data is 2021-2025.
+const NDB_YEARS: readonly number[] = [2021, 2022, 2023, 2024, 2025];
 const LIST_MAX_PAGES = 12; // ~12 players/page → top ~140
 const OUT_PATH = resolve(DATA_DIR, 'ndb-players.json');
 

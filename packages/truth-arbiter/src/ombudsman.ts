@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { DATA_DIR } from './config.js';
+import { gmsimMediaSpread, type MediaSpreadProspect } from './engine-bridge.js';
 import type { NdbPlayer, NdbPlayerData } from './ndb.js';
 
 /**
@@ -95,6 +96,34 @@ async function main(): Promise<void> {
   for (const p of byPolar.slice(-4).reverse()) {
     console.log(`  ${p.name.padEnd(22)} ${p.position.padEnd(4)} consensus ${String(p.consensusRank).padStart(5)}  sd ${p.spread.toFixed(1).padStart(5)}`);
   }
+
+  // ── GMSim media spread vs real ───────────────────────────────────────────
+  const seeds = (process.argv[2] ?? 'omb-a,omb-b').split(',');
+  const gm: MediaSpreadProspect[] = [];
+  for (const s of seeds) gm.push(...(await gmsimMediaSpread(s)));
+
+  // Scales differ (real = rank across ~10 sources; gmsim = rank across media
+  // outlets), so the comparable signal is the GRADIENT — does disagreement grow
+  // from blue-chips to mid-board in BOTH? (Real ~5x; flat gmsim = unrealistic.)
+  const spreadByTier = (
+    rows: { consensusRank: number; spread: number }[],
+  ): Record<string, number> => ({
+    '1-10': mean(rows.filter((r) => r.consensusRank <= 10).map((r) => r.spread)),
+    '11-32': mean(rows.filter((r) => r.consensusRank > 10 && r.consensusRank <= 32).map((r) => r.spread)),
+    '33-64': mean(rows.filter((r) => r.consensusRank > 32 && r.consensusRank <= 64).map((r) => r.spread)),
+    '65-120': mean(rows.filter((r) => r.consensusRank > 64 && r.consensusRank <= 120).map((r) => r.spread)),
+  });
+  const realT = spreadByTier(players);
+  const gmT = spreadByTier(gm);
+  console.log(`\n=== GMSim media spread vs real (${seeds.length} seeds, ${gm.length} prospects) ===`);
+  console.log(`  ${'tier'.padEnd(8)} ${'realSpread'.padStart(10)} ${'gmsimSpread'.padStart(11)}`);
+  for (const t of ['1-10', '11-32', '33-64', '65-120']) {
+    console.log(`  ${t.padEnd(8)} ${fmt(realT[t]!).padStart(10)} ${fmt(gmT[t]!).padStart(11)}`);
+  }
+  const realGrad = realT['33-64']! / realT['1-10']!;
+  const gmGrad = gmT['33-64']! / gmT['1-10']!;
+  console.log(`\n  blue-chip→mid GRADIENT (33-64 / 1-10):  real ${realGrad.toFixed(1)}x   gmsim ${gmGrad.toFixed(1)}x` +
+    `  ${gmGrad < realGrad * 0.5 ? '<-- GMSim TOO FLAT (media disagrees ~equally on everyone; should lock on blue-chips)' : '(gradient present)'}`);
   console.log('');
   /* eslint-enable no-console */
 }

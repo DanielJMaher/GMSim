@@ -53,10 +53,16 @@ interface CollegeProspect {
   nflProjectedPosition: string;
   current: Record<string, number>;
 }
+interface MediaObs {
+  scoutId: string;
+  collegePlayerId: string;
+  skills: Record<string, number | undefined>;
+}
 interface EngineModule {
   athleticBaseline: (position: string) => AthleticBaseline;
   computeConsensusBoard: (perTeamBoards: Record<string, unknown>) => ConsensusEntry[];
   positionGroupFor: (position: string) => string;
+  tickPhase: (league: EngineLeague) => EngineLeague;
   Prng: new (seed: string) => unknown;
   generateInitialCollegePool: (
     prng: unknown,
@@ -115,6 +121,8 @@ interface EngineLeague {
   seasonNumber: number;
   collegePool: readonly CollegeProspect[];
   draftBoards: Record<string, unknown>;
+  lifecyclePhase: string;
+  mediaCollegeObservations: readonly MediaObs[];
 }
 
 /**
@@ -682,5 +690,80 @@ export async function generatedClass(seed: string): Promise<ClassProspect[]> {
       realOverall,
     });
   }
+  return out;
+}
+
+// ── The Ombudsman: GMSim media-spread per prospect ───────────────────────────
+
+export interface MediaSpreadProspect {
+  positionGroup: string;
+  /** Mean rank across the outlets that covered him (lower = higher). */
+  consensusRank: number;
+  /** Population stdev of his rank across covering outlets — the spread. */
+  spread: number;
+  outletCount: number;
+}
+
+/**
+ * Measure GMSim's own media spread: advance a league to PRE_DRAFT (media stream
+ * is empty at createLeague), have EACH media outlet rank the prospects it
+ * covered by its perceived grade, then per prospect take the stdev of its rank
+ * across outlets. Directly comparable to the real NFLDraftBuzz per-source spread
+ * — the Ombudsman compares the two by consensus tier and position group.
+ */
+export async function gmsimMediaSpread(seed: string): Promise<MediaSpreadProspect[]> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed });
+  for (let i = 0; i < 80 && league.lifecyclePhase !== 'PRE_DRAFT'; i++) {
+    league = eng.tickPhase(league);
+  }
+  const posById = new Map(league.collegePool.map((cp) => [cp.id, cp.nflProjectedPosition] as const));
+
+  // outlet -> prospect -> {sum, n} perceived overall grade
+  const byOutlet = new Map<string, Map<string, { sum: number; n: number }>>();
+  for (const o of league.mediaCollegeObservations) {
+    const outlet = o.scoutId.split('::')[0] ?? o.scoutId;
+    const vals = Object.values(o.skills).filter((v): v is number => typeof v === 'number');
+    if (vals.length === 0) continue;
+    const overall = vals.reduce((a, b) => a + b, 0) / vals.length;
+    let perProspect = byOutlet.get(outlet);
+    if (!perProspect) {
+      perProspect = new Map();
+      byOutlet.set(outlet, perProspect);
+    }
+    const cur = perProspect.get(o.collegePlayerId) ?? { sum: 0, n: 0 };
+    cur.sum += overall;
+    cur.n += 1;
+    perProspect.set(o.collegePlayerId, cur);
+  }
+
+  // each outlet ranks its covered prospects by mean perceived grade (1 = best)
+  const ranksByProspect = new Map<string, number[]>();
+  for (const perProspect of byOutlet.values()) {
+    const ranked = [...perProspect.entries()]
+      .map(([pid, g]) => ({ pid, grade: g.sum / g.n }))
+      .sort((a, b) => b.grade - a.grade);
+    ranked.forEach((r, i) => {
+      const arr = ranksByProspect.get(r.pid) ?? [];
+      arr.push(i + 1);
+      ranksByProspect.set(r.pid, arr);
+    });
+  }
+
+  const out: MediaSpreadProspect[] = [];
+  for (const [pid, ranks] of ranksByProspect) {
+    if (ranks.length < 3) continue; // need a few outlets for a spread
+    const mean = ranks.reduce((a, b) => a + b, 0) / ranks.length;
+    const sd = Math.sqrt(ranks.reduce((a, b) => a + (b - mean) ** 2, 0) / ranks.length);
+    const pos = posById.get(pid);
+    if (!pos) continue;
+    out.push({
+      positionGroup: eng.positionGroupFor(pos),
+      consensusRank: Math.round(mean * 10) / 10,
+      spread: Math.round(sd * 100) / 100,
+      outletCount: ranks.length,
+    });
+  }
+  out.sort((a, b) => a.consensusRank - b.consensusRank);
   return out;
 }
