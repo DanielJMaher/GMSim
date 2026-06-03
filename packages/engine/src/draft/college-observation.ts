@@ -40,6 +40,36 @@ const BASE_NOISE_STDEV = 12;
 export const PROSPECT_PROJECTION = 0.75;
 
 /**
+ * Read-noise scaling by prospect UNCERTAINTY (2026-06-03). Blue-chips are read
+ * TIGHTLY — an obvious top prospect has a full season of tape and every staff
+ * grades him about the same, so the 32 boards converge on him (he's a consensus
+ * lock). Mid/late prospects are genuinely contested — one staff's 2nd-rounder
+ * is another's 5th — so they scatter across boards. GMSim's scout noise was
+ * UNIFORM, so even consensus blue-chips diverged ~13-16 rank-spots across the 32
+ * boards (real media lock on a blue-chip is ~3). This scales the read noise by
+ * the prospect's uncertainty (from true ceiling): a blue-chip carries only
+ * `*_FLOOR` of the noise, a fringe prospect the full noise. Tightens the top of
+ * every board (blue-chips lock, fewer spurious reaches; better board-surfacing)
+ * while leaving the mid-board contested. Mirrors the media Ombudsman fix. Tuning
+ * knobs, validated by the class-talent gate + inter-team divergence.
+ */
+const NOISE_UNCERTAINTY_FLOOR = 0.45;
+const NOISE_CEIL_HI = 84;
+const NOISE_CEIL_LO = 68;
+
+/** Read-noise multiplier (FLOOR…1) from a prospect's true ceiling — low for
+ *  blue-chip locks, full for contested mid/late prospects. */
+function noiseUncertaintyFactor(prospect: CollegePlayer): number {
+  const vals = Object.values(prospect.ceiling) as number[];
+  if (vals.length === 0) return 1;
+  let s = 0;
+  for (const v of vals) s += v;
+  const ceilMean = s / vals.length;
+  const u = clampUnit((NOISE_CEIL_HI - ceilMean) / (NOISE_CEIL_HI - NOISE_CEIL_LO));
+  return NOISE_UNCERTAINTY_FLOOR + (1 - NOISE_UNCERTAINTY_FLOOR) * u;
+}
+
+/**
  * Regional accuracy bonus when scout's `preferredRegion` matches the
  * prospect's hometown OR school state. Modest — 0.06 — so the bonus
  * is felt across many observations but doesn't dominate base accuracy.
@@ -236,6 +266,9 @@ export function generateCollegeObservation(
   const skills: Partial<Record<keyof PlayerSkills, number>> = {};
   const confidence: Partial<Record<keyof PlayerSkills, number>> = {};
 
+  // Blue-chips read tighter than contested mid-rounders — see noiseUncertaintyFactor.
+  const noiseFactor = noiseUncertaintyFactor(prospect);
+
   for (const skill of PLAYER_SKILL_KEYS) {
     // Scouts grade PROJECTED NFL ability, not raw current college skill —
     // blend current toward the prospect's ceiling so high-upside (blue-chip)
@@ -250,7 +283,7 @@ export function generateCollegeObservation(
     // `Player`-compatible projection of the prospect — see helper.
     const playerLike = collegeProspectAsPlayerLike(prospect);
     const quirk = composedQuirkEffect(scout.quirks, playerLike, skill);
-    const noiseStdev = BASE_NOISE_STDEV * (1 - accuracy) * quirk.noiseMultiplier;
+    const noiseStdev = BASE_NOISE_STDEV * (1 - accuracy) * quirk.noiseMultiplier * noiseFactor;
     const observed = clampSkill(trueValue + prng.normal(0, noiseStdev) + quirk.bias + biasShift);
     const skillConfidence = clampUnit(accuracy + quirk.confidenceDelta);
     skills[skill] = Math.round(observed);

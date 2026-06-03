@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.114.0] — 2026-06-03
+
+### Changed
+
+- **Scouts read blue-chips more accurately than contested prospects.** College
+  scout read-noise now scales with a prospect's UNCERTAINTY (from true ceiling):
+  an obvious blue-chip — a full season of tape, every staff grades him alike —
+  carries only ~45% of the read noise, while a contested mid/late prospect
+  carries the full noise. Tightens the top of every team board (blue-chips read
+  as consensus locks, fewer spurious reaches) while leaving the mid-board
+  genuinely contested. Mirrors the media Ombudsman fix. `bigReachRatio`
+  0.415 → 0.402; board-surfacing unchanged. Knob `NOISE_UNCERTAINTY_FLOOR`.
+
+  Context: a re-measurement of the old "teams over-grade by +4.6 and are too
+  omniscient" finding showed it is **stale** — after the talent-spread work
+  (v0.109) teams over-grade by only ~+2.0 vs the true projection (corr 0.75 →
+  0.86), and the 32 boards diverge plenty (they are not omniscient). The
+  remaining realism gap — blue-chips don't fully *lock* as consensus top picks —
+  is dominated by intentional scheme/need board re-ordering and the shallow
+  talent pyramid, not scout noise; closing it fully is the generation-steepness
+  lever (the same root behind the residual media-spread gradient).
+
+---
+
 ## [0.113.0] — 2026-06-03
 
 ### Changed
