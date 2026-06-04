@@ -36,6 +36,7 @@ import { ScoutId } from '../types/ids.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import { computeCombineAthleticism } from '../draft/athleticism.js';
 import { positionGroupFor } from '../players/position-group.js';
+import { PROSPECT_PROJECTION } from '../draft/college-observation.js';
 
 // ── Tuning knobs ────────────────────────────────────────────────────────
 /** Evaluators per outlet by tier — a BLOG is the lone streamer. */
@@ -102,25 +103,41 @@ const SHARED_MISREAD_STDEV = 2.0;
  * draft media barely disagree on blue-chips (everyone has Trevor Lawrence #1)
  * but disagree WILDLY down-board (a Day-2 guy is one outlet's 1st-rounder and
  * another's 5th) — the spread-by-tier gradient explodes ~6.6x from the top-10 to
- * the mid-board. GMSim's shared misread shifts the CONSENSUS but creates no
- * inter-outlet disagreement, so every outlet read alike and the spread was flat
- * (~1.1x). This adds a stable, idiosyncratic per-(outlet, prospect) lean whose
- * magnitude SCALES WITH the prospect's uncertainty — ~0 on a true blue-chip,
- * full on a fringe mid-rounder — so outlets converge at the top and scatter
- * down-board. Keyed off the prospect's true ceiling (blue-chips genuinely ARE
- * the obvious ones) + a hash of (outlet, id), so it's deterministic and
- * round-stable. Tuning knob, validated by `run ombudsman` (the tier gradient).
+ * the mid-board. This adds a stable, idiosyncratic per-(outlet, prospect) lean
+ * whose magnitude SCALES WITH the prospect's uncertainty — ~0 on a true
+ * blue-chip, full on a fringe mid-rounder — so outlets converge at the top and
+ * scatter down-board. Keyed off true ceiling + a hash of (outlet, id):
+ * deterministic and round-stable.
+ *
+ * v0.116 — the rank-perturbation fix. Two pieces keep the spread in the
+ * mid-board instead of leaking up into the top tier:
+ *   1. The media grades PROJECTED ability (see generateMediaObservation), so
+ *      blue-chip grades genuinely SEPARATE from the mid-board (after Lever 3's
+ *      steeper pyramid). Without this the read was flat rookie `current` and a
+ *      mid's swing reached the top.
+ *   2. The lean is CAPPED (`LEAN_CAP`) BELOW the blue-chip↔mid grade gap, so a
+ *      contested mid scatters densely among other mids but hits a wall it can't
+ *      cross into the blue-chip tier — a bounded RANK perturbation expressed in
+ *      grade space. Blue-chips also carry uncertainty 0 (no lean), so the cap
+ *      mainly bounds the mids while the top LOCKS hard.
+ * Result (`run ombudsman`): top-10 spread ~2.4 ≈ real 2.8 — the media now
+ * genuinely AGREES on the obvious blue-chips (was ~3.6, disagreeing on locks);
+ * 11-32 ≈ real (9.3 vs 8.5). The deep mid-board (33-64) spread stays ~8 (real
+ * 18.6): a hard limit of the spread-BY-CONSENSUS-TIER metric, not the model — a
+ * contested mid with genuinely high spread no longer has a stable consensus
+ * rank, so he leaves the 33-64 bin (binning self-selection). Underlying behavior
+ * (locks lock, mids contested) is correct; the measured gradient tops ~3.2x.
  */
-const OUTLET_DISAGREEMENT_STDEV = 19;
+const OUTLET_DISAGREEMENT_STDEV = 24;
+/** Max grade-points the lean can move a prospect — the "wall" that keeps a
+ *  contested mid from leaping into the blue-chip tier. Set below the projected
+ *  blue-chip↔mid gap (~10 after Lever 3). The single knob the gradient is most
+ *  sensitive to. */
+const LEAN_CAP = 10;
 /** Ceiling-overall band mapping a prospect's TRUE ceiling to [lock, contested].
- *  ≥ HI is a media lock (uncertainty 0, no added disagreement); ≤ LO is
- *  maximally contested (uncertainty 1). Re-anchored to the Lever-3 steepened
- *  pyramid (blue-chip ceiling ~88+, mid-board ~78): the lean magnitude (19) was
- *  raised from 13 once the pyramid steepened, since the bigger talent gaps now
- *  tolerate more disagreement before contested mids leap OVER the blue-chips.
- *  The tier gradient still tops out ~3x (real 6.6x): beyond that the grade-lean
- *  itself scrambles the mid-board tiers (a deeper fix would perturb RANK
- *  directly, not grade). Tuned vs `run ombudsman`. */
+ *  ≥ HI is a media lock (uncertainty 0); ≤ LO is maximally contested
+ *  (uncertainty 1). Anchored to the Lever-3 pyramid (blue-chip ceiling ~88+,
+ *  mid-board ~78). Tuned vs `run ombudsman`. */
 const UNCERTAINTY_CEIL_HI = 88;
 const UNCERTAINTY_CEIL_LO = 74;
 
@@ -152,7 +169,9 @@ function outletProspectLean(outletId: string, cp: CollegePlayer): number {
   const u1 = (fnv1a(`olean1:${outletId}:${id}`) + 1) / 4294967297;
   const u2 = (fnv1a(`olean2:${outletId}:${id}`) + 1) / 4294967297;
   const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  return z * OUTLET_DISAGREEMENT_STDEV * u;
+  // Capped BELOW the projected blue-chip↔mid grade gap — the wall that keeps a
+  // contested mid scattering among mids instead of leaping into the top tier.
+  return clamp(z * OUTLET_DISAGREEMENT_STDEV * u, -LEAN_CAP, LEAN_CAP);
 }
 
 const SCHOOL_PRESTIGE: Record<ConferenceTier, number> = {
@@ -480,7 +499,14 @@ function generateMediaObservation(
   const noiseStdev = BASE_NOISE_STDEV * (1 - accuracy);
   const skills: Partial<Record<keyof PlayerSkills, number>> = {};
   const confidence: Partial<Record<keyof PlayerSkills, number>> = {};
-  for (const [key, trueValue] of Object.entries(prospect.current) as [keyof PlayerSkills, number][]) {
+  for (const [key, cur] of Object.entries(prospect.current) as [keyof PlayerSkills, number][]) {
+    // The media grades PROJECTED NFL ability (the same upside projection the
+    // scouts use), so blue-chip grades SEPARATE from the mid-board — the
+    // separation the rank-perturbation gradient (LEAN_CAP) rides on. Without it
+    // the read was flat rookie `current` and a contested mid's swing reached the
+    // top tier, capping the spread gradient.
+    const ceil = prospect.ceiling[key] ?? cur;
+    const trueValue = cur + PROSPECT_PROJECTION * (ceil - cur);
     const observed = clamp(trueValue + prng.normal(0, noiseStdev) + hypeBias, 0, 100);
     skills[key] = Math.round(observed);
     confidence[key] = Number(accuracy.toFixed(2));

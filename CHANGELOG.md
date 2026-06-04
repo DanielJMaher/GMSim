@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.116.0] — 2026-06-03
+
+### Changed
+
+- **Media now genuinely AGREES on blue-chips (the rank-perturbation fix).** The
+  earlier grade-lean disagreement leaked into the top tier (a contested mid's
+  grade swing reached the blue-chips), so the media disagreed even on the
+  obvious locks (top-10 rank spread ~3.6). Two coordinated changes fix it:
+  - the media now grades **projected** ability (the same upside projection the
+    scouts use), so — on Lever 3's steeper pyramid — blue-chip grades genuinely
+    separate from the mid-board; and
+  - the per-outlet disagreement lean is **capped** below the blue-chip↔mid grade
+    gap, a bounded rank perturbation that lets contested mids scatter among
+    themselves but walls them out of the blue-chip tier.
+
+  `run ombudsman`: top-10 spread **3.6 → ~2.4** (≈ real 2.8 — the media now
+  locks on the obvious top guys), 11-32 ≈ real (9.3 vs 8.5). The deep mid-board
+  (33-64) spread stays ~8 vs real 18.6: that residual is a hard limit of the
+  spread-by-consensus-tier *metric* (a genuinely high-spread mid no longer has a
+  stable consensus rank, so he leaves the bin — binning self-selection), not the
+  model. Knobs `LEAN_CAP` + `OUTLET_DISAGREEMENT_STDEV`.
+
+---
+
 ## [0.115.0] — 2026-06-03
 
 ### Changed
