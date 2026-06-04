@@ -23,13 +23,16 @@
     "nmdd": "tsc -p tsconfig.json && node dist/nmdd.js",
     "class-talent": "tsc -p tsconfig.json && node dist/class-talent.js",
     "ndb": "tsc -p tsconfig.json && node dist/ndb.js",
-    "ombudsman": "tsc -p tsconfig.json && node dist/ombudsman.js"
+    "ombudsman": "tsc -p tsconfig.json && node dist/ombudsman.js",
+    "beast": "tsc -p tsconfig.json && node dist/beast.js",
+    "pff": "tsc -p tsconfig.json && node dist/pff.js"
   },
   "dependencies": {
     "node-html-parser": "^6.1.13"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "pdfjs-dist": "^6.0.227",
     "rimraf": "^5.0.5",
     "typescript": "^5.3.3"
   }
