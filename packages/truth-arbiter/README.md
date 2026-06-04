@@ -45,7 +45,9 @@ vocabulary each position group over-uses, and the NFL-comp inventory.
 recruiting pedigree (the star-rating distribution), pedigree × draft round (the
 real correlation: blue-chips cluster early, the under-recruited slide to Day 3 /
 UDFA), backstory motifs (transfer / redshirt / walk-on / football bloodline /
-multi-sport / hardship), and home-state geography.
+multi-sport / hardship), and home-state geography. Its `audit` mode generates a
+GMSim class and prints the engine's pedigree×round + motif rates next to the
+real targets — the calibration lens for tuning generation toward reality.
 
 ## Why two artifacts
 
@@ -129,6 +131,9 @@ pnpm --filter @gmsim/truth-arbiter run scribe
 # The Narrator — player-backstory taxonomy from the bios. Recruiting pedigree,
 # pedigree x draft round, backstory motifs, home-state geography.
 pnpm --filter @gmsim/truth-arbiter run narrator
+# audit mode: GMSim's generated backstories vs the real targets (needs the
+# engine built) — pedigree x round + motif rates side by side with deltas.
+pnpm --filter @gmsim/truth-arbiter run narrator audit
 
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```

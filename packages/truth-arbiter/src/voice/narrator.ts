@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { DATA_DIR } from '../lib/config.js';
+import { generatedBackstoryClass, type BackstoryProspect } from '../lib/engine-bridge.js';
 import type { BeastProspect } from '../corpus/beast.js';
 import { mean } from './lexicon.js';
 
@@ -172,8 +173,93 @@ async function main(): Promise<void> {
   /* eslint-enable no-console */
 }
 
+// ── audit mode: GMSim generated backstories vs the real targets ──────────────
+
+/** Project an engine consensus-board rank to a real round bucket label. */
+function genBucket(rank: number): string | null {
+  const r = Math.ceil(rank / 32);
+  if (r === 1) return 'R1';
+  if (r === 2) return 'R2';
+  if (r === 3) return 'R3';
+  if (r === 4 || r === 5) return 'R4-5';
+  if (r === 6 || r === 7) return 'R6-7';
+  if (r === 8) return 'UDFA';
+  return null; // deep pool — no real-corpus analog
+}
+
+async function runAudit(beast: BeastProspect[]): Promise<void> {
+  /* eslint-disable no-console */
+  const withBio = beast.filter((p) => (p.background?.length ?? 0) > 120);
+  const seeds = Array.from({ length: 8 }, (_, i) => `narrator-audit-${i + 1}`);
+  console.log('THE NARRATOR — engine audit  (GMSim generated backstory vs real)');
+  console.log(`real: Beast ${withBio.length} bios  ·  generated: ${seeds.length} seeds\n`);
+  const classes = await Promise.all(seeds.map((s) => generatedBackstoryClass(s)));
+  const gen = classes.flat();
+  const genDrafted = gen.filter((p) => genBucket(p.rank) !== null);
+
+  // ---- pedigree × round: real vs generated ----
+  console.log('PEDIGREE × ROUND   blue-chip(4-5★) share  ·  avg★');
+  console.log('   bucket     real blue   gen blue    Δ        real ★   gen ★');
+  for (const b of ROUND_BUCKETS) {
+    const rg = withBio
+      .filter((p) => b.has(p.round ?? null))
+      .map((p) => starRating(p.background ?? ''))
+      .filter((s): s is number => s !== null);
+    const gg = genDrafted.filter((p) => genBucket(p.rank) === b.label).map((p) => p.star);
+    if (rg.length === 0 || gg.length === 0) continue;
+    const rBlue = rg.filter((s) => s >= 4).length / rg.length;
+    const gBlue = gg.filter((s) => s >= 4).length / gg.length;
+    const rAvg = mean(rg.filter((s) => s > 0));
+    const gAvg = mean(gg);
+    const d = (gBlue - rBlue) * 100;
+    console.log(
+      `   ${b.label.padEnd(7)}${(rBlue * 100).toFixed(0).padStart(8)}%${(gBlue * 100).toFixed(0).padStart(10)}%` +
+        `${`${d >= 0 ? '+' : ''}${d.toFixed(0)}`.padStart(8)}${rAvg.toFixed(2).padStart(11)}${gAvg.toFixed(2).padStart(8)}`,
+    );
+  }
+
+  // ---- motif rates: real vs generated (overall, over the drafted set) ----
+  console.log('\nMOTIF RATES   (real bios  vs  generated drafted set)');
+  const realRate = (re: RegExp) =>
+    withBio.filter((p) => re.test(p.background ?? '')).length / withBio.length;
+  const genRate = (pred: (p: BackstoryProspect) => boolean) =>
+    genDrafted.filter(pred).length / genDrafted.length;
+  const rows: [string, number, number][] = [
+    ['transfer', realRate(MOTIF.transfer!), genRate((p) => p.isTransfer)],
+    ['redshirt', realRate(MOTIF.redshirt!), genRate((p) => p.isRedshirt)],
+    ['walk-on', realRate(MOTIF.walkOn!), genRate((p) => p.isWalkOn)],
+    ['bloodline', realRate(MOTIF.bloodline!), genRate((p) => p.hasBloodline)],
+    ['captain', realRate(MOTIF.captain!), genRate((p) => p.isCaptain)],
+    ['multi-sport', realRate(MOTIF.multiSport!), genRate((p) => p.isMultiSport)],
+  ];
+  console.log('   motif         real    gen     Δ');
+  for (const [name, r, g] of rows) {
+    const d = (g - r) * 100;
+    console.log(
+      `   ${name.padEnd(12)}${(r * 100).toFixed(0).padStart(5)}%${(g * 100).toFixed(0).padStart(7)}%` +
+        `${`${d >= 0 ? '+' : ''}${d.toFixed(0)}`.padStart(7)}`,
+    );
+  }
+  console.log(
+    `\n   generated pool: ${gen.length} prospects · drafted set (top ~256): ${genDrafted.length}`,
+  );
+  /* eslint-enable no-console */
+}
+
+async function entry(): Promise<void> {
+  const mode = process.argv[2];
+  if (mode === 'audit') {
+    const beast = JSON.parse(
+      await readFile(resolve(DATA_DIR, 'beast/beast-all.json'), 'utf8'),
+    ) as BeastProspect[];
+    await runAudit(beast);
+  } else {
+    await main();
+  }
+}
+
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('narrator.js')) {
-  main().catch((err) => {
+  entry().catch((err) => {
     console.error(err);
     process.exit(1);
   });

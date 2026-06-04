@@ -106,6 +106,24 @@ describe('generateCollegePlayer', () => {
     expect(rate).toBeLessThanOrEqual(0.20);
   });
 
+  it('roughly 82% of prospects played a second HS sport (multi-sport background)', () => {
+    let multi = 0;
+    const SAMPLES = 800;
+    for (let i = 0; i < SAMPLES; i++) {
+      const cp = generateCollegePlayer(new Prng(`ms-${i}`), {
+        idSuffix: `MS${i}`,
+        classYear: 'JR',
+        school: ALABAMA,
+        simYear: 2026,
+      });
+      if (cp.multiSportBackground) multi++;
+    }
+    // Real (Beast bios) is ~82%; position-group weighting lands the pool nearby.
+    const rate = multi / SAMPLES;
+    expect(rate).toBeGreaterThanOrEqual(0.74);
+    expect(rate).toBeLessThanOrEqual(0.9);
+  });
+
   it('all conversion candidates carry a non-empty alternates list', () => {
     let checked = 0;
     for (let i = 0; i < 400; i++) {

@@ -13,6 +13,7 @@ import {
   rollCharacterFlags,
   rollBloodline,
   rollInjuryHistory,
+  rollMultiSportBackground,
 } from './character.js';
 import { rollRecruitingProfile } from './recruiting.js';
 import { rollCollegeStats } from './college-stats.js';
@@ -176,6 +177,10 @@ export function generateCollegePlayer(
     isTransfer,
   });
   const injuryHistory = rollInjuryHistory(prng.fork('injuries'), options.classYear);
+  const multiSportBackground = rollMultiSportBackground(
+    prng.fork('multisport'),
+    positionGroupFor(projection.projected),
+  );
 
   const collegeStats = rollCollegeStats({
     prng: prng.fork('stats'),
@@ -207,8 +212,6 @@ export function generateCollegePlayer(
 
   const ageYears = rollAgeForClass(prng.fork('age'), options.classYear);
   const birthDate = ageToBirthDate(prng.fork('birth'), ageYears, options.simYear);
-
-  void positionGroupFor; // collegePosition has its own positionGroup; not stored on CollegePlayer
 
   const isDraftEligible =
     options.classYear === 'JR' || options.classYear === 'SR' || options.classYear === 'RS_SR';
@@ -250,6 +253,7 @@ export function generateCollegePlayer(
     recruiting,
     bloodline,
     characterFlags,
+    multiSportBackground,
     injuryHistory,
     collegeStats,
   };

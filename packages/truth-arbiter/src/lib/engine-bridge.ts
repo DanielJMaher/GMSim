@@ -54,6 +54,12 @@ interface CollegeProspect {
   current: Record<string, number>;
   ceiling: Record<string, number>;
   tier: string;
+  classYear: string;
+  recruiting: { starRating: number; background: string };
+  bloodline?: { hasNflFamily: boolean };
+  characterFlags?: readonly string[];
+  multiSportBackground?: boolean;
+  injuryHistory?: readonly unknown[];
 }
 interface MediaObs {
   scoutId: string;
@@ -698,6 +704,60 @@ export async function generatedClass(seed: string): Promise<ClassProspect[]> {
       realOverall,
       ceilingOverall,
       tier: cp.tier,
+    });
+  }
+  return out;
+}
+
+// ── The Narrator: GMSim generated backstory per consensus-ranked prospect ────
+
+export interface BackstoryProspect {
+  /** Consensus board rank (1 = top). Projected draft round = ceil(rank/32). */
+  rank: number;
+  positionGroup: string;
+  /** recruiting.starRating (1–5). */
+  star: number;
+  /** recruiting.background narrative tag (PEDIGREE … WALK_ON_STORY, TRANSFER). */
+  background: string;
+  isTransfer: boolean;
+  /** classYear is a redshirt year (RS_FR / RS_SR). */
+  isRedshirt: boolean;
+  isWalkOn: boolean;
+  hasBloodline: boolean;
+  isCaptain: boolean;
+  isMultiSport: boolean;
+  hasInjury: boolean;
+}
+
+/**
+ * A freshly generated class as a consensus board (like {@link generatedClass}),
+ * but surfacing each prospect's BACKSTORY fields so the Narrator can audit
+ * GMSim's generated pedigree×round + motif rates against real draft history.
+ */
+export async function generatedBackstoryClass(seed: string): Promise<BackstoryProspect[]> {
+  const eng = await loadEngine();
+  const league = eng.createLeague({ seed });
+  const consensus = eng.computeConsensusBoard(league.draftBoards);
+  const byId = new Map(league.collegePool.map((cp) => [cp.id, cp] as const));
+  const out: BackstoryProspect[] = [];
+  let rank = 0;
+  for (const e of consensus) {
+    const cp = byId.get(e.collegePlayerId);
+    if (!cp) continue;
+    rank += 1;
+    const flags: readonly string[] = cp.characterFlags ?? [];
+    out.push({
+      rank,
+      positionGroup: eng.positionGroupFor(cp.nflProjectedPosition),
+      star: cp.recruiting.starRating,
+      background: cp.recruiting.background,
+      isTransfer: cp.recruiting.background === 'TRANSFER' || flags.includes('TRANSFER_PORTAL'),
+      isRedshirt: typeof cp.classYear === 'string' && cp.classYear.startsWith('RS_'),
+      isWalkOn: cp.recruiting.background === 'WALK_ON_STORY',
+      hasBloodline: cp.bloodline?.hasNflFamily ?? flags.includes('LEGACY'),
+      isCaptain: flags.includes('CAPTAIN'),
+      isMultiSport: cp.multiSportBackground ?? false,
+      hasInjury: (cp.injuryHistory?.length ?? 0) > 0,
     });
   }
   return out;

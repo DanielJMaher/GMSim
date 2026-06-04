@@ -440,6 +440,13 @@ export interface CollegePlayer {
   bloodline: Bloodline;
   /** Narrative + descriptive flags attached to the prospect. */
   characterFlags: readonly CharacterFlag[];
+  /**
+   * Played a second varsity sport in high school (basketball / track / baseball
+   * is the common trio). The overwhelming majority of real NFL prospects did
+   * (~82% in the Beast bios) — a baseline athleticism cue, slightly more common
+   * for skill / DB athletes and rarer in the trenches. Pure narrative.
+   */
+  multiSportBackground: boolean;
   /** Past injuries through their college career. */
   injuryHistory: readonly CollegeInjury[];
 

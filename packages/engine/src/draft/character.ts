@@ -9,6 +9,7 @@ import type {
   RecruitingBackground,
 } from '../types/college.js';
 import type { TalentTier } from '../types/player.js';
+import type { PositionGroup } from '../types/enums.js';
 import { LAST_NAMES } from '../data/name-pools/index.js';
 
 const VOICES: readonly PersonalityVoice[] = [
@@ -229,6 +230,20 @@ export function rollBloodline(prng: Prng, lastName: string): Bloodline {
 }
 
 void LAST_NAMES; // last name is supplied by caller from the same pool
+
+/**
+ * Roll the multi-sport HS background. ~82% of real NFL prospects played a
+ * second varsity sport (basketball / track / baseball most often). It's a
+ * baseline athleticism cue, so skill-position and DB athletes skew higher and
+ * the trenches lower. Position-group weighted, the pool lands near the real 82%.
+ */
+export function rollMultiSportBackground(prng: Prng, group: PositionGroup): boolean {
+  const odds =
+    group === 'SKILL' || group === 'DB' ? 0.9
+      : group === 'OL' || group === 'DL' ? 0.7
+        : 0.82; // QB / LB / ST
+  return prng.next() < odds;
+}
 
 /**
  * Roll injury history across a prospect's college career so far.
