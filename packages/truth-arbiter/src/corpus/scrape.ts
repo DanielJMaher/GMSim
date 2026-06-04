@@ -3,8 +3,8 @@ import { cachedFetch } from './fetch.js';
 import { parseRoundPage } from './parse-round.js';
 import { mergeCombine } from './combine.js';
 import { mergeOutcomes } from './outcomes.js';
-import { YEARS, ROUNDS, roundUrl, DATA_DIR, CORPUS_PATH } from './config.js';
-import type { Corpus, DraftPickRecord } from './types.js';
+import { YEARS, ROUNDS, roundUrl, DATA_DIR, CORPUS_PATH } from '../lib/config.js';
+import type { Corpus, DraftPickRecord } from '../lib/types.js';
 
 /**
  * Scrape every round of every covered draft year into a structured corpus.

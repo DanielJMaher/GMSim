@@ -1,4 +1,4 @@
-import { simulateSeasonPlayerStats, type SeasonPlayerStat } from './engine-bridge.js';
+import { simulateSeasonPlayerStats, type SeasonPlayerStat } from '../lib/engine-bridge.js';
 
 /**
  * Star-separation check (stage 1b validation).

@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Package root (…/packages/truth-arbiter). */
-export const PACKAGE_ROOT = resolve(__dirname, '..');
+export const PACKAGE_ROOT = resolve(__dirname, '..', '..');
 
 /** All scraped + derived artifacts live here (git-ignored). */
 export const DATA_DIR = resolve(PACKAGE_ROOT, 'data');

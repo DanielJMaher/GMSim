@@ -1,7 +1,7 @@
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { embedText, assertOllamaReady } from './ollama.js';
-import { CORPUS_PATH, EMBEDDINGS_PATH, DATA_DIR, EMBED_MODEL } from './config.js';
-import type { Corpus, EmbeddingIndex, EmbeddedRecord } from './types.js';
+import { CORPUS_PATH, EMBEDDINGS_PATH, DATA_DIR, EMBED_MODEL } from '../lib/config.js';
+import type { Corpus, EmbeddingIndex, EmbeddedRecord } from '../lib/types.js';
 
 /**
  * Embed every prospect write-up with nomic-embed-text into a vector index

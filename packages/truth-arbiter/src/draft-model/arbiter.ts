@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
-import { CORPUS_PATH } from './config.js';
-import type { GeneratedProspect } from './engine-bridge.js';
+import { CORPUS_PATH } from '../lib/config.js';
+import type { GeneratedProspect } from '../lib/engine-bridge.js';
 import {
   newEvalCtx,
   draftOneClass,
@@ -10,7 +10,7 @@ import {
   stdev,
   gradeOf,
 } from './class-build.js';
-import type { Corpus, DraftPickRecord } from './types.js';
+import type { Corpus, DraftPickRecord } from '../lib/types.js';
 
 /**
  * Truth Arbiter — first check: physical & athletic realism by position group.

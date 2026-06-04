@@ -7,6 +7,35 @@ This package lives **outside** the pure-TS engine on purpose: it does I/O
 (network, filesystem, a local LLM). It never imports into the engine; it's a
 calibration/verification tool that reads engine output.
 
+## Source layout (agent families)
+
+The agents are grouped by the realism domain they police. Each agent is a CLI
+entrypoint (see Commands); shared plumbing lives in `lib/`.
+
+```
+src/
+  lib/          shared infra — no entrypoints
+                config (paths), types, csv, engine-bridge (built-engine consumer)
+  corpus/       text corpora the realism + voice work draws on
+                scrape · embed · search   (NFL.com prose corpus, Ollama)
+                beast · pff               (scouting-VOICE corpus — Brugler + PFF)
+                fetch · parse-round · combine · outcomes · ollama  (corpus helpers)
+  draft-model/  draft-CLASS realism (grades, talent spread, measurables)
+                arbiter · arbiter-class · arbiter-outcomes · class-build
+                class-talent · ras
+  media/        media-SPREAD realism + its data scrapers
+                ombudsman · nmdd · ndb
+  sim/          on-field sim realism + talent taxonomy
+                magistrate · star-separation · skill-adjudicator
+                conversion · slot-diag
+  cap/          salary-cap realism
+                liquidator · cap-usage-probe
+```
+
+The forthcoming **Scribe** (scouting/media phrasing/voice) and **Narrator**
+(player backstories) will read the `corpus/` voice sources (Beast + PFF) and
+land under a `voice/` family alongside them.
+
 ## Why two artifacts
 
 Verifying "are our generated classes realistic?" is mostly a **distributional**

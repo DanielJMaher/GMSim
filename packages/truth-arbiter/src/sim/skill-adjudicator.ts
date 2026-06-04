@@ -1,4 +1,4 @@
-import { auditLeague, type AuditPlayer, type AthleticBaseline } from './engine-bridge.js';
+import { auditLeague, type AuditPlayer, type AthleticBaseline } from '../lib/engine-bridge.js';
 
 /**
  * The Skill Adjudicator — the talent-tier + accolade guardrail.

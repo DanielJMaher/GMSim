@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { embedText, assertOllamaReady } from './ollama.js';
-import { EMBEDDINGS_PATH } from './config.js';
-import type { EmbeddingIndex } from './types.js';
+import { EMBEDDINGS_PATH } from '../lib/config.js';
+import type { EmbeddingIndex } from '../lib/types.js';
 
 /**
  * Semantic search over real prospect write-ups. Embeds a query and returns

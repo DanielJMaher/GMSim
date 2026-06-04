@@ -1,4 +1,4 @@
-import { generatePool, keySkillsFor, positionValue, type GeneratedProspect } from './engine-bridge.js';
+import { generatePool, keySkillsFor, positionValue, type GeneratedProspect } from '../lib/engine-bridge.js';
 
 /**
  * Shared "build one draft class" pipeline used by every Arbiter check.

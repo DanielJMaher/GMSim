@@ -3,14 +3,14 @@ import { createGunzip } from 'node:zlib';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
-import { splitCsvLine, csvNum } from './csv.js';
+import { DATA_DIR } from '../lib/config.js';
+import { splitCsvLine, csvNum } from '../lib/csv.js';
 import {
   loadLeagueContracts,
   loadFreeAgentSignings,
   type LeagueContractRow,
   type FreeAgentSigningRow,
-} from './engine-bridge.js';
+} from '../lib/engine-bridge.js';
 
 /**
  * The Liquidator — the SALARY-CAP realism authority.

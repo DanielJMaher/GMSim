@@ -1,4 +1,4 @@
-import { simulateConversionByGrade, type GradeConversion } from './engine-bridge.js';
+import { simulateConversionByGrade, type GradeConversion } from '../lib/engine-bridge.js';
 
 /**
  * Stage-2 payoff check: ELITE→Pro Bowl conversion, top-down vs bottom-up.

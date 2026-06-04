@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
-import { splitCsvLine, csvNum } from './csv.js';
-import type { CareerOutcome, DraftPickRecord } from './types.js';
+import { DATA_DIR } from '../lib/config.js';
+import { splitCsvLine, csvNum } from '../lib/csv.js';
+import type { CareerOutcome, DraftPickRecord } from '../lib/types.js';
 
 /**
  * Real NFL career outcomes from the open nflverse draft_picks dataset, merged

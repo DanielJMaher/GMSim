@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PACKAGE_ROOT } from './config.js';
+import { PACKAGE_ROOT } from '../lib/config.js';
 
 /** Diagnose Pro Bowl slot under-fill: rostered count per position vs slots. */
 const ENGINE_DIST = resolve(PACKAGE_ROOT, '../engine/dist/index.js');

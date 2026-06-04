@@ -1,6 +1,6 @@
 import { readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { CORPUS_PATH, PACKAGE_ROOT } from './config.js';
+import { CORPUS_PATH, PACKAGE_ROOT } from '../lib/config.js';
 import {
   newEvalCtx,
   draftOneClass,
@@ -11,8 +11,8 @@ import {
   gradeOf,
   type EvalCtx,
 } from './class-build.js';
-import type { Corpus, DraftPickRecord } from './types.js';
-import type { GeneratedProspect } from './engine-bridge.js';
+import type { Corpus, DraftPickRecord } from '../lib/types.js';
+import type { GeneratedProspect } from '../lib/engine-bridge.js';
 
 /**
  * Per-class realism + class-to-class VARIANCE checks (6.1). Where arbiter.ts

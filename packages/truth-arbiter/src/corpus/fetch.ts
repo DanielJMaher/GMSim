@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { RAW_HTML_DIR, USER_AGENT, FETCH_DELAY_MS } from './config.js';
+import { RAW_HTML_DIR, USER_AGENT, FETCH_DELAY_MS } from '../lib/config.js';
 
 /** Turn a URL into a safe cache filename. */
 function cacheKey(url: string): string {

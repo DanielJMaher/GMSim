@@ -1,5 +1,5 @@
 import { parse, type HTMLElement } from 'node-html-parser';
-import type { DraftPickRecord, Measurables, NgsScores } from './types.js';
+import type { DraftPickRecord, Measurables, NgsScores } from '../lib/types.js';
 
 /**
  * Parse one NFL draft tracker round page into structured pick records.

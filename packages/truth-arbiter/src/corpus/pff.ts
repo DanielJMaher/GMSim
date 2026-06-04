@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
+import { DATA_DIR } from '../lib/config.js';
 
 /**
  * PFF NFL Draft Guide — parsed (2026-06-04, Daniel-directed).

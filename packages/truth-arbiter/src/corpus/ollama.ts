@@ -1,4 +1,4 @@
-import { OLLAMA_URL, EMBED_MODEL } from './config.js';
+import { OLLAMA_URL, EMBED_MODEL } from '../lib/config.js';
 
 interface EmbeddingResponse {
   embedding: number[];

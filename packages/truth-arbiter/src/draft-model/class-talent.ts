@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
-import { generatedClass, type ClassProspect } from './engine-bridge.js';
-import type { NmddBoard } from './nmdd.js';
+import { DATA_DIR } from '../lib/config.js';
+import { generatedClass, type ClassProspect } from '../lib/engine-bridge.js';
+import type { NmddBoard } from '../media/nmdd.js';
 
 /**
  * Truth Arbiter — class-talent facet (2026-06-02).

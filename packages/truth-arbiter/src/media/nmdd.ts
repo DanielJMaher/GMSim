@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parse } from 'node-html-parser';
-import { DATA_DIR, RAW_HTML_DIR, USER_AGENT, FETCH_DELAY_MS } from './config.js';
+import { DATA_DIR, RAW_HTML_DIR, USER_AGENT, FETCH_DELAY_MS } from '../lib/config.js';
 
 const execFileP = promisify(execFile);
 

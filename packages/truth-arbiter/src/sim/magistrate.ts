@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
-import { splitCsvLine, csvNum } from './csv.js';
-import { simulateDriveLogs, type SimDrive } from './engine-bridge.js';
+import { DATA_DIR } from '../lib/config.js';
+import { splitCsvLine, csvNum } from '../lib/csv.js';
+import { simulateDriveLogs, type SimDrive } from '../lib/engine-bridge.js';
 
 /** Locked real-NFL drive bar (2015-2024, 61,493 drives) — what the sim must hit. */
 const BAR = {

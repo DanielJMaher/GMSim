@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises';
-import { CORPUS_PATH } from './config.js';
+import { CORPUS_PATH } from '../lib/config.js';
 import { mean } from './class-build.js';
-import { simulateDraftedCareers } from './engine-bridge.js';
-import type { Corpus, DraftPickRecord } from './types.js';
+import { simulateDraftedCareers } from '../lib/engine-bridge.js';
+import type { Corpus, DraftPickRecord } from '../lib/types.js';
 
 /**
  * Phase A — REAL career-outcome curves by draft round (Truth Arbiter outcome

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
-import { gmsimMediaSpread, type MediaSpreadProspect } from './engine-bridge.js';
+import { DATA_DIR } from '../lib/config.js';
+import { gmsimMediaSpread, type MediaSpreadProspect } from '../lib/engine-bridge.js';
 import type { NdbPlayer, NdbPlayerData } from './ndb.js';
 
 /**

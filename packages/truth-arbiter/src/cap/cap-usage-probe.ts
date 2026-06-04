@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { PACKAGE_ROOT } from './config.js';
+import { PACKAGE_ROOT } from '../lib/config.js';
 
 /** One-off probe: average team cap usage at league creation (to recenter the
  *  position-weighted contract generator so total spend stays ~$240M). */

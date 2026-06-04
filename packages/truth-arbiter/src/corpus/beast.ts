@@ -1,6 +1,6 @@
 import { readFile, writeFile, readdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
+import { DATA_DIR } from '../lib/config.js';
 
 /**
  * The Beast — Dane Brugler's NFL Draft Guide, parsed (2026-06-03).

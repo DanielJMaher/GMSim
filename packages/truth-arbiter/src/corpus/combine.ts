@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { DATA_DIR } from './config.js';
-import { splitCsvLine, csvNum as n } from './csv.js';
-import type { CombineResults, DraftPickRecord } from './types.js';
+import { DATA_DIR } from '../lib/config.js';
+import { splitCsvLine, csvNum as n } from '../lib/csv.js';
+import type { CombineResults, DraftPickRecord } from '../lib/types.js';
 
 /**
  * Combine athletic testing from the open nflverse combine dataset, merged
