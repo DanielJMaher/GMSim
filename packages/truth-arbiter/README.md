@@ -30,11 +30,16 @@ src/
                 conversion · slot-diag
   cap/          salary-cap realism
                 liquidator · cap-usage-probe
+  voice/        scouting/media PHRASING realism (reads the corpus/ voice sources)
+                scribe (+ lexicon helper)   · narrator (planned)
 ```
 
-The forthcoming **Scribe** (scouting/media phrasing/voice) and **Narrator**
-(player backstories) will read the `corpus/` voice sources (Beast + PFF) and
-land under a `voice/` family alongside them.
+**The Scribe** (`voice/scribe.ts`) is the voice authority: it reads the Beast +
+PFF corpora and emits an empirical voice profile — source fingerprints (Brugler
+runs long and bullet-heavy; PFF is terse and comp-happy), a polarity lexicon
+(which words signal a strength vs a weakness, by weighted log-odds), the
+vocabulary each position group over-uses, and the NFL-comp inventory. **The
+Narrator** (planned) will read the `background` bios for player backstories.
 
 ## Why two artifacts
 
@@ -109,6 +114,11 @@ pnpm --filter @gmsim/truth-arbiter run adjudicate sim [N]  # post-development + 
 # Outcome mix, points/plays/yards per drive, 3rd-down %, red-zone TD % — the
 # targets the (forthcoming) matchup-driven sim must hit.
 pnpm --filter @gmsim/truth-arbiter run magistrate [startYear endYear]
+
+# The Scribe — scouting-VOICE profile from the Beast + PFF guides. Source
+# fingerprints, strength/weakness polarity lexicon, per-position vocabulary,
+# NFL-comp inventory. Aggregate stats only (no verbatim copyrighted text).
+pnpm --filter @gmsim/truth-arbiter run scribe
 
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```
