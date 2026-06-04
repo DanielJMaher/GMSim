@@ -30,16 +30,22 @@ src/
                 conversion · slot-diag
   cap/          salary-cap realism
                 liquidator · cap-usage-probe
-  voice/        scouting/media PHRASING realism (reads the corpus/ voice sources)
-                scribe (+ lexicon helper)   · narrator (planned)
+  voice/        scouting-VOICE + player-BACKSTORY realism (reads corpus/ sources)
+                scribe · narrator (+ lexicon helper)
 ```
 
 **The Scribe** (`voice/scribe.ts`) is the voice authority: it reads the Beast +
 PFF corpora and emits an empirical voice profile — source fingerprints (Brugler
 runs long and bullet-heavy; PFF is terse and comp-happy), a polarity lexicon
 (which words signal a strength vs a weakness, by weighted log-odds), the
-vocabulary each position group over-uses, and the NFL-comp inventory. **The
-Narrator** (planned) will read the `background` bios for player backstories.
+vocabulary each position group over-uses, and the NFL-comp inventory.
+
+**The Narrator** (`voice/narrator.ts`) is the backstory authority: it mines the
+`background` bios into a taxonomy for generating realistic player origins —
+recruiting pedigree (the star-rating distribution), pedigree × draft round (the
+real correlation: blue-chips cluster early, the under-recruited slide to Day 3 /
+UDFA), backstory motifs (transfer / redshirt / walk-on / football bloodline /
+multi-sport / hardship), and home-state geography.
 
 ## Why two artifacts
 
@@ -119,6 +125,10 @@ pnpm --filter @gmsim/truth-arbiter run magistrate [startYear endYear]
 # fingerprints, strength/weakness polarity lexicon, per-position vocabulary,
 # NFL-comp inventory. Aggregate stats only (no verbatim copyrighted text).
 pnpm --filter @gmsim/truth-arbiter run scribe
+
+# The Narrator — player-backstory taxonomy from the bios. Recruiting pedigree,
+# pedigree x draft round, backstory motifs, home-state geography.
+pnpm --filter @gmsim/truth-arbiter run narrator
 
 pnpm --filter @gmsim/truth-arbiter typecheck
 ```

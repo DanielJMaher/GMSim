@@ -26,7 +26,8 @@
     "ombudsman": "tsc -p tsconfig.json && node dist/media/ombudsman.js",
     "beast": "tsc -p tsconfig.json && node dist/corpus/beast.js",
     "pff": "tsc -p tsconfig.json && node dist/corpus/pff.js",
-    "scribe": "tsc -p tsconfig.json && node dist/voice/scribe.js"
+    "scribe": "tsc -p tsconfig.json && node dist/voice/scribe.js",
+    "narrator": "tsc -p tsconfig.json && node dist/voice/narrator.js"
   },
   "dependencies": {
     "node-html-parser": "^6.1.13"
