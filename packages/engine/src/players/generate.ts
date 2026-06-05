@@ -12,6 +12,7 @@ import { rollAgeProfile, ageToBirthDate, type AgeStage, type AgeProfile } from '
 import { rollSkills, rollDevelopmentArchetype } from './skills.js';
 import { rollMoodProfile } from './mood-profile.js';
 import { synthesizeDraftProvenance } from './draft-provenance.js';
+import { synthesizeBackstory } from './backstory.js';
 import { generatePhysicalProfile } from './physical.js';
 import { assignAbilities } from './abilities.js';
 
@@ -96,6 +97,7 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     careerAwards: [],
     draftRound: provenance.round,
     draftOverallPick: provenance.overallPick,
+    collegeBackstory: synthesizeBackstory(prng.fork('backstory'), skills.tier, options.position),
     heightInches: physical.heightInches,
     weightLbs: physical.weightLbs,
     armLengthInches: physical.armLengthInches,

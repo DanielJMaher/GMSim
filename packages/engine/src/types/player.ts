@@ -2,6 +2,7 @@ import type { PlayerId, TeamId, ContractId } from './ids.js';
 import type { Position, PositionGroup } from './enums.js';
 import type { CareerSeasonStats } from './stats.js';
 import type { CareerAward } from './awards.js';
+import type { PlayerBackstory } from './college.js';
 
 /**
  * Talent tier — a coarse "how good is this player" gradient used for
@@ -204,6 +205,16 @@ export interface Player {
   draftRound: number | null;
   /** Overall draft slot (1..~224), or `null` if undrafted. See `draftRound`. */
   draftOverallPick: number | null;
+
+  /**
+   * College biographical backstory (v0.119) — recruiting pedigree, transfer /
+   * redshirt history, multi-sport, NFL bloodline, captaincy. Drafted players
+   * carry the real facts from their `CollegePlayer`; generated veterans get a
+   * synthesized one from tier + position. Optional so pre-v0.119 saves stay
+   * valid until the migration backfills them. The Narrator renders it as prose
+   * (`narrateBackstory`); pure public bio, surfaced as narrative not numbers.
+   */
+  collegeBackstory?: PlayerBackstory;
 
   // ── Physical profile (v0.94, player-model overhaul Stage 1) ──────────────
   // Size as ground truth — gates plausible roles and feeds role-based

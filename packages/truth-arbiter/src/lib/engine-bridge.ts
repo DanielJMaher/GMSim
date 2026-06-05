@@ -80,6 +80,8 @@ interface EngineModule {
   ) => readonly GeneratedProspect[];
   getArchetypeById: (id: string) => EngineArchetype | undefined;
   boardPositionalFactor: (position: string) => number;
+  narrateBackstory: (backstory: unknown) => string;
+  backstoryFromProspect: (cp: unknown) => unknown;
   createLeague: (opts: { seed: string; statEngine?: 'topdown' | 'bottomup' }) => EngineLeague;
   simulateSeason: (league: EngineLeague) => EngineLeague;
   advanceSeason: (league: EngineLeague) => EngineLeague;
@@ -737,6 +739,8 @@ export interface BackstoryProspect {
   isCaptain: boolean;
   isMultiSport: boolean;
   hasInjury: boolean;
+  /** The Narrator's rendered prose for this prospect (v0.119). */
+  narrative: string;
 }
 
 /**
@@ -769,6 +773,7 @@ export async function generatedBackstoryClass(seed: string): Promise<BackstoryPr
       isCaptain: flags.includes('CAPTAIN'),
       isMultiSport: cp.multiSportBackground ?? false,
       hasInjury: (cp.injuryHistory?.length ?? 0) > 0,
+      narrative: eng.narrateBackstory(eng.backstoryFromProspect(cp)),
     });
   }
   return out;

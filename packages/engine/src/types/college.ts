@@ -144,6 +144,37 @@ export interface Bloodline {
 }
 
 /**
+ * Compact biographical backstory that travels with a player from college into
+ * the NFL (v0.119, the Narrator deepened into the engine). A `CollegePlayer`
+ * carries the full facts; at draft (`promoteProspectToPlayer`) — or at vet
+ * generation, synthesized from tier + position — the handful that make a
+ * narrative are distilled into this and stored on the `Player`, so an NFL
+ * profile can still answer "where did he come from?". The Narrator turns it
+ * into prose (`narrateBackstory`).
+ *
+ * Pure public bio — NOT a hidden rating, so it carries no attribution layer
+ * (this is the kind of thing a media guide prints, not a scouting secret).
+ */
+export interface PlayerBackstory {
+  /** Recruiting star rating coming out of high school (1–5). */
+  recruitingStars: StarRating;
+  /** Narrative recruiting arc tag. */
+  background: RecruitingBackground;
+  /** Where he grew up. */
+  hometown: Hometown;
+  /** Transferred schools at some point (portal era). */
+  transferred: boolean;
+  /** Took a redshirt year. */
+  redshirted: boolean;
+  /** Played a second varsity sport in high school. */
+  multiSport: boolean;
+  /** NFL family, if any. */
+  bloodline: Bloodline;
+  /** Voted a team captain in college — a leadership signal. */
+  wasCaptain: boolean;
+}
+
+/**
  * A college school. Real-ish names + conferences. Slice 1 ships a
  * static catalog (see `engine/src/data/colleges`). Schools are
  * referenced by id; the catalog provides display name + conference.

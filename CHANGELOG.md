@@ -16,6 +16,35 @@ _Nothing yet._
 
 ---
 
+## [0.119.0] — 2026-06-05
+
+### Added
+
+- **College backstory follows a player into the NFL — the Narrator, deepened
+  into the engine.** Prospects already carried the bio facts (recruiting
+  pedigree, transfer / redshirt / multi-sport, NFL bloodline, captaincy); a
+  compact `PlayerBackstory` now travels onto the drafted `Player` at
+  `promoteProspectToPlayer`, and generated veterans get a synthesized one from
+  tier + position (`players/backstory.ts`, rates mirrored to the Narrator's
+  measured real distribution — transfer ~34%, redshirt ~40%, multi-sport
+  position-weighted, bloodline ~8%, captain ~24%). `narrateBackstory` renders any
+  backstory as 1–3 sentences of prose ("A consensus five-star out of Anaheim, CA
+  who redshirted early. NFL runs in the family — his father played in the
+  league."). Pure public bio, surfaced as narrative not numbers; deterministic.
+- **Inspector — backstory prose + bio chips on both prospect and NFL player
+  detail.** The prospect detail gains a "Backstory" panel (narrated prose +
+  Transfer / Redshirt / Multi-sport chips); the NFL player detail gains a
+  "College backstory" panel reading the carried facts. `run narrator audit` now
+  prints sample rendered narratives.
+
+### Migration
+
+- Pre-v0.119 saves backfill `Player.collegeBackstory` from tier + position
+  (deterministic per player id), so every existing NFL player gets a plausible
+  backstory on load.
+
+---
+
 ## [0.118.0] — 2026-06-05
 
 ### Added

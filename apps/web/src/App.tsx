@@ -61,7 +61,7 @@ import type {
   DraftPickRecord,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect } from '@gmsim/engine';
 import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
 import type { PositionNeed } from '@gmsim/engine';
@@ -1043,6 +1043,28 @@ function CollegeProspectDetail({
       {trueArchetype?.description && (
         <div className="text-zinc-500">{trueArchetype.description}</div>
       )}
+
+      {/* Backstory — the Narrator's prose from the prospect's bio facts (v0.119) */}
+      <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+        <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">Backstory</div>
+        <div className="text-zinc-300">{narrateBackstory(backstoryFromProspect(prospect))}</div>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {[
+            prospect.transferred && 'Transfer',
+            prospect.redshirted && 'Redshirt',
+            prospect.multiSportBackground && 'Multi-sport',
+          ]
+            .filter((x): x is string => Boolean(x))
+            .map((label) => (
+              <span
+                key={label}
+                className="rounded border border-teal-500/30 bg-teal-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-teal-300"
+              >
+                {label}
+              </span>
+            ))}
+        </div>
+      </div>
 
       {/* Recruiting / Personality / Archetype tension */}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -6122,6 +6144,32 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
       </div>
       {archetype?.description && (
         <div className="text-zinc-500">{archetype.description}</div>
+      )}
+
+      {/* College backstory carried in from the draft (v0.119). */}
+      {player.collegeBackstory && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            College backstory
+          </div>
+          <div className="text-zinc-300">{narrateBackstory(player.collegeBackstory)}</div>
+          <div className="mt-1 flex flex-wrap gap-1">
+            {[
+              player.collegeBackstory.transferred && 'Transfer',
+              player.collegeBackstory.redshirted && 'Redshirt',
+              player.collegeBackstory.multiSport && 'Multi-sport',
+            ]
+              .filter((x): x is string => Boolean(x))
+              .map((label) => (
+                <span
+                  key={label}
+                  className="rounded border border-teal-500/30 bg-teal-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-teal-300"
+                >
+                  {label}
+                </span>
+              ))}
+          </div>
+        </div>
       )}
 
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">

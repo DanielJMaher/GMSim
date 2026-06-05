@@ -183,6 +183,11 @@ export { buildProspectSleeperTake } from './media/prospect-takes.js';
 export { buildScoutReport } from './media/scout-report.js';
 export { scoutTraitFor, scoutTraitsFor } from './media/scout-vocabulary.js';
 export {
+  narrateBackstory,
+  backstoryFromProspect,
+  synthesizeBackstory,
+} from './players/backstory.js';
+export {
   computeOutletMockBoard,
   computeMediaConsensusBoard,
 } from './media/mock-boards.js';

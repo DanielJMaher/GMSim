@@ -7,6 +7,7 @@ import { seedPerceivedOutletReliability } from '../personnel/perceived-outlet-tr
 import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
+import { synthesizeBackstory } from '../players/backstory.js';
 import { generatePhysicalProfile } from '../players/physical.js';
 import { assignAbilities } from '../players/abilities.js';
 import { gradeFromOverall } from '../players/skills.js';
@@ -488,6 +489,28 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       for (const [id, p] of Object.entries(players)) {
         const rng = new Prng(`${next.seed}::abilities::${id}`);
         backfilled[id] = { ...p, abilities: assignAbilities(rng, p.positionGroup, p.current) };
+      }
+      next = { ...next, players: backfilled } as LeagueState;
+    }
+  }
+
+  // v0.119.0 college backstory. Pre-v0.119 players have no `collegeBackstory` —
+  // synthesize one from tier + position (deterministic per id) so the Narrator
+  // can render a "where he came from" on every profile.
+  {
+    const players = next.players as Record<string, Player>;
+    const sample = Object.values(players)[0];
+    if (sample && (sample as { collegeBackstory?: unknown }).collegeBackstory === undefined) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        backfilled[id] = {
+          ...p,
+          collegeBackstory: synthesizeBackstory(
+            new Prng(`${next.seed}::college-backstory::${id}`),
+            p.tier,
+            p.position,
+          ),
+        };
       }
       next = { ...next, players: backfilled } as LeagueState;
     }

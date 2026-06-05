@@ -240,6 +240,11 @@ async function runAudit(beast: BeastProspect[]): Promise<void> {
         `${`${d >= 0 ? '+' : ''}${d.toFixed(0)}`.padStart(7)}`,
     );
   }
+  console.log('\nSAMPLE NARRATIVES   (the Narrator rendering generated prospects as prose)');
+  for (const p of genDrafted.slice(0, 6)) {
+    console.log(`   #${String(p.rank).padStart(3)} ${p.positionGroup.padEnd(4)}  ${p.narrative}`);
+  }
+
   console.log(
     `\n   generated pool: ${gen.length} prospects · drafted set (top ~256): ${genDrafted.length}`,
   );

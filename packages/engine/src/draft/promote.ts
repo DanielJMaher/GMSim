@@ -8,6 +8,7 @@ import { generateRookieContract } from '../contracts/rookie-scale.js';
 import { rollMoodProfile } from '../players/mood-profile.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { provenanceFromOverallPick, type DraftProvenance } from '../players/draft-provenance.js';
+import { backstoryFromProspect } from '../players/backstory.js';
 import { assignAbilities } from '../players/abilities.js';
 import { gradeFromOverall } from '../players/skills.js';
 import type { PlayerSkills } from '../types/player.js';
@@ -166,6 +167,8 @@ function buildBaseRookiePlayer(
     careerAwards: [],
     draftRound: provenance.round,
     draftOverallPick: provenance.overallPick,
+    // Carry the prospect's real college backstory into the NFL record (v0.119).
+    collegeBackstory: backstoryFromProspect(prospect),
     // Carry the prospect's real combine size through to the NFL record.
     heightInches: prospect.measurables.heightInches,
     weightLbs: prospect.measurables.weightLbs,
