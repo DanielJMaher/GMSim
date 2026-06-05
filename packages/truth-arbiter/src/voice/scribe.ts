@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { DATA_DIR } from '../lib/config.js';
 import type { BeastProspect } from '../corpus/beast.js';
@@ -164,6 +164,7 @@ async function main(): Promise<void> {
   const positions = [...byPos.keys()].sort(
     (a, b) => (ORDER.indexOf(a) + 100 * (ORDER.indexOf(a) < 0 ? 1 : 0)) - (ORDER.indexOf(b) + 100 * (ORDER.indexOf(b) < 0 ? 1 : 0)),
   );
+  const positionVocab: Record<string, string[]> = {};
   for (const pos of positions) {
     const texts = byPos.get(pos)!;
     if (texts.length < 40) continue; // too few to characterize
@@ -171,8 +172,9 @@ async function main(): Promise<void> {
       .filter((p) => p.position !== pos)
       .map((p) => [...(p.strengths ?? []), ...(p.weaknesses ?? []), p.summary ?? ''].join(' '));
     const ranked = logOdds(countTerms(texts), countTerms(rest), { minCount: 10 });
-    const top = ranked.slice(0, 8).map((t) => t.term);
-    console.log(`  ${pos.padEnd(4)} (${String(texts.length).padStart(4)}): ${top.join(', ')}`);
+    const top = ranked.slice(0, 12).map((t) => t.term);
+    positionVocab[pos] = top;
+    console.log(`  ${pos.padEnd(4)} (${String(texts.length).padStart(4)}): ${top.slice(0, 8).join(', ')}`);
   }
 
   // ---- 4. comp inventory ----
@@ -202,11 +204,77 @@ async function main(): Promise<void> {
     0,
   );
   console.log(`\ncorpus: ${beastBullets.length + pffBullets.length} bullets · ${totalTokens.toLocaleString()} content tokens`);
+
+  // ---- machine-readable profile (the spec downstream consumers calibrate to) ----
+  const profile = {
+    generatedAt: new Date().toISOString().slice(0, 10),
+    source: { beastProspects: beast.length, pffReports: pff.length },
+    fingerprints: {
+      beast: {
+        avgNarrativeWords: Math.round(mean(beastNarr.map(wordCount))),
+        medianBullets: median(beastBulletCounts),
+        ttr: Number(typeTokenRatio(beastBullets).toFixed(3)),
+        hedgeRate: Number(rate(beastBullets, HEDGE).toFixed(3)),
+        intensifierRate: Number(rate(beastBullets, INTENSIFIER).toFixed(3)),
+        compRate: Number(beastCompRate.toFixed(3)),
+      },
+      pff: {
+        avgNarrativeWords: Math.round(mean(pffNarr.map(wordCount))),
+        medianBullets: median(pffBulletCounts),
+        ttr: Number(typeTokenRatio(pffBullets).toFixed(3)),
+        hedgeRate: Number(rate(pffBullets, HEDGE).toFixed(3)),
+        intensifierRate: Number(rate(pffBullets, INTENSIFIER).toFixed(3)),
+        compRate: Number(pffCompRate.toFixed(3)),
+      },
+    },
+    polarityLexicon: {
+      strengthSignal: head.map((t) => t.term),
+      weaknessSignal: tail.map((t) => t.term),
+    },
+    positionVocab,
+    topComps: ranked.slice(0, 30).map(([n, c]) => ({ name: n, count: c })),
+  };
+  const outDir = resolve(DATA_DIR, 'voice');
+  await mkdir(outDir, { recursive: true });
+  await writeFile(resolve(outDir, 'scribe-profile.json'), JSON.stringify(profile, null, 2));
+  console.log('→ wrote data/voice/scribe-profile.json (the voice spec)');
   /* eslint-enable no-console */
 }
 
+// ── audit mode: GMSim generated take phrasing vs the real position vocab ─────
+
+async function runAudit(): Promise<void> {
+  /* eslint-disable no-console */
+  const { gmsimProspectTakes } = await import('../lib/engine-bridge.js');
+  const seeds = Array.from({ length: 4 }, (_, i) => `scribe-audit-${i + 1}`);
+  const takes = (await Promise.all(seeds.map((s) => gmsimProspectTakes(s)))).flat();
+
+  console.log('THE SCRIBE — engine audit  (GMSim generated take phrasing)');
+  console.log(`generated ${takes.length} player-takes across ${seeds.length} seeds`);
+  console.log(
+    'Before this slice a take said only "{pos}" — a QB take and an EDGE take read\n' +
+      'identically. The Scribe\'s per-position vocabulary now feeds a {trait} slot, so\n' +
+      'each take should sound like a scout who watched THAT position. Eyeball:\n',
+  );
+
+  // One sample per distinct position, so the position-awareness is visible.
+  const seen = new Set<string>();
+  for (const t of takes) {
+    if (seen.has(t.position)) continue;
+    seen.add(t.position);
+    console.log(`  [${t.position.padEnd(6)}] ${t.headline}`);
+  }
+  console.log(`\n  (${seen.size} positions represented across ${takes.length} takes)`);
+  /* eslint-enable no-console */
+}
+
+async function entry(): Promise<void> {
+  if (process.argv[2] === 'audit') await runAudit();
+  else await main();
+}
+
 if (process.argv[1]?.replace(/\\/g, '/').endsWith('scribe.js')) {
-  main().catch((err) => {
+  entry().catch((err) => {
     console.error(err);
     process.exit(1);
   });

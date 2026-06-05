@@ -133,6 +133,11 @@ interface EngineLeague {
   draftBoards: Record<string, unknown>;
   lifecyclePhase: string;
   mediaCollegeObservations: readonly MediaObs[];
+  mediaReports: readonly {
+    kind: string;
+    headline: string;
+    subjectPlayerId?: string;
+  }[];
 }
 
 /**
@@ -762,6 +767,39 @@ export async function generatedBackstoryClass(seed: string): Promise<BackstoryPr
       isMultiSport: cp.multiSportBackground ?? false,
       hasInjury: (cp.injuryHistory?.length ?? 0) > 0,
     });
+  }
+  return out;
+}
+
+// ── The Scribe: GMSim generated prospect-take phrasing ───────────────────────
+
+export interface GmsimTake {
+  positionGroup: string;
+  position: string;
+  headline: string;
+}
+
+/**
+ * Advance a league to PRE_DRAFT and collect every generated college player-take
+ * headline (the media's prospect phrasing), tagged with the prospect's position.
+ * The Scribe audits whether this generated voice uses the real per-position
+ * scouting vocabulary it measured from the Beast + PFF.
+ */
+export async function gmsimProspectTakes(seed: string): Promise<GmsimTake[]> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed });
+  for (let i = 0; i < 80 && league.lifecyclePhase !== 'PRE_DRAFT'; i++) {
+    league = eng.tickPhase(league);
+  }
+  const posById = new Map(
+    league.collegePool.map((cp) => [cp.id, cp.nflProjectedPosition] as const),
+  );
+  const out: GmsimTake[] = [];
+  for (const r of league.mediaReports) {
+    if (r.kind !== 'player-take' || !r.subjectPlayerId) continue;
+    const pos = posById.get(r.subjectPlayerId);
+    if (!pos) continue;
+    out.push({ positionGroup: eng.positionGroupFor(pos), position: pos, headline: r.headline });
   }
   return out;
 }

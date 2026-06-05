@@ -38,7 +38,12 @@ src/
 PFF corpora and emits an empirical voice profile — source fingerprints (Brugler
 runs long and bullet-heavy; PFF is terse and comp-happy), a polarity lexicon
 (which words signal a strength vs a weakness, by weighted log-odds), the
-vocabulary each position group over-uses, and the NFL-comp inventory.
+vocabulary each position group over-uses, and the NFL-comp inventory. It writes
+a `scribe-profile.json` spec, and its position vocabulary is wired into the
+engine (`media/scout-vocabulary.ts`): generated prospect takes now carry a
+position-aware `{trait}` (QB "pocket poise / arm talent", EDGE "edge-setting
+strength / corner-bending ability", CB "press-man cover skills") instead of a
+generic "{pos}". `run scribe audit` samples the generated takes to eyeball it.
 
 **The Narrator** (`voice/narrator.ts`) is the backstory authority: it mines the
 `background` bios into a taxonomy for generating realistic player origins —
@@ -126,7 +131,11 @@ pnpm --filter @gmsim/truth-arbiter run magistrate [startYear endYear]
 # The Scribe — scouting-VOICE profile from the Beast + PFF guides. Source
 # fingerprints, strength/weakness polarity lexicon, per-position vocabulary,
 # NFL-comp inventory. Aggregate stats only (no verbatim copyrighted text).
+# Also writes data/voice/scribe-profile.json — the machine-readable voice spec.
 pnpm --filter @gmsim/truth-arbiter run scribe
+# audit mode: sample GMSim's generated prospect-take headlines (needs the engine
+# built) so the position-aware phrasing is eyeballable.
+pnpm --filter @gmsim/truth-arbiter run scribe audit
 
 # The Narrator — player-backstory taxonomy from the bios. Recruiting pedigree,
 # pedigree x draft round, backstory motifs, home-state geography.

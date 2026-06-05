@@ -29,6 +29,7 @@ import type { LifecyclePhase } from '../season/lifecycle.js';
 import type { SleeperChannel } from '../draft/sleepers.js';
 import { MediaReportId } from '../types/ids.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
+import { scoutTraitFor } from './scout-vocabulary.js';
 
 const SCHOOL_NAME_BY_ID = new Map<string, string>(
   COLLEGE_SCHOOLS.map((s) => [s.id, s.name] as const),
@@ -40,19 +41,21 @@ interface TakeTemplate {
 }
 
 // Templates keyed by channel; the "loud" set fires for high-hype outlets.
+// `{trait}` is a position-aware scouting phrase (see scout-vocabulary.ts) so a
+// QB take and an EDGE take no longer read identically.
 const TAPE_MEASURED: readonly TakeTemplate[] = [
-  { pattern: "Don't sleep on {name} ({school}) — quietly one of the more pro-ready {pos}s in this class.", tone: 'POSITIVE' },
+  { pattern: "Don't sleep on {name} ({school}) — the {trait} is quietly some of the best in this {pos} class.", tone: 'POSITIVE' },
   { pattern: '{name} is the kind of {pos} who plays 15 years without a Pro Bowl — {school} produced a pro.', tone: 'POSITIVE' },
-  { pattern: 'Scouts who watched the {school} tape keep coming back to {name}. Underrated, full stop.', tone: 'POSITIVE' },
+  { pattern: 'Scouts who watched the {school} tape keep coming back to {name}’s {trait}. Underrated, full stop.', tone: 'POSITIVE' },
 ];
 const TAPE_LOUD: readonly TakeTemplate[] = [
-  { pattern: "Nobody's talking about {name} ({school}) and it's criminal — this is a future starter.", tone: 'SPECULATIVE' },
-  { pattern: '{name} out of {school} is the steal of the entire draft. Book it.', tone: 'SPECULATIVE' },
-  { pattern: "I can't believe {name} isn't a household name. Best {pos} nobody's watching.", tone: 'SPECULATIVE' },
+  { pattern: "Nobody's talking about {name} ({school})’s {trait} and it's criminal — this is a future starter.", tone: 'SPECULATIVE' },
+  { pattern: '{name} out of {school} is the steal of the entire draft. The {trait} is real. Book it.', tone: 'SPECULATIVE' },
+  { pattern: "I can't believe {name} isn't a household name — best {trait} of any {pos} nobody's watching.", tone: 'SPECULATIVE' },
 ];
 const MEASURABLES_MEASURED: readonly TakeTemplate[] = [
   { pattern: 'The {school} tape is uneven, but {name}’s testing numbers give him a real NFL ceiling.', tone: 'POSITIVE' },
-  { pattern: '{name} is a developmental {pos}, but the athletic traits at {school} are worth a mid-round swing.', tone: 'NEUTRAL' },
+  { pattern: '{name} is a developmental {pos}, but the {trait} at {school} is worth a mid-round swing.', tone: 'NEUTRAL' },
 ];
 const MEASURABLES_LOUD: readonly TakeTemplate[] = [
   { pattern: "Forget the stats — {name} ({school}) is a workout freak with All-Pro tools. Someone's reaching.", tone: 'SPECULATIVE' },
@@ -85,10 +88,12 @@ export function buildProspectSleeperTake(
   const templates = pool(channel, loud);
   const template = prng.pick(templates);
   const school = SCHOOL_NAME_BY_ID.get(prospect.schoolId) ?? prospect.schoolId;
+  const trait = scoutTraitFor(prng.fork('trait'), prospect.nflProjectedPosition);
   const headline = template.pattern
     .replace(/\{name\}/g, `${prospect.firstName} ${prospect.lastName}`)
     .replace(/\{school\}/g, school)
-    .replace(/\{pos\}/g, prospect.nflProjectedPosition);
+    .replace(/\{pos\}/g, prospect.nflProjectedPosition)
+    .replace(/\{trait\}/g, trait);
 
   return {
     id: MediaReportId(`CTAKE_S${args.seasonNumber}_${outlet.id}_${prospect.id}`),
