@@ -72,11 +72,13 @@ function pickSchool(prng: Prng): CollegeSchool {
 }
 
 /**
- * ~5% of prospects are transfers. Transfer rolls are independent of
- * tier — top recruits and walk-ons both transfer in real life.
+ * ~34% of real NFL prospects transferred schools (the modern portal era —
+ * Beast bios). Tier-independent — top recruits and walk-ons both transfer.
+ * (Transfer is now a standalone biographical fact, not a narrative-tag
+ * override; see `transferred` on CollegePlayer.)
  */
 function rollIsTransfer(prng: Prng): boolean {
-  return prng.next() < 0.05;
+  return prng.next() < 0.34;
 }
 
 const CLASS_YEARS: readonly ClassYear[] = ['TRUE_FR', 'RS_FR', 'SO', 'JR', 'SR', 'RS_SR'];

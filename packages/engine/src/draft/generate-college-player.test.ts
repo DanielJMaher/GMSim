@@ -233,7 +233,7 @@ describe('generateCollegePlayer', () => {
     expect(cp.collegePosition).toBe(Position.QB);
   });
 
-  it('marks transfers via TRANSFER_PORTAL flag and TRANSFER background', () => {
+  it('marks transfers via the transferred fact + TRANSFER_PORTAL flag, not the background tag', () => {
     const cp = generateCollegePlayer(new Prng('xfer'), {
       idSuffix: 'T',
       classYear: 'SR',
@@ -241,8 +241,39 @@ describe('generateCollegePlayer', () => {
       simYear: 2026,
       isTransfer: true,
     });
-    expect(cp.recruiting.background).toBe('TRANSFER');
+    expect(cp.transferred).toBe(true);
     expect(cp.characterFlags).toContain('TRANSFER_PORTAL');
+    // transfer no longer overrides the recruiting-pedigree narrative tag
+    expect(cp.recruiting.background).not.toBe('TRANSFER');
+  });
+
+  it('redshirt classes (RS_FR / RS_SR) are always flagged redshirted', () => {
+    for (const classYear of ['RS_FR', 'RS_SR'] as const) {
+      const cp = generateCollegePlayer(new Prng(`rs-${classYear}`), {
+        idSuffix: `RS${classYear}`,
+        classYear,
+        school: ALABAMA,
+        simYear: 2026,
+      });
+      expect(cp.redshirted).toBe(true);
+    }
+  });
+
+  it('roughly 40% of (non-redshirt-class) prospects redshirted at some point', () => {
+    let redshirt = 0;
+    const SAMPLES = 800;
+    for (let i = 0; i < SAMPLES; i++) {
+      const cp = generateCollegePlayer(new Prng(`rsr-${i}`), {
+        idSuffix: `RSR${i}`,
+        classYear: 'JR', // not a redshirt class — exercises the roll
+        school: ALABAMA,
+        simYear: 2026,
+      });
+      if (cp.redshirted) redshirt++;
+    }
+    const rate = redshirt / SAMPLES;
+    expect(rate).toBeGreaterThanOrEqual(0.3);
+    expect(rate).toBeLessThanOrEqual(0.45);
   });
 
   it('star ratings cluster more 4-5 stars for STAR-tier prospects across a sample', () => {

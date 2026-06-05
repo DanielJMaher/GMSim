@@ -59,6 +59,8 @@ interface CollegeProspect {
   bloodline?: { hasNflFamily: boolean };
   characterFlags?: readonly string[];
   multiSportBackground?: boolean;
+  transferred?: boolean;
+  redshirted?: boolean;
   injuryHistory?: readonly unknown[];
 }
 interface MediaObs {
@@ -751,8 +753,9 @@ export async function generatedBackstoryClass(seed: string): Promise<BackstoryPr
       positionGroup: eng.positionGroupFor(cp.nflProjectedPosition),
       star: cp.recruiting.starRating,
       background: cp.recruiting.background,
-      isTransfer: cp.recruiting.background === 'TRANSFER' || flags.includes('TRANSFER_PORTAL'),
-      isRedshirt: typeof cp.classYear === 'string' && cp.classYear.startsWith('RS_'),
+      isTransfer: cp.transferred ?? flags.includes('TRANSFER_PORTAL'),
+      isRedshirt:
+        cp.redshirted ?? (typeof cp.classYear === 'string' && cp.classYear.startsWith('RS_')),
       isWalkOn: cp.recruiting.background === 'WALK_ON_STORY',
       hasBloodline: cp.bloodline?.hasNflFamily ?? flags.includes('LEGACY'),
       isCaptain: flags.includes('CAPTAIN'),

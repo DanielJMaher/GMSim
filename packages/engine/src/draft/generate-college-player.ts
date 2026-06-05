@@ -174,13 +174,19 @@ export function generateCollegePlayer(
     prng: prng.fork('recruit'),
     tier,
     school: options.school,
-    isTransfer,
   });
   const injuryHistory = rollInjuryHistory(prng.fork('injuries'), options.classYear);
   const multiSportBackground = rollMultiSportBackground(
     prng.fork('multisport'),
     positionGroupFor(projection.projected),
   );
+  // Redshirted at some point (~40% of real prospects). RS_FR / RS_SR redshirted
+  // by definition; everyone else rolls — base chosen so the drafted set lands
+  // near the real 40%.
+  const redshirted =
+    options.classYear === 'RS_FR' ||
+    options.classYear === 'RS_SR' ||
+    prng.fork('redshirt').next() < 0.37;
 
   const collegeStats = rollCollegeStats({
     prng: prng.fork('stats'),
@@ -254,6 +260,8 @@ export function generateCollegePlayer(
     bloodline,
     characterFlags,
     multiSportBackground,
+    transferred: isTransfer,
+    redshirted,
     injuryHistory,
     collegeStats,
   };

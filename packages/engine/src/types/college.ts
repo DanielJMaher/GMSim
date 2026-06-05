@@ -447,6 +447,19 @@ export interface CollegePlayer {
    * for skill / DB athletes and rarer in the trenches. Pure narrative.
    */
   multiSportBackground: boolean;
+  /**
+   * Transferred schools at some point (the modern portal era — ~34% of real
+   * NFL prospects, rising on Day 3). A biographical FACT independent of the
+   * `recruiting.background` narrative tag: a blue-chip who transferred is still
+   * PEDIGREE and also carries this + the TRANSFER_PORTAL character flag.
+   */
+  transferred: boolean;
+  /**
+   * Took a redshirt year at some point (~40% of real prospects). Independent of
+   * the current `classYear` label — a redshirt-junior reads JR but redshirted.
+   * Always true when classYear is RS_FR / RS_SR.
+   */
+  redshirted: boolean;
   /** Past injuries through their college career. */
   injuryHistory: readonly CollegeInjury[];
 

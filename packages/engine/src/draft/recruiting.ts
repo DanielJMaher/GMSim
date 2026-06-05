@@ -117,17 +117,18 @@ export function rollHometown(prng: Prng): Hometown {
  *   DEVELOPMENTAL    — 2-3 star at POWER who improved year-over-year
  *   SMALL_SCHOOL_GEM — anything at GROUP_OF_5 / FCS / SMALL with real talent
  *   WALK_ON_STORY    — 1-star or unranked who emerged
- *   TRANSFER         — overrides others; supplied by caller iff prospect transferred
+ *
+ * The tag reflects RECRUITING PEDIGREE only. Transferring is now a separate
+ * biographical fact (`transferred`) — a blue-chip who transferred keeps his
+ * PEDIGREE arc — so it no longer overrides this tag (the old `TRANSFER` value
+ * is retained in the union for back-compat but is no longer produced here).
  */
 export function deriveBackground(
   prng: Prng,
   star: StarRating,
   school: CollegeSchool,
   tier: TalentTier,
-  isTransfer: boolean,
 ): RecruitingBackground {
-  if (isTransfer) return 'TRANSFER';
-
   if (school.tier === 'SMALL' || school.tier === 'FCS') {
     return star === 1 || (star === 2 && prng.next() < 0.4) ? 'WALK_ON_STORY' : 'SMALL_SCHOOL_GEM';
   }
@@ -147,7 +148,6 @@ export interface RollRecruitingProfileOptions {
   prng: Prng;
   tier: TalentTier;
   school: CollegeSchool;
-  isTransfer: boolean;
 }
 
 export function rollRecruitingProfile(options: RollRecruitingProfileOptions): RecruitingProfile {
@@ -159,7 +159,6 @@ export function rollRecruitingProfile(options: RollRecruitingProfileOptions): Re
     star,
     options.school,
     options.tier,
-    options.isTransfer,
   );
   return {
     starRating: star,
