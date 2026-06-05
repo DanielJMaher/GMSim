@@ -160,6 +160,31 @@ export interface TeamWeekReport extends MediaReportBase {
 }
 
 /**
+ * A multi-point scouting writeup body — the prose BENEATH a take's headline
+ * (v0.118, the Scribe deepened into the engine). The headline is the one-liner;
+ * this is the fuller report a real outlet files: a lead read, a couple of
+ * position-aware strengths, one honest concern, and a bottom-line projection,
+ * all in the outlet's voice (loud outlets reach for intensifiers and bolder
+ * projections; measured outlets stay grounded and hedge). Optional archetype-
+ * style comp ("in the mold of a prototypical move tight end").
+ *
+ * Per North Star this is OBSERVABLE media output, but it stays qualitative —
+ * it never cites a true rating, grade, or tier number (no ground-truth leak).
+ */
+export interface ScoutReportBody {
+  /** Lead read — one sentence framing the prospect. */
+  summary: string;
+  /** 1–2 position-aware strength notes, in the outlet's voice. */
+  strengths: readonly string[];
+  /** One honest concern — every real report carries one. */
+  concern: string;
+  /** Bottom-line projection sentence. */
+  bottomLine: string;
+  /** Optional archetype-style comp; omitted when the outlet doesn't reach for one. */
+  comp?: string;
+}
+
+/**
  * Future kind (college-season slice + NFL player-take coverage).
  * Defined now so the discriminated union doesn't change shape later.
  * No generator in v0.62.
@@ -174,6 +199,12 @@ export interface PlayerTakeReport extends MediaReportBase {
    * league.collegePool.
    */
   subjectIsCollegeProspect: boolean;
+  /**
+   * The fuller scouting writeup beneath the headline (v0.118). Optional so
+   * pre-v0.118 reports (and the mock-board kind) stay valid; college sleeper
+   * takes now carry one.
+   */
+  scoutReport?: ScoutReportBody;
 }
 
 /**

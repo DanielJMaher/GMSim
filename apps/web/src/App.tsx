@@ -997,6 +997,19 @@ function CollegeProspectDetail({
     return out;
   }, [league.teams, league.draftBoards, prospect.id]);
 
+  // Media takes about this prospect that carry a fuller scout report (v0.118) —
+  // the Scribe's prose beneath the headline.
+  const mediaScoutReports = useMemo(
+    () =>
+      league.mediaReports
+        .filter(
+          (r): r is Extract<MediaReport, { kind: 'player-take' }> =>
+            r.kind === 'player-take' && r.subjectPlayerId === prospect.id && !!r.scoutReport,
+        )
+        .map((r) => ({ report: r, outlet: league.mediaOutlets[r.outletId] })),
+    [league.mediaReports, league.mediaOutlets, prospect.id],
+  );
+
   const m = prospect.measurables;
   const intang = prospect.hiddenIntangibles;
 
@@ -1186,6 +1199,39 @@ function CollegeProspectDetail({
                 {FLAG_LABELS[f]}
               </span>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Media scouting reports — the Scribe's prose beneath each take (v0.118) */}
+      {mediaScoutReports.length > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Media scouting reports
+          </div>
+          <div className="space-y-2">
+            {mediaScoutReports.map(({ report, outlet }) => {
+              const sr = report.scoutReport!;
+              return (
+                <div key={report.id} className="border-l-2 border-zinc-700 pl-2">
+                  <div className="text-[10px] uppercase tracking-wider text-sky-400/80">
+                    {outlet?.name ?? report.outletId}
+                  </div>
+                  <div className="text-zinc-300">{report.headline}</div>
+                  <div className="mt-1 text-zinc-400">{sr.summary}</div>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {sr.strengths.map((s, i) => (
+                      <li key={i} className="text-emerald-300/80">
+                        + {s}
+                      </li>
+                    ))}
+                    <li className="text-amber-300/80">– {sr.concern}</li>
+                  </ul>
+                  {sr.comp && <div className="mt-0.5 italic text-zinc-500">{sr.comp}</div>}
+                  <div className="mt-0.5 text-zinc-300">→ {sr.bottomLine}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

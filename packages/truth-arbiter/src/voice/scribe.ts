@@ -265,6 +265,30 @@ async function runAudit(): Promise<void> {
     console.log(`  [${t.position.padEnd(6)}] ${t.headline}`);
   }
   console.log(`\n  (${seen.size} positions represented across ${takes.length} takes)`);
+
+  // ── richer scout-report prose (v0.118) ─────────────────────────────────────
+  const withReport = takes.filter((t) => t.scoutReport);
+  console.log(`\n  FULLER WRITEUPS — ${withReport.length}/${takes.length} takes carry a scout report.`);
+  console.log(
+    '  A report is the prose BENEATH the headline: a lead read, position-aware\n' +
+      '  strengths, an honest concern, a bottom line. Loud outlets reach for the\n' +
+      '  hype register and bolder projections; measured outlets stay grounded.\n',
+  );
+  const loud = withReport.find((t) => t.outletHype >= 6);
+  const measured = withReport.find((t) => t.outletHype < 6);
+  for (const [label, t] of [
+    ['LOUD    ', loud],
+    ['MEASURED', measured],
+  ] as const) {
+    if (!t?.scoutReport) continue;
+    const r = t.scoutReport;
+    console.log(`  ── ${label} · ${t.position} (outlet hype ${t.outletHype}) ──`);
+    console.log(`     ${r.summary}`);
+    for (const s of r.strengths) console.log(`       + ${s}`);
+    console.log(`       – ${r.concern}`);
+    if (r.comp) console.log(`       ~ ${r.comp}`);
+    console.log(`     → ${r.bottomLine}\n`);
+  }
   /* eslint-enable no-console */
 }
 

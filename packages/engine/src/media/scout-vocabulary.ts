@@ -53,3 +53,19 @@ export function scoutTraitFor(prng: Prng, position: Position): string {
   const bucket = POSITION_TO_BUCKET[position] ?? 'ST';
   return prng.pick(TRAITS[bucket]);
 }
+
+/**
+ * `n` DISTINCT position-appropriate trait phrases (for a multi-point scout
+ * report — a real writeup cites two or three different things, never the same
+ * trait twice). Falls back to fewer if the bucket is small. Deterministic.
+ */
+export function scoutTraitsFor(prng: Prng, position: Position, n: number): string[] {
+  const bucket = POSITION_TO_BUCKET[position] ?? 'ST';
+  const pool = [...TRAITS[bucket]];
+  const out: string[] = [];
+  const take = Math.min(n, pool.length);
+  for (let i = 0; i < take; i++) {
+    out.push(pool.splice(prng.nextInt(pool.length), 1)[0]!);
+  }
+  return out;
+}

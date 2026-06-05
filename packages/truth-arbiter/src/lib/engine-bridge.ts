@@ -133,10 +133,13 @@ interface EngineLeague {
   draftBoards: Record<string, unknown>;
   lifecyclePhase: string;
   mediaCollegeObservations: readonly MediaObs[];
+  mediaOutlets: Record<string, { hypeSpectrum: number } | undefined>;
   mediaReports: readonly {
     kind: string;
     headline: string;
+    outletId: string;
     subjectPlayerId?: string;
+    scoutReport?: GmsimScoutReport;
   }[];
 }
 
@@ -773,10 +776,22 @@ export async function generatedBackstoryClass(seed: string): Promise<BackstoryPr
 
 // ── The Scribe: GMSim generated prospect-take phrasing ───────────────────────
 
+export interface GmsimScoutReport {
+  summary: string;
+  strengths: readonly string[];
+  concern: string;
+  bottomLine: string;
+  comp?: string;
+}
+
 export interface GmsimTake {
   positionGroup: string;
   position: string;
   headline: string;
+  /** Hype register of the filing outlet, so the audit can show voice variance. */
+  outletHype: number;
+  /** The fuller writeup beneath the headline (v0.118), if present. */
+  scoutReport?: GmsimScoutReport;
 }
 
 /**
@@ -799,7 +814,13 @@ export async function gmsimProspectTakes(seed: string): Promise<GmsimTake[]> {
     if (r.kind !== 'player-take' || !r.subjectPlayerId) continue;
     const pos = posById.get(r.subjectPlayerId);
     if (!pos) continue;
-    out.push({ positionGroup: eng.positionGroupFor(pos), position: pos, headline: r.headline });
+    out.push({
+      positionGroup: eng.positionGroupFor(pos),
+      position: pos,
+      headline: r.headline,
+      outletHype: league.mediaOutlets[r.outletId]?.hypeSpectrum ?? 5,
+      ...(r.scoutReport ? { scoutReport: r.scoutReport } : {}),
+    });
   }
   return out;
 }

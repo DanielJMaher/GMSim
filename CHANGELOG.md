@@ -16,6 +16,31 @@ _Nothing yet._
 
 ---
 
+## [0.118.0] — 2026-06-05
+
+### Added
+
+- **Scout-report prose beneath every prospect take — the Scribe, deepened into
+  the engine.** A take used to be a single headline; now each college
+  sleeper-alert take carries a fuller writeup (`media/scout-report.ts`): a lead
+  read, one or two **position-aware** strengths (reusing the per-position trait
+  vocabulary), one **honest concern** (a report with no weakness is hype, not
+  scouting), and a bottom-line projection — all in the filing outlet's **voice**.
+  Loud outlets (hype ≥ 6) reach for the hype register ("rare", "elite") and a
+  bolder projection; measured outlets stay grounded and write fewer points. An
+  occasional **archetype-style comp** ("in the mold of a classic Move TE") honors
+  the Scribe's measured comp rate without referencing real NFL names (a
+  generated-legend name pool is a future slice). Grounded in the Scribe's
+  measured fingerprints; qualitative only (no ground-truth rating/grade leak);
+  deterministic.
+- **Inspector — prospect detail shows the media scouting reports.** A new "Media
+  scouting reports" panel renders each outlet's headline + the fuller writeup
+  (summary, strength bullets, concern, comp, bottom line) for the selected
+  prospect. `run scribe audit` now prints a loud vs measured full writeup so the
+  voice variance is eyeball-able.
+
+---
+
 ## [0.117.0] — 2026-06-03
 
 ### Changed

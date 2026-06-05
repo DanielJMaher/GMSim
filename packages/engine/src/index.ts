@@ -180,6 +180,8 @@ export {
 } from './media/prospect-evaluators.js';
 export type { MediaCoverageOptions } from './media/prospect-evaluators.js';
 export { buildProspectSleeperTake } from './media/prospect-takes.js';
+export { buildScoutReport } from './media/scout-report.js';
+export { scoutTraitFor, scoutTraitsFor } from './media/scout-vocabulary.js';
 export {
   computeOutletMockBoard,
   computeMediaConsensusBoard,
@@ -204,6 +206,7 @@ export type {
   PlayerTakeReport,
   ProspectBoardReport,
   NarrativeReport,
+  ScoutReportBody,
 } from './types/media.js';
 export type { MediaOutletId, MediaReportId } from './types/ids.js';
 

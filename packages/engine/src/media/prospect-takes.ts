@@ -30,6 +30,7 @@ import type { SleeperChannel } from '../draft/sleepers.js';
 import { MediaReportId } from '../types/ids.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import { scoutTraitFor } from './scout-vocabulary.js';
+import { buildScoutReport } from './scout-report.js';
 
 const SCHOOL_NAME_BY_ID = new Map<string, string>(
   COLLEGE_SCHOOLS.map((s) => [s.id, s.name] as const),
@@ -95,6 +96,10 @@ export function buildProspectSleeperTake(
     .replace(/\{pos\}/g, prospect.nflProjectedPosition)
     .replace(/\{trait\}/g, trait);
 
+  // The fuller writeup beneath the headline (v0.118). Dedicated fork so adding
+  // it doesn't disturb the headline's RNG stream.
+  const scoutReport = buildScoutReport(prng.fork('report'), { prospect, outlet });
+
   return {
     id: MediaReportId(`CTAKE_S${args.seasonNumber}_${outlet.id}_${prospect.id}`),
     outletId: outlet.id,
@@ -107,6 +112,7 @@ export function buildProspectSleeperTake(
     kind: 'player-take',
     subjectPlayerId: prospect.id,
     subjectIsCollegeProspect: true,
+    scoutReport,
   };
 }
 
