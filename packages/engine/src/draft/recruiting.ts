@@ -6,7 +6,8 @@ import type {
   CollegeSchool,
   Hometown,
 } from '../types/college.js';
-import type { TalentTier } from '../types/player.js';
+import type { TalentTier, TalentGrade } from '../types/player.js';
+import { gradeToTier } from '../players/skills.js';
 import { HOMETOWN_POOLS } from '../data/colleges/hometowns.js';
 
 const STAR_DISTRIBUTION: ReadonlyArray<{ value: StarRating; weight: number }> = [
@@ -18,9 +19,34 @@ const STAR_DISTRIBUTION: ReadonlyArray<{ value: StarRating; weight: number }> = 
 ];
 
 /**
- * Roll a star rating biased loosely by the prospect's true NFL tier.
- * The correlation is intentional but loose: 5-star busts and walk-on
- * stars are real. Roughly:
+ * Per-FINE-GRADE recruiting-star weights (talent-spread / pedigree-curve fix,
+ * 2026-06-04). The coarse 4-tier roll below could not reproduce the real
+ * drafted-population pedigree curve (Narrator audit): the curve is wider at the
+ * top (true elites were nearly all blue-chips) and has a HIGH floor (even Day-3
+ * picks were ~33% 4-5★ recruits who busted) — resolution the 4-tier lacks.
+ * Keying off the fine 8-grade reproduces it. Real targets the audit checks:
+ * blue-chip (4-5★) share 62%(R1) → 48 → 39 → 33 → 33 → 33%(UDFA), avg★ 3.9→3.3.
+ * Loose by design — 5-star busts and walk-on stars stay common.
+ */
+const STAR_WEIGHTS_BY_GRADE: Record<TalentGrade, ReadonlyArray<{ value: StarRating; weight: number }>> = {
+  ELITE: [{ value: 5, weight: 46 }, { value: 4, weight: 40 }, { value: 3, weight: 11 }, { value: 2, weight: 2 }, { value: 1, weight: 1 }], // 86% blue
+  STAR: [{ value: 5, weight: 26 }, { value: 4, weight: 44 }, { value: 3, weight: 23 }, { value: 2, weight: 5 }, { value: 1, weight: 2 }], // 70%
+  HIGH_STARTER: [{ value: 5, weight: 12 }, { value: 4, weight: 35 }, { value: 3, weight: 38 }, { value: 2, weight: 12 }, { value: 1, weight: 3 }], // 47%
+  STARTER: [{ value: 5, weight: 5 }, { value: 4, weight: 26 }, { value: 3, weight: 46 }, { value: 2, weight: 18 }, { value: 1, weight: 5 }], // 31%
+  WEAK_STARTER: [{ value: 5, weight: 4 }, { value: 4, weight: 25 }, { value: 3, weight: 47 }, { value: 2, weight: 19 }, { value: 1, weight: 5 }], // 29%
+  ROTATIONAL: [{ value: 5, weight: 3 }, { value: 4, weight: 24 }, { value: 3, weight: 48 }, { value: 2, weight: 20 }, { value: 1, weight: 5 }], // 27%
+  BACKUP: [{ value: 5, weight: 2 }, { value: 4, weight: 22 }, { value: 3, weight: 48 }, { value: 2, weight: 22 }, { value: 1, weight: 6 }], // 24%
+  FRINGE: [{ value: 5, weight: 1 }, { value: 4, weight: 13 }, { value: 3, weight: 46 }, { value: 2, weight: 30 }, { value: 1, weight: 10 }], // 14%
+};
+
+/** Roll a recruiting star rating from the prospect's true fine talent grade. */
+export function rollStarRatingByGrade(prng: Prng, grade: TalentGrade): StarRating {
+  return prng.weighted(STAR_WEIGHTS_BY_GRADE[grade]);
+}
+
+/**
+ * Legacy coarse-tier star roll. Retained for back-compat (exported); generation
+ * now uses {@link rollStarRatingByGrade}. Loose correlation:
  *
  *   STAR    → ~25% 5-star, 35% 4-star, 25% 3-star, rest 1-2
  *   STARTER → ~5% 5-star,  20% 4-star, 35% 3-star, rest 1-2
@@ -146,19 +172,20 @@ export function deriveBackground(
 
 export interface RollRecruitingProfileOptions {
   prng: Prng;
-  tier: TalentTier;
+  /** True fine talent grade — drives the star rating (pedigree curve). */
+  grade: TalentGrade;
   school: CollegeSchool;
 }
 
 export function rollRecruitingProfile(options: RollRecruitingProfileOptions): RecruitingProfile {
-  const star = rollStarRating(options.prng.fork('star'), options.tier);
+  const star = rollStarRatingByGrade(options.prng.fork('star'), options.grade);
   const nationalRank = rollNationalRank(options.prng.fork('rank'), star);
   const hometown = rollHometown(options.prng.fork('hometown'));
   const background = deriveBackground(
     options.prng.fork('background'),
     star,
     options.school,
-    options.tier,
+    gradeToTier(options.grade),
   );
   return {
     starRating: star,

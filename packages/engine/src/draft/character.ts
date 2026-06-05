@@ -199,13 +199,14 @@ export function rollCharacterFlags(options: RollCharacterFlagsOptions): readonly
 }
 
 /**
- * Roll bloodline. ~7% of prospects have a meaningful NFL family
- * connection. Within that, FATHER is most common, BROTHER next,
+ * Roll bloodline. ~10% of prospects have a meaningful NFL family
+ * connection (real ~11% in the Beast bios). Within that, FATHER is most
+ * common, BROTHER next,
  * UNCLE / COUSIN rare. The ~25% of those whose relative was a star
  * carry extra narrative weight (HOF father).
  */
 export function rollBloodline(prng: Prng, lastName: string): Bloodline {
-  if (prng.next() >= 0.07) {
+  if (prng.next() >= 0.1) {
     return { hasNflFamily: false, relation: null, relativeName: null, relativeWasStar: false };
   }
   const relationRoll = prng.next();
