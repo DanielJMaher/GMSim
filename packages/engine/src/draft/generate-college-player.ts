@@ -172,7 +172,7 @@ export function generateCollegePlayer(
   const isTransfer = options.isTransfer ?? false;
   const recruiting = rollRecruitingProfile({
     prng: prng.fork('recruit'),
-    tier,
+    grade: skillRoll.talentGrade,
     school: options.school,
   });
   const injuryHistory = rollInjuryHistory(prng.fork('injuries'), options.classYear);
