@@ -4,7 +4,7 @@ import {
   STRENGTH_LEADS_MEASURED,
   STRENGTH_LEADS_LOUD,
 } from './scout-report.js';
-import { scoutTraitsFor } from './scout-vocabulary.js';
+import { scoutTraitsFor, scoutConcernFor } from './scout-vocabulary.js';
 import { createLeague } from '../league/generate.js';
 import { Prng } from '../prng/index.js';
 import type { MediaOutlet, ScoutReportBody } from '../types/media.js';
@@ -70,6 +70,17 @@ describe('buildScoutReport', () => {
     expect(qbReport.strengths).not.toEqual(edgeReport.strengths);
   });
 
+  it('concern names a position-specific failure mode (the weakness pole)', () => {
+    // The QB-specific failure mode appears in a QB report's concern across seeds.
+    const qbConcerns = ['c1', 'c2', 'c3', 'c4', 'c5'].map(
+      (s) => buildScoutReport(new Prng(s), { prospect: qb, outlet: measuredOutlet }).concern,
+    );
+    // Every weakness phrase for QB is a possible substring; at least one of the
+    // distinctly-QB ones should turn up, and never an EDGE-only failure mode.
+    expect(qbConcerns.some((c) => /read|pocket|throw|placement|footwork/.test(c))).toBe(true);
+    expect(qbConcerns.some((c) => /edge|pass-rush|against the run/.test(c))).toBe(false);
+  });
+
   it('formats an archetype-style comp when one is present (no real names, no numbers)', () => {
     // Sweep seeds until a comp surfaces, then assert its shape.
     let withComp: ScoutReportBody | undefined;
@@ -94,5 +105,18 @@ describe('scoutTraitsFor', () => {
     const qbTraits = new Set(scoutTraitsFor(new Prng('q'), 'QB', 3));
     const edgeTraits = new Set(scoutTraitsFor(new Prng('q'), 'EDGE', 3));
     for (const t of qbTraits) expect(edgeTraits.has(t)).toBe(false);
+  });
+});
+
+describe('scoutConcernFor', () => {
+  it('returns a position-appropriate weakness phrase, deterministically', () => {
+    expect(scoutConcernFor(new Prng('w'), 'QB')).toBe(scoutConcernFor(new Prng('w'), 'QB'));
+    expect(scoutConcernFor(new Prng('w'), 'QB').length).toBeGreaterThan(0);
+  });
+
+  it('weakness vocab is position-specific (QB failure modes differ from EDGE)', () => {
+    const qbWeak = new Set(['w1', 'w2', 'w3', 'w4', 'w5'].map((s) => scoutConcernFor(new Prng(s), 'QB')));
+    const edgeWeak = new Set(['w1', 'w2', 'w3', 'w4', 'w5'].map((s) => scoutConcernFor(new Prng(s), 'EDGE')));
+    for (const w of qbWeak) expect(edgeWeak.has(w)).toBe(false);
   });
 });

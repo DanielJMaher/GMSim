@@ -27,7 +27,7 @@ import type { Prng } from '../prng/index.js';
 import type { CollegePlayer } from '../types/college.js';
 import type { MediaOutlet, ScoutReportBody } from '../types/media.js';
 import { getArchetypeById } from '../archetypes/index.js';
-import { scoutTraitsFor } from './scout-vocabulary.js';
+import { scoutTraitsFor, scoutConcernFor } from './scout-vocabulary.js';
 
 // Lead reads — frame the prospect at his projected position. `{pos}` only.
 const SUMMARY_TEMPLATES: readonly string[] = [
@@ -55,17 +55,20 @@ export const STRENGTH_LEADS_LOUD: readonly string[] = [
   'flat-out wins with',
 ];
 
-// Concern phrasings. Measured states it plainly; loud minimizes it. `{trait}`.
+// Concern phrasings. `{w}` is a position-specific WEAKNESS phrase (the down pole
+// of the Scribe's per-position polarity) — so a QB's concern names a QB's
+// failure mode, not a negated compliment. Measured states it plainly; loud
+// minimizes it.
 const CONCERN_MEASURED: readonly string[] = [
-  'Needs to clean up his {trait}.',
-  'Can be inconsistent with his {trait}.',
-  'Questions remain about the {trait}.',
-  'Has to prove the {trait} holds up against better competition.',
+  'The concern is {w}.',
+  'On tape, {w} shows up.',
+  'Scouts will flag {w}.',
+  'He has to clean up {w} against better competition.',
 ];
 const CONCERN_LOUD: readonly string[] = [
-  'The only nit is the odd lapse in {trait} — nothing that scares you.',
-  "You'd like more polish in his {trait}, but that's coaching.",
-  'If you push, the {trait} can come and go — minor stuff.',
+  'The only nit is {w} — nothing that scares you.',
+  "You'd like to see less {w}, but that's coaching.",
+  'If you push, {w} can show up — minor stuff.',
 ];
 
 // Bottom-line projections. Qualitative buzz — no true tier leak.
@@ -84,11 +87,15 @@ const BOTTOM_LOUD: readonly string[] = [
 
 const COMP_ADJECTIVES: readonly string[] = ['prototypical', 'classic', 'modern', 'high-floor'];
 
-function fill(template: string, name: string, pos: string, trait: string): string {
+function fill(
+  template: string,
+  vals: { name?: string; pos?: string; trait?: string; w?: string },
+): string {
   return template
-    .replace(/\{name\}/g, name)
-    .replace(/\{pos\}/g, pos)
-    .replace(/\{trait\}/g, trait);
+    .replace(/\{name\}/g, vals.name ?? '')
+    .replace(/\{pos\}/g, vals.pos ?? '')
+    .replace(/\{trait\}/g, vals.trait ?? '')
+    .replace(/\{w\}/g, vals.w ?? '');
 }
 
 /**
@@ -105,9 +112,9 @@ export function buildScoutReport(
   const name = `${prospect.firstName} ${prospect.lastName}`;
   const pos = prospect.nflProjectedPosition;
 
-  // Two distinct traits → one or two strength bullets (loud outlets write the
-  // extra one). Plus a separate trait for the concern.
-  const traits = scoutTraitsFor(prng.fork('traits'), pos, 3);
+  // Two distinct positive traits → one or two strength bullets (loud outlets
+  // write the extra one).
+  const traits = scoutTraitsFor(prng.fork('traits'), pos, 2);
   const strengthLeads = loud ? STRENGTH_LEADS_LOUD : STRENGTH_LEADS_MEASURED;
   const leadPrng = prng.fork('leads');
   const strengthCount = loud ? 2 : 1 + (prng.fork('count').next() < 0.4 ? 1 : 0);
@@ -116,11 +123,12 @@ export function buildScoutReport(
     strengths.push(`${leadPrng.pick(strengthLeads)} ${traits[i]}`.replace(/^./, (c) => c.toUpperCase()));
   }
 
-  // Concern uses the last trait so it never repeats a strength.
-  const concernTrait = traits[traits.length - 1] ?? 'his overall game';
-  const concern = fill(prng.fork('concern').pick(loud ? CONCERN_LOUD : CONCERN_MEASURED), name, pos, concernTrait);
+  // Concern names a position-specific failure mode (the weakness pole), so it
+  // reads like a real flag rather than a negated strength.
+  const weakness = scoutConcernFor(prng.fork('weakness'), pos);
+  const concern = fill(prng.fork('concern').pick(loud ? CONCERN_LOUD : CONCERN_MEASURED), { w: weakness });
 
-  const summary = fill(prng.fork('summary').pick(SUMMARY_TEMPLATES), name, pos, traits[0] ?? '');
+  const summary = fill(prng.fork('summary').pick(SUMMARY_TEMPLATES), { name, pos, trait: traits[0] ?? '' });
   const bottomLine = prng.fork('bottom').pick(loud ? BOTTOM_LOUD : BOTTOM_MEASURED);
 
   // Comp: media reads the ASSUMED archetype (what college coaching is calling

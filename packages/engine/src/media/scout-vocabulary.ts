@@ -48,10 +48,35 @@ const TRAITS: Record<VocabBucket, readonly string[]> = {
   ST: ['leg strength', 'pinpoint placement', 'consistent operation time', 'pressure-proof composure'],
 };
 
+// Bare noun phrases naming the position-specific FAILURE MODE — the weakness
+// pole of the Scribe's per-position polarity (the words real reports reach for
+// on the down side, distinct per position; see the Scribe's `positionPolarity`).
+// They slot after "the concern is {w}" / "{w} shows up on tape".
+const WEAKNESS_TRAITS: Record<VocabBucket, readonly string[]> = {
+  QB: ['happy feet under pressure', 'a tendency to stare down the first read', 'erratic placement on the move', 'lateness driving throws into tight windows', 'inconsistent footwork from clean pockets'],
+  RB: ['shaky pass protection', 'a habit of dancing instead of hitting the hole', 'a limited route tree out of the backfield', 'ball security in traffic'],
+  WR: ['a narrow route tree', 'body-catching away from his frame', 'inconsistent releases against press', 'drops on contested catches'],
+  TE: ['inline blocking that lags the receiving game', 'tightness sinking his hips', 'a limited catch radius', 'effort as a run blocker'],
+  OL: ['lunging and waist-bending in space', 'heavy feet redirecting to counters', 'hand placement that drifts late in reps', 'a high pad level out of his stance'],
+  EDGE: ['a limited counter-rush plan', 'getting washed against the run', 'a high pad level off the edge', 'stiffness flattening to the quarterback'],
+  DT: ['pad level that rises out of his stance', 'a thin pass-rush plan', 'wearing down on long drives', 'getting moved off the spot against doubles'],
+  LB: ['false steps in his run fits', 'stiffness opening his hips in coverage', 'getting caught up in the wash', 'over-aggression against play-action'],
+  CB: ['grabbiness at the top of the route', 'a tendency to peek into the backfield', 'tightness flipping his hips', 'inconsistent tackling in run support'],
+  S: ['tightness in deep transitions', 'poor angles to the football', 'a tendency to bite on play-action', 'inconsistent tackling in the alley'],
+  ST: ['inconsistent operation time', 'leg strength on the longer attempts', 'directional consistency'],
+};
+
 /** A position-appropriate positive scouting trait phrase. */
 export function scoutTraitFor(prng: Prng, position: Position): string {
   const bucket = POSITION_TO_BUCKET[position] ?? 'ST';
   return prng.pick(TRAITS[bucket]);
+}
+
+/** A position-appropriate WEAKNESS phrase — the failure mode scouts flag for
+ *  that position (the down pole of the per-position polarity). */
+export function scoutConcernFor(prng: Prng, position: Position): string {
+  const bucket = POSITION_TO_BUCKET[position] ?? 'ST';
+  return prng.pick(WEAKNESS_TRAITS[bucket]);
 }
 
 /**

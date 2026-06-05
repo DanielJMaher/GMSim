@@ -181,7 +181,7 @@ export {
 export type { MediaCoverageOptions } from './media/prospect-evaluators.js';
 export { buildProspectSleeperTake } from './media/prospect-takes.js';
 export { buildScoutReport } from './media/scout-report.js';
-export { scoutTraitFor, scoutTraitsFor } from './media/scout-vocabulary.js';
+export { scoutTraitFor, scoutTraitsFor, scoutConcernFor } from './media/scout-vocabulary.js';
 export {
   narrateBackstory,
   backstoryFromProspect,

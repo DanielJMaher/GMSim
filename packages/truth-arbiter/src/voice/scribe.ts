@@ -177,6 +177,29 @@ async function main(): Promise<void> {
     console.log(`  ${pos.padEnd(4)} (${String(texts.length).padStart(4)}): ${top.slice(0, 8).join(', ')}`);
   }
 
+  // ---- 3b. per-position polarity ----
+  // The global polarity lexicon (section 2) says which words mark a strength vs
+  // a weakness across the whole board; this splits it BY POSITION, so the
+  // weakness pole of a QB ("happy feet / stares down") differs from a tackle's
+  // ("lunges / heavy feet"). This is what lets a generated scout-report concern
+  // name a position-specific failure mode instead of a negated compliment.
+  console.log('\n3b. PER-POSITION POLARITY  (strength vs weakness signal, within each group)');
+  const positionPolarity: Record<string, { strengthSignal: string[]; weaknessSignal: string[] }> = {};
+  for (const pos of positions) {
+    const group = beast.filter((p) => p.position === pos);
+    const sTexts = group.flatMap((p) => p.strengths ?? []);
+    const wTexts = group.flatMap((p) => p.weaknesses ?? []);
+    if (sTexts.length < 30 || wTexts.length < 30) continue; // too few to characterize
+    const ranked = logOdds(countTerms(sTexts), countTerms(wTexts), { minCount: 5 });
+    const { head, tail } = headTail(ranked, 10);
+    positionPolarity[pos] = {
+      strengthSignal: head.map((t) => t.term),
+      weaknessSignal: tail.map((t) => t.term),
+    };
+    console.log(`  ${pos.padEnd(4)} S: ${head.slice(0, 6).map((t) => t.term).join(', ')}`);
+    console.log(`       W: ${tail.slice(0, 6).map((t) => t.term).join(', ')}`);
+  }
+
   // ---- 4. comp inventory ----
   console.log('\n4. COMP INVENTORY  (NFL players scouts reach for as a reference)');
   const comps = new Map<string, number>();
@@ -232,6 +255,7 @@ async function main(): Promise<void> {
       weaknessSignal: tail.map((t) => t.term),
     },
     positionVocab,
+    positionPolarity,
     topComps: ranked.slice(0, 30).map(([n, c]) => ({ name: n, count: c })),
   };
   const outDir = resolve(DATA_DIR, 'voice');

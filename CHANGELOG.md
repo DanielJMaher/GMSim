@@ -16,6 +16,25 @@ _Nothing yet._
 
 ---
 
+## [0.120.0] — 2026-06-05
+
+### Added
+
+- **Per-position polarity — scout-report concerns now name a position-specific
+  failure mode.** A concern used to be a negated compliment ("needs to clean up
+  his pocket poise"); now it names the real down-pole flaw for that position
+  (QB: "happy feet under pressure" / "a tendency to stare down the first read";
+  OL: "lunging and waist-bending in space"; CB: "grabbiness at the top of the
+  route"). New `scoutConcernFor` + per-position `WEAKNESS_TRAITS` in
+  `media/scout-vocabulary.ts`, wired into the scout-report concern. Loud outlets
+  still minimize it ("the only nit is … — nothing that scares you").
+- **The Scribe emits per-position polarity.** `scribe-profile.json` gains
+  `positionPolarity` — the strength-vs-weakness log-odds signal computed *within*
+  each position group (not just the global lexicon), the measured anchor the
+  engine's hand-authored weakness vocab is grounded in. `run scribe` prints it.
+
+---
+
 ## [0.119.0] — 2026-06-05
 
 ### Added
