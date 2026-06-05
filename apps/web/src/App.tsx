@@ -8622,7 +8622,14 @@ function DraftGradeCell({
 // grounded (divergence vs consensus is color-coded).
 
 function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
-  const DEPTH = 20;
+  const DEPTH = 40;
+  // League (team) consensus rank per prospect — shown next to the MEDIA
+  // consensus so the gap between what the media says and what the 32 team
+  // boards say is legible (the realism check Daniel reads).
+  const teamConsensusRank = useMemo(
+    () => consensusRankIndex(computeConsensusBoard(league.draftBoards)),
+    [league.draftBoards],
+  );
   const collegeOutlets = useMemo(
     () =>
       Object.values(league.mediaOutlets)
@@ -8646,17 +8653,18 @@ function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
   // Resolve prospect names — including prospects already drafted out of
   // the pool (via draft history → promoted NFL player).
   const nameById = useMemo(() => {
-    const m = new Map<string, { name: string; school: string }>();
+    const m = new Map<string, { name: string; school: string; pos: string }>();
     for (const cp of league.collegePool) {
       m.set(cp.id, {
         name: `${cp.firstName} ${cp.lastName}`,
         school: getSchoolById(cp.schoolId)?.name ?? cp.schoolId,
+        pos: cp.nflProjectedPosition,
       });
     }
     for (const pick of league.draftHistory) {
       if (m.has(pick.collegePlayerId)) continue;
       const p = league.players[pick.promotedPlayerId];
-      if (p) m.set(pick.collegePlayerId, { name: `${p.firstName} ${p.lastName}`, school: 'drafted' });
+      if (p) m.set(pick.collegePlayerId, { name: `${p.firstName} ${p.lastName}`, school: 'drafted', pos: p.position });
     }
     return m;
   }, [league.collegePool, league.draftHistory, league.players]);
@@ -8685,17 +8693,21 @@ function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
     <section className="mt-6 rounded border border-fuchsia-500/25 bg-fuchsia-500/[0.04] p-4">
       <h2 className="mb-1 text-lg font-semibold text-fuchsia-200">Media Mock Boards</h2>
       <p className="mb-3 text-xs text-zinc-500">
-        Consensus order vs each outlet's own mock (cols sorted by outlet
-        accuracy, sharpest first). A cell is green when an outlet has the
-        prospect well ahead of consensus, red when well behind — that gap
-        is the hype talking.
+        <span className="text-fuchsia-300">Media #</span> = media consensus rank;{' '}
+        <span className="text-zinc-300">Team #</span> = the 32 team boards' consensus
+        rank (green = media has him ≥12 spots EARLIER than the teams, red = later —
+        i.e. media buzz vs the war-room read). Then each outlet's own mock (cols
+        sorted by accuracy, sharpest first): green = the outlet likes him well
+        ahead of media consensus, red = well behind.
       </p>
       <div className="overflow-x-auto">
         <table className="w-full border-collapse text-xs">
           <thead>
             <tr className="text-left text-zinc-500">
-              <th className="px-2 py-1 font-medium">#</th>
+              <th className="px-2 py-1 font-medium" title="Media consensus rank (this board)">Media #</th>
+              <th className="px-2 py-1 font-medium" title="Team consensus rank (aggregate of the 32 draft boards) — compare to Media #">Team #</th>
               <th className="px-2 py-1 font-medium">Prospect</th>
+              <th className="px-2 py-1 font-medium">Pos</th>
               <th className="px-2 py-1 font-medium" title="perceived / real">Grade</th>
               {collegeOutlets.map((o) => (
                 <th key={o.id} className="px-2 py-1 text-center font-medium" title={o.name}>
@@ -8709,15 +8721,30 @@ function MediaMockBoardsPanel({ league }: { league: LeagueState }) {
               const info = nameById.get(entry.prospectId);
               const name = info?.name ?? entry.prospectId;
               const school = info?.school ?? '';
+              const teamRank = teamConsensusRank.get(entry.prospectId) ?? null;
+              // Media vs team-consensus gap: positive = media has him EARLIER
+              // (higher) than the teams do → media buzz outrunning the board.
+              const teamGap = teamRank !== null ? teamRank - entry.projectedOverallPick : null;
               return (
                 <tr key={entry.prospectId} className="border-t border-zinc-800/60">
                   <td className="px-2 py-1 font-mono tabular-nums text-fuchsia-300">
                     {entry.projectedOverallPick}
                   </td>
+                  <td
+                    className={`px-2 py-1 font-mono tabular-nums ${
+                      teamGap === null ? 'text-zinc-700'
+                        : teamGap >= 12 ? 'text-emerald-400'
+                          : teamGap <= -12 ? 'text-rose-400' : 'text-zinc-400'
+                    }`}
+                    title={teamGap === null ? 'Not on the team consensus board' : `media ${teamGap >= 0 ? '+' : ''}${teamGap} vs team consensus`}
+                  >
+                    {teamRank ?? '—'}
+                  </td>
                   <td className="px-2 py-1">
                     <span className="text-zinc-200">{name}</span>{' '}
                     <span className="text-zinc-600">({school})</span>
                   </td>
+                  <td className="px-2 py-1 font-mono text-zinc-400">{info?.pos ?? '—'}</td>
                   <td className="px-2 py-1">
                     <GradeCell
                       perceived={Math.round(entry.grade)}
@@ -9013,7 +9040,10 @@ function DraftAuditPanel({ league }: { league: LeagueState }) {
         perceived − real: <span className="text-amber-300">amber = over-rated</span>,{' '}
         <span className="text-cyan-300">cyan = under-rated</span>,{' '}
         <span className="text-emerald-300">green = close</span>. Sort by a Δ column to find the
-        biggest misses. (Dev lens — never the game UI.)
+        biggest misses. A <span className="font-mono">—</span> means that evaluator never graded
+        him: the media covers the draftable pool (~top {200}), the teams everyone their
+        scouts have laid eyes on — a deep small-schooler nobody scouted is a real blind spot,
+        not a bug. (Dev lens — never the game UI.)
       </p>
 
       {/* Who's more accurate — the headline answer. */}

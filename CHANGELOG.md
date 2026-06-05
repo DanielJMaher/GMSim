@@ -16,6 +16,34 @@ _Nothing yet._
 
 ---
 
+## [0.117.0] — 2026-06-03
+
+### Changed
+
+- **Media now grades the whole draftable pool — and that unlocked the real
+  media-spread gradient.** Each evaluator filed reads on only ~50 prospects, so
+  most draft-eligible players had NO media grade (a "—" in the Draft Audit /
+  mock boards) — unrealistic (real mock boards run ~150-260 deep). Deepened
+  `READS_PER_EVALUATOR` 40→130 and the pre-draft sweep to ~160, so media reads
+  reach ~160 prospects (the full draftable cohort). Bonus: this **fixed the
+  Ombudsman gradient** that the rank-perturbation work couldn't — the shallow
+  read had too few covered mid-prospects to populate the down-board tiers, so
+  the measured spread artificially flattened to ~3x. With full-pool coverage
+  `run ombudsman` now matches real across every tier (top-10 3.3 vs 2.8, 11-32
+  8.4 vs 8.5, 33-64 20.3 vs 18.6, 65-120 23.9 vs 27.2 — a **6.2x gradient vs
+  real 6.6x**). The disagreement lean was re-tuned down to suit (`LEAN_CAP`
+  10→6, `OUTLET_DISAGREEMENT_STDEV` 24→11).
+
+- **Inspector — Media Mock Boards now show the team consensus + position.** Each
+  row carries the **Media #** (media consensus rank) next to the **Team #** (the
+  32 boards' consensus rank, color-coded by the gap — green = media has him
+  earlier than the war rooms, red = later) plus a **Pos** column, so media buzz
+  vs the team read is legible at a glance; depth raised 20→40. The Draft Audit
+  notes that a "—" means that evaluator never graded him (a genuine coverage
+  blind spot, not a bug).
+
+---
+
 ## [0.116.0] — 2026-06-03
 
 ### Changed

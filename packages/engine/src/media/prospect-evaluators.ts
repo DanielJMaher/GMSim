@@ -47,10 +47,14 @@ const EVALUATORS_BY_TIER: Record<MediaTier, number> = {
   RADIO: 2,
   BLOG: 1,
 };
-/** How many of the notable class each evaluator files on. */
-const READS_PER_EVALUATOR = 40;
-/** Size of the "notable" class the media covers (top of the board). */
-const NOTABLE_CLASS_SIZE = 120;
+/** How many of the notable class each evaluator files on. v0.117 deepened
+ *  40→130: real draft media grade the whole draftable pool (mock boards run
+ *  ~150-260 deep), not just the top ~50 — so every draft-eligible prospect gets
+ *  a media read, not a "—". */
+const READS_PER_EVALUATOR = 130;
+/** Size of the "notable" class the media covers (top of the board). v0.117
+ *  120→220 so coverage reaches the full draftable cohort. */
+const NOTABLE_CLASS_SIZE = 220;
 /** Base read noise stdev at zero accuracy (mirrors the college scout base). */
 const BASE_NOISE_STDEV = 18;
 
@@ -109,8 +113,8 @@ const SHARED_MISREAD_STDEV = 2.0;
  * scatter down-board. Keyed off true ceiling + a hash of (outlet, id):
  * deterministic and round-stable.
  *
- * v0.116 — the rank-perturbation fix. Two pieces keep the spread in the
- * mid-board instead of leaking up into the top tier:
+ * v0.116/v0.117 — the rank-perturbation fix + full-pool coverage. Two pieces
+ * keep the spread in the mid-board instead of leaking into the top tier:
  *   1. The media grades PROJECTED ability (see generateMediaObservation), so
  *      blue-chip grades genuinely SEPARATE from the mid-board (after Lever 3's
  *      steeper pyramid). Without this the read was flat rookie `current` and a
@@ -118,22 +122,21 @@ const SHARED_MISREAD_STDEV = 2.0;
  *   2. The lean is CAPPED (`LEAN_CAP`) BELOW the blue-chip↔mid grade gap, so a
  *      contested mid scatters densely among other mids but hits a wall it can't
  *      cross into the blue-chip tier — a bounded RANK perturbation expressed in
- *      grade space. Blue-chips also carry uncertainty 0 (no lean), so the cap
- *      mainly bounds the mids while the top LOCKS hard.
- * Result (`run ombudsman`): top-10 spread ~2.4 ≈ real 2.8 — the media now
- * genuinely AGREES on the obvious blue-chips (was ~3.6, disagreeing on locks);
- * 11-32 ≈ real (9.3 vs 8.5). The deep mid-board (33-64) spread stays ~8 (real
- * 18.6): a hard limit of the spread-BY-CONSENSUS-TIER metric, not the model — a
- * contested mid with genuinely high spread no longer has a stable consensus
- * rank, so he leaves the 33-64 bin (binning self-selection). Underlying behavior
- * (locks lock, mids contested) is correct; the measured gradient tops ~3.2x.
+ *      grade space. Blue-chips also carry uncertainty 0, so the top LOCKS hard.
+ * The third piece — and the one that actually unlocked the full real gradient —
+ * was DEEP COVERAGE (v0.117, READS_PER_EVALUATOR 40→130). The old shallow read
+ * (~50 prospects) left too few covered mids to populate the down-board tiers, so
+ * the measured spread artificially flattened to ~3x. With the media grading the
+ * whole draftable pool, `run ombudsman` now matches real across the board:
+ * top-10 ~3.3 (real 2.8), 11-32 ~8.4 (real 8.5), 33-64 ~20 (real 18.6) — a
+ * ~6.2x tier gradient vs real 6.6x. Knobs LEAN_CAP + OUTLET_DISAGREEMENT_STDEV.
  */
-const OUTLET_DISAGREEMENT_STDEV = 24;
+const OUTLET_DISAGREEMENT_STDEV = 11;
 /** Max grade-points the lean can move a prospect — the "wall" that keeps a
  *  contested mid from leaping into the blue-chip tier. Set below the projected
  *  blue-chip↔mid gap (~10 after Lever 3). The single knob the gradient is most
  *  sensitive to. */
-const LEAN_CAP = 10;
+const LEAN_CAP = 6;
 /** Ceiling-overall band mapping a prospect's TRUE ceiling to [lock, contested].
  *  ≥ HI is a media lock (uncertainty 0); ≤ LO is maximally contested
  *  (uncertainty 1). Anchored to the Lever-3 pyramid (blue-chip ceiling ~88+,
@@ -483,7 +486,7 @@ export function generateWeeklyMediaObservations(
 export function mediaCoverageForLevel(level: number): MediaCoverageOptions {
   const l = clamp(level, 0, 1);
   return {
-    readsPerEvaluator: Math.round(18 + l * 32), // 18 → 50
+    readsPerEvaluator: Math.round(60 + l * 100), // 60 → 160 (v0.117: full-pool depth)
     accuracyBoost: l * 0.12, // 0 → +0.12
   };
 }
