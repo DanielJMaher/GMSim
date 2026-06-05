@@ -181,6 +181,7 @@ export {
 export type { MediaCoverageOptions } from './media/prospect-evaluators.js';
 export { buildProspectSleeperTake } from './media/prospect-takes.js';
 export { buildScoutReport } from './media/scout-report.js';
+export { buildNflPlayerTake, generateNflPlayerTakes } from './media/nfl-takes.js';
 export { scoutTraitFor, scoutTraitsFor, scoutConcernFor } from './media/scout-vocabulary.js';
 export {
   narrateBackstory,

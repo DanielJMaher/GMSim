@@ -62,6 +62,7 @@ import {
   type WeekStatLeaders,
 } from './headliners.js';
 import { deriveGamePlayerStats } from '../games/stats.js';
+import { generateNflPlayerTakes } from './nfl-takes.js';
 
 const BLOWOUT_MARGIN = 17;
 const CLOSE_MARGIN = 3;
@@ -112,7 +113,18 @@ export function generateWeeklyMediaReports(
     );
     for (const r of gameReports) reports.push(r);
   }
-  return reports;
+
+  // Scribe NFL-player takes — the week's statistical standouts get a
+  // player-level read in the Scribe voice (v0.121).
+  const takes = generateNflPlayerTakes(
+    prng.fork('nfl-takes'),
+    league,
+    week,
+    'REGULAR_SEASON_WEEK',
+    weekIdx + 1,
+    filedOnTick,
+  );
+  return [...reports, ...takes];
 }
 
 /**
@@ -149,7 +161,18 @@ export function generatePlayoffRoundMediaReports(
     );
     for (const r of gameReports) reports.push(r);
   }
-  return reports;
+
+  // Scribe NFL-player takes for the round's standouts (v0.121).
+  const takes = generateNflPlayerTakes(
+    prng.fork('nfl-takes'),
+    league,
+    games,
+    phase,
+    null,
+    filedOnTick,
+    phase === 'SUPER_BOWL' ? 3 : 4,
+  );
+  return [...reports, ...takes];
 }
 
 /**

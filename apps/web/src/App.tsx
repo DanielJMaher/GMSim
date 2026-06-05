@@ -6118,6 +6118,20 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
   const bucket = moodBucket(player.mood);
   const statCols = careerStatColumns(player.position);
 
+  // Scribe NFL-player takes about this player (v0.121) — most recent first.
+  const mediaScoutReports = useMemo(
+    () =>
+      league.mediaReports
+        .filter(
+          (r): r is Extract<MediaReport, { kind: 'player-take' }> =>
+            r.kind === 'player-take' && r.subjectPlayerId === player.id && !!r.scoutReport,
+        )
+        .slice(-6)
+        .reverse()
+        .map((r) => ({ report: r, outlet: league.mediaOutlets[r.outletId] })),
+    [league.mediaReports, league.mediaOutlets, player.id],
+  );
+
   return (
     <div className="space-y-3 text-xs">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -6168,6 +6182,42 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
                   {label}
                 </span>
               ))}
+          </div>
+        </div>
+      )}
+
+      {/* Scribe NFL-player takes — in-season media reads (v0.121). */}
+      {mediaScoutReports.length > 0 && (
+        <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
+          <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+            Media takes
+          </div>
+          <div className="space-y-2">
+            {mediaScoutReports.map(({ report, outlet }) => {
+              const sr = report.scoutReport!;
+              return (
+                <div key={report.id} className="border-l-2 border-zinc-700 pl-2">
+                  <div className="text-[10px] uppercase tracking-wider text-sky-400/80">
+                    {outlet?.name ?? report.outletId}
+                    {report.weekNumber ? ` · Wk ${report.weekNumber}` : ''}
+                  </div>
+                  <div className={report.tone === 'CRITICAL' ? 'text-rose-300' : 'text-zinc-300'}>
+                    {report.headline}
+                  </div>
+                  <div className="mt-1 text-zinc-400">{sr.summary}</div>
+                  <ul className="mt-0.5 space-y-0.5">
+                    {sr.strengths.map((s, i) => (
+                      <li key={i} className="text-emerald-300/80">
+                        + {s}
+                      </li>
+                    ))}
+                    <li className="text-amber-300/80">– {sr.concern}</li>
+                  </ul>
+                  {sr.comp && <div className="mt-0.5 italic text-zinc-500">{sr.comp}</div>}
+                  <div className="mt-0.5 text-zinc-300">→ {sr.bottomLine}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

@@ -16,6 +16,33 @@ _Nothing yet._
 
 ---
 
+## [0.121.0] — 2026-06-05
+
+### Added
+
+- **Scribe NFL-player takes — the player voice goes in-season.** The take /
+  scout-report machinery lived entirely in the draft lane (every take was about
+  a college prospect); the regular season only got team game-recaps. Now each
+  played week the genuine statistical standouts (the same `extractHeadliners`
+  outliers that drive team headlines) get a Scribe-voiced PLAYER take
+  (`media/nfl-takes.ts`), with the angle framed by draft pedigree — production
+  vs expectation:
+  - **BREAKOUT** — a late-round / undrafted / low-tier player outproducing his
+    draft slot ("nobody drafted him for this").
+  - **SPOTLIGHT** — a high-pedigree player living up to the billing.
+  - **STRUGGLING** — a rough outing (picks / anemic offense), filed CRITICAL;
+    a former high pick gets the "investment still searching" angle.
+  Reuses the per-position strength + weakness vocabulary (so an NFL take sounds
+  like a beat reporter who watched that position) and the loud/measured outlet
+  voice. Wired into `generateWeeklyMediaReports` (top ~6/week, de-duped per
+  player) and the playoff rounds. Qualitative prose only (no rating/tier leak);
+  deterministic.
+- **Inspector — NFL player detail gains a "Media takes" panel** rendering the
+  recent Scribe takes about that player (headline + summary / strengths /
+  concern / comp / bottom line; CRITICAL takes tinted).
+
+---
+
 ## [0.120.0] — 2026-06-05
 
 ### Added
