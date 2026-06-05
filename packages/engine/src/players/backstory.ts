@@ -16,7 +16,6 @@
  * Per North Star: public bio, surfaced as narrative — never a rating number.
  */
 
-import type { Prng } from '../prng/index.js';
 import type { Position, PositionGroup } from '../types/enums.js';
 import type { TalentTier } from '../types/player.js';
 import type {
@@ -26,6 +25,7 @@ import type {
   Bloodline,
   BloodlineRelation,
 } from '../types/college.js';
+import { Prng } from '../prng/index.js';
 import { positionGroupFor } from './position-group.js';
 import { rollStarRating, rollHometown } from '../draft/recruiting.js';
 import { rollMultiSportBackground } from '../draft/character.js';
@@ -46,6 +46,42 @@ function joinAnd(parts: readonly string[]): string {
 
 function capitalize(s: string): string {
   return s.replace(/^./, (c) => c.toUpperCase());
+}
+
+// Notable second-sport descriptors — only the narrative-worthy ones. Trench
+// players (OL/DL) get the "surprising for his frame" angle; everyone else the
+// "genuine standout" angle (QBs also reach for the off-beat racquet/club sports
+// à la Rosen). Among the ~82% who played a second sport, only ~15% are notable
+// enough to mention → ~12% of all players.
+const NOTABLE_RATE = 0.15;
+const NOTABLE_TRENCH: readonly string[] = [
+  'a surprisingly nimble high-school basketball player',
+  'a high-school track athlete despite his frame',
+  'a state-qualifying shot-putter',
+  'a discus thrower at the state meet',
+];
+const NOTABLE_ATHLETE: readonly string[] = [
+  'a standout high-school point guard',
+  'a state-champion sprinter',
+  'an all-state baseball player',
+  'a state-medalist long jumper',
+  'a highly-recruited basketball prospect in his own right',
+];
+const NOTABLE_QB_EXTRA: readonly string[] = [
+  'a nationally-ranked junior tennis player',
+  'a scratch golfer',
+];
+
+/**
+ * Roll a NOTABLE second-sport descriptor, or null (the common case). Call only
+ * for players who actually played a second sport; most of those are unremarkable
+ * and return null. Deterministic.
+ */
+export function rollNotableOtherSport(prng: Prng, group: PositionGroup): string | null {
+  if (prng.next() >= NOTABLE_RATE) return null;
+  if (group === 'OL' || group === 'DL') return prng.pick(NOTABLE_TRENCH);
+  const pool = group === 'QB' ? [...NOTABLE_ATHLETE, ...NOTABLE_QB_EXTRA] : NOTABLE_ATHLETE;
+  return prng.pick(pool);
 }
 
 /** The pedigree lead — how he was recruited, framed by stars + background. */
@@ -76,7 +112,9 @@ export function narrateBackstory(b: PlayerBackstory): string {
   const lead = `${pedigreeLead(b)}${arcs.length ? ` who ${joinAnd(arcs)}` : ''}.`;
 
   const traits: string[] = [];
-  if (b.multiSport) traits.push('a multi-sport athlete in high school');
+  // Multi-sport is baseline reality, not a story — only a NOTABLE second sport
+  // (standout / surprising) earns a line.
+  if (b.notableOtherSport) traits.push(b.notableOtherSport);
   if (b.wasCaptain) traits.push('a team captain');
   const traitSentence = traits.length ? `${capitalize(joinAnd(traits))}.` : '';
 
@@ -91,8 +129,16 @@ export function narrateBackstory(b: PlayerBackstory): string {
   return [lead, traitSentence, bloodSentence].filter(Boolean).join(' ');
 }
 
-/** Distill a drafted prospect's full facts into the carried backstory. */
+/** Distill a drafted prospect's full facts into the carried backstory. The
+ *  notable second-sport is derived deterministically from the prospect id (only
+ *  multi-sport players are eligible), so it's stable across reload and promote. */
 export function backstoryFromProspect(cp: CollegePlayer): PlayerBackstory {
+  const notableOtherSport = cp.multiSportBackground
+    ? rollNotableOtherSport(
+        new Prng(`${cp.id}::notable-sport`),
+        positionGroupFor(cp.nflProjectedPosition),
+      )
+    : null;
   return {
     recruitingStars: cp.recruiting.starRating,
     background: cp.recruiting.background,
@@ -100,6 +146,7 @@ export function backstoryFromProspect(cp: CollegePlayer): PlayerBackstory {
     transferred: cp.transferred,
     redshirted: cp.redshirted,
     multiSport: cp.multiSportBackground,
+    notableOtherSport,
     bloodline: cp.bloodline,
     wasCaptain: cp.characterFlags.includes('CAPTAIN'),
   };
@@ -143,13 +190,15 @@ export function synthesizeBackstory(
     };
   }
 
+  const multiSport = rollMultiSportBackground(prng.fork('multi'), group);
   return {
     recruitingStars: stars,
     background: deriveVetBackground(prng.fork('bg'), stars),
     hometown: rollHometown(prng.fork('home')),
     transferred: prng.fork('tx').next() < 0.34,
     redshirted: prng.fork('rs').next() < 0.4,
-    multiSport: rollMultiSportBackground(prng.fork('multi'), group),
+    multiSport,
+    notableOtherSport: multiSport ? rollNotableOtherSport(prng.fork('notable'), group) : null,
     bloodline,
     wasCaptain: prng.fork('cap').next() < 0.24,
   };

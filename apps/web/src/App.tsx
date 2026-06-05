@@ -1052,7 +1052,6 @@ function CollegeProspectDetail({
           {[
             prospect.transferred && 'Transfer',
             prospect.redshirted && 'Redshirt',
-            prospect.multiSportBackground && 'Multi-sport',
           ]
             .filter((x): x is string => Boolean(x))
             .map((label) => (
@@ -6171,7 +6170,6 @@ function PlayerDetail({ player, league }: { player: Player; league: LeagueState 
             {[
               player.collegeBackstory.transferred && 'Transfer',
               player.collegeBackstory.redshirted && 'Redshirt',
-              player.collegeBackstory.multiSport && 'Multi-sport',
             ]
               .filter((x): x is string => Boolean(x))
               .map((label) => (

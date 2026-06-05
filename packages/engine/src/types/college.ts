@@ -166,8 +166,22 @@ export interface PlayerBackstory {
   transferred: boolean;
   /** Took a redshirt year. */
   redshirted: boolean;
-  /** Played a second varsity sport in high school. */
+  /**
+   * Played a second varsity sport in high school — the BASELINE fact (~82% of
+   * prospects). Common enough that it is NOT itself narrative-worthy; kept as
+   * ground truth (and the Narrator audit calibrates to it) but no longer
+   * surfaced in prose. The story is `notableOtherSport` below.
+   */
   multiSport: boolean;
+  /**
+   * The narrative-worthy second sport, if any (~12% of players) — a true
+   * standout ("a standout high-school point guard", "a state-champion sprinter")
+   * or a surprising one for the profile (a 250-lb lineman who ran track, a QB
+   * who was a nationally-ranked tennis player). Null for the common case of
+   * "just played a couple sports". This is what `narrateBackstory` surfaces, not
+   * the bare `multiSport` flag.
+   */
+  notableOtherSport: string | null;
   /** NFL family, if any. */
   bloodline: Bloodline;
   /** Voted a team captain in college — a leadership signal. */

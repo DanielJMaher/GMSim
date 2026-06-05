@@ -7,7 +7,7 @@ import { seedPerceivedOutletReliability } from '../personnel/perceived-outlet-tr
 import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
-import { synthesizeBackstory } from '../players/backstory.js';
+import { synthesizeBackstory, rollNotableOtherSport } from '../players/backstory.js';
 import { generatePhysicalProfile } from '../players/physical.js';
 import { assignAbilities } from '../players/abilities.js';
 import { gradeFromOverall } from '../players/skills.js';
@@ -513,6 +513,35 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
         };
       }
       next = { ...next, players: backfilled } as LeagueState;
+    }
+  }
+
+  // v0.122.0 notable second-sport on the backstory. Backstories from
+  // v0.119–v0.121 saves have no `notableOtherSport` — derive it from the
+  // multi-sport flag (deterministic per id). Runs after the v0.119 block, which
+  // already produces full backstories for pre-v0.119 saves.
+  {
+    const players = next.players as Record<string, Player>;
+    const needs = Object.values(players).some(
+      (p) =>
+        p.collegeBackstory &&
+        (p.collegeBackstory as { notableOtherSport?: unknown }).notableOtherSport === undefined,
+    );
+    if (needs) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        const cb = p.collegeBackstory;
+        if (cb && (cb as { notableOtherSport?: unknown }).notableOtherSport === undefined) {
+          const notable = cb.multiSport
+            ? rollNotableOtherSport(
+                new Prng(`${next.seed}::notable-sport::${id}`),
+                p.positionGroup,
+              )
+            : null;
+          backfilled[id] = { ...p, collegeBackstory: { ...cb, notableOtherSport: notable } };
+        }
+      }
+      next = { ...next, players: { ...next.players, ...backfilled } } as LeagueState;
     }
   }
 

@@ -187,6 +187,7 @@ export {
   narrateBackstory,
   backstoryFromProspect,
   synthesizeBackstory,
+  rollNotableOtherSport,
 } from './players/backstory.js';
 export {
   computeOutletMockBoard,

@@ -16,6 +16,27 @@ _Nothing yet._
 
 ---
 
+## [0.122.0] — 2026-06-05
+
+### Changed
+
+- **Multi-sport backstory retuned — baseline fact, not a narrative beat.** Playing
+  a second sport in high school is common (~82%), so surfacing "a multi-sport
+  athlete in high school" on nearly every player was filler. The bare
+  `multiSport` flag is kept as ground truth (the Narrator audit still calibrates
+  to it) but is no longer narrated or chipped. In its place a rare
+  `notableOtherSport` (~12% of players) carries the actual story — a genuine
+  standout ("a standout high-school point guard", "a state-champion sprinter") or
+  a surprising one for the profile (a lineman who ran track despite his frame, a
+  QB who was a nationally-ranked tennis player). Only the notable second sport
+  earns a line in `narrateBackstory`; `rollNotableOtherSport` generates it
+  (trench players get the surprising-for-his-frame angle, others the standout
+  angle, QBs the off-beat racquet/club sports). Carried on prospects (derived per
+  id), drafted players, and synthesized vets; migration backfills v0.119–v0.121
+  backstories.
+
+---
+
 ## [0.121.0] — 2026-06-05
 
 ### Added
