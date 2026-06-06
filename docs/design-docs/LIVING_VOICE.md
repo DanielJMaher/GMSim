@@ -312,25 +312,73 @@ ground truth.
 
 ## 10. Phased Implementation
 
-1. **Slice A — `notableOtherSport` becomes attribute-coded (§6).** Smallest real
-   instance of "blurb = coded attribute." Derive from the physical/skill profile;
-   surface only on genuine highs; Metcalf surprise variant. Proves the principle.
-2. **Slice B — `voiceSeed` + the determinism split (§2).** Add the second seed,
-   wire one existing voiced surface (the scout-report strengths/concerns) to draw
-   its *words* off `voiceSeed` rather than the world seed; migration; the
-   "different seed → different words, same players" test.
-3. **Slice C — band encoding (§4).** `describe(attribute, band, …)`; bands from
+1. **Slice A — `notableOtherSport` becomes attribute-coded (§6).** DONE (v0.123).
+   Smallest real instance of "blurb = coded attribute"; derived from the physical/
+   skill profile, surfaces only on genuine highs, Metcalf surprise variant.
+2. **Slice B — `voiceSeed` + the expression split (§2).** Detailed plan in §10.1.
+3. **Slice B2 — perception off `voiceSeed` (the "opinions too" payoff).** Move the
+   scout noisy-read generation + the board-derivation inputs onto `voiceSeed`, so
+   the *same players* get **different evaluations, boards, steals and busts every
+   playthrough** (Daniel's decision #2). Bigger; its own slice; Slice B is
+   architected to make it a clean follow-on.
+4. **Slice C — band encoding (§4).** `describe(attribute, band, …)`; bands from
    the scout's read; wire scout-report strengths/concerns to fire **from the
    actual reads** (high→strength, low→concern), encoding the band.
-4. **Slice D — Voice Pack extraction (§7).** Move vocabulary/polarity/motifs/
-   sportSignals into the versioned pack; Scribe/Narrator emit it; engine consumes
-   it as data. (Sets up painless ingestion of new sources.)
-5. **Slice E — per-source voice profiles (§5).** Assign each scout/outlet a voice
-   profile off `voiceSeed`; filter phrasing by it; disagreement reads naturally.
-6. **Later — the Lexicon ingestion agent + a second real corpus; real-name comp
+5. **Slice D — Voice Pack extraction (§7).** Move vocabulary/polarity/motifs/
+   sportSignals into the versioned, scheme/region/era-layered pack; Scribe/
+   Narrator emit it; engine consumes it as data.
+6. **Slice E — per-source voice profiles (§5, §5.1).** Assign each scout/outlet a
+   voice profile off `voiceSeed`, composed from background (scheme/region/tree)
+   and drifting on regime change; filter phrasing by it; band-level per-source
+   bias (the deferred TODO) lands here.
+7. **Later — the Lexicon ingestion agent + a second real corpus; real-name comp
    pool.** Deferred; the schema already accepts them.
 
 Each slice ships its own tagged release with tests, per project cadence.
+
+### 10.1 Slice B — detailed plan (next session)
+
+**Locked decisions (Daniel, 2026-06-05):** (1) boundary = bio/history is
+world-seeded (fixed; `notableOtherSport` stays put), scout+media *sayings* are
+`voiceSeed` (alive); (2) "opinions too" — architect so `voiceSeed` will
+eventually drive perception (boards diverge per playthrough) — *that move is
+Slice B2*; Slice B itself converts only the **words**; (3) ship the inspector
+voice-seed control.
+
+**Goal of B:** stand up `voiceSeed` and prove the expression split on the
+scout/media voice, with the calibration lens. Perception/boards unchanged in B.
+
+1. **`voiceSeed: string` on `LeagueState`** (`types/league.ts`), serialized.
+2. **`createLeague({ seed, voiceSeed? })`** — `voiceSeed` optional. Omitted →
+   derive `${seed}::voice` (engine stays pure + deterministic for tests/
+   engine-only callers). The **app** (apps/web) draws real entropy
+   (`crypto`/`Math.random` at the UI boundary, never in the engine) and passes a
+   random `voiceSeed` for "alive per playthrough."
+3. **Migration:** pre-`voiceSeed` saves → `${seed}::voice` (stable; old saves
+   don't get per-playthrough variety, which is fine).
+4. **Route WORD generation off `voiceSeed`.** In the take/report generators
+   (`media/scout-report.ts`, `media/nfl-takes.ts`, `media/prospect-takes.ts`),
+   the prng used for *word/template/comp selection* is built from
+   `league.voiceSeed` (+ context: tick/outlet/player) instead of the world-seed
+   prng passed down from `college-cycle.ts` / `reports.ts`. Non-voice randomness
+   (e.g. WHICH sleepers an outlet picks) **stays on the world seed in B** — that's
+   selection/perception, deferred to B2. Keep the change surgical so the test is
+   clean.
+5. **Inspector control (apps/web), new-game/create path:** surface `voiceSeed`
+   beside the world seed with a **"randomize voice"** action → re-create the
+   league from the *same world seed* + a *new* `voiceSeed`, so Daniel hears "same
+   league, different voice." Do NOT offer mid-save re-roll (it would conflict with
+   frozen dated artifacts, §11); calibration happens on fresh creates.
+6. **Tests:** (a) `createLeague` reproduces exactly given `(seed, voiceSeed)`;
+   (b) **same `seed`, different `voiceSeed` → identical `players`/ratings/
+   measurables (deep-equal ground truth) but different media-report words**;
+   (c) same `seed` + same `voiceSeed` → full reproduction; (d) migration backfills
+   `voiceSeed`.
+
+**Watch-outs:** keep `Math.random`/`crypto` strictly at the apps/web boundary
+(CLAUDE.md invariant #2). The "different words" assertion needs a surface that
+fires deterministically in a unit context — reuse the `simulateSeason` fixture
+from `nfl-takes.test.ts`. `notableOtherSport` does **not** move (it's bio).
 
 ---
 
@@ -353,8 +401,20 @@ Each slice ships its own tagged release with tests, per project cadence.
   voice is a blend that **drifts when his scheme/role changes** (a 4-3 coach who
   moves to a 3-4 shifts vocabulary over time). See §5.1. Implementation may
   *begin* with one layer and add the rest, but the schema is layered from day one.
-- **(OPEN) Where `voiceSeed` entropy is drawn.** New-game boundary in `apps/web`
-  for now; needs a home in the eventual real app/new-game flow.
+- **(DECIDED — Daniel) Boundary = bio fixed, sayings alive.** A player's facts
+  and history are world-seeded and identical every playthrough (incl.
+  `notableOtherSport`); everything a scout/outlet *says* is `voiceSeed`. See §2,
+  §10.1.
+- **(DECIDED — Daniel) "Opinions too."** `voiceSeed` ultimately drives *what
+  scouts think* (reads → boards), so the same world yields different evaluations/
+  boards/steals/busts each playthrough. Implemented in **Slice B2**; Slice B
+  architects toward it but moves only words.
+- **(DECIDED — Daniel) Inspector voice-seed control.** Show `voiceSeed` + a
+  "randomize voice" action on the create path (same world, new voice); no mid-save
+  re-roll (conflicts with frozen artifacts). Ships in Slice B.
+- **(OPEN) Where `voiceSeed` entropy is drawn.** apps/web new-game/create path for
+  now (UI boundary, never the engine); needs a home in the eventual real app
+  new-game flow.
 
 ---
 
