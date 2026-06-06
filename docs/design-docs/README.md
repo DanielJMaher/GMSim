@@ -17,6 +17,12 @@ To fetch a doc, use the Google Drive MCP tool with the listed file ID.
 | 1 | Living League: 32-Team Ecosystem | `1vDnynFESV5120fZb1EZHUnz4F-VaXzQGy8c_W4Dm-5w` |
 | 0 | Master Reference (this index's source) | `1J9fxCVxItX1c2Pw97yaK0h-0zoA0uUN1oen9tH7yX20` |
 
+## Authored-in-repo design docs
+
+| Title | Path | Notes |
+|---|---|---|
+| Living Voice — Scouting & Media as a Living, Non-Deterministic Layer | `docs/design-docs/LIVING_VOICE.md` | Authored 2026-06-05 (Daniel-directed). Read-to-learn blurb encoding, two-seed determinism split (world seed = players, voice seed = voice), Voice Pack corpus seam. Candidate to promote to Drive as authoritative. |
+
 ## Phase 1 — Foundation
 
 | # | Title | Drive ID | Priority |
