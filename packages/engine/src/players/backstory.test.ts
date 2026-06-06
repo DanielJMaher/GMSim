@@ -8,6 +8,7 @@ import {
 import { createLeague } from '../league/generate.js';
 import { Prng } from '../prng/index.js';
 import type { PlayerBackstory, Bloodline } from '../types/college.js';
+import type { PlayerSkills } from '../types/player.js';
 
 const NO_BLOODLINE: Bloodline = {
   hasNflFamily: false,
@@ -117,31 +118,88 @@ describe('synthesizeBackstory', () => {
 
   it('a notable second sport, when present, implies the multi-sport fact', () => {
     for (let i = 0; i < 200; i++) {
-      const b = synthesizeBackstory(new Prng(`m-${i}`), 'STARTER', 'WR');
+      const b = synthesizeBackstory(new Prng(`m-${i}`), 'STARTER', 'WR', {
+        skills: skills({ speed: 92, acceleration: 90 }),
+        weightLbs: 200,
+      });
       if (b.notableOtherSport) expect(b.multiSport).toBe(true);
     }
   });
 });
 
-describe('rollNotableOtherSport', () => {
-  it('is mostly null (multi-sport is baseline, notability is rare)', () => {
-    let hits = 0;
-    const n = 2000;
-    for (let i = 0; i < n; i++) {
-      if (rollNotableOtherSport(new Prng(`r-${i}`), 'SKILL')) hits++;
+/** A PlayerSkills with the athletic keys the notable-sport read uses, base 60,
+ *  overridable. The function only reads these keys; the cast covers the rest. */
+function skills(over: Partial<Record<string, number>> = {}): PlayerSkills {
+  const base: Record<string, number> = {
+    speed: 60, acceleration: 60, agility: 60, changeOfDirection: 60, jumping: 60,
+    strength: 60, throwPower: 60, composure: 60, accuracyDeep: 60, catching: 60,
+  };
+  return { ...base, ...over } as unknown as PlayerSkills;
+}
+
+function sweep(input: Parameters<typeof rollNotableOtherSport>[1], n = 300): {
+  hits: number;
+  seen: Set<string>;
+} {
+  let hits = 0;
+  const seen = new Set<string>();
+  for (let i = 0; i < n; i++) {
+    const s = rollNotableOtherSport(new Prng(`s-${i}`), input);
+    if (s) {
+      hits++;
+      seen.add(s);
     }
-    // ~15% notable; assert it's clearly a minority, not the 82% it replaced.
-    expect(hits / n).toBeLessThan(0.3);
-    expect(hits / n).toBeGreaterThan(0.05);
+  }
+  return { hits, seen };
+}
+
+describe('rollNotableOtherSport (attribute-coded)', () => {
+  it('returns null when no athletic attribute is genuinely standout', () => {
+    const { hits } = sweep({ skills: skills(), weightLbs: 200, position: 'WR' });
+    expect(hits).toBe(0); // nothing elite → no tell, ever
   });
 
-  it('gives trench players the surprising-for-his-frame angle', () => {
-    const seen = new Set<string>();
-    for (let i = 0; i < 200; i++) {
-      const s = rollNotableOtherSport(new Prng(`t-${i}`), 'OL');
-      if (s) seen.add(s);
-    }
-    // Every OL descriptor that surfaced is from the trench pool (frame/track/throws).
-    for (const s of seen) expect(/frame|track|shot-put|discus|basketball/.test(s)).toBe(true);
+  it('is deterministic for the same prng + input', () => {
+    const input = { skills: skills({ speed: 95 }), weightLbs: 195, position: 'WR' as const };
+    expect(rollNotableOtherSport(new Prng('d'), input)).toBe(
+      rollNotableOtherSport(new Prng('d'), input),
+    );
+  });
+
+  it('elite speed reads as a track / sprint tell', () => {
+    const { hits, seen } = sweep({ skills: skills({ speed: 95 }), weightLbs: 190, position: 'WR' });
+    expect(hits).toBeGreaterThan(0);
+    for (const s of seen) expect(/sprint|track|relay/.test(s)).toBe(true);
+  });
+
+  it('heavy AND fast reads as the surprising-for-his-frame tell (Metcalf)', () => {
+    const { seen } = sweep({ skills: skills({ speed: 95 }), weightLbs: 250, position: 'TE' });
+    expect(seen.size).toBeGreaterThan(0);
+    for (const s of seen) expect(/frame|size|line|relay/.test(s)).toBe(true);
+  });
+
+  it('elite agility (not speed) reads as a hoops / quick-feet tell', () => {
+    const { seen } = sweep({
+      skills: skills({ agility: 93, changeOfDirection: 92 }),
+      weightLbs: 195,
+      position: 'CB',
+    });
+    expect(seen.size).toBeGreaterThan(0);
+    for (const s of seen) expect(/guard|basketball|forward|soccer|winger/.test(s)).toBe(true);
+  });
+
+  it('a QB with elite touch/composure reads as tennis or golf (the Rosen tell)', () => {
+    const { seen } = sweep({
+      skills: skills({ composure: 94, accuracyDeep: 92, speed: 60, throwPower: 60 }),
+      weightLbs: 220,
+      position: 'QB',
+    });
+    expect(seen.size).toBeGreaterThan(0);
+    for (const s of seen) expect(/tennis|golf/.test(s)).toBe(true);
+  });
+
+  it('never speaks a number (stats are hidden)', () => {
+    const { seen } = sweep({ skills: skills({ speed: 95, agility: 95, jumping: 95 }), weightLbs: 240, position: 'WR' });
+    for (const s of seen) expect(s).not.toMatch(/\d/);
   });
 });

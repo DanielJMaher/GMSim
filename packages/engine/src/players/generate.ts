@@ -97,7 +97,10 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
     careerAwards: [],
     draftRound: provenance.round,
     draftOverallPick: provenance.overallPick,
-    collegeBackstory: synthesizeBackstory(prng.fork('backstory'), skills.tier, options.position),
+    collegeBackstory: synthesizeBackstory(prng.fork('backstory'), skills.tier, options.position, {
+      skills: skills.current,
+      weightLbs: physical.weightLbs,
+    }),
     heightInches: physical.heightInches,
     weightLbs: physical.weightLbs,
     armLengthInches: physical.armLengthInches,

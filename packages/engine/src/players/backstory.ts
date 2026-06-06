@@ -17,7 +17,7 @@
  */
 
 import type { Position, PositionGroup } from '../types/enums.js';
-import type { TalentTier } from '../types/player.js';
+import type { TalentTier, PlayerSkills } from '../types/player.js';
 import type {
   PlayerBackstory,
   CollegePlayer,
@@ -48,40 +48,117 @@ function capitalize(s: string): string {
   return s.replace(/^./, (c) => c.toUpperCase());
 }
 
-// Notable second-sport descriptors — only the narrative-worthy ones. Trench
-// players (OL/DL) get the "surprising for his frame" angle; everyone else the
-// "genuine standout" angle (QBs also reach for the off-beat racquet/club sports
-// à la Rosen). Among the ~82% who played a second sport, only ~15% are notable
-// enough to mention → ~12% of all players.
-const NOTABLE_RATE = 0.15;
-const NOTABLE_TRENCH: readonly string[] = [
-  'a surprisingly nimble high-school basketball player',
-  'a high-school track athlete despite his frame',
-  'a state-qualifying shot-putter',
+/**
+ * Notable second-sport — the Living-Voice "blurb = coded attribute" seed
+ * (v0.123, Slice A). It is NOT a free roll: it is DERIVED FROM the player's
+ * hidden athletic profile and only surfaces when an attribute is genuinely
+ * standout, so reading it tells you something true (track → speed, hoops →
+ * agility/leaping, baseball → arm/hands, tennis/golf → QB touch). The
+ * "surprising for his frame" variant fires when size contradicts the athletic
+ * read — a heavy player who still runs (the DK Metcalf tell).
+ *
+ * The descriptor is a bare noun phrase and NEVER speaks a rating or number
+ * (North Star — stats are hidden). Deterministic given the prng.
+ */
+
+/** A rating at/above this (0–100) is "genuinely standout" — worth a sport tell. */
+const ELITE = 84;
+/** Even elite athletes didn't all star in another sport. */
+const NOTABLE_PROB = 0.55;
+/** Heavy + fast = the surprising-for-his-frame tell (Metcalf territory). */
+const SURPRISE_SPEED_LBS = 230;
+/** True big man for the throws/mat events. */
+const BIG_STRONG_LBS = 250;
+
+const TRACK_SPEED: readonly string[] = [
+  'a state-champion sprinter',
+  'a high-school track standout',
+  'an anchor on the state-title relay',
+];
+const SURPRISE_SPEED: readonly string[] = [
+  'a sprinter who ran varsity track at his size',
+  'a state-meet sprinter despite his frame',
+  'big enough for the line and still ran a relay leg',
+];
+const HOOPS: readonly string[] = [
+  'a shifty high-school point guard',
+  'a varsity basketball starter',
+  'a soccer winger with sudden feet',
+];
+const HOOPS_BIG: readonly string[] = [
+  'a nimble big man on the basketball team',
+  'light enough on his feet to start at forward',
+];
+const LEAP: readonly string[] = [
+  'a high-jump champion',
+  'a volleyball net presence',
+  'a leaper who played above the rim',
+];
+const THROWS_STRONG: readonly string[] = [
+  'a state-placing shot-putter',
+  'a heavyweight wrestler',
   'a discus thrower at the state meet',
 ];
-const NOTABLE_ATHLETE: readonly string[] = [
-  'a standout high-school point guard',
-  'a state-champion sprinter',
-  'an all-state baseball player',
-  'a state-medalist long jumper',
-  'a highly-recruited basketball prospect in his own right',
+const BASEBALL_ARM: readonly string[] = [
+  'a flame-throwing prep pitcher',
+  'a hard-throwing baseball recruit',
 ];
-const NOTABLE_QB_EXTRA: readonly string[] = [
+const TENNIS_GOLF: readonly string[] = [
   'a nationally-ranked junior tennis player',
   'a scratch golfer',
+  'a state-ranked tennis player',
+];
+const BASEBALL_HANDS: readonly string[] = [
+  'an all-state baseball outfielder',
+  'a shortstop with soft hands',
+  'a center fielder who tracked everything',
 ];
 
+/** The athletic facts the notable-sport read keys off. */
+export interface NotableSportInput {
+  skills: PlayerSkills;
+  weightLbs: number;
+  position: Position;
+}
+
 /**
- * Roll a NOTABLE second-sport descriptor, or null (the common case). Call only
- * for players who actually played a second sport; most of those are unremarkable
- * and return null. Deterministic.
+ * Derive a NOTABLE second-sport descriptor from the player's athletic profile,
+ * or null (the common case — most players' second sport isn't worth a line).
+ * Deterministic given the prng.
  */
-export function rollNotableOtherSport(prng: Prng, group: PositionGroup): string | null {
-  if (prng.next() >= NOTABLE_RATE) return null;
-  if (group === 'OL' || group === 'DL') return prng.pick(NOTABLE_TRENCH);
-  const pool = group === 'QB' ? [...NOTABLE_ATHLETE, ...NOTABLE_QB_EXTRA] : NOTABLE_ATHLETE;
-  return prng.pick(pool);
+export function rollNotableOtherSport(prng: Prng, input: NotableSportInput): string | null {
+  const { skills, weightLbs, position } = input;
+  const group = positionGroupFor(position);
+  const big = weightLbs >= SURPRISE_SPEED_LBS;
+
+  // Collect the player's genuinely-standout athletic traits, each with the sport
+  // pool that "explains" it. Pick the most extreme.
+  const cands: { v: number; pool: readonly string[] }[] = [];
+  const speedish = Math.max(skills.speed, skills.acceleration);
+  if (speedish >= ELITE) cands.push({ v: speedish, pool: big ? SURPRISE_SPEED : TRACK_SPEED });
+  const quick = Math.max(skills.agility, skills.changeOfDirection);
+  if (quick >= ELITE) cands.push({ v: quick, pool: big ? HOOPS_BIG : HOOPS });
+  if (skills.jumping >= ELITE) cands.push({ v: skills.jumping, pool: LEAP });
+  if (skills.strength >= ELITE && weightLbs >= BIG_STRONG_LBS) {
+    cands.push({ v: skills.strength, pool: THROWS_STRONG });
+  }
+  if (position === 'QB' && skills.throwPower >= ELITE) {
+    cands.push({ v: skills.throwPower, pool: BASEBALL_ARM });
+  }
+  if (position === 'QB' && Math.max(skills.composure, skills.accuracyDeep) >= ELITE) {
+    cands.push({ v: Math.max(skills.composure, skills.accuracyDeep), pool: TENNIS_GOLF });
+  }
+  if ((group === 'SKILL' || group === 'DB') && skills.catching >= ELITE) {
+    cands.push({ v: skills.catching, pool: BASEBALL_HANDS });
+  }
+
+  if (cands.length === 0) return null;
+  if (prng.next() >= NOTABLE_PROB) return null;
+  cands.sort((a, b) => b.v - a.v);
+  // Among the genuinely-standout traits, lean toward the most extreme but allow
+  // the runner-up so two equally-fast players don't always cite the same sport.
+  const top = cands.length > 1 && prng.next() < 0.3 ? cands[1]! : cands[0]!;
+  return prng.pick(top.pool);
 }
 
 /** The pedigree lead — how he was recruited, framed by stars + background. */
@@ -134,10 +211,11 @@ export function narrateBackstory(b: PlayerBackstory): string {
  *  multi-sport players are eligible), so it's stable across reload and promote. */
 export function backstoryFromProspect(cp: CollegePlayer): PlayerBackstory {
   const notableOtherSport = cp.multiSportBackground
-    ? rollNotableOtherSport(
-        new Prng(`${cp.id}::notable-sport`),
-        positionGroupFor(cp.nflProjectedPosition),
-      )
+    ? rollNotableOtherSport(new Prng(`${cp.id}::notable-sport`), {
+        skills: cp.current,
+        weightLbs: cp.measurables.weightLbs,
+        position: cp.nflProjectedPosition,
+      })
     : null;
   return {
     recruitingStars: cp.recruiting.starRating,
@@ -170,11 +248,16 @@ const BLOODLINE_RELATIONS: readonly BloodlineRelation[] = ['FATHER', 'BROTHER', 
  * Rates mirror the prospect generator (transfer ~34%, redshirt ~40%,
  * multi-sport position-weighted, bloodline ~8%, captain ~24%) so a vet's bio is
  * drawn from the same distribution as a drafted player's. Deterministic.
+ *
+ * `athletic` (skills + weight) feeds the attribute-coded notable second-sport
+ * (Slice A). When omitted (callers without a rolled skill set), the bio simply
+ * carries no notable sport — a clean degrade, not a wrong signal.
  */
 export function synthesizeBackstory(
   prng: Prng,
   tier: TalentTier,
   position: Position,
+  athletic?: { skills: PlayerSkills; weightLbs: number },
 ): PlayerBackstory {
   const stars = rollStarRating(prng.fork('star'), tier);
   const group: PositionGroup = positionGroupFor(position);
@@ -191,6 +274,14 @@ export function synthesizeBackstory(
   }
 
   const multiSport = rollMultiSportBackground(prng.fork('multi'), group);
+  const notableOtherSport =
+    multiSport && athletic
+      ? rollNotableOtherSport(prng.fork('notable'), {
+          skills: athletic.skills,
+          weightLbs: athletic.weightLbs,
+          position,
+        })
+      : null;
   return {
     recruitingStars: stars,
     background: deriveVetBackground(prng.fork('bg'), stars),
@@ -198,7 +289,7 @@ export function synthesizeBackstory(
     transferred: prng.fork('tx').next() < 0.34,
     redshirted: prng.fork('rs').next() < 0.4,
     multiSport,
-    notableOtherSport: multiSport ? rollNotableOtherSport(prng.fork('notable'), group) : null,
+    notableOtherSport,
     bloodline,
     wasCaptain: prng.fork('cap').next() < 0.24,
   };

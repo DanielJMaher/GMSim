@@ -509,6 +509,7 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
             new Prng(`${next.seed}::college-backstory::${id}`),
             p.tier,
             p.position,
+            { skills: p.current, weightLbs: p.weightLbs },
           ),
         };
       }
@@ -533,10 +534,11 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
         const cb = p.collegeBackstory;
         if (cb && (cb as { notableOtherSport?: unknown }).notableOtherSport === undefined) {
           const notable = cb.multiSport
-            ? rollNotableOtherSport(
-                new Prng(`${next.seed}::notable-sport::${id}`),
-                p.positionGroup,
-              )
+            ? rollNotableOtherSport(new Prng(`${next.seed}::notable-sport::${id}`), {
+                skills: p.current,
+                weightLbs: p.weightLbs,
+                position: p.position,
+              })
             : null;
           backfilled[id] = { ...p, collegeBackstory: { ...cb, notableOtherSport: notable } };
         }

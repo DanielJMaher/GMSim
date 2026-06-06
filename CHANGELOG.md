@@ -16,6 +16,29 @@ _Nothing yet._
 
 ---
 
+## [0.123.0] — 2026-06-05
+
+### Changed
+
+- **`notableOtherSport` now encodes a real attribute — Living Voice, Slice A.**
+  (See `docs/design-docs/LIVING_VOICE.md`.) The notable second sport is no longer
+  a random roll; it is **derived from the player's hidden athletic profile** and
+  only surfaces when an attribute is genuinely standout, so reading it tells you
+  something true: elite speed → a track/sprint tell; elite agility → hoops /
+  quick-feet; elite leaping → high-jump/volleyball; a big, strong frame →
+  shot-put/discus/wrestling; a QB with a live arm → a flame-throwing pitcher; a
+  QB with elite touch/composure → a nationally-ranked tennis player or scratch
+  golfer (the Rosen tell); skill/DB hands → baseball. The **surprising-for-his-
+  frame** variant fires when size contradicts the read — a heavy player who still
+  runs (the DK Metcalf "ran track at his size" tell). The descriptor is always
+  qualitative and **never speaks a rating or number** (stats are hidden, North
+  Star). `rollNotableOtherSport` now takes the athletic profile (skills + weight
+  + position); carried on prospects, drafted players, and synthesized vets;
+  migration backfills via the same derivation. Deterministic (Slice A keeps the
+  existing seeding; the `voiceSeed` non-determinism split is Slice B).
+
+---
+
 ## [0.122.0] — 2026-06-05
 
 ### Changed
