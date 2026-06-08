@@ -93,7 +93,6 @@ describe('generateNflPlayerTakes', () => {
 
   it('files Scribe-voiced takes for a played week, capped and de-duped', () => {
     const takes = generateNflPlayerTakes(
-      new Prng('gen'),
       played,
       week0,
       'REGULAR_SEASON_WEEK',
@@ -117,9 +116,9 @@ describe('generateNflPlayerTakes', () => {
     expect(subjects.size).toBe(takes.length);
   });
 
-  it('is deterministic for the same prng', () => {
-    const a = generateNflPlayerTakes(new Prng('d'), played, week0, 'REGULAR_SEASON_WEEK', 1, 5);
-    const b = generateNflPlayerTakes(new Prng('d'), played, week0, 'REGULAR_SEASON_WEEK', 1, 5);
+  it('is deterministic for the same league (same world + voice seed)', () => {
+    const a = generateNflPlayerTakes(played, week0, 'REGULAR_SEASON_WEEK', 1, 5);
+    const b = generateNflPlayerTakes(played, week0, 'REGULAR_SEASON_WEEK', 1, 5);
     expect(a).toEqual(b);
   });
 });

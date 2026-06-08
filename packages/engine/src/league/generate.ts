@@ -38,6 +38,7 @@ import { runProDays } from '../draft/pro-days.js';
 import { runCoachVisits } from '../draft/coach-visits.js';
 import { generateInitialDraftPicks } from '../draft/picks.js';
 import { generateMediaOutlets } from '../media/generate.js';
+import { deriveVoiceSeed } from '../media/voice.js';
 import type {
   CollegeScout,
   CollegePlayerObservation,
@@ -49,6 +50,13 @@ import type {
 export interface CreateLeagueOptions {
   /** Root seed; everything downstream is deterministic from this. */
   seed: string;
+  /**
+   * Living Voice seed (v0.124+). Drives only the WORDS scouts/outlets say, not
+   * the world. Omit → derived `${seed}::voice` (deterministic; engine/tests stay
+   * reproducible). The app passes a random one (entropy at the UI boundary) so
+   * the same world sounds different per playthrough. See `media/voice.ts`.
+   */
+  voiceSeed?: string;
   /** Starting salary cap. Defaults to $255M (rough 2024 figure). */
   salaryCap?: number;
   /**
@@ -73,7 +81,7 @@ export interface CreateLeagueOptions {
  *   - College draft class
  */
 export function createLeague(options: CreateLeagueOptions): LeagueState {
-  const { seed, salaryCap = 255_000_000, statEngine } = options;
+  const { seed, voiceSeed = deriveVoiceSeed(seed), salaryCap = 255_000_000, statEngine } = options;
   const rootPrng = new PrngClass(seed);
 
   const teams: Record<string, TeamState> = {};
@@ -214,6 +222,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
 
   const baseLeague: LeagueState = {
     seed,
+    voiceSeed,
     ...(statEngine ? { statEngine } : {}),
     tick: initialTick,
     seasonNumber: 1,

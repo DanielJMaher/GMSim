@@ -142,6 +142,11 @@ const TAB_DEFS: readonly TabDef[] = [
 
 export function App() {
   const [seedDraft, setSeedDraft] = useState(DEFAULT_SEED);
+  // Living Voice (v0.124): the voice seed is decoupled from the world seed —
+  // it drives only what scouts/outlets SAY. Empty draft = use the deterministic
+  // derived default (so a plain re-roll stays reproducible); the "🎲 Voice"
+  // button fills it with fresh entropy for "same world, different voice."
+  const [voiceSeedDraft, setVoiceSeedDraft] = useState('');
   const [league, setLeague] = useState<LeagueState>(() => createLeague({ seed: DEFAULT_SEED }));
   const [selectedTeamId, setSelectedTeamId] = useState<TeamId | null>(null);
   const [activeTab, setActiveTab] = useState<InspectorTab>('league');
@@ -204,7 +209,22 @@ export function App() {
   const selectedTeam = selectedTeamId ? league.teams[selectedTeamId] : null;
 
   function reroll() {
-    setLeague(createLeague({ seed: seedDraft || 'default' }));
+    setLeague(
+      createLeague({
+        seed: seedDraft || 'default',
+        ...(voiceSeedDraft ? { voiceSeed: voiceSeedDraft } : {}),
+      }),
+    );
+    setSelectedTeamId(null);
+  }
+
+  function randomizeVoice() {
+    // Entropy drawn at the UI boundary only — never inside the engine (CLAUDE.md
+    // invariant #2). Same world seed, fresh voice → hear this exact league told
+    // by different scouts.
+    const vs = `voice-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`;
+    setVoiceSeedDraft(vs);
+    setLeague(createLeague({ seed: seedDraft || 'default', voiceSeed: vs }));
     setSelectedTeamId(null);
   }
 
@@ -297,6 +317,25 @@ export function App() {
               className="rounded border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-sm text-emerald-300 hover:bg-emerald-500/20"
             >
               Re-roll
+            </button>
+            <label className="text-xs uppercase tracking-wide text-zinc-500" htmlFor="voiceSeed">
+              voice
+            </label>
+            <input
+              id="voiceSeed"
+              value={voiceSeedDraft}
+              placeholder={league.voiceSeed}
+              onChange={(e) => setVoiceSeedDraft(e.target.value)}
+              title={`Living Voice seed — drives only what scouts & outlets SAY, not the world (players, ratings, results). Active: ${league.voiceSeed}`}
+              className="w-28 rounded border border-zinc-800 bg-zinc-900 px-2 py-1 font-mono text-sm text-violet-300 placeholder:text-zinc-600 focus:border-violet-500 focus:outline-none"
+            />
+            <button
+              type="button"
+              onClick={randomizeVoice}
+              title="Same world seed, fresh voice — hear this exact league told by different scouts."
+              className="rounded border border-violet-500/40 bg-violet-500/10 px-3 py-1 text-sm text-violet-300 hover:bg-violet-500/20"
+            >
+              🎲 Voice
             </button>
           </form>
           {seasonSimmed ? (

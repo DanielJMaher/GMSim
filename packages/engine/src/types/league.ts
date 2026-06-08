@@ -38,6 +38,16 @@ export interface LeagueState {
   seed: string;
 
   /**
+   * Living Voice seed (v0.124+). Decoupled from `seed`: the world (players,
+   * ratings, results) is reproduced from `seed`, but every word a scout/outlet
+   * *says* draws from `voiceSeed`, so the same world can sound different each
+   * playthrough. Serialized independently; the app passes a random one at
+   * new-game for variety, engine-only callers get `${seed}::voice`. Migration
+   * backfills it on pre-v0.124 saves. See `media/voice.ts` + LIVING_VOICE.md §2.
+   */
+  voiceSeed: string;
+
+  /**
    * Which game-stat engine to use (v0.106+). `'topdown'` (default when
    * absent) = the legacy `rollStats` box-score-then-distribute path.
    * `'bottomup'` = the matchup-driven drive sim (`simulateGameDrives`),

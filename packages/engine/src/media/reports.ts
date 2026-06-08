@@ -117,7 +117,6 @@ export function generateWeeklyMediaReports(
   // Scribe NFL-player takes — the week's statistical standouts get a
   // player-level read in the Scribe voice (v0.121).
   const takes = generateNflPlayerTakes(
-    prng.fork('nfl-takes'),
     league,
     week,
     'REGULAR_SEASON_WEEK',
@@ -164,7 +163,6 @@ export function generatePlayoffRoundMediaReports(
 
   // Scribe NFL-player takes for the round's standouts (v0.121).
   const takes = generateNflPlayerTakes(
-    prng.fork('nfl-takes'),
     league,
     games,
     phase,

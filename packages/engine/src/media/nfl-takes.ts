@@ -33,6 +33,7 @@ import type { TeamId } from '../types/ids.js';
 import { getArchetypeById } from '../archetypes/index.js';
 import { scoutTraitsFor, scoutConcernFor } from './scout-vocabulary.js';
 import { STRENGTH_LEADS_MEASURED, STRENGTH_LEADS_LOUD } from './scout-report.js';
+import { voicePrng } from './voice.js';
 import {
   extractHeadliners,
   computeWeekStatLeaders,
@@ -259,9 +260,14 @@ interface TakeCandidate {
  * take for the top `maxTakes` — so the feed surfaces the genuine weekly stories
  * without flooding. Each take is filed by a national outlet (rotating) or the
  * player's local beat. Returns reports to append to `league.mediaReports`.
+ *
+ * Living Voice (v0.124): SELECTION (which standouts headline, which outlet) is
+ * deterministic world-state — it reads the world seed's game results, no voice
+ * RNG. Only the WORDS of each take draw from `league.voiceSeed` (per season /
+ * phase / week / player), so the same week's results sound different per
+ * playthrough. See media/voice.ts + LIVING_VOICE.md §10.1.
  */
 export function generateNflPlayerTakes(
-  prng: Prng,
   league: LeagueState,
   games: readonly ScheduledGame[],
   phase: LifecyclePhase,
@@ -326,18 +332,21 @@ export function generateNflPlayerTakes(
     const outlet = local ?? nationals[idx % Math.max(1, nationals.length)];
     if (!outlet) continue;
     reports.push(
-      buildNflPlayerTake(prng.fork(`take:${c.headliner.playerId}`), {
-        player,
-        outlet,
-        headliner: c.headliner,
-        team,
-        opp,
-        seasonNumber: league.seasonNumber,
-        weekNumber,
-        lifecyclePhase: phase,
-        filedOnTick,
-        idSuffix: `${phase}_${weekNumber ?? 'PO'}_${idx}`,
-      }),
+      buildNflPlayerTake(
+        voicePrng(league.voiceSeed, league.seasonNumber, phase, weekNumber ?? 'PO', c.headliner.playerId),
+        {
+          player,
+          outlet,
+          headliner: c.headliner,
+          team,
+          opp,
+          seasonNumber: league.seasonNumber,
+          weekNumber,
+          lifecyclePhase: phase,
+          filedOnTick,
+          idSuffix: `${phase}_${weekNumber ?? 'PO'}_${idx}`,
+        },
+      ),
     );
     idx++;
   }

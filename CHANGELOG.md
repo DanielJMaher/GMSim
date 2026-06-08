@@ -16,6 +16,43 @@ _Nothing yet._
 
 ---
 
+## [0.124.0] — 2026-06-07
+
+### Added
+
+- **`voiceSeed` — the world/voice seed split (Living Voice, Slice B).**
+  (See `docs/design-docs/LIVING_VOICE.md` §10.1.) `LeagueState` now carries a
+  `voiceSeed` decoupled from the world `seed`. The world (players, ratings,
+  measurables, game results) is still reproduced exactly from `seed`; everything
+  a scout or outlet **says** — template, intensifier, comp, phrasing — now draws
+  from `voiceSeed`. So the *same world* can sound **different every playthrough**
+  without breaking engine determinism. `createLeague({ seed, voiceSeed? })`
+  defaults `voiceSeed` to `${seed}::voice` (engine-only callers + tests stay
+  reproducible); the inspector draws real entropy at the UI boundary. New
+  `media/voice.ts` (`deriveVoiceSeed`, `voicePrng`); migration backfills
+  pre-v0.124 saves to the derived default.
+
+### Changed
+
+- **Media-take WORD generation routes off `voiceSeed`.** The college sleeper
+  takes (`buildProspectSleeperTake` wiring in `college-cycle.ts`) and the NFL
+  weekly player takes (`generateNflPlayerTakes`) now build their word/template/
+  comp PRNG from `voiceSeed` + context (season / tick / outlet / player) instead
+  of the world seed. **Selection** (which sleepers an outlet champions, which
+  standouts headline) stays on the world seed — that's an opinion, deferred to
+  Slice B2 ("opinions too"). `generateNflPlayerTakes` dropped its now-unused
+  world-`prng` parameter (all its randomness is voice; selection is
+  deterministic from game results).
+
+### Inspector
+
+- **"🎲 Voice" control** beside the seed box: re-creates the league from the
+  *same world seed* with a fresh random `voiceSeed`, so you can hear one exact
+  league told by different scouts. An editable voice-seed field shows the active
+  seed; a plain Re-roll keeps the deterministic derived default.
+
+---
+
 ## [0.123.0] — 2026-06-05
 
 ### Changed

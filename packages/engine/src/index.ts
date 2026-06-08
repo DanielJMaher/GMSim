@@ -182,6 +182,8 @@ export type { MediaCoverageOptions } from './media/prospect-evaluators.js';
 export { buildProspectSleeperTake } from './media/prospect-takes.js';
 export { buildScoutReport } from './media/scout-report.js';
 export { buildNflPlayerTake, generateNflPlayerTakes } from './media/nfl-takes.js';
+// Living Voice (v0.124) — the world/voice seed split.
+export { deriveVoiceSeed, voicePrng } from './media/voice.js';
 export { scoutTraitFor, scoutTraitsFor, scoutConcernFor } from './media/scout-vocabulary.js';
 export {
   narrateBackstory,

@@ -8,6 +8,7 @@ import { Prng } from '../prng/index.js';
 import { rollMoodProfileFromSeed } from '../players/mood-profile.js';
 import { synthesizeDraftProvenance } from '../players/draft-provenance.js';
 import { synthesizeBackstory, rollNotableOtherSport } from '../players/backstory.js';
+import { deriveVoiceSeed } from '../media/voice.js';
 import { generatePhysicalProfile } from '../players/physical.js';
 import { assignAbilities } from '../players/abilities.js';
 import { gradeFromOverall } from '../players/skills.js';
@@ -545,6 +546,14 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
       }
       next = { ...next, players: { ...next.players, ...backfilled } } as LeagueState;
     }
+  }
+
+  // v0.124.0 Living Voice seed. Pre-v0.124 saves carry only the world `seed`;
+  // backfill the decoupled `voiceSeed` to its deterministic default so old
+  // saves keep a stable voice (they don't get per-playthrough variety, which is
+  // fine — that's a property of *new* games). See media/voice.ts + §10.1.
+  if ((next as unknown as { voiceSeed?: unknown }).voiceSeed === undefined) {
+    next = { ...next, voiceSeed: deriveVoiceSeed(next.seed) } as LeagueState;
   }
 
   return next;

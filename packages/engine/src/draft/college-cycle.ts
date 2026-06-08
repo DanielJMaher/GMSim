@@ -17,6 +17,7 @@ import {
   mediaCoverageForLevel,
 } from '../media/prospect-evaluators.js';
 import { buildProspectSleeperTake, buildMockBoardReport } from '../media/prospect-takes.js';
+import { voicePrng } from '../media/voice.js';
 import { computeOutletMockBoard } from '../media/mock-boards.js';
 import type { MediaReport } from '../types/media.js';
 
@@ -124,6 +125,10 @@ export function advanceCollegeScoutingCycle(
     for (const outlet of Object.values(league.mediaOutlets)) {
       if (outlet.focus !== 'COLLEGE') continue;
       const outletPrng = takePrng.fork(`outlet:${outlet.id}`);
+      // SELECTION (which sleepers this outlet champions) stays on the world
+      // seed — it's an opinion, deferred to B2. Only the WORDS below draw from
+      // `voiceSeed` (per outlet + prospect + tick), so the same world sounds
+      // different per playthrough. See media/voice.ts + LIVING_VOICE.md §10.1.
       const picks = selectScoutSleepers(outletPrng.fork('pick'), generalist, profiles).slice(
         0,
         outlet.hypeSpectrum >= 6 ? 3 : 2,
@@ -132,14 +137,17 @@ export function advanceCollegeScoutingCycle(
         const prospect = poolById.get(pick.prospectId);
         if (!prospect) continue;
         takes.push(
-          buildProspectSleeperTake(outletPrng.fork(`take:${pick.prospectId}`), {
-            outlet,
-            prospect,
-            channel: pick.channel,
-            filedOnTick: observedOnTick,
-            seasonNumber: league.seasonNumber,
-            lifecyclePhase: 'TOP_30_VISITS',
-          }),
+          buildProspectSleeperTake(
+            voicePrng(league.voiceSeed, league.seasonNumber, observedOnTick, outlet.id, pick.prospectId),
+            {
+              outlet,
+              prospect,
+              channel: pick.channel,
+              filedOnTick: observedOnTick,
+              seasonNumber: league.seasonNumber,
+              lifecyclePhase: 'TOP_30_VISITS',
+            },
+          ),
         );
       }
     }
