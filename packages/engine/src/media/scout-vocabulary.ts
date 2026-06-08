@@ -15,10 +15,10 @@ import type { Position } from '../types/enums.js';
  * {trait}". Pure cosmetic flavor (headline text); no ground-truth leakage.
  */
 
-type VocabBucket =
+export type VocabBucket =
   | 'QB' | 'RB' | 'WR' | 'TE' | 'OL' | 'EDGE' | 'DT' | 'LB' | 'CB' | 'S' | 'ST';
 
-const POSITION_TO_BUCKET: Partial<Record<Position, VocabBucket>> = {
+export const POSITION_TO_BUCKET: Partial<Record<Position, VocabBucket>> = {
   QB: 'QB',
   RB: 'RB', FB: 'RB',
   WR: 'WR',
@@ -65,6 +65,11 @@ const WEAKNESS_TRAITS: Record<VocabBucket, readonly string[]> = {
   S: ['tightness in deep transitions', 'poor angles to the football', 'a tendency to bite on play-action', 'inconsistent tackling in the alley'],
   ST: ['inconsistent operation time', 'leg strength on the longer attempts', 'directional consistency'],
 };
+
+/** The vocabulary bucket for a position (with the ST fallback). */
+export function bucketFor(position: Position): VocabBucket {
+  return POSITION_TO_BUCKET[position] ?? 'ST';
+}
 
 /** A position-appropriate positive scouting trait phrase. */
 export function scoutTraitFor(prng: Prng, position: Position): string {

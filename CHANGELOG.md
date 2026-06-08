@@ -16,6 +16,37 @@ _Nothing yet._
 
 ---
 
+## [0.125.0] — 2026-06-08
+
+### Added
+
+- **Scouting Report UI + the skill-band vocabulary (Living Voice, Slice C).**
+  A new inspector **Scout Reports** tab: pick a **team** (its scouting staff) or
+  a **media outlet**, and a **prospect**, and read the full dossier that source
+  holds — player info, measurables (combine + pro-day, "DNP" when skipped),
+  college production, key injuries, and an attributed write-up. The
+  **strengths/concerns key in on the player's underlying stats**: each point is
+  derived from a specific source's *noisy observed read* of an attribute (so the
+  scout can be **wrong**) and is **bylined to that scout**; the projection prose
+  is bylined by the lead scout (or the outlet). Length scales with the source's
+  read of stature (top prospects run longer). Per the inspector convention each
+  read shows perceived/real; per North Star no pro/con/prose ever speaks a
+  number or a band.
+- **`media/skill-vocabulary.ts`** — `bandOf(value)`, `bandPolarity(band)`,
+  `REPORT_SKILLS_BY_BUCKET` (which of the 18 observed attributes a scout grades
+  per position), and `describeSkill(skill, band, position, prng)` mapping a
+  banded attribute to position-aware words (QB elite `technicalSkill` → "rare arm
+  talent"; EDGE poor `passRushTechnique` → "a thin counter-rush plan"). Wording
+  rides `voiceSeed` (Slice B). This is the reusable Voice-Pack-shaped seed later
+  Living Voice slices grow.
+- **`draft/dossier.ts`** — `assembleProspectDossier(league, viewer, prospectId)`
+  builds the attributed `ProspectDossier` purely from the knowledge layer
+  (`collegeObservations` / `coachVisitObservations` for a team,
+  `mediaCollegeObservations` for an outlet) — never ground truth. Scope:
+  college prospects (the NFL pro-report is a follow-on).
+
+---
+
 ## [0.124.0] — 2026-06-07
 
 ### Added

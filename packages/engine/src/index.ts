@@ -184,7 +184,24 @@ export { buildScoutReport } from './media/scout-report.js';
 export { buildNflPlayerTake, generateNflPlayerTakes } from './media/nfl-takes.js';
 // Living Voice (v0.124) — the world/voice seed split.
 export { deriveVoiceSeed, voicePrng } from './media/voice.js';
-export { scoutTraitFor, scoutTraitsFor, scoutConcernFor } from './media/scout-vocabulary.js';
+export { scoutTraitFor, scoutTraitsFor, scoutConcernFor, bucketFor } from './media/scout-vocabulary.js';
+export type { VocabBucket } from './media/scout-vocabulary.js';
+// Living Voice Slice C — the skill-band vocabulary (words key in on the stat).
+export {
+  bandOf,
+  bandPolarity,
+  describeSkill,
+  REPORT_SKILLS_BY_BUCKET,
+} from './media/skill-vocabulary.js';
+export type { SkillBand, BandPolarity } from './media/skill-vocabulary.js';
+// Prospect scouting dossier — what a team's scouts / an outlet say about a prospect.
+export { assembleProspectDossier, findProspect } from './draft/dossier.js';
+export type {
+  DossierViewer,
+  AttributedPoint,
+  DossierMeasurables,
+  ProspectDossier,
+} from './draft/dossier.js';
 export {
   narrateBackstory,
   backstoryFromProspect,
