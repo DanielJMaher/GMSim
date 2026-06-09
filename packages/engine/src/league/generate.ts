@@ -60,9 +60,10 @@ export interface CreateLeagueOptions {
   /** Starting salary cap. Defaults to $255M (rough 2024 figure). */
   salaryCap?: number;
   /**
-   * Game-stat engine (v0.106+). Defaults to `'topdown'` (legacy). Set
-   * `'bottomup'` to run the matchup-driven drive sim so player stats emerge
-   * from individual matchups. Persisted on `LeagueState.statEngine`.
+   * Game-stat engine. **Defaults to `'bottomup'`** (the matchup-driven drive
+   * sim — player stats emerge from individual matchups; default since v0.106).
+   * Pass `'topdown'` to opt into the legacy box-score path. Persisted on
+   * `LeagueState.statEngine`.
    */
   statEngine?: 'topdown' | 'bottomup';
 }

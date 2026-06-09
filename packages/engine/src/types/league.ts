@@ -48,13 +48,14 @@ export interface LeagueState {
   voiceSeed: string;
 
   /**
-   * Which game-stat engine to use (v0.106+). `'topdown'` (default when
-   * absent) = the legacy `rollStats` box-score-then-distribute path.
-   * `'bottomup'` = the matchup-driven drive sim (`simulateGameDrives`),
+   * Which game-stat engine to use. **`'bottomup'` is the DEFAULT** (since
+   * v0.106 / Path B) — the matchup-driven drive sim (`simulateGameDrives`),
    * where each play's outcome is attributed to specific players so stars
-   * separate. Read inside `simulateGame`, so flipping it routes every game
-   * (regular season + playoffs) through the chosen engine. Default stays
-   * legacy until the season/career stat guards are recalibrated.
+   * separate. `simulateGame` runs bottom-up unless this is explicitly set to
+   * `'topdown'` (the legacy `rollStats` box-score-then-distribute path, kept as
+   * an opt-out). Read inside `simulateGame`, so the choice routes every game
+   * (regular season + playoffs). The season/career stat guards are calibrated
+   * to the bottom-up output.
    */
   statEngine?: 'topdown' | 'bottomup';
 
