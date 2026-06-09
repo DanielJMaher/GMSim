@@ -29,6 +29,7 @@ import type { CollegeGame, CollegePlayerGameStats } from '../types/college-seaso
 import type { MediaOutlet, MediaReport, MediaTone, ScoutReportBody } from '../types/media.js';
 import { MediaReportId } from '../types/ids.js';
 import { getSchoolById } from '../data/colleges/index.js';
+import { positionGroupFor } from '../players/position-group.js';
 import { voicePrng } from './voice.js';
 import { scoutTraitsFor, scoutConcernFor } from './scout-vocabulary.js';
 
@@ -43,16 +44,22 @@ type TakeKind =
   | 'pick-storm'
   | 'star-dud';
 
-// College box-score thresholds — higher than the NFL's; CFB games run up.
-const QB_MONSTER_YDS = 375;
-const QB_MONSTER_TDS = 5;
+// College box-score thresholds — tuned to the sim's actual per-game prospect
+// distribution (pool prospects get depth-chart shares, so lines run lower than
+// NFL: rushing tops out ~160, receiving ~125, sacks ~2, INTs ~1 per game). The
+// volume kinds are ALSO leader-gated (top-K of the week), so these floors only
+// keep "leader" from meaning trivially small in a quiet week.
+const QB_MONSTER_YDS = 350;
+const QB_MONSTER_TDS = 4;
 const QB_PICKS = 3;
-const RB_MONSTER_YDS = 180;
-const WR_MONSTER_YDS = 150;
-const SACK_STORM = 3;
-const PICK_STORM = 2;
+const RB_MONSTER_YDS = 130;
+const WR_MONSTER_YDS = 95;
+const SACK_STORM = 2;
+const PICK_STORM = 1;
 /** Recruiting stars at/above which a prospect is "touted" (drives angle + dud). */
 const TOUTED_STARS = 4;
+/** Max takes per position GROUP in a week — keeps QBs from filling every slot. */
+const GROUP_CAP = 2;
 
 const KIND_PRIORITY: Record<TakeKind, number> = {
   'qb-monster': 100,
@@ -140,7 +147,8 @@ function classify(
     return { kind: 'sack-storm', statPhrase: `${line.sacks} sacks`, positive: true };
   }
   if (line.interceptions >= PICK_STORM && leaders.ints.has(id)) {
-    return { kind: 'pick-storm', statPhrase: `${line.interceptions} interceptions`, positive: true };
+    const phrase = line.interceptions === 1 ? 'a takeaway' : `${line.interceptions} interceptions`;
+    return { kind: 'pick-storm', statPhrase: phrase, positive: true };
   }
   // A touted prospect who laid an egg in a loss — the "stock dip" story. Only
   // for blue-chips (a nobody's quiet day is not news), and only a genuine dud.
@@ -288,11 +296,29 @@ export function generateCollegeWeeklyTakes(
   candidates.sort((a, b) => b.rank - a.rank || (a.prospect.id < b.prospect.id ? -1 : 1));
   const seen = new Set<string>();
   const picked: Candidate[] = [];
+  // Pass 1: honor a per-position-group cap so the slate isn't all QBs — a
+  // monster rushing day or a sack-storm edge gets a headline too.
+  const groupCount = new Map<string, number>();
   for (const cand of candidates) {
-    if (seen.has(cand.prospect.id as string)) continue;
-    seen.add(cand.prospect.id as string);
-    picked.push(cand);
     if (picked.length >= maxTakes) break;
+    const pid = cand.prospect.id as string;
+    if (seen.has(pid)) continue;
+    const g = positionGroupFor(cand.prospect.nflProjectedPosition);
+    if ((groupCount.get(g) ?? 0) >= GROUP_CAP) continue;
+    seen.add(pid);
+    groupCount.set(g, (groupCount.get(g) ?? 0) + 1);
+    picked.push(cand);
+  }
+  // Pass 2: backfill any remaining slots ignoring the cap (a quiet week with
+  // only QB stories still fills up rather than under-reporting).
+  if (picked.length < maxTakes) {
+    for (const cand of candidates) {
+      if (picked.length >= maxTakes) break;
+      const pid = cand.prospect.id as string;
+      if (seen.has(pid)) continue;
+      seen.add(pid);
+      picked.push(cand);
+    }
   }
 
   const collegeOutlets = Object.values(league.mediaOutlets).filter(

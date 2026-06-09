@@ -16,6 +16,21 @@ _Nothing yet._
 
 ---
 
+## [0.128.1] — 2026-06-09
+
+### Changed
+
+- **CFB takes now span every position, not just QBs.** The initial thresholds
+  were NFL-scaled, but pool prospects get depth-chart shares, so college lines run
+  lower (rushing tops ~160, receiving ~125, sacks ~2, INTs ~1 per game) — the
+  RB/WR/defense kinds never fired and QBs filled every slot. Retuned the
+  thresholds to the sim's real distribution and added a per-position-group cap
+  (max 2/group/week), so a week's slate now mixes monster rushing days, sack-storm
+  edges, ball-hawk DBs, and big receiving games alongside the QB stories (~16 → ~60
+  takes/season). The pick-storm kind reframes a lone INT as "a takeaway".
+
+---
+
 ## [0.128.0] — 2026-06-09
 
 ### Added
