@@ -6,6 +6,7 @@
   "description": "Ground-truth corpus of real NFL draft history (2014-2026) used to verify GMSim's generated rosters and draft classes.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "gates": "tsc -p tsconfig.json && node dist/gates.js",
     "scrape": "tsc -p tsconfig.json && node dist/corpus/scrape.js",
     "embed": "tsc -p tsconfig.json && node dist/corpus/embed.js",
     "search": "tsc -p tsconfig.json && node dist/corpus/search.js",

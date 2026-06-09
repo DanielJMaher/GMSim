@@ -23,6 +23,14 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   (create → simulateSeason → advanceSeason) must finish inside a wall-clock
   budget (240s; ~16s observed idle-local at calibration). Trips on structural
   regressions (O(n²) sweeps, unbounded per-tick growth), not runner noise.
+- **`run gates` — one-command drift sweep** (`truth-arbiter/src/gates.ts`):
+  runs every data-agent guardrail (class-talent, adjudicate, magistrate,
+  liquidator, ombudsman) in quick modes (`gates full` for heavier sims),
+  reprints each report, counts `<-- DRIFT`-style markers, and prints a single
+  scoreboard. Flags are warnings (known residuals stay visible, not fatal);
+  only an agent error fails the command. First sweep: 5/5 agents clean of
+  errors; flags match the known residuals (liquidator compressed tops pending
+  cap-aware generation; class-talent rookie-current artifact).
 
 ---
 
