@@ -16,6 +16,32 @@ _Nothing yet._
 
 ---
 
+## [0.129.0] — 2026-06-09
+
+### Fixed
+
+- **Proactive fire-sale trades now actually fire** (~0/yr → ~7-8/yr). The
+  rebuilder-vet-for-picks pattern (Doc 14: Stafford/Mack-style "aging star on a
+  rebuild → contender for picks") was structurally dead: `buildFireSaleOffer`
+  built the buyer's pick package by taking its **cheapest** picks first (ascending
+  sort) up to a 3-pick cap, then bailed when they didn't clear the vet's value —
+  so it could never construct a deal. Instrumented the current funnel: with a
+  **descending** sort the buyer's best 3 picks clear a STAR vet's value in ~72% of
+  pairings (the old "even all picks < a STAR vet" mismatch is gone since the
+  Liquidator recalibrated values). Flipped the sort to biggest-first and added an
+  overpay trim (drop the largest pick if the rest still clears), so a contender
+  now ships a realistic 1-3 premium picks for an aging rebuilder star. Four tests
+  that had documented the dead behavior (or asserted a fragile global zero) were
+  reconciled to test the real intent (the specific vet's gate, fire-sale pick
+  compensation having no return *player*).
+
+### Docs
+
+- Corrected the stale `statEngine` comments (`types/league.ts`, `generate.ts`):
+  bottom-up has been the live default since v0.106, not topdown.
+
+---
+
 ## [0.128.1] — 2026-06-09
 
 ### Changed

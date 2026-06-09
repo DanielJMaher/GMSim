@@ -38,11 +38,16 @@ describe('deriveGamePlayerStats', () => {
   });
 
   it('per-team rushing yards distributed across RBs sum to team total', () => {
-    const league = simulateSeason(createLeague({ seed: 'pgs-reconcile-rush' }));
+    // Reconcile against the WEEK-0 (pre-trade) roster: deadline trades can move
+    // a player off the team mid-season, and `deriveGamePlayerStats` returns the
+    // bottom-up lines as stored (no team tag), so the end-of-season roster would
+    // wrongly exclude a traded contributor's week-0 yards.
+    const base = createLeague({ seed: 'pgs-reconcile-rush' });
+    const league = simulateSeason(base);
     const someGame = league.schedule!.regularSeason[0]![0]!;
     const lines = deriveGamePlayerStats(someGame, league);
 
-    const home = league.teams[someGame.homeTeamId]!;
+    const home = base.teams[someGame.homeTeamId]!;
     const homeRunnerIds = new Set(
       home.rosterIds
         .map((id) => league.players[id]!)
@@ -56,11 +61,13 @@ describe('deriveGamePlayerStats', () => {
   });
 
   it('per-team receiving yards across pass-catchers sum to team passing yards', () => {
-    const league = simulateSeason(createLeague({ seed: 'pgs-reconcile-recv' }));
+    // Week-0 roster — see the rushing reconcile above (trade-robustness).
+    const base = createLeague({ seed: 'pgs-reconcile-recv' });
+    const league = simulateSeason(base);
     const someGame = league.schedule!.regularSeason[0]![0]!;
     const lines = deriveGamePlayerStats(someGame, league);
 
-    const home = league.teams[someGame.homeTeamId]!;
+    const home = base.teams[someGame.homeTeamId]!;
     const homeIds = new Set(home.rosterIds);
     const homeRecvYards = lines
       .filter((l) => homeIds.has(l.playerId))
@@ -69,11 +76,13 @@ describe('deriveGamePlayerStats', () => {
   });
 
   it('defensive sacks distributed across home D-line equal home team sacks', () => {
-    const league = simulateSeason(createLeague({ seed: 'pgs-reconcile-sacks' }));
+    // Week-0 roster — see the rushing reconcile above (trade-robustness).
+    const base = createLeague({ seed: 'pgs-reconcile-sacks' });
+    const league = simulateSeason(base);
     const someGame = league.schedule!.regularSeason[0]![0]!;
     const lines = deriveGamePlayerStats(someGame, league);
 
-    const home = league.teams[someGame.homeTeamId]!;
+    const home = base.teams[someGame.homeTeamId]!;
     const homeIds = new Set(home.rosterIds);
     const homeSacks = lines
       .filter((l) => homeIds.has(l.playerId))

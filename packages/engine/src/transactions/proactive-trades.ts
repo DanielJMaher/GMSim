@@ -628,10 +628,17 @@ function collectRebuilderFireSaleCandidates(
 }
 
 /**
- * Greedy construction of the smallest pick package (by the seller's
- * perceived value) that clears `targetValue`. Caps at
- * {@link MAX_PICKS_PER_FIRESALE_OFFER}; returns `[]` when the cap is
- * hit without clearing — the buyer can't make the deal happen.
+ * Greedy construction of a pick package (by the seller's perceived value) that
+ * clears `targetValue` in at most {@link MAX_PICKS_PER_FIRESALE_OFFER} picks —
+ * the realistic "a couple of premium picks for the vet" deadline shape.
+ *
+ * Picks are taken BIGGEST-FIRST (descending): clearing a STAR vet's value with a
+ * ≤3-pick cap requires the buyer's premium picks (a 1st + a 3rd), not its
+ * cheapest. The original ascending order pulled the three smallest picks and
+ * bailed when they didn't clear — which is why fire-sales structurally never
+ * fired at season scale. After clearing, trims the largest pick if the rest
+ * still clears, so the buyer doesn't needlessly overpay. Returns `[]` only when
+ * even the buyer's top picks can't reach the target.
  */
 function buildFireSaleOffer(
   seller: TeamState,
@@ -642,17 +649,25 @@ function buildFireSaleOffer(
   const valued = availablePicks
     .map((p) => ({ pick: p, value: evaluatePickValue(seller, p, league).total }))
     .filter((x) => x.value > 0)
-    .sort((a, b) => a.value - b.value);
+    .sort((a, b) => b.value - a.value);
 
-  const chosen: DraftPickAsset[] = [];
+  const chosen: { pick: DraftPickAsset; value: number }[] = [];
   let total = 0;
   for (const v of valued) {
     if (chosen.length >= MAX_PICKS_PER_FIRESALE_OFFER) break;
-    chosen.push(v.pick);
+    chosen.push(v);
     total += v.value;
     if (total >= targetValue) break;
   }
-  return total >= targetValue ? chosen : [];
+  if (total < targetValue) return [];
+
+  // Trim overpay: if dropping the single largest pick still clears, do it (a
+  // 3rd-rounder alone covers a marginal vet — no need to also ship the 1st).
+  while (chosen.length > 1 && total - chosen[0]!.value >= targetValue) {
+    total -= chosen[0]!.value;
+    chosen.shift();
+  }
+  return chosen.map((c) => c.pick);
 }
 
 /**

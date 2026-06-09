@@ -1,6 +1,6 @@
 {
   "name": "@gmsim/truth-arbiter",
-  "version": "0.128.1",
+  "version": "0.129.0",
   "private": true,
   "type": "module",
   "description": "Ground-truth corpus of real NFL draft history (2014-2026) used to verify GMSim's generated rosters and draft classes.",
@@ -14,6 +14,7 @@
     "outcomes": "tsc -p tsconfig.json && node dist/draft-model/arbiter-outcomes.js",
     "adjudicate": "tsc -p tsconfig.json && node dist/sim/skill-adjudicator.js",
     "magistrate": "tsc -p tsconfig.json && node dist/sim/magistrate.js",
+    "barterer": "tsc -p tsconfig.json && node dist/sim/barterer.js",
     "liquidator": "tsc -p tsconfig.json && node dist/cap/liquidator.js",
     "star": "tsc -p tsconfig.json && node dist/sim/star-separation.js",
     "conversion": "tsc -p tsconfig.json && node dist/sim/conversion.js",

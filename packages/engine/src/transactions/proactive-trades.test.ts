@@ -100,15 +100,18 @@ describe('runProactiveTrades', () => {
     const newTrades = after.transactionLog
       .slice(league.transactionLog.length)
       .filter((t) => t.kind === 'trade');
-    // Under the v0.24 5-factor model, a "STARTER for BACKUP return"
-    // trade is correctly *rejected* — the rebuilder seller wouldn't
-    // accept that deal in real NFL terms (the BACKUP they receive is
-    // worth ~$3M vs the $10-15M STARTER they're giving up). They want
-    // draft picks or comparable assets back. Once Doc 3 ships draft
-    // picks, this scenario should fire again. Until then, Pass 1
-    // positional-need trades are rare; Pass 2 scheme-fit swaps
-    // (same-tier same-position) carry most of the volume.
-    expect(newTrades.length).toBe(0);
+    // The rebuilder wouldn't accept a BACKUP return for its STARTER (the
+    // 5-factor model correctly rejects that). Now that draft picks exist (Doc 3),
+    // the deal the original comment anticipated DOES fire: the rebuilder ships
+    // the aging STARTER for PICKS (a fire-sale). Any trade that fires here must
+    // therefore be that clean player-for-picks fire-sale — never a lopsided
+    // player-for-player swap.
+    for (const t of newTrades) {
+      if (t.kind !== 'trade') continue;
+      expect(t.source).toBe('proactive-rebuild-firesale');
+      expect(t.playersAToB.length).toBe(0);
+      expect((t.picksAToB ?? []).length).toBeGreaterThan(0);
+    }
   });
 
   it('surplus seller (good-window team with extra depth) parts with a STARTER but not a STAR', () => {
@@ -330,7 +333,10 @@ describe('runProactiveTrades', () => {
         expect(alt.buyerId).toBeTruthy();
         expect(alt.sellerId).toBeTruthy();
         expect(alt.acquireId).toBeTruthy();
-        expect(alt.returnId).toBeTruthy();
+        // returnId is the return PLAYER — present only for player-for-player
+        // alternatives. Fire-sale alternatives pay in picks, so they carry no
+        // returnId (the picks live on the trade record, not the candidate).
+        if (alt.returnId !== undefined) expect(alt.returnId).toBeTruthy();
         expect(['buyer-used', 'seller-used', 'lower-priority', 'failed-gate']).toContain(
           alt.reason,
         );
@@ -461,7 +467,10 @@ describe('runProactiveTrades — rebuilder fire-sale (v0.48.0+)', () => {
     //  - picksAToB non-empty (buyer paid in picks)
     //  - playersAToB empty (no player coming back)
     const firesale = newTrades.find(
-      (t) => t.kind === 'trade' && t.source === 'proactive-rebuild-firesale',
+      (t) =>
+        t.kind === 'trade' &&
+        t.source === 'proactive-rebuild-firesale' &&
+        t.playersBToA.includes(vetId),
     );
     if (!firesale || firesale.kind !== 'trade') return;
     expect(firesale.teamAId).toBe(buyerId);
@@ -506,7 +515,7 @@ describe('runProactiveTrades — rebuilder fire-sale (v0.48.0+)', () => {
       vetAge: 27,
     });
     if (!scenario) return;
-    const { league } = scenario;
+    const { league, vetId } = scenario;
 
     const after = runProactiveTrades(new Prng('fs'), league, league.tick);
     const firesales = after.transactionLog
@@ -515,7 +524,12 @@ describe('runProactiveTrades — rebuilder fire-sale (v0.48.0+)', () => {
         (t) =>
           t.kind === 'trade' && t.source === 'proactive-rebuild-firesale',
       );
-    expect(firesales.length).toBe(0);
+    // The age gate must keep the SPECIFIC 27-yo vet off the block. (Other aging
+    // vets on the rebuilder can legitimately fire now that fire-sales construct
+    // valid pick packages — so assert the gate on THIS vet, not a global zero.)
+    for (const t of firesales) {
+      if (t.kind === 'trade') expect(t.playersBToA).not.toContain(vetId);
+    }
   });
 });
 
