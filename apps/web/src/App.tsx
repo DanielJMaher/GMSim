@@ -1242,14 +1242,14 @@ function CollegeProspectDetail({
           </span>
         </div>
         <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 sm:grid-cols-3 lg:grid-cols-5">
-          <MeasureCell label="Height" truth={`${m.heightInches}"`} combine={combine?.heightInches !== undefined ? `${combine.heightInches}"` : undefined} attended={combine?.attended} />
-          <MeasureCell label="Weight" truth={`${m.weightLbs} lb`} combine={combine?.weightLbs !== undefined ? `${combine.weightLbs} lb` : undefined} attended={combine?.attended} />
-          <MeasureCell label="Arm" truth={`${m.armLengthInches}"`} combine={combine?.armLengthInches !== undefined ? `${combine.armLengthInches}"` : undefined} attended={combine?.attended} />
-          <MeasureCell label="Hand" truth={`${m.handSizeInches}"`} combine={combine?.handSizeInches !== undefined ? `${combine.handSizeInches}"` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Height" truth={formatHeight(m.heightInches)} combine={combine?.heightInches !== undefined ? formatHeight(combine.heightInches) : undefined} attended={combine?.attended} />
+          <MeasureCell label="Weight" truth={`${Math.round(m.weightLbs)} lb`} combine={combine?.weightLbs !== undefined ? `${Math.round(combine.weightLbs)} lb` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Arm" truth={formatInches(m.armLengthInches)} combine={combine?.armLengthInches !== undefined ? formatInches(combine.armLengthInches) : undefined} attended={combine?.attended} />
+          <MeasureCell label="Hand" truth={formatInches(m.handSizeInches)} combine={combine?.handSizeInches !== undefined ? formatInches(combine.handSizeInches) : undefined} attended={combine?.attended} />
           <MeasureCell label="40-yd" truth={`${m.fortyYardSeconds.toFixed(2)}s`} combine={combine?.fortyYardSeconds !== undefined ? `${combine.fortyYardSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
           <MeasureCell label="Bench" truth={`${m.benchPress225Reps}`} combine={combine?.benchPress225Reps !== undefined ? `${combine.benchPress225Reps}` : undefined} attended={combine?.attended} />
-          <MeasureCell label="Vertical" truth={`${m.verticalInches}"`} combine={combine?.verticalInches !== undefined ? `${combine.verticalInches}"` : undefined} attended={combine?.attended} />
-          <MeasureCell label="Broad" truth={`${m.broadJumpInches}"`} combine={combine?.broadJumpInches !== undefined ? `${combine.broadJumpInches}"` : undefined} attended={combine?.attended} />
+          <MeasureCell label="Vertical" truth={formatInches(m.verticalInches)} combine={combine?.verticalInches !== undefined ? formatInches(combine.verticalInches) : undefined} attended={combine?.attended} />
+          <MeasureCell label="Broad" truth={formatInches(m.broadJumpInches)} combine={combine?.broadJumpInches !== undefined ? formatInches(combine.broadJumpInches) : undefined} attended={combine?.attended} />
           <MeasureCell label="3-cone" truth={`${m.threeConeSeconds.toFixed(2)}s`} combine={combine?.threeConeSeconds !== undefined ? `${combine.threeConeSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
           <MeasureCell label="Shuttle" truth={`${m.shuttleSeconds.toFixed(2)}s`} combine={combine?.shuttleSeconds !== undefined ? `${combine.shuttleSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
         </div>
@@ -6496,11 +6496,27 @@ function AbilityBadges({ player }: { player: Player }) {
   );
 }
 
-// Height in inches → feet'inches" (e.g. 76 → 6'4").
+// Combine measurements are reported to the nearest 1/8 inch. These format the
+// raw (possibly float) inch values as eighths fractions — e.g. 77.625 → 6'5 5/8".
+const EIGHTH_FRAC = ['', '1/8', '1/4', '3/8', '1/2', '5/8', '3/4', '7/8'] as const;
+
+// Height in inches → feet'inches" to the nearest 1/8 (e.g. 77.6 → 6'5 5/8").
 function formatHeight(inches: number): string {
-  const ft = Math.floor(inches / 12);
-  const inch = inches % 12;
-  return `${ft}'${inch}"`;
+  const totalEighths = Math.round(inches * 8);
+  const ft = Math.floor(totalEighths / 96);
+  const rem = totalEighths - ft * 96;
+  const whole = Math.floor(rem / 8);
+  const frac = EIGHTH_FRAC[rem % 8];
+  return `${ft}'${whole}${frac ? ` ${frac}` : ''}"`;
+}
+
+// A plain inch measurement (arm, hand, vertical, broad) to the nearest 1/8
+// (e.g. 34.13 → 34 1/8").
+function formatInches(inches: number): string {
+  const totalEighths = Math.round(inches * 8);
+  const whole = Math.floor(totalEighths / 8);
+  const frac = EIGHTH_FRAC[totalEighths % 8];
+  return `${whole}${frac ? ` ${frac}` : ''}"`;
 }
 
 function PositionGroupTable({
@@ -10147,10 +10163,10 @@ function DossierCard({ dossier }: { dossier: ProspectDossier }) {
   const layout = collegeStatLayoutFor(d.projectedPosition);
   const m = d.measurables;
   const combine = m.combine;
-  const posLabel =
-    d.collegePosition === d.projectedPosition
-      ? d.projectedPosition
-      : `${d.projectedPosition} (college ${d.collegePosition})`;
+  // Perceived projection — with a conversion tag (← college X) and the dev-only
+  // real-projection check when the source's read differs from the truth.
+  const isConv = d.isPerceivedConversion;
+  const wrongRead = d.projectedPosition !== d.realProjectedPosition;
 
   return (
     <div className="rounded border border-indigo-500/30 bg-zinc-950/60">
@@ -10160,12 +10176,30 @@ function DossierCard({ dossier }: { dossier: ProspectDossier }) {
           <span className="text-base font-semibold text-zinc-100">
             {d.firstName} {d.lastName}
           </span>
-          <span className="text-indigo-300">{posLabel}</span>
+          <span className="flex items-baseline gap-1">
+            <span className="text-indigo-300">{d.projectedPosition}</span>
+            {isConv && (
+              <span
+                className="rounded border border-violet-500/40 bg-violet-500/10 px-1 text-[10px] uppercase tracking-wide text-violet-300"
+                title={`This source projects a position conversion from his college spot (${d.collegePosition} → ${d.projectedPosition}).`}
+              >
+                conv ← {d.collegePosition}
+              </span>
+            )}
+            {wrongRead && (
+              <span
+                className="font-mono text-[10px] text-amber-400"
+                title={`Inspector check: the source projects ${d.projectedPosition}, but his TRUE projection is ${d.realProjectedPosition}. The read is off.`}
+              >
+                [real {d.realProjectedPosition}]
+              </span>
+            )}
+          </span>
           <span className="text-zinc-400">
             {school?.name ?? d.schoolId} · {CLASS_YEAR_LABELS[d.classYear]}
           </span>
           <span className="text-zinc-500">
-            age {d.ageYears} · {formatHeight(m.heightInches)}, {m.weightLbs} lb
+            age {d.ageYears} · {formatHeight(m.heightInches)}, {Math.round(m.weightLbs)} lb
           </span>
         </div>
         <div className="flex items-baseline gap-2">
@@ -10196,14 +10230,14 @@ function DossierCard({ dossier }: { dossier: ProspectDossier }) {
             <span className="normal-case text-zinc-600">truth · [combine]; DNP = skipped</span>
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 sm:grid-cols-3 lg:grid-cols-5">
-            <MeasureCell label="Height" truth={formatHeight(m.heightInches)} combine={combine?.heightInches !== undefined ? `${combine.heightInches}"` : undefined} attended={combine?.attended} />
-            <MeasureCell label="Weight" truth={`${m.weightLbs} lb`} combine={combine?.weightLbs !== undefined ? `${combine.weightLbs} lb` : undefined} attended={combine?.attended} />
-            <MeasureCell label="Arm" truth={`${m.armLengthInches}"`} combine={combine?.armLengthInches !== undefined ? `${combine.armLengthInches}"` : undefined} attended={combine?.attended} />
-            <MeasureCell label="Hand" truth={`${m.handSizeInches}"`} combine={combine?.handSizeInches !== undefined ? `${combine.handSizeInches}"` : undefined} attended={combine?.attended} />
+            <MeasureCell label="Height" truth={formatHeight(m.heightInches)} combine={combine?.heightInches !== undefined ? formatHeight(combine.heightInches) : undefined} attended={combine?.attended} />
+            <MeasureCell label="Weight" truth={`${Math.round(m.weightLbs)} lb`} combine={combine?.weightLbs !== undefined ? `${Math.round(combine.weightLbs)} lb` : undefined} attended={combine?.attended} />
+            <MeasureCell label="Arm" truth={formatInches(m.armLengthInches)} combine={combine?.armLengthInches !== undefined ? formatInches(combine.armLengthInches) : undefined} attended={combine?.attended} />
+            <MeasureCell label="Hand" truth={formatInches(m.handSizeInches)} combine={combine?.handSizeInches !== undefined ? formatInches(combine.handSizeInches) : undefined} attended={combine?.attended} />
             <MeasureCell label="40-yd" truth="—" combine={combine?.fortyYardSeconds !== undefined ? `${combine.fortyYardSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
             <MeasureCell label="Bench" truth="—" combine={combine?.benchPress225Reps !== undefined ? `${combine.benchPress225Reps}` : undefined} attended={combine?.attended} />
-            <MeasureCell label="Vertical" truth="—" combine={combine?.verticalInches !== undefined ? `${combine.verticalInches}"` : undefined} attended={combine?.attended} />
-            <MeasureCell label="Broad" truth="—" combine={combine?.broadJumpInches !== undefined ? `${combine.broadJumpInches}"` : undefined} attended={combine?.attended} />
+            <MeasureCell label="Vertical" truth="—" combine={combine?.verticalInches !== undefined ? formatInches(combine.verticalInches) : undefined} attended={combine?.attended} />
+            <MeasureCell label="Broad" truth="—" combine={combine?.broadJumpInches !== undefined ? formatInches(combine.broadJumpInches) : undefined} attended={combine?.attended} />
             <MeasureCell label="3-cone" truth="—" combine={combine?.threeConeSeconds !== undefined ? `${combine.threeConeSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
             <MeasureCell label="Shuttle" truth="—" combine={combine?.shuttleSeconds !== undefined ? `${combine.shuttleSeconds.toFixed(2)}s` : undefined} attended={combine?.attended} />
           </div>

@@ -16,6 +16,36 @@ _Nothing yet._
 
 ---
 
+## [0.127.0] — 2026-06-08
+
+### Added
+
+- **Scouts identify position conversions (Doc 3, value-integrated).** Until now
+  every team read a prospect's TRUE `nflProjectedPosition` directly — the whole
+  league omnisciently knew every conversion. Now each team forms a **perceived
+  projection** (`draft/perceived-position.ts`): it can **identify** a real
+  conversion (and value him at the true spot), **miss** it (and value him as what
+  he looks like at his college spot — the missed-conversion discount), or
+  **invent** one (a needy team reaching on a move that isn't there). Driven by
+  scout quality + need priming, and — Living Voice "opinions too" — it rides
+  `voiceSeed`, so the same world's conversions are seen/missed differently each
+  playthrough. The perceived projection now drives the board's **scheme fit,
+  positional premium, need, assigned position, and reason** — so the same
+  prospect's value genuinely diverges across the 32 boards (the Doc 3 payoff).
+- `DraftBoardEntry.perceivedPosition` records each team's belief. The scouting
+  report (Scout Reports tab) is now framed at the **perceived** position (a
+  missed-OLB reads as a DE eval), with a `conv ← {college}` tag and a dev-only
+  `[real {pos}]` check when the source's read is wrong (inspector convention).
+
+### Notes
+
+- Omniscient when no `voiceSeed` is threaded (legacy/test callers), so only
+  voice-seeded live boards diverge; the correct-identification path is
+  byte-identical to the prior behavior, bounding the value shift to the
+  missed/invented minority.
+
+---
+
 ## [0.126.0] — 2026-06-08
 
 ### Added

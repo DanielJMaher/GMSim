@@ -1111,6 +1111,7 @@ function applyCombine(league: LeagueState, prng: PrngClass): LeagueState {
     mediaObservations: reacted.mediaCollegeObservations,
     gms: reacted.gms,
     mediaOutlets: reacted.mediaOutlets,
+    voiceSeed: reacted.voiceSeed,
   });
   return {
     ...reacted,
@@ -1169,6 +1170,7 @@ function applyTop30Visits(league: LeagueState, prng: PrngClass): LeagueState {
     mediaObservations: offseason.mediaCollegeObservations,
     gms: offseason.gms,
     mediaOutlets: offseason.mediaOutlets,
+    voiceSeed: offseason.voiceSeed,
   });
   offseason = { ...offseason, draftBoards: refreshedBoards };
 
@@ -1584,6 +1586,7 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
           mediaObservations: league.mediaCollegeObservations,
           gms: league.gms,
           mediaOutlets: league.mediaOutlets,
+          voiceSeed: league.voiceSeed,
         })
       : league.draftBoards;
 

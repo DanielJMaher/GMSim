@@ -105,7 +105,12 @@ export interface ProspectDossier {
   firstName: string;
   lastName: string;
   collegePosition: Position;
+  /** Where THIS source believes he projects (may miss/invent a conversion). */
   projectedPosition: Position;
+  /** DEV-ONLY: the true projected NFL position (for the perceived-vs-real check). */
+  realProjectedPosition: Position;
+  /** The source perceives a move off his college position (conversion). */
+  isPerceivedConversion: boolean;
   classYear: ClassYear;
   schoolId: string;
   ageYears: number;
@@ -437,7 +442,16 @@ export function assembleProspectDossier(
     }
   }
 
-  const projPos = prospect.nflProjectedPosition;
+  // The team's PERCEIVED projection (v0.127) — it may have missed or invented a
+  // conversion, so the report is framed at the position the team BELIEVES (a
+  // missed-OLB reads as a DE eval). The real projection is shown alongside (dev
+  // inspector convention). Outlet viewer has no board read → the true position.
+  const boardEntry =
+    viewer.kind === 'team'
+      ? (league.draftBoards[viewer.teamId] ?? []).find((e) => e.collegePlayerId === prospectId)
+      : undefined;
+  const realProjPos = prospect.nflProjectedPosition;
+  const projPos = boardEntry?.perceivedPosition ?? realProjPos;
   const reportSkills = REPORT_SKILLS_BY_BUCKET[bucketFor(projPos)];
   const currentRec = prospect.current as unknown as Record<string, number>;
   const vKey = viewerKey(viewer);
@@ -550,15 +564,12 @@ export function assembleProspectDossier(
   // Scheme fit — reuse the team's own board read when present; neutral otherwise.
   let schemeFit: string;
   if (viewer.kind === 'team') {
-    const entry = (league.draftBoards[viewer.teamId] ?? []).find(
-      (e) => e.collegePlayerId === prospectId,
-    );
-    if (entry) {
+    if (boardEntry) {
       const assigned =
-        entry.assignedPosition && entry.assignedPosition !== projPos
-          ? `, projected to ${entry.assignedPosition}`
+        boardEntry.assignedPosition && boardEntry.assignedPosition !== projPos
+          ? `, projected to ${boardEntry.assignedPosition}`
           : '';
-      schemeFit = `${REASON_LABEL[entry.reason]} — ${fitWord(entry.schemeFit)} fit in this scheme${assigned}.`;
+      schemeFit = `${REASON_LABEL[boardEntry.reason]} — ${fitWord(boardEntry.schemeFit)} fit in this scheme${assigned}.`;
     } else {
       schemeFit = `Not currently on the board — a scheme projection at ${projPos}.`;
     }
@@ -588,6 +599,8 @@ export function assembleProspectDossier(
     lastName: prospect.lastName,
     collegePosition: prospect.collegePosition,
     projectedPosition: projPos,
+    realProjectedPosition: realProjPos,
+    isPerceivedConversion: projPos !== prospect.collegePosition,
     classYear: prospect.classYear,
     schoolId: prospect.schoolId,
     ageYears: ageAt(prospect.birthDate, league.seasonNumber),

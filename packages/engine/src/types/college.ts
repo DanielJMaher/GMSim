@@ -704,6 +704,15 @@ export interface DraftBoardEntry {
    * back-compat (legacy boards / hand-built test entries → treat as natural).
    */
   assignedPosition?: Position;
+  /**
+   * The NFL position THIS team's scouts BELIEVE the prospect projects to
+   * (v0.127). Usually his true `nflProjectedPosition`, but a team can MISS a
+   * real conversion (perceives his college position) or INVENT one (perceives a
+   * move that isn't there). Drives this board's scheme fit / value, so the same
+   * prospect's worth diverges across the 32 boards. Optional for back-compat;
+   * absent on legacy/omniscient regenerations (treat as the true projection).
+   */
+  perceivedPosition?: Position;
 }
 
 // ─── Combine + Pro Days (Doc 3 — slice 4) ───────────────────────────────

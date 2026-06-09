@@ -24,14 +24,17 @@ describe('draft board — position conversion for need', () => {
       for (const entry of league.draftBoards[teamId] ?? []) {
         const cp = byId.get(entry.collegePlayerId);
         if (!cp || entry.assignedPosition === undefined) continue;
-        const natural = cp.nflProjectedPosition;
-        if (entry.assignedPosition === natural) continue;
+        // v0.127: assignment re-slots from the team's PERCEIVED projection (it
+        // may have missed/invented a conversion), so the need-driven move is a
+        // step off the perceived base, not necessarily the true projection.
+        const base = entry.perceivedPosition ?? cp.nflProjectedPosition;
+        if (entry.assignedPosition === base) continue;
         conversions++;
         // The move must be a realistic conversion...
-        expect(canConvertTo(natural, entry.assignedPosition)).toBe(true);
+        expect(canConvertTo(base, entry.assignedPosition)).toBe(true);
         // ...and the team must have a BIGGER hole at the assigned spot than at
-        // the prospect's natural position (need-driven, not value-driven).
-        expect(pressure[entry.assignedPosition]).toBeGreaterThan(pressure[natural]);
+        // the base position (need-driven, not value-driven).
+        expect(pressure[entry.assignedPosition]).toBeGreaterThan(pressure[base]);
       }
     }
     // A fresh league has plenty of roster holes — conversions should fire.

@@ -125,6 +125,9 @@ describe('regenerateDraftBoardsForLeague (slice 3)', () => {
       collegePool: league.collegePool,
       observations: league.collegeObservations,
       addedOnTick: 0,
+      // v0.127: the wiring forms perceived-conversion reads off the voiceSeed,
+      // so the pure shim must pass it too to reproduce the same boards.
+      voiceSeed: league.voiceSeed,
     });
     const teamIds = Object.keys(league.draftBoards) as TeamId[];
     for (const teamId of teamIds) {

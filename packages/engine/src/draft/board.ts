@@ -9,7 +9,7 @@ import type {
   DraftBoardReason,
 } from '../types/college.js';
 import type { TeamState } from '../types/team.js';
-import type { Player, PlayerSkills } from '../types/player.js';
+import type { Player, PlayerSkills, ArchetypeId } from '../types/player.js';
 import type { HeadCoach, Gm, PerceivedOutletReliability } from '../types/personnel.js';
 import type { MediaOutlet } from '../types/media.js';
 import type { MediaOutletId } from '../types/ids.js';
@@ -21,6 +21,8 @@ import { softCap } from '../players/skills.js';
 import { boardPositionalFactor } from './position-value.js';
 import { positionNeedPressure } from './team-needs.js';
 import { convertiblePositions } from '../players/position-conversion.js';
+import { perceiveProjection, teamScoutSkill } from './perceived-position.js';
+import { voicePrng } from '../media/voice.js';
 import { recencyWeight } from '../scouting/recency.js';
 import { combineAthleticSkills } from './measurables.js';
 import { ScoutId } from '../types/ids.js';
@@ -312,6 +314,10 @@ export function regenerateDraftBoardsForLeague(args: {
    * by its outlet's per-position-group accuracy, so a sharp outlet's read
    * moves boards and a junk outlet's barely registers. */
   mediaOutlets?: Readonly<Record<MediaOutletId, MediaOutlet>>;
+  /** Living Voice seed (v0.127). When supplied, each team forms a fallible
+   * PERCEIVED position read per prospect (identify / miss / invent a
+   * conversion), seeded off it. Omit → omniscient (legacy) projection. */
+  voiceSeed?: string;
 }): Record<TeamId, DraftBoardEntry[]> {
   const needScoresByTeam = new Map<TeamId, Record<PositionGroup, number>>();
   const pressureByTeam = new Map<TeamId, Record<Position, number>>();
@@ -337,6 +343,7 @@ function regenerateDraftBoardsInternal(args: {
   mediaObservations?: readonly CollegePlayerObservation[];
   gms?: Readonly<Record<GmId, Gm>>;
   mediaOutlets?: Readonly<Record<MediaOutletId, MediaOutlet>>;
+  voiceSeed?: string;
 }): Record<TeamId, DraftBoardEntry[]> {
   const prospectById = new Map<PlayerId, CollegePlayer>();
   for (const cp of args.collegePool) prospectById.set(cp.id, cp);
@@ -448,6 +455,19 @@ function regenerateDraftBoardsInternal(args: {
           )
         : undefined;
     const teamObs = obsByTeam.get(teamId) ?? [];
+    // Perceived-conversion context (v0.127): supplied only when a voiceSeed is
+    // threaded (live boards), so legacy/test callers keep the omniscient read.
+    const conversionCtx = args.voiceSeed
+      ? {
+          voiceSeed: args.voiceSeed,
+          teamId,
+          scoutSkill: teamScoutSkill(
+            team.collegeScoutIds
+              .map((sid) => args.collegeScouts[sid])
+              .filter((s): s is CollegeScout => !!s),
+          ),
+        }
+      : undefined;
     out[teamId] = buildBoardForTeamWithNeed(
       teamObs,
       prospectById,
@@ -460,6 +480,7 @@ function regenerateDraftBoardsInternal(args: {
       mediaTrust01,
       athleticRef,
       args.pressureByTeam?.get(teamId),
+      conversionCtx,
     );
   }
   return out;
@@ -508,6 +529,10 @@ function buildBoardForTeamWithNeed(
   mediaTrust01 = 0,
   athleticRefByPos?: ReadonlyMap<string, ReadonlyMap<string, number>>,
   needPressure?: Readonly<Record<Position, number>>,
+  // Perceived-conversion inputs (v0.127). When `voiceSeed` is supplied the team
+  // forms a fallible position read per prospect (identify / miss / invent a
+  // conversion), seeded off voiceSeed + team + prospect. Omit → omniscient.
+  conversionCtx?: { voiceSeed: string; teamId: TeamId; scoutSkill: number },
 ): DraftBoardEntry[] {
   const byProspect = new Map<PlayerId, CollegePlayerObservation[]>();
   for (const obs of teamObservations) {
@@ -594,8 +619,19 @@ function buildBoardForTeamWithNeed(
       meanConfidence = Math.min(1, meanConfidence + w * mediaRead.meanConfidence * 0.3);
     }
 
-    const schemeFit = schemeFitForCollegeProspect(prospect, hc);
-    const projGroup = positionGroupFor(prospect.nflProjectedPosition);
+    // The team's PERCEIVED projection (v0.127) — it may identify the true
+    // conversion, miss it (and value him at his college spot), or invent one.
+    // Everything downstream (scheme fit, need, positional premium, reason) keys
+    // off this belief, not ground truth. Omniscient when no voice channel.
+    const perceived = perceiveProjection(prospect, {
+      scoutSkill: conversionCtx?.scoutSkill ?? 0.5,
+      needPressure,
+      prng: conversionCtx
+        ? voicePrng(conversionCtx.voiceSeed, 'convert', conversionCtx.teamId, collegePlayerId)
+        : undefined,
+    });
+    const schemeFit = schemeFitForCollegeProspect(prospect, hc, perceived.position, perceived.archetype);
+    const projGroup = positionGroupFor(perceived.position);
     const need = needScores[projGroup] ?? 1.0;
     const schemeBonus = clampSigned(
       (schemeFit - 1) * SCHEME_BONUS_SCALE,
@@ -603,11 +639,10 @@ function buildBoardForTeamWithNeed(
     );
     const needBonus = clampSigned((need - 1) * NEED_BONUS_SCALE, NEED_BONUS_CAP);
     const confFactor = CONFIDENCE_FLOOR + (1 - CONFIDENCE_FLOOR) * meanConfidence;
-    // Position conversion for need (2026-06-03): the spot THIS team would play
-    // him at — his natural position, or a convertible one where the team has a
-    // real hole (a team needing an LT plays a projected RT there). Drives both
-    // the positional premium below and the actual position on draft.
-    const assignedPosition = assignedPositionFor(prospect.nflProjectedPosition, needPressure);
+    // The spot THIS team would play him at — the perceived projection, re-slotted
+    // to a convertible hole on the roster. Drives the positional premium below
+    // and the actual position on draft.
+    const assignedPosition = assignedPositionFor(perceived.position, needPressure);
     // Positional value (v0.91): shade the talent signal by how much draft
     // capital the position is worth, so an equal-graded QB/EDGE/LT out-ranks
     // a replaceable spot (a safety doesn't go top-5 on talent alone). Applied
@@ -626,6 +661,7 @@ function buildBoardForTeamWithNeed(
       meanConfidence,
       schemeFit,
       need,
+      perceived.sawConversion,
     );
 
     entries.push({
@@ -638,6 +674,7 @@ function buildBoardForTeamWithNeed(
       observationCount,
       addedOnTick,
       assignedPosition,
+      perceivedPosition: perceived.position,
     });
   }
 
@@ -783,10 +820,17 @@ function averageBaseline(b: AthleticBaseline): number {
  * the scheme-fit calculator reads. The calculator only consults
  * `archetype` and the side it implies — perfectly safe.
  */
-function schemeFitForCollegeProspect(prospect: CollegePlayer, hc: HeadCoach): number {
+function schemeFitForCollegeProspect(
+  prospect: CollegePlayer,
+  hc: HeadCoach,
+  // The position + archetype the TEAM evaluates him as (its perceived
+  // projection). Defaults to the true projection — the legacy/omniscient read.
+  evalPosition: Position = prospect.nflProjectedPosition,
+  evalArchetype: ArchetypeId = prospect.archetype,
+): number {
   const playerLike = {
-    archetype: prospect.archetype,
-    position: prospect.nflProjectedPosition,
+    archetype: evalArchetype,
+    position: evalPosition,
     // v0.96: pass the prospect's true skills so fit is embodiment-aware
     // (only blue-chip prospects realize a premium scheme fit).
     current: prospect.current,
@@ -807,11 +851,13 @@ function deriveDraftBoardReason(
   meanConfidence: number,
   schemeFit: number,
   need: number,
+  // Whether THIS team perceives a position conversion (identified or invented).
+  sawConversion: boolean,
 ): DraftBoardReason {
   // Conversion projection takes priority when scheme fit is strong AND
-  // the prospect is a primary conversion candidate — that's the
-  // "creative team identified him" narrative.
-  if (prospect.isConversionCandidate && schemeFit >= 1.15) {
+  // THIS team perceives a move off his college spot — the "creative team
+  // identified him" narrative (the team that missed it labels him normally).
+  if (sawConversion && schemeFit >= 1.15) {
     return 'CONVERSION_PROJECTION';
   }
   // Blue chip — high observed skill + strong confidence (lots of

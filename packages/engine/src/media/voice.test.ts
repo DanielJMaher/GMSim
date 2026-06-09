@@ -40,12 +40,15 @@ describe('createLeague + voiceSeed', () => {
   it('same seed + different voiceSeed → identical ground truth (players, ratings, measurables)', () => {
     const a = createLeague({ seed: 'world-1', voiceSeed: 'voice-A' });
     const b = createLeague({ seed: 'world-1', voiceSeed: 'voice-B' });
-    // The voice seed must NOT leak into any world state.
+    // The voice seed must NOT leak into true WORLD state (players, ratings,
+    // measurables) — those are world-seeded and identical.
     expect(b.players).toEqual(a.players);
     expect(b.collegePool).toEqual(a.collegePool);
     expect(b.combineResults).toEqual(a.combineResults);
-    expect(b.draftBoards).toEqual(a.draftBoards);
     expect(b.voiceSeed).not.toBe(a.voiceSeed);
+    // Draft boards ARE a perception layer (v0.127: voiceSeed drives which teams
+    // identify position conversions), so they legitimately diverge by voiceSeed.
+    expect(b.draftBoards).not.toEqual(a.draftBoards);
   });
 });
 

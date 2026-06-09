@@ -300,6 +300,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     mediaObservations: baseLeague.mediaCollegeObservations,
     gms: baseLeague.gms,
     mediaOutlets: baseLeague.mediaOutlets,
+    voiceSeed: baseLeague.voiceSeed,
   });
   // Combine — universal physical reveal.
   const initialCombine = runCombine(
