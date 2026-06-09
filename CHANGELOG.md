@@ -12,7 +12,17 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **CI test workflow** (`.github/workflows/ci.yml`): typecheck, inspector build,
+  and the full engine suite (sharded 4 ways) now run on every push to `main` and
+  every PR. Until now the only workflow was the Pages deploy — the push gate was
+  entirely manual.
+- **32-team league-tick benchmark** (`season/league-tick-benchmark.test.ts`):
+  the CI scale gate promised in `docs/LIVING_LEAGUE.md`. One full league year
+  (create → simulateSeason → advanceSeason) must finish inside a wall-clock
+  budget (240s; ~16s observed idle-local at calibration). Trips on structural
+  regressions (O(n²) sweeps, unbounded per-tick growth), not runner noise.
 
 ---
 
