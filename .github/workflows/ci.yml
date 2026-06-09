@@ -85,4 +85,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run engine suite (shard ${{ matrix.shard }}/4)
-        run: pnpm --filter @gmsim/engine test --shard=${{ matrix.shard }}/4
+        # `pnpm test --shard=…` would be eaten by pnpm's own option parser;
+        # `pnpm exec` forwards flags to vitest verbatim.
+        run: pnpm --filter @gmsim/engine exec vitest run --shard=${{ matrix.shard }}/4
