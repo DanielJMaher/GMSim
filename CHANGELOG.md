@@ -16,6 +16,34 @@ _Nothing yet._
 
 ---
 
+## [0.126.0] — 2026-06-08
+
+### Added
+
+- **The Voice Pack + a rich report composer (Living Voice, Slice D).** The
+  scouting write-up was thin (~3 phrases per attribute, a 4-sentence blurb). New
+  `engine/src/data/voice/voice-pack.ts` is the growable VOCABULARY BANK — many
+  original phrasings per (attribute, polarity, position), plus the connective
+  tissue a real report braids: lead frames, pedigree clauses, production /
+  athletic / makeup reads, concern connectors + mitigators, projections, and comp
+  templates. Grounded in (not copied from) the Scribe's measured Beast/PFF
+  corpus.
+- **Scribe grounding extended** (`truth-arbiter`): emits more per-position vocab
+  (12→20) and polarity terms (10→18) and a new `cadence` block (real median
+  bullet length + bullets-per-report) so the composer can target the corpus's
+  actual cadence (~18 bullets + a ~179-word narrative).
+
+### Changed
+
+- **Report write-ups are now multi-clause and much longer**, scaled by the
+  source's read of stature: a stud runs ~120–140 words (pedigree → braided
+  strengths → production → athletic testing → notable-other-sport tell → concern
+  with mitigator → comp → projection); a camp body stays terse. Pros/cons now
+  surface from a wider attribute set (more bullets). All qualitative — no number
+  or band is ever spoken (North Star); wording rides `voiceSeed`.
+
+---
+
 ## [0.125.0] — 2026-06-08
 
 ### Added

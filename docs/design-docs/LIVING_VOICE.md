@@ -415,6 +415,17 @@ from `nfl-takes.test.ts`. `notableOtherSport` does **not** move (it's bio).
 - **(OPEN) Where `voiceSeed` entropy is drawn.** apps/web new-game/create path for
   now (UI boundary, never the engine); needs a home in the eventual real app
   new-game flow.
+- **(TODO — Daniel, 2026-06-08) CFB in-season sensationalized media reports.**
+  During the college football season, generate media reports that **sensationalize
+  standout games — good OR bad — by important prospects, plus any incredible
+  individual performance by anyone**. A blue-chip's clunker is a story ("draft
+  stock in free fall"); a freak stat line by an unknown is a story ("a name to
+  know"). Tone/hype scales with the prospect's profile + the performance's
+  outlier-ness; carries the Scribe player-take voice (pedigree-framed BREAKOUT /
+  SPOTLIGHT / STRUGGLING) into the college calendar. Builds on the existing weekly
+  CFB media-reaction lane + the NFL `nfl-takes` machinery (`generateNflPlayerTakes`
+  / `extractHeadliners`); ride `voiceSeed`. This is the college analog of the
+  shipped NFL weekly player takes (v0.121).
 
 ---
 

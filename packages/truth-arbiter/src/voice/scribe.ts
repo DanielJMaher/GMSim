@@ -172,7 +172,7 @@ async function main(): Promise<void> {
       .filter((p) => p.position !== pos)
       .map((p) => [...(p.strengths ?? []), ...(p.weaknesses ?? []), p.summary ?? ''].join(' '));
     const ranked = logOdds(countTerms(texts), countTerms(rest), { minCount: 10 });
-    const top = ranked.slice(0, 12).map((t) => t.term);
+    const top = ranked.slice(0, 20).map((t) => t.term);
     positionVocab[pos] = top;
     console.log(`  ${pos.padEnd(4)} (${String(texts.length).padStart(4)}): ${top.slice(0, 8).join(', ')}`);
   }
@@ -191,13 +191,31 @@ async function main(): Promise<void> {
     const wTexts = group.flatMap((p) => p.weaknesses ?? []);
     if (sTexts.length < 30 || wTexts.length < 30) continue; // too few to characterize
     const ranked = logOdds(countTerms(sTexts), countTerms(wTexts), { minCount: 5 });
-    const { head, tail } = headTail(ranked, 10);
+    const { head, tail } = headTail(ranked, 18);
     positionPolarity[pos] = {
       strengthSignal: head.map((t) => t.term),
       weaknessSignal: tail.map((t) => t.term),
     };
     console.log(`  ${pos.padEnd(4)} S: ${head.slice(0, 6).map((t) => t.term).join(', ')}`);
     console.log(`       W: ${tail.slice(0, 6).map((t) => t.term).join(', ')}`);
+  }
+
+  // ---- 3c. cadence (real sentence length the composer should target) ----
+  // GMSim writeups were short because the generator had no length target. Emit
+  // the real per-position bullet length + bullets-per-report so the engine
+  // composer can match the Beast's actual cadence.
+  const cadence: Record<string, { medianBulletWords: number; medianBullets: number }> = {};
+  for (const pos of positions) {
+    const group = beast.filter((p) => p.position === pos);
+    const bullets = group.flatMap((p) => [...(p.strengths ?? []), ...(p.weaknesses ?? [])]);
+    if (bullets.length < 30) continue;
+    const counts = group
+      .filter((p) => (p.strengths?.length ?? 0) + (p.weaknesses?.length ?? 0) > 0)
+      .map((p) => (p.strengths?.length ?? 0) + (p.weaknesses?.length ?? 0));
+    cadence[pos] = {
+      medianBulletWords: Math.round(median(bullets.map(wordCount))),
+      medianBullets: Math.round(median(counts)),
+    };
   }
 
   // ---- 4. comp inventory ----
@@ -256,6 +274,7 @@ async function main(): Promise<void> {
     },
     positionVocab,
     positionPolarity,
+    cadence,
     topComps: ranked.slice(0, 30).map(([n, c]) => ({ name: n, count: c })),
   };
   const outDir = resolve(DATA_DIR, 'voice');

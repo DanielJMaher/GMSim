@@ -32,7 +32,7 @@ import type {
 } from '../types/college.js';
 import type { Prng } from '../prng/index.js';
 import { voicePrng } from '../media/voice.js';
-import { bucketFor } from '../media/scout-vocabulary.js';
+import { bucketFor, type VocabBucket } from '../media/scout-vocabulary.js';
 import {
   bandOf,
   bandPolarity,
@@ -40,6 +40,27 @@ import {
   REPORT_SKILLS_BY_BUCKET,
   type SkillBand,
 } from '../media/skill-vocabulary.js';
+import {
+  BUILD_WORDS,
+  LEAD_TEMPLATES,
+  PEDIGREE_BLUE_CHIP,
+  PEDIGREE_DEVELOPMENTAL,
+  PEDIGREE_TRANSFER,
+  PEDIGREE_NEUTRAL,
+  STRENGTH_LEADS,
+  STRENGTH_ADDERS,
+  PRODUCTION_PHRASES,
+  ATHLETIC_PHRASES,
+  CONCERN_LEADS,
+  CONCERN_ADDERS,
+  CONCERN_MITIGATORS,
+  PROJECTION_BY_TIER,
+  COMP_TEMPLATES,
+  COMP_ADJECTIVES,
+} from '../data/voice/voice-pack.js';
+import { getArchetypeById } from '../archetypes/index.js';
+import { backstoryFromProspect } from '../players/backstory.js';
+import { getSchoolById } from '../data/colleges/index.js';
 
 type SkillKey = keyof PlayerSkills;
 
@@ -109,10 +130,14 @@ export interface ProspectDossier {
   viewerLabel: string;
 }
 
-const MAX_PROS = 5;
-const MAX_CONS = 4;
+const MAX_PROS = 6;
+const MAX_CONS = 5;
 /** Band-neutral midpoint used to weight concern severity. */
 const CONCERN_PIVOT = 57;
+
+function cap(s: string): string {
+  return s.length === 0 ? s : s[0]!.toUpperCase() + s.slice(1);
+}
 
 function viewerKey(viewer: DossierViewer): string {
   return viewer.kind === 'team' ? (viewer.teamId as string) : (viewer.outletId as string);
@@ -156,92 +181,199 @@ function fitWord(schemeFit: number): string {
   return 'a projected';
 }
 
-/** Sentence pool for the bottom-line projection, keyed off the perceived grade. */
-function projectionLine(prng: Prng, grade: number | null): string {
+/** Projection tier off the perceived grade. */
+function projectionTier(grade: number | null): keyof typeof PROJECTION_BY_TIER {
   const g = grade ?? 0;
-  if (g >= 82) {
-    return prng.pick([
-      'An early-round talent who should come off the board on the draft’s first day.',
-      'A top-of-the-board prospect — the traits are special.',
-    ]);
-  }
-  if (g >= 72) {
-    return prng.pick([
-      'A Day 2 projection with a starter’s ceiling.',
-      'Projects as an early contributor who can grow into a starter.',
-    ]);
-  }
-  if (g >= 62) {
-    return prng.pick([
-      'A mid-round developmental bet with a defined role.',
-      'The kind of value pick that pays off by year two.',
-    ]);
-  }
-  if (g >= 52) {
-    return prng.pick([
-      'A late-round flier / priority free-agent type.',
-      'A depth and special-teams projection who has to earn it.',
-    ]);
-  }
-  return prng.pick([
-    'A deep-roster projection who’ll have to win a job in camp.',
-    'A camp-body evaluation at this stage — the tools need to show up.',
-  ]);
+  if (g >= 82) return 'r1';
+  if (g >= 72) return 'r2';
+  if (g >= 62) return 'mid';
+  if (g >= 52) return 'late';
+  return 'depth';
 }
 
+type ProductionBand = 'high' | 'mid' | 'low';
+
+/** A qualitative production read off the prospect's best college season — NEVER
+ *  prints a number (North Star). `defense` picks the defensive phrase pool. */
+function productionRead(prospect: CollegePlayer): { band: ProductionBand; defense: boolean } {
+  const pos = prospect.nflProjectedPosition;
+  const seasons = prospect.collegeStats;
+  const best = (sel: (s: CollegeSeasonStats) => number) =>
+    seasons.reduce((m, s) => Math.max(m, sel(s)), 0);
+  const tier = (v: number, hi: number, mid: number): ProductionBand =>
+    v >= hi ? 'high' : v >= mid ? 'mid' : 'low';
+  switch (bucketFor(pos)) {
+    case 'QB':
+      return { band: tier(best((s) => s.passingYards), 3000, 1800), defense: false };
+    case 'RB':
+      return { band: tier(best((s) => s.rushingYards), 1100, 650), defense: false };
+    case 'WR':
+    case 'TE':
+      return { band: tier(best((s) => s.receivingYards), 950, 550), defense: false };
+    case 'OL':
+    case 'ST':
+      return { band: tier(seasons.reduce((m, s) => m + s.starts, 0), 30, 14), defense: false };
+    default:
+      return {
+        band: tier(
+          best((s) => s.tackles + s.sacks * 10 + s.interceptions * 15 + s.passesDefended * 3),
+          90,
+          52,
+        ),
+        defense: true,
+      };
+  }
+}
+
+/** Athletic read off the (public) combine 40 — null if untested. */
+function athleticRead(
+  combine: CombineMeasurables | null | undefined,
+  bucket: VocabBucket,
+): keyof typeof ATHLETIC_PHRASES | null {
+  const forty = combine?.fortyYardSeconds;
+  if (forty === undefined) return null;
+  // Per-bucket fast/slow 40 thresholds (seconds).
+  const [elite, poor] =
+    bucket === 'WR' || bucket === 'CB' || bucket === 'S' || bucket === 'RB'
+      ? [4.45, 4.62]
+      : bucket === 'OL' || bucket === 'DT'
+        ? [5.0, 5.25]
+        : [4.62, 4.85];
+  if (forty <= elite) return 'elite';
+  if (forty >= poor) return 'poor';
+  return 'good';
+}
+
+/** The pedigree clause off the prospect's recruiting background. */
+function pedigreePool(prospect: CollegePlayer): readonly string[] {
+  if (prospect.transferred) return PEDIGREE_TRANSFER;
+  switch (prospect.recruiting.background) {
+    case 'PEDIGREE':
+    case 'BIG_PROGRAM':
+      return prospect.recruiting.starRating >= 4 ? PEDIGREE_BLUE_CHIP : PEDIGREE_NEUTRAL;
+    case 'DEVELOPMENTAL':
+    case 'SMALL_SCHOOL_GEM':
+    case 'WALK_ON_STORY':
+      return PEDIGREE_DEVELOPMENTAL;
+    default:
+      return PEDIGREE_NEUTRAL;
+  }
+}
+
+/**
+ * The Beast-style projection prose. Braids the real signal — pedigree, the
+ * attributed strengths, college production, athletic testing, an honest concern
+ * (with a mitigator), a comp, and the bottom-line projection — into multi-clause
+ * sentences. Length scales with the source's read of stature (perceived grade):
+ * a stud runs long, a camp body stays terse. Qualitative throughout — no numbers
+ * or bands spoken (North Star). All wording rides the supplied voice PRNG.
+ */
 function buildWriteup(
   prng: Prng,
   args: {
+    prospect: CollegePlayer;
     name: string;
     projPos: Position;
     schoolName: string;
+    bucket: VocabBucket;
     pros: readonly AttributedPoint[];
     cons: readonly AttributedPoint[];
     perceivedGrade: number | null;
+    combine: CombineMeasurables | null;
   },
 ): string {
-  const { name, projPos, schoolName, pros, cons, perceivedGrade } = args;
+  const { prospect, name, projPos, schoolName, bucket, pros, cons, perceivedGrade, combine } = args;
+  const grade = perceivedGrade ?? 0;
+  const long = grade >= 68; // mid-round or better → fuller report
+  const elite = grade >= 78; // top of the board → the long-form treatment
   const parts: string[] = [];
+
+  // 1. Lead — build + position + school + pedigree.
+  const build = prng.fork('build').pick(BUILD_WORDS[bucket]);
+  const pedigree = prng.fork('ped').pick(pedigreePool(prospect));
   parts.push(
-    prng.pick([
-      `${name} projects as a ${projPos} at the next level.`,
-      `On tape, ${name} fits the ${projPos} mold.`,
-      `${name} comes out of ${schoolName} with a ${projPos} projection.`,
-    ]),
+    fillLead(prng.fork('lead').pick(LEAD_TEMPLATES), { build, pos: projPos, school: schoolName, name, pedigree }),
   );
+
+  // 2. Strengths — the calling card, plus 1–2 more for fuller reports.
   if (pros.length > 0) {
-    const lead = pros[0]!.text;
-    const second = pros[1]?.text;
-    parts.push(
-      second
-        ? prng.pick([
-            `His calling card is ${lead}, backed by ${second}.`,
-            `He wins with ${lead} and ${second}.`,
-          ])
-        : prng.pick([`His calling card is ${lead}.`, `He wins with ${lead}.`]),
-    );
+    let s = `${prng.fork('slead').pick(STRENGTH_LEADS)} ${pros[0]!.text}`;
+    if (pros[1]) s += `, and ${pros[1]!.text}`;
+    parts.push(`${s}.`);
+    if (long && pros[2]) {
+      let add = `${prng.fork('sadd').pick(STRENGTH_ADDERS)} ${pros[2]!.text}`;
+      if (elite && pros[3]) add += `, along with ${pros[3]!.text}`;
+      parts.push(`${add}.`);
+    }
   }
+
+  // 3. Production (qualitative) — fuller reports only.
+  if (long) {
+    const { band, defense } = productionRead(prospect);
+    const pool =
+      band === 'high'
+        ? defense
+          ? PRODUCTION_PHRASES.defense_high
+          : PRODUCTION_PHRASES.high
+        : band === 'mid'
+          ? PRODUCTION_PHRASES.mid
+          : PRODUCTION_PHRASES.low;
+    parts.push(prng.fork('prod').pick(pool));
+  }
+
+  // 4. Athletic testing — only when tested (public combine), fuller reports.
+  if (long) {
+    const aband = athleticRead(combine, bucket);
+    if (aband) parts.push(prng.fork('ath').pick(ATHLETIC_PHRASES[aband]));
+  }
+
+  // 5. The notable other-sport tell (Living Voice) — flavor on longer reports.
+  if (long) {
+    const sport = backstoryFromProspect(prospect).notableOtherSport;
+    if (sport) parts.push(`${cap(sport)}.`);
+  }
+
+  // 6. Concern + mitigator.
   if (cons.length > 0) {
-    parts.push(
-      prng.pick([
-        `The concern is ${cons[0]!.text}.`,
-        `He’ll have to answer ${cons[0]!.text} against NFL competition.`,
-        `Scouts will flag ${cons[0]!.text}.`,
-      ]),
-    );
+    let c = `${prng.fork('clead').pick(CONCERN_LEADS)} ${cons[0]!.text}`;
+    if (long && cons[1]) c += `; ${prng.fork('cadd').pick(CONCERN_ADDERS)} ${cons[1]!.text}`;
+    c += ` — ${prng.fork('cmit').pick(CONCERN_MITIGATORS)}`;
+    parts.push(`${cap(c)}.`);
   }
-  parts.push(projectionLine(prng, perceivedGrade));
-  // Top prospects get more words (Beast: the names everyone knows run long).
-  if ((perceivedGrade ?? 0) >= 78 && pros.length >= 3) {
-    parts.push(
-      prng.pick([
-        'The traits are real and the floor is high.',
-        'There’s starter-or-better upside if the development hits.',
-        'Teams will have him circled early.',
-      ]),
-    );
+
+  // 7. Comp — at roughly the corpus rate, richer reports lean in more.
+  const compPrng = prng.fork('comp');
+  if (compPrng.next() < (elite ? 0.55 : long ? 0.35 : 0.18)) {
+    const label = getArchetypeById(prospect.assumedArchetype)?.label;
+    // Skip labels that carry a scheme number ("3-4 Two-Gap DE") — keeps the
+    // prose free of digits (North Star: no numbers in the words).
+    if (label && !/\d/.test(label)) {
+      parts.push(
+        fillComp(compPrng.pick(COMP_TEMPLATES), { adj: compPrng.pick(COMP_ADJECTIVES), archetype: label }),
+      );
+    }
   }
+
+  // 8. Bottom-line projection.
+  parts.push(prng.fork('proj').pick(PROJECTION_BY_TIER[projectionTier(perceivedGrade)]));
+
   return parts.join(' ');
+}
+
+function fillLead(
+  t: string,
+  v: { build: string; pos: string; school: string; name: string; pedigree: string },
+): string {
+  return t
+    .replace(/\{build\}/g, v.build)
+    .replace(/\{pos\}/g, v.pos)
+    .replace(/\{school\}/g, v.school)
+    .replace(/\{name\}/g, v.name)
+    .replace(/\{pedigree\}/g, v.pedigree);
+}
+
+function fillComp(t: string, v: { adj: string; archetype: string }): string {
+  return t.replace(/\{adj\}/g, v.adj).replace(/\{archetype\}/g, v.archetype);
 }
 
 /**
@@ -434,17 +566,20 @@ export function assembleProspectDossier(
     schemeFit = `Scheme-agnostic ${projPos} evaluation; fit depends on the room.`;
   }
 
-  const schoolName = prospect.schoolId; // UI maps id → display name.
+  const schoolName = getSchoolById(prospect.schoolId)?.name ?? prospect.schoolId;
   const writeup =
     obs.length === 0
       ? `${viewerLabel} has no report on file for ${prospect.firstName} ${prospect.lastName} yet.`
       : buildWriteup(voicePrng(league.voiceSeed, 'writeup', vKey, prospectId), {
+          prospect,
           name: `${prospect.firstName} ${prospect.lastName}`,
           projPos,
           schoolName,
+          bucket: bucketFor(projPos),
           pros: prosCapped,
           cons: consCapped,
           perceivedGrade,
+          combine: league.combineResults[prospectId] ?? null,
         });
 
   return {
