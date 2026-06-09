@@ -125,10 +125,12 @@ describe('weekly media reports (v0.62)', () => {
     }
     expect(league.lifecyclePhase).toBe('REGULAR_SEASON_WEEK');
     expect(league.mediaReports.length).toBeGreaterThan(0);
-    // All reports so far should be from the NFL Week 1 tick:
-    // REGULAR_SEASON_WEEK phase with weekNumber === 1.
-    for (const r of league.mediaReports) {
-      expect(r.lifecyclePhase).toBe('REGULAR_SEASON_WEEK');
+    // The college weeks that open the calendar now emit COLLEGE_WEEK player
+    // takes (v0.128), so filter to the NFL reports — those should all be from
+    // the NFL Week 1 tick (REGULAR_SEASON_WEEK, weekNumber === 1).
+    const nflReports = league.mediaReports.filter((r) => r.lifecyclePhase === 'REGULAR_SEASON_WEEK');
+    expect(nflReports.length).toBeGreaterThan(0);
+    for (const r of nflReports) {
       expect(r.weekNumber).toBe(1);
     }
   });

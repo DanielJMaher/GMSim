@@ -415,7 +415,10 @@ from `nfl-takes.test.ts`. `notableOtherSport` does **not** move (it's bio).
 - **(OPEN) Where `voiceSeed` entropy is drawn.** apps/web new-game/create path for
   now (UI boundary, never the engine); needs a home in the eventual real app
   new-game flow.
-- **(TODO — Daniel, 2026-06-08) CFB in-season sensationalized media reports.**
+- **(SHIPPED v0.128.0, 2026-06-09) CFB in-season sensationalized media reports.**
+  `media/college-takes.ts` (`generateCollegeWeeklyTakes`) wired into
+  `applyCollegeWeek`. BREAKOUT / SPOTLIGHT / STRUGGLING by stature × outlier-ness;
+  world-seeded selection, voiceSeed words. (Original spec below.)
   During the college football season, generate media reports that **sensationalize
   standout games — good OR bad — by important prospects, plus any incredible
   individual performance by anyone**. A blue-chip's clunker is a story ("draft

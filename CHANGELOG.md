@@ -16,6 +16,26 @@ _Nothing yet._
 
 ---
 
+## [0.128.0] — 2026-06-09
+
+### Added
+
+- **CFB in-season sensationalized media takes.** The college calendar gets the
+  Scribe's player voice (already live for the NFL). Each college week, the
+  genuine standout games — good OR bad — by notable prospects, plus any freak
+  individual line by anyone, get a SENSATIONALIZED take (`media/college-takes.ts`,
+  `generateCollegeWeeklyTakes`), wired into `applyCollegeWeek` and appended to the
+  media stream. Angle is framed by stature (recruiting pedigree) × outlier-ness:
+  **BREAKOUT** (a lightly-recruited prospect forces his way onto boards),
+  **SPOTLIGHT** (a blue-chip lives up to the billing — "first-round buzz grows"),
+  **STRUGGLING** (a touted name lays an egg — picks or a dud in a loss — "stock
+  questions mounting"). Headlines cite the public box score (as the NFL takes do);
+  the scouting body stays qualitative (North Star). Selection is world-seeded; the
+  WORDS ride `voiceSeed`, so the season is narrated differently each playthrough.
+  Takes surface on the prospect card + media feed.
+
+---
+
 ## [0.127.0] — 2026-06-08
 
 ### Added

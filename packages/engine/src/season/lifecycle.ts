@@ -87,6 +87,7 @@ import {
   generatePlayoffRoundMediaReports,
 } from '../media/reports.js';
 import { generateHeismanRaceReports } from '../media/heisman-race.js';
+import { generateCollegeWeeklyTakes } from '../media/college-takes.js';
 import {
   generateMediaCollegeObservations,
   generateWeeklyMediaObservations,
@@ -1590,6 +1591,18 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
         })
       : league.draftBoards;
 
+  // v0.128: sensationalized weekly player takes — the genuine standout (good or
+  // bad) games by notable prospects + any freak line. World-seeded selection off
+  // the week's box scores; voice-seeded words.
+  const collegeTakes = generateCollegeWeeklyTakes(
+    league,
+    playedGames,
+    newStats,
+    weekNumber,
+    league.tick,
+  );
+  const appendedReports = [...heismanReports, ...collegeTakes];
+
   return {
     ...league,
     collegeSchedule: nextSchedule,
@@ -1599,8 +1612,8 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
     draftBoards: nextBoards,
     mediaCollegeObservations: nextMediaObs,
     mediaReports:
-      heismanReports.length > 0
-        ? [...league.mediaReports, ...heismanReports]
+      appendedReports.length > 0
+        ? [...league.mediaReports, ...appendedReports]
         : league.mediaReports,
     lifecyclePhase: 'COLLEGE_WEEK',
   };
