@@ -65,6 +65,7 @@ import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/typ
 import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot } from '@gmsim/engine';
 import { GameViewReport } from './GameView';
 import { DepthChartCard } from './DepthChart';
+import { RatingsDistributionPanel } from './RatingsDistribution';
 import type { ProspectDossier, DossierViewer, AttributedPoint } from '@gmsim/engine';
 import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
@@ -92,7 +93,7 @@ import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsi
  */
 const DEFAULT_SEED = 'phase-2-season';
 
-type InspectorTab = 'league' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'news' | 'lifecycle';
+type InspectorTab = 'league' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'ratings' | 'news' | 'lifecycle';
 
 interface TabDef {
   id: InspectorTab;
@@ -136,6 +137,11 @@ const TAB_DEFS: readonly TabDef[] = [
     id: 'free-agency',
     label: 'Free Agency',
     activeClasses: 'border-sky-400 bg-sky-500/10 text-sky-200',
+  },
+  {
+    id: 'ratings',
+    label: 'Ratings',
+    activeClasses: 'border-lime-400 bg-lime-500/10 text-lime-200',
   },
   {
     id: 'news',
@@ -457,6 +463,8 @@ export function App() {
         <FreeAgentPoolPanel league={league} />
       )}
 
+      {activeTab === 'ratings' && <RatingsDistributionPanel league={league} />}
+
       {activeTab === 'news' && (
         <>
           <NewsFeedPanel league={league} />
@@ -517,6 +525,8 @@ function TabNav({
       case 'draft-audit':
         return null;
       case 'college-games':
+        return null;
+      case 'ratings':
         return null;
       case 'lifecycle':
         return null;

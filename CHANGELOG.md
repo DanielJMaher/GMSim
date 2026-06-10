@@ -16,6 +16,21 @@ _Nothing yet._
 
 ---
 
+## [0.132.0] — 2026-06-10
+
+### Added
+
+- **Inspector "Ratings" tab — league-wide overall-distribution histogram.**
+  New `RatingsDistribution.tsx`: every player in `league.players` binned by
+  overall (`depthScore`, the same archetype-key-skill composite the sim and
+  depth chart rank by) — overall on X (1-pt bins), player count on Y, with
+  position filter, team filter (including a free-agents-only view), and an
+  include-FA checkbox. Summary strip shows n / FA count / mean / median /
+  range. The calibration lens for talent-spread and washout work: the
+  league-wide shape should read as a pyramid, not a plateau.
+
+---
+
 ## [0.131.0] — 2026-06-09
 
 ### Added
