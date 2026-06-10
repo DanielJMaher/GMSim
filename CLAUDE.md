@@ -54,19 +54,19 @@ Currently only `@gmsim/engine` and `@gmsim/web` exist. The web app is the "inspe
 
 2. **Determinism via seeded PRNG.** All randomness routes through `packages/engine/src/prng`. Saves serialize the seed; the engine reproduces league state from it. Never call `Math.random()` inside the engine.
 
-3. **Knowledge-layer separation (North Star).** The engine stores ground truth (`Player`, full ratings, hidden ceilings, scout reliability, etc.). The UI **never reads ground truth directly** — it reads from the knowledge layer in `packages/engine/src/knowledge`, which tags each fact with `{ source_id, confidence, observed_at }`. A React prop typed as `{ speed: 88 }` is broken by definition; it must be a `PlayerSnapshot`-shaped attributed observation. See `docs/NORTH_STAR.md` — the acceptance check at the bottom is the gate.
+3. **Knowledge-layer separation (North Star).** The engine stores ground truth (`Player`, full ratings, hidden ceilings, scout reliability, etc.). A *game* UI **never reads ground truth directly** — it reads `packages/engine/src/knowledge` (`prospectSnapshot` → `ProspectSnapshot`): attributed, source-bylined, qualitative knowledge with every dev-only/numeric-rating/band field stripped at the type level (`knowledge/snapshot.test.ts` is the leak gate). A React prop typed as `{ speed: 88 }` is broken by definition. The **inspector is the sanctioned exception** — it reads `ProspectDossier` (perceived/real) as the calibration lens. A player-facing surface that needs more **extends the knowledge module**; it never imports around it. See `docs/NORTH_STAR.md` — the acceptance check at the bottom is the gate.
 
 4. **League-shaped engine API.** All engine functions operate on the entire `LeagueState`. There is no "player team" privilege at the engine level — UI scopes the player's view, the engine doesn't. NPC behavior and player behavior share the same code paths.
 
-5. **32-team scale is foundational.** Every system must run for all 32 teams from its first commit. This is not an optimization pass. See the stress-test checklist in `docs/LIVING_LEAGUE.md`. A "full season league tick" benchmark is intended to be a CI gate (not yet wired up — when adding new engine subsystems, include this in the test plan).
+5. **32-team scale is foundational.** Every system must run for all 32 teams from its first commit. This is not an optimization pass. See the stress-test checklist in `docs/LIVING_LEAGUE.md`. The "full season league tick" benchmark is a CI gate (`season/league-tick-benchmark.test.ts`, runs in the sharded CI suite) — keep it green when adding engine subsystems.
 
-6. **NPC AI is centralized.** All NPC team decisions (draft, trade, FA, hire/fire) route through `packages/engine/src/npc-ai`. Scattering AI logic across feature modules makes "the NPCs feel generic" undebuggable.
+6. **NPC AI is centralized.** `packages/engine/src/npc-ai` is the canonical, auditable surface for NPC team decisions (draft, trade, FA, hire/fire). Historically the logic grew inside feature modules (`draft/`, `transactions/`); it is re-exported through `npc-ai/` and migrates there opportunistically when a module gets reworked. **New NPC decision behavior lands in (or is re-exported through) `npc-ai/` in the same slice that creates it.** Scattering AI logic across feature modules makes "the NPCs feel generic" undebuggable.
 
 ### Engine public surface
 
 `packages/engine/src/index.ts` is what "ships" a module — adding an export there makes it part of the public API. Modules without exports there are internal/in-progress.
 
-Subpath exports are configured in `packages/engine/package.json` (`./types`, `./prng`, `./personnel`, `./league`, `./scheme`, `./archetypes`, `./players`, `./contracts`, `./games`, `./season`, `./data`). The web app uses both `@gmsim/engine` (top-level) and `@gmsim/engine/types` (type-only imports).
+Subpath exports are configured in `packages/engine/package.json` (`./types`, `./prng`, `./personnel`, `./league`, `./scheme`, `./archetypes`, `./players`, `./contracts`, `./games`, `./season`, `./data`, `./knowledge`, `./npc-ai`). The web app uses both `@gmsim/engine` (top-level) and `@gmsim/engine/types` (type-only imports).
 
 ### Design docs
 

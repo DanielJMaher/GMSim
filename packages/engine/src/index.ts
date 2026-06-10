@@ -442,6 +442,11 @@ export type {
   AllStarShowcaseResult,
 } from './college-season/index.js';
 
+// Knowledge layer — the North Star boundary. Game UIs read THIS, never
+// ground truth (the inspector's dossier lens is the sanctioned exception).
+export { prospectSnapshot, confidenceLabel } from './knowledge/index.js';
+export type { ProspectSnapshot, AttributedRemark, ConfidenceLabel } from './knowledge/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';

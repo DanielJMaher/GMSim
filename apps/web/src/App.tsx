@@ -62,7 +62,8 @@ import type {
   MediaOutletId,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot } from '@gmsim/engine';
+import { GameViewReport } from './GameView';
 import type { ProspectDossier, DossierViewer, AttributedPoint } from '@gmsim/engine';
 import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
@@ -10013,6 +10014,9 @@ function PointList({
 
 function ScoutReportsPanel({ league }: { league: LeagueState }) {
   const [sourceKind, setSourceKind] = useState<'team' | 'outlet'>('team');
+  // 'inspector' = the dossier calibration lens (perceived/real); 'game' = the
+  // player-facing report rendered EXCLUSIVELY from the knowledge layer.
+  const [viewMode, setViewMode] = useState<'inspector' | 'game'>('inspector');
   const teams = useMemo(
     () => Object.values(league.teams).sort((a, b) => a.identity.location.localeCompare(b.identity.location)),
     [league.teams],
@@ -10072,6 +10076,12 @@ function ScoutReportsPanel({ league }: { league: LeagueState }) {
     () => (viewer && selectedId ? assembleProspectDossier(league, viewer, selectedId as PlayerId) : null),
     [league, viewer, selectedId],
   );
+  // Game view reads through the knowledge layer ONLY — `ProspectSnapshot` has
+  // no ground-truth / numeric-rating / band fields by construction.
+  const snapshot = useMemo(
+    () => (viewer && selectedId ? prospectSnapshot(league, viewer, selectedId as PlayerId) : null),
+    [league, viewer, selectedId],
+  );
 
   return (
     <section className="space-y-3 text-xs">
@@ -10087,6 +10097,28 @@ function ScoutReportsPanel({ league }: { league: LeagueState }) {
               }`}
             >
               {k === 'team' ? 'Team' : 'Media Outlet'}
+            </button>
+          ))}
+        </div>
+        <div className="flex overflow-hidden rounded border border-zinc-700">
+          {(['inspector', 'game'] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setViewMode(k)}
+              title={
+                k === 'game'
+                  ? 'The player-facing report — rendered from the knowledge layer only (no ratings, no ground truth).'
+                  : 'The dev calibration lens — perceived next to real.'
+              }
+              className={`px-2 py-1 text-[11px] uppercase tracking-wide ${
+                viewMode === k
+                  ? k === 'game'
+                    ? 'bg-emerald-500/20 text-emerald-200'
+                    : 'bg-indigo-500/20 text-indigo-200'
+                  : 'bg-zinc-900 text-zinc-500 hover:text-zinc-300'
+              }`}
+            >
+              {k === 'inspector' ? 'Inspector' : 'Game View'}
             </button>
           ))}
         </div>
@@ -10145,7 +10177,21 @@ function ScoutReportsPanel({ league }: { league: LeagueState }) {
       </div>
 
       {dossier ? (
-        <DossierCard dossier={dossier} />
+        viewMode === 'game' && snapshot ? (
+          <>
+            <GameViewReport snapshot={snapshot} />
+            {/* Inspector reality check — NOT part of the game view (standing
+                perceived-always-shows-real convention; the game UI never sees this). */}
+            <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-1.5 font-mono text-[11px] text-amber-300/90">
+              <span className="mr-2 uppercase tracking-wider text-amber-500/80">Inspector reality check</span>
+              real grade {dossier.realGrade ?? '—'} · perceived {dossier.perceivedGrade ?? '—'} · true
+              projection {dossier.realProjectedPosition}
+              {dossier.projectedPosition !== dossier.realProjectedPosition && ' (source read is off)'}
+            </div>
+          </>
+        ) : (
+          <DossierCard dossier={dossier} />
+        )
       ) : (
         <div className="rounded border border-zinc-800 bg-zinc-950/40 p-6 text-center text-zinc-500">
           {sourceKind === 'outlet'

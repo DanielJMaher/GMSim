@@ -19,7 +19,9 @@
     "./season": "./src/season/index.ts",
     "./draft": "./src/draft/index.ts",
     "./college-season": "./src/college-season/index.ts",
-    "./data": "./src/data/index.ts"
+    "./data": "./src/data/index.ts",
+    "./knowledge": "./src/knowledge/index.ts",
+    "./npc-ai": "./src/npc-ai/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
