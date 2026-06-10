@@ -62,7 +62,8 @@ import type {
   MediaOutletId,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot, careerShapeFor, declineMultiplierFor, curveForPosition } from '@gmsim/engine';
+import type { CareerShape } from '@gmsim/engine';
 import { GameViewReport } from './GameView';
 import { DepthChartCard } from './DepthChart';
 import { RatingsDistributionPanel } from './RatingsDistribution';
@@ -6585,6 +6586,9 @@ function PositionGroupTable({
               <th className="px-2 py-1 font-medium" title="Hidden mood — bucket label and raw 0..100. Drifts weekly during the season based on team results, HC fit, and depth-chart position.">
                 mood
               </th>
+              <th className="px-2 py-1 font-medium" title="Hidden career shape + decline-rate multiplier (Living Careers). Shape bends the position aging curve: METEOR fades early/hard, EVERGREEN barely ages, 2ND_PEAK gets a resurgence window. ×mult scales decline speed (durability-nudged).">
+                arc
+              </th>
               {seasonStats && (
                 <th className="px-2 py-1 font-medium" title="Position-relevant season stat">
                   season
@@ -6683,6 +6687,9 @@ function PositionGroupTable({
                       </span>
                     )}
                   </td>
+                  <td className="px-2 py-1 text-[10px]">
+                    <CareerArcCell player={p} league={league} />
+                  </td>
                   {seasonStats && (
                     <td className="px-2 py-1 text-zinc-300">
                       {formatKeyStat(p, seasonStats.get(p.id) ?? null)}
@@ -6780,6 +6787,32 @@ function ReleaseActionCell({
       >
         cancel
       </button>
+    </span>
+  );
+}
+
+const SHAPE_ABBREV: Record<CareerShape, { label: string; tone: string }> = {
+  CLASSIC_ARC: { label: 'classic', tone: 'text-zinc-500' },
+  METEOR: { label: 'meteor', tone: 'text-rose-400' },
+  LATE_BLOOMER: { label: 'late', tone: 'text-sky-400' },
+  SECOND_PEAK: { label: '2nd pk', tone: 'text-amber-400' },
+  EVERGREEN: { label: 'evergrn', tone: 'text-emerald-400' },
+  PHENOM_SUSTAINED: { label: 'phenom', tone: 'text-violet-400' },
+};
+
+/** Hidden career arc (Living Careers dev lens): shape + decline multiplier. */
+function CareerArcCell({ player, league }: { player: Player; league: LeagueState }) {
+  const shape = careerShapeFor(league, player);
+  const mult = declineMultiplierFor(league, player);
+  const curve = curveForPosition(player.position);
+  const { label, tone } = SHAPE_ABBREV[shape];
+  const multTone = mult >= 1.25 ? 'text-rose-400' : mult <= 0.75 ? 'text-emerald-400' : 'text-zinc-500';
+  return (
+    <span
+      title={`Hidden career shape: ${shape} (bends the ${curve.bucket} aging curve — real peak ~${curve.realPeakAge}). Decline multiplier ×${mult.toFixed(2)} (seed-derived, durability-nudged; higher = ages faster).`}
+    >
+      <span className={tone}>{label}</span>{' '}
+      <span className={`font-mono ${multTone}`}>×{mult.toFixed(2)}</span>
     </span>
   );
 }

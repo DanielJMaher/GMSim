@@ -739,25 +739,27 @@ async function simProbe(
             simChainedAtRealPeak >= 88
           ? 'ok'
           : `<-- DRIFT (sim peak ${simPeakAge} vs real ${realPeak})`;
-    // Drift check 2: in the real decline region (reliable cells <= -3%), the
-    // sim must not be growing (> +3% — sim cells carry matchup noise of a
-    // few points at modest n). More than a third violating = drift.
+    // Drift check 2: pool EVERY sim pair across the position's real decline
+    // region (real reliable cells <= -3%) and take one median — per-cell
+    // medians at n~150 carry ±4-5pp confidence intervals that flip-flop
+    // "violations" on noise. The pooled median must be clearly negative.
+    const declinePool: number[] = [];
     let checkable = 0;
-    let violations = 0;
     for (const a of AGES_INTO) {
       const real = baselines.positions[p]?.yoy[String(a)];
       if (!real || !real.reliable || (real.medianRatio - 1) * 100 > -3) continue;
       const arr = yoySim.get(p)!.get(a);
       if (!arr || arr.length < MIN_PAIRS_SIM) continue;
       checkable++;
-      if ((median(arr) - 1) * 100 > 3) violations++;
+      declinePool.push(...arr);
     }
+    const pooledPct = declinePool.length > 0 ? (median(declinePool) - 1) * 100 : NaN;
     const declineNote =
       checkable === 0
         ? 'n/a (thin sim sample)'
-        : violations * 3 > checkable
-          ? `<-- DRIFT (${violations}/${checkable} real-decline ages still growing in sim)`
-          : `ok (${checkable - violations}/${checkable} decline ages agree)`;
+        : pooledPct <= -1
+          ? `ok (pooled decline-region median ${pooledPct.toFixed(1)}%/yr over ${checkable} ages)`
+          : `<-- DRIFT (pooled decline-region median ${pooledPct.toFixed(1)}%/yr — should be clearly negative)`;
     console.log(`${''.padEnd(11)}peak ${simPeakAge} vs ${realPeak}: ${peakNote}; decline: ${declineNote}`);
     if (peakNote.includes('DRIFT')) flags.push(`${p} peak age`);
     if (declineNote.includes('DRIFT')) flags.push(`${p} decline region`);
@@ -824,6 +826,14 @@ async function simProbe(
     flags.length === 0
       ? '\nACTUARY A2: sim aging matches the real bar — no drift.'
       : `\nACTUARY A2: ${flags.length} drift flag(s): ${flags.join(', ')}`,
+  );
+  console.log(
+    '\nKNOWN RESIDUALS (S4 role-stickiness territory — expected until then):\n' +
+      '  - TE/S/CB production lags rating decline (TE1 target monopoly; tackle/INT\n' +
+      '    stats are weakly rating-coupled), so their peaks/regions read late/flat.\n' +
+      '  - QB decline cells read mildly positive while the plateau check passes.\n' +
+      '  - 33+ cliff reads ~-4 vs real -20..-32: the rational depth chart benches\n' +
+      '    cliffed vets out of the qualifying sample; real teams keep playing them.',
   );
 }
 

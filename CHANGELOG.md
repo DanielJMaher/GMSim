@@ -16,6 +16,53 @@ _Nothing yet._
 
 ---
 
+## [0.135.0] — 2026-06-10
+
+### Added
+
+- **Living Careers S3 — career shapes + ceiling dynamics.** Every player now
+  carries a hidden **CareerShape** (CLASSIC_ARC / METEOR / LATE_BLOOMER /
+  SECOND_PEAK / EVERGREEN / PHENOM_SUSTAINED) weighted by the Actuary's
+  measured real frequencies per position group (QBs: 30% evergreen; skill
+  positions: 19% meteor; DEF second-peak discounted 26→14% for role noise).
+  Seed-derived like the decline multiplier — stable for the career, no
+  save-format change, applies retroactively. Shapes bend the S2 aging
+  curves: METEORs grow hot and fade 2 years early at 1.35× speed with
+  cliff-prone bodies (Gurley); EVERGREENs delay decline 3 years at 0.6×
+  with cliff resistance (Brady); LATE_BLOOMERs trade slow starts for
+  extended windows (Darnold); SECOND_PEAKs get a seed-rolled 2-year
+  resurgence window in the early-decline years where decline is suppressed
+  and growth reopens (Warner). `careerShapeFor` / `SHAPE_MODIFIERS`
+  exported for the inspector lens only (North Star: game UIs never read
+  these).
+- **Ceiling dynamics — busts and breakouts emerge, they aren't rolled.**
+  Young players (≤25) coming off a breakout season (perf ≥1.3×) have a 15%
+  shot at raising hidden tech/mental ceilings (+1..2/key) — the
+  long-documented "rare ceiling bumps" intent, finally implemented. Stalled
+  players near the end of their growth window lose unreached ceiling toward
+  current (faster when underperforming) — the "high ceiling he never grew
+  into" career, emergent. Bust-rate gate vs the real outcomes corpus:
+  generated bust% by round R1 4.7 vs real 4.5, R2 15.2 vs 14.7, R3 27.5 vs
+  29.8 (day-3 runs ~8pp hot). Follow-up logged: generated R1 ProBowl% reads
+  low vs real — cohort-accounting investigation queued with S4.
+- **Inspector "arc" column** (team detail, next to mood): hidden career
+  shape + decline multiplier per player, color-coded, full explanation on
+  hover — the dev lens for watching shapes play out.
+
+### Changed
+
+- **Actuary A2 decline gate is now statistically honest**: per-position
+  decline regions are judged by ONE pooled median across all qualifying
+  pairs (per-cell medians at sim sample sizes flip-flopped on ±4pp noise).
+  The pooled lens reveals the full size of the production-coupling residual
+  (sim decline regions read ~0%/yr vs real ~-8 despite correct rating-side
+  decline — role-share buffering), now itemized in a KNOWN RESIDUALS footer
+  on every probe run. S4 (role stickiness + snap-share production) is the
+  mechanism fix. LB/CB/S/WR base decline rates re-centered so the
+  league-wide aggregate stays on the real bar with shape variance active.
+
+---
+
 ## [0.134.0] — 2026-06-10
 
 ### Added

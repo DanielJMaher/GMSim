@@ -453,6 +453,11 @@ export {
 } from './players/index.js';
 export type { TeamDepthChart, DepthChartSlot } from './players/index.js';
 
+// Living Careers (S2/S3) — hidden aging curves + career shapes. Inspector
+// dev-lens only; a game UI never reads these (North Star).
+export { curveForPosition, declineMultiplierFor, careerShapeFor } from './players/index.js';
+export type { CareerShape, PositionAgingCurve } from './players/index.js';
+
 // Knowledge layer — the North Star boundary. Game UIs read THIS, never
 // ground truth (the inspector's dossier lens is the sanctioned exception).
 export { prospectSnapshot, confidenceLabel } from './knowledge/index.js';

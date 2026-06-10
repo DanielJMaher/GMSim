@@ -55,3 +55,17 @@ export {
   type TeamDepthChart,
   type DepthChartSlot,
 } from './depth-chart.js';
+export {
+  AGING_CURVES,
+  agingBucketFor,
+  curveForPosition,
+  declineMultiplierFor,
+  type AgingBucket,
+  type PositionAgingCurve,
+} from './aging-curves.js';
+export {
+  careerShapeFor,
+  SHAPE_MODIFIERS,
+  type CareerShape,
+  type ShapeModifiers,
+} from './career-shapes.js';

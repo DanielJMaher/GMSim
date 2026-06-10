@@ -14,6 +14,12 @@ import {
   cliffHazard,
   type PositionAgingCurve,
 } from '../players/aging-curves.js';
+import {
+  careerShapeFor,
+  resurgenceWindowFor,
+  SHAPE_MODIFIERS,
+  type ShapeModifiers,
+} from '../players/career-shapes.js';
 
 /**
  * Apply one year of development to a player (Living Careers S2).
@@ -42,11 +48,26 @@ export function advancePlayerDevelopment(
   const curve = curveForPosition(player.position);
   const declineMult = declineMultiplierFor(league, player);
 
-  const newCurrent = applyDevelopment(
+  // The hidden career shape (S3) bends the position curve per player —
+  // METEORs fade early and hard, EVERGREENs barely age, SECOND_PEAKs get a
+  // seed-rolled 2-year resurgence window in the early-decline years.
+  const shape = careerShapeFor(league, player);
+  const mods = SHAPE_MODIFIERS[shape];
+  let inResurgence = false;
+  if (mods.resurgence) {
+    const firstOnset =
+      Math.min(curve.physicalDeclineOnset, curve.techniqueDeclineOnset) + mods.declineOnsetShift;
+    const w = resurgenceWindowFor(league, player, firstOnset);
+    inResurgence = ageNext >= w.start && ageNext <= w.end;
+  }
+
+  const { newCurrent, newCeiling } = applyDevelopment(
     prng,
     player,
     ageNext,
     curve,
+    mods,
+    inResurgence,
     declineMult,
     performanceMultiplier,
   );
@@ -59,6 +80,7 @@ export function advancePlayerDevelopment(
     ...player,
     experienceYears: player.experienceYears + 1,
     current: newCurrent,
+    ceiling: newCeiling,
     talentGrade: newGrade,
     tier: gradeToTier(newGrade),
   };
@@ -74,45 +96,88 @@ export function ageOfPlayer(player: Player, seasonNumber: number): number {
   return simYear - birthYear;
 }
 
+/** Ceiling-bump eligibility: young + a breakout season (perfMult >= 1.3). */
+const CEILING_BUMP_MAX_AGE = 25;
+const CEILING_BUMP_CHANCE = 0.15;
+/** Erosion: stalled gap above this shaves toward current each year. */
+const CEILING_EROSION_FLOOR_GAP = 5;
+const CEILING_EROSION_RATE = 0.15;
+
 function applyDevelopment(
   prng: Prng,
   player: Player,
   age: number,
   curve: PositionAgingCurve,
+  mods: ShapeModifiers,
+  inResurgence: boolean,
   declineMult: number,
   performanceMultiplier: number,
-): PlayerSkills {
+): { newCurrent: PlayerSkills; newCeiling: PlayerSkills } {
   // Cliff roll first (one per player-year): past the position's cliff age,
   // a hazard roll can produce a collapse season. The hit lands fully on
   // physical keys and at 60% on technique keys; ratings never come back, so
-  // a cliff starts the end of a career, not a dip.
+  // a cliff starts the end of a career, not a dip. Shape scales the hazard
+  // (METEORs cliff easily, EVERGREENs resist); a resurgence year never cliffs.
   let cliffMagnitude = 0;
-  if (prng.next() < cliffHazard(curve, age)) {
+  const hazard = Math.min(0.4, cliffHazard(curve, age) * mods.cliffHazardMult);
+  if (!inResurgence && prng.next() < hazard) {
     cliffMagnitude =
       curve.cliffMagnitudeMin + prng.next() * (curve.cliffMagnitudeMax - curve.cliffMagnitudeMin);
   }
 
-  const result = {} as PlayerSkills;
+  // Ceiling bump (S3): a young player coming off a breakout season has a
+  // shot at raising his hidden tech/mental ceilings — the documented design
+  // intent ("rare random ceiling bumps for very young outperformers") that
+  // was never implemented. Marginal by design: +1..2 per key, one roll/yr.
+  const bumpCeilings =
+    age <= CEILING_BUMP_MAX_AGE &&
+    performanceMultiplier >= 1.3 &&
+    prng.next() < CEILING_BUMP_CHANCE;
+
+  const effGrowthEnd = curve.growthEnd + mods.growthEndShift;
+  const newCurrent = {} as PlayerSkills;
+  const newCeiling = {} as PlayerSkills;
   for (const key of ALL_SKILL_KEYS) {
     const cur = player.current[key];
-    const ceil = player.ceiling[key];
+    let ceil = player.ceiling[key];
     const cat = categoryFor(key);
     let next = cur;
 
+    if (cat === 'technical' || cat === 'mental') {
+      if (bumpCeilings && ceil > cur) {
+        ceil = Math.min(99, ceil + prng.nextRange(1, 3));
+      } else if (!inResurgence && age >= effGrowthEnd - 1) {
+        // Ceiling erosion: potential a player never grew into evaporates as
+        // the growth window closes — busts EMERGE rather than being rolled.
+        // Underperformance (perfMult <= 0.95) accelerates the rot.
+        const gap = ceil - cur;
+        if (gap > CEILING_EROSION_FLOOR_GAP) {
+          const rate = CEILING_EROSION_RATE * (performanceMultiplier <= 0.95 ? 1.5 : 1);
+          ceil = Math.max(cur, ceil - (gap - CEILING_EROSION_FLOOR_GAP) * rate);
+        }
+      }
+    }
+
     // Growth: close some fraction of the gap to ceiling, tapering toward the
-    // position's growth end, scaled by archetype, then by the
-    // season-performance multiplier on technical/mental skills.
+    // (shape-shifted) growth end, scaled by shape + archetype, then by the
+    // season-performance multiplier on technical/mental skills. A resurgence
+    // year reopens tech/mental growth at a prime-like rate.
     const gap = Math.max(0, ceil - cur);
     if (gap > 0) {
-      let rate = growthRate(age, curve, cat, player.developmentArchetype);
+      let rate = growthRate(age, effGrowthEnd, curve, cat, player.developmentArchetype);
       if (cat === 'technical' || cat === 'mental') {
+        rate *= mods.growthMult;
+        if (inResurgence) rate = Math.max(rate, 0.12);
         rate *= performanceMultiplier;
       }
       next += gap * rate + prng.normal(0, 0.5);
     }
 
-    // Position- and category-specific aging decline.
-    const decline = declineFor(curve, cat, age) * declineMult;
+    // Position- and category-specific aging decline, shifted/scaled by shape
+    // (an onset shift of +3 delays both the start and the ramp progression),
+    // nearly suppressed during a resurgence window.
+    let decline = declineFor(curve, cat, age - mods.declineOnsetShift) * declineMult * mods.declineRateMult;
+    if (inResurgence) decline *= 0.35;
     if (decline > 0) {
       next -= prng.normal(decline, decline * 0.3, { min: 0, max: decline * 2.5 });
     }
@@ -123,9 +188,10 @@ function applyDevelopment(
       else if (cat === 'technical') next -= cliffMagnitude * 0.6;
     }
 
-    result[key] = Math.max(1, Math.min(99, Math.round(next)));
+    newCurrent[key] = Math.max(1, Math.min(99, Math.round(next)));
+    newCeiling[key] = Math.max(newCurrent[key], Math.min(99, Math.round(ceil)));
   }
-  return result;
+  return { newCurrent, newCeiling };
 }
 
 /**
@@ -140,6 +206,7 @@ function applyDevelopment(
  */
 function growthRate(
   age: number,
+  effGrowthEnd: number,
   curve: PositionAgingCurve,
   category: 'physical' | 'technical' | 'mental' | 'stable',
   archetype: PlayerDevelopmentArchetype,
@@ -149,7 +216,7 @@ function growthRate(
     base = age <= 22 ? 0.05 : 0; // post-rookie bodies only decline
   } else if (category === 'technical' || category === 'mental') {
     const early = age <= 22 ? 0.3 : age === 23 ? 0.22 : age === 24 ? 0.16 : 0.1;
-    let taper = Math.min(1, Math.max(0, (curve.growthEnd + 2 - age) / 4));
+    let taper = Math.min(1, Math.max(0, (effGrowthEnd + 2 - age) / 4));
     if (category === 'mental' && age < curve.mentalDeclineOnset) {
       taper = Math.max(taper, 0.3);
     }
