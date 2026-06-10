@@ -16,6 +16,26 @@ _Nothing yet._
 
 ---
 
+## [0.130.1] — 2026-06-09
+
+### Fixed
+
+- **`league.players` no longer grows unbounded** — the long-logged save-bloat
+  leak (2.2k → 11.7k over 15 seasons pre-v0.93; still +150/season after the
+  v0.93 washout). Instrumented over 12 seasons: the lingering cohort was
+  almost entirely unsigned STARTER/HIGH_STARTER-grade vets (~1,600 of ~3,400
+  unsigned at season 12, including ~530 aged 30–33) — starter-caliber surplus
+  the rosters can't absorb, exempt from the washout table and too young for
+  the age curve. Fix (`season/retirement.ts`): washout is now keyed by the
+  fine 8-tier `talentGrade` (table rates preserve the v0.93 effective
+  behavior), plus an **age floor for any unsigned vet** — going unsigned a
+  whole year IS the signal: 27–29 → 0.25/offseason, 30+ → 0.6, under 27
+  untouched. Measured result: the pool **plateaus at ~4,300** (seasons 8–12:
+  4,225 → 4,298, ~+18/yr) instead of growing ~150/yr forever. The
+  10-season bound test tightened 6,000 → 4,800 to pin the equilibrium.
+
+---
+
 ## [0.130.0] — 2026-06-09
 
 Retrospective-hardening release: the scaffolding the project review found

@@ -57,19 +57,45 @@ export function rollRetirement(prng: Prng, age: number): boolean {
  * per-offseason; tune to taste.
  */
 const WASHOUT_MIN_AGE = 23;
+/**
+ * Per-offseason washout odds, keyed by the 8-tier `talentGrade` (v0.130.1;
+ * previously keyed by the coarse 4-tier `tier` — rates below preserve the
+ * v0.93 effective behavior: 8-tier BACKUP/FRINGE rolled up to 4-tier FRINGE
+ * at 0.6, WEAK_STARTER/ROTATIONAL rolled up to 4-tier BACKUP at 0.35).
+ */
 const WASHOUT_PROB_BY_TIER: Record<string, number> = {
   FRINGE: 0.6,
-  BACKUP: 0.35,
+  BACKUP: 0.6,
+  ROTATIONAL: 0.35,
+  WEAK_STARTER: 0.35,
 };
+
+/**
+ * Age floor for ANY unsigned vet (v0.130.1) — the fix for the measured
+ * pool leak. Instrumented over 12 seasons: `league.players` grew
+ * ~150/season, and the lingering cohort was almost entirely unsigned
+ * STARTER/HIGH_STARTER-grade players (~1,600 of ~3,400 unsigned at season
+ * 12, including ~530 aged 30–33) — starter-caliber surplus the rosters
+ * can't absorb, exempt from the per-grade table and too young for the age
+ * curve, idling for up to a decade. In the real NFL a vet who goes
+ * unsigned for an entire season rarely returns — going unsigned a whole
+ * year IS the signal, at any talent grade. Under 27 keeps the original
+ * never-wash protection (recent draftees grinding on the fringe).
+ */
+function unsignedVetWashoutFloor(age: number): number {
+  if (age >= 30) return 0.6;
+  if (age >= 27) return 0.25;
+  return 0;
+}
 
 export function rollWashout(
   prng: Prng,
-  tier: string,
+  grade: string,
   age: number,
   isFreeAgent: boolean,
 ): boolean {
   if (!isFreeAgent || age < WASHOUT_MIN_AGE) return false;
-  const p = WASHOUT_PROB_BY_TIER[tier] ?? 0;
+  const p = Math.max(WASHOUT_PROB_BY_TIER[grade] ?? 0, unsignedVetWashoutFloor(age));
   if (p <= 0) return false;
   return prng.next() < p;
 }
@@ -144,7 +170,14 @@ export function processRetirements(
     const isFreeAgent = player.teamId === null;
     const retires =
       rollRetirement(offRosterPrng.fork(`retire:${player.id}`), ageNext) ||
-      rollWashout(offRosterPrng.fork(`washout:${player.id}`), player.tier, ageNext, isFreeAgent);
+      rollWashout(
+        offRosterPrng.fork(`washout:${player.id}`),
+        // The fine-grained 8-tier grade — the coarse `tier` hid sub-starter
+        // FAs inside "STARTER" and let them linger forever (see table doc).
+        player.talentGrade,
+        ageNext,
+        isFreeAgent,
+      );
     if (retires) {
       retiredPlayerIds.push(player.id);
       retiredSet.add(player.id);

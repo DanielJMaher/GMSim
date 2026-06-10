@@ -74,12 +74,32 @@ describe('rollWashout (v0.93 low-skill FA washout)', () => {
     }
   });
 
-  it('never washes out a starter-or-better free agent', () => {
+  it('never washes out a starter-or-better free agent under 27', () => {
     const prng = new Prng('wo-starter');
     for (let i = 0; i < 100; i++) {
-      expect(rollWashout(prng, 'STARTER', 28, true)).toBe(false);
-      expect(rollWashout(prng, 'STAR', 30, true)).toBe(false);
+      expect(rollWashout(prng, 'STARTER', 24, true)).toBe(false);
+      expect(rollWashout(prng, 'STAR', 26, true)).toBe(false);
+      expect(rollWashout(prng, 'ELITE', 26, true)).toBe(false);
     }
+  });
+
+  it('washes out unsigned vets at the age floor regardless of grade (v0.130.1)', () => {
+    // Going unsigned a whole year IS the signal — the measured pool leak was
+    // ~1,600 unsigned STARTER+/HIGH_STARTER players idling toward the age
+    // curve. 27-29 → 0.25; 30+ → 0.6.
+    const trials = 1000;
+    let mid = 0;
+    let old = 0;
+    const prngMid = new Prng('wo-vet-mid');
+    const prngOld = new Prng('wo-vet-old');
+    for (let i = 0; i < trials; i++) {
+      if (rollWashout(prngMid, 'STARTER', 28, true)) mid++;
+      if (rollWashout(prngOld, 'HIGH_STARTER', 31, true)) old++;
+    }
+    expect(mid).toBeGreaterThan(trials * 0.15);
+    expect(mid).toBeLessThan(trials * 0.35);
+    expect(old).toBeGreaterThan(trials * 0.5);
+    expect(old).toBeLessThan(trials * 0.7);
   });
 
   it('never washes out a sub-23 free agent (give prospects time)', () => {
@@ -103,9 +123,11 @@ describe('rollWashout (v0.93 low-skill FA washout)', () => {
   it('keeps league.players bounded across 10 seasons (no unsigned pile-up)', () => {
     const league = runSeasons('washout-bound', 10);
     // Active 53 + PS 16 across 32 teams = 2208; the FA pool is the rolling
-    // ~1-2yr unsigned cohort. Before washout this climbed past 8k by
-    // season 10 and kept growing — bound it well under that.
-    expect(Object.keys(league.players).length).toBeLessThan(6000);
+    // unsigned cohort. Pre-washout this climbed past 8k by season 10 and kept
+    // growing; with the v0.130.1 unsigned-vet age floor it PLATEAUS — measured
+    // ~4,250 at season 10 (equilibrium ~4,300, growth ~+18/yr by season 12).
+    // 4,800 = ~13% seed-variance headroom over the measured equilibrium.
+    expect(Object.keys(league.players).length).toBeLessThan(4800);
   });
 });
 
