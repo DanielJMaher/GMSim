@@ -99,35 +99,30 @@ revert until the suite is green, then push.
 ## Inspector refresh (after every slice)
 
 The inspector at `localhost:5173` must show the **current** build after
-every slice — do this automatically, don't wait to be told it's stale.
+every slice — verify this automatically, don't wait to be told it's stale.
 
-Vite's HMR is **not** reliable here for two reasons:
+The two historical staleness causes are fixed in `apps/web/vite.config.ts`
+(v0.130.0+): the engine is **excluded from optimizeDeps** (engine edits
+hot-update like app source — no more frozen pre-bundle), and a watcher
+**restarts the dev server when `package.json` changes** (so the
+`__APP_VERSION__` badge follows `pnpm version:sync` automatically). A
+long-lived `pnpm dev` now stays current; a browser refresh is usually all
+an eyeball needs.
 
-1. **Engine changes don't hot-update.** Vite pre-bundles the linked
-   `@gmsim/engine` workspace (optimizeDeps), so edits to
-   `packages/engine/src` are served from a stale pre-bundle even after a
-   browser refresh. Only `apps/web` source (e.g. `App.tsx`) hot-reloads.
-2. **The version badge is baked at server start.** `__APP_VERSION__` is
-   a Vite `define` read from `package.json` when the dev server boots, so
-   after a `pnpm version:sync` the badge keeps showing the old version
-   until the server is restarted.
+Still required:
 
-So a plain long-lived `pnpm dev` will misreport the version and run stale
-engine code. **After any slice that touches engine source or bumps the
-version (i.e. essentially every slice), relaunch the inspector clean:**
-
-1. Kill anything listening on ports 5173–5190 (Vite auto-increments, and
-   stale older-version servers on 5174+ confuse eyeball verification).
-2. Delete the Vite dep cache: `apps/web/node_modules/.vite`.
-3. Relaunch `pnpm dev` from the repo root (run it in the background).
-4. Confirm it bound `localhost:5173` and reports the expected version.
-
-Launch `pnpm dev` from the **repo root** (a background shell may land
-elsewhere — `cd` to the root first), and never kill by "all node
-processes" (that takes the test runner down too) — target the port
-listeners only. The Vite dep-cache wipe is the part that actually forces
-the engine to re-bundle from current source; skipping it is why a
-refresh alone keeps showing the old build.
+1. **No stale sibling servers.** Vite auto-increments to 5174+ if 5173 is
+   taken; older-version servers on other ports confuse eyeball
+   verification. If 5173 isn't the current build, kill all listeners on
+   5173–5190 and relaunch rather than stacking servers.
+2. **Launch `pnpm dev` from the repo root** (a background shell may land
+   elsewhere — `cd` to the root first), and never kill by "all node
+   processes" (that takes the test runner down too) — target the port
+   listeners only.
+3. **Confirm after each slice** that 5173 answers and reports the
+   expected version before declaring it eyeball-ready. If it's somehow
+   stale anyway, the old hard-reset still works: kill 5173–5190, delete
+   `apps/web/node_modules/.vite`, relaunch.
 
 ## Inspector & draft-scouting conventions
 
