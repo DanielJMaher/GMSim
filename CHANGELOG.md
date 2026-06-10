@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.133.0] — 2026-06-10
+
+### Added
+
+- **The Actuary — aging/development realism authority (truth-arbiter agent
+  #7).** `run actuary` ingests 22 years of real NFL production
+  (nflverse `stats_player_reg` 2003–2024 + the players master, auto-downloaded
+  and disk-cached) and emits the realism bar for the upcoming
+  progression/regression overhaul: median YoY per-game production change by
+  position × age (within-player survivor pairs, ≥8-game qualifying filter),
+  chained aging curves + peak ages (RB peaks 24 and is at ~55% of peak by 30;
+  QB plateaus to 32; everyone cliffs −20…−32%/yr at 33–34), attrition by age,
+  injury-shortened-season risk by age (17% → 32% from 25 → 34),
+  draft-entry age distribution (75% enter at 22–23), and a career-shape
+  taxonomy with measured frequencies (CLASSIC_ARC / METEOR / LATE_BLOOMER /
+  SECOND_PEAK / EVERGREEN / PHENOM_SUSTAINED). Writes
+  `data/aging-baselines.json` with per-cell sample sizes + extrapolation
+  flags — the artifact the engine's `players/aging-curves.ts` (slice S2) will
+  be derived from. Production formulas deliberately mirror the engine's
+  `scorePerformance` so slice A2 can compare simulated aging to these
+  baselines apples-to-apples in production space.
+
+---
+
 ## [0.132.0] — 2026-06-10
 
 ### Added
