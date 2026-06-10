@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.131.0] — 2026-06-09
+
+### Added
+
+- **Depth chart — the engine finally knows who starts** (Daniel-approved
+  2026-05-29; the "68-rated backup STARTING" confusion was the trigger). New
+  `players/depth-chart.ts`: `computeTeamDepthChart` derives each team's
+  canonical chart from the roster — pure and deterministic, no save-format
+  change. Base lineup = 11-personnel offense + nickel defense + 3 ST
+  (`BASE_STARTER_COUNTS`, 25 starters); within-position ranking uses the same
+  archetype-key-skill composite the game sim ranks personnel by
+  (`depthScore`). Helpers: `computeLeagueDepthCharts`, `isProjectedStarter`,
+  `depthRank`. 7 tests.
+- **Inspector: Depth Chart card** in team detail (`apps/web/src/DepthChart.tsx`,
+  continuing the App.tsx split) — offense/defense/ST sections, projected
+  starters highlighted green with the composite, bench ordered behind,
+  "N short" badge when a position can't fill its starter slots.
+- Consumer wiring is deliberately deferred to follow-up slices (each needs its
+  own calibration gate): team needs (starter hole vs depth hole), mood
+  (playing-time expectations), game-sim personnel, and the QB1 selection
+  should all converge on this ordering.
+
+---
+
 ## [0.130.1] — 2026-06-09
 
 ### Fixed

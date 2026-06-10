@@ -64,6 +64,7 @@ import type {
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
 import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot } from '@gmsim/engine';
 import { GameViewReport } from './GameView';
+import { DepthChartCard } from './DepthChart';
 import type { ProspectDossier, DossierViewer, AttributedPoint } from '@gmsim/engine';
 import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
@@ -5038,6 +5039,8 @@ function TeamDetail({
           close
         </button>
       </header>
+
+      <DepthChartCard team={team} league={league} />
 
       <TradeBuilderPanel team={team} league={league} onLeagueChange={onLeagueChange} />
 

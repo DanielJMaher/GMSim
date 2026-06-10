@@ -45,3 +45,13 @@ export {
   type TalentGrade,
   type RolledSkills,
 } from './skills.js';
+export {
+  BASE_STARTER_COUNTS,
+  computeTeamDepthChart,
+  computeLeagueDepthCharts,
+  depthScore,
+  depthRank,
+  isProjectedStarter,
+  type TeamDepthChart,
+  type DepthChartSlot,
+} from './depth-chart.js';
