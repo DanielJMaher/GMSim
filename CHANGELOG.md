@@ -20,14 +20,15 @@ _Nothing yet._
 
 ### Added
 
-- **Inspector "Ratings" tab — league-wide overall-distribution histogram.**
-  New `RatingsDistribution.tsx`: every player in `league.players` binned by
-  overall (`depthScore`, the same archetype-key-skill composite the sim and
-  depth chart rank by) — overall on X (1-pt bins), player count on Y, with
-  position filter, team filter (including a free-agents-only view), and an
-  include-FA checkbox. Summary strip shows n / FA count / mean / median /
-  range. The calibration lens for talent-spread and washout work: the
-  league-wide shape should read as a pyramid, not a plateau.
+- **Inspector "Histograms" tab — league-wide distribution charts.** New
+  `RatingsDistribution.tsx`: every player in `league.players` binned 1-pt on
+  X with player count on Y, for **overall** (`depthScore`, the same
+  archetype-key-skill composite the sim and depth chart rank by) and **age**
+  (`ageOfPlayer`, sim-clock derived). Shared filters: position, team
+  (including a free-agents-only view), and an include-FA checkbox. Summary
+  strip shows n / FA count; each chart shows mean / median / range. The
+  calibration lens for talent-spread, washout, and aging work: the
+  league-wide overall shape should read as a pyramid, not a plateau.
 
 ---
 

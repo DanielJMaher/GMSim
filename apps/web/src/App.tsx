@@ -93,7 +93,7 @@ import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsi
  */
 const DEFAULT_SEED = 'phase-2-season';
 
-type InspectorTab = 'league' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'ratings' | 'news' | 'lifecycle';
+type InspectorTab = 'league' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'histograms' | 'news' | 'lifecycle';
 
 interface TabDef {
   id: InspectorTab;
@@ -139,8 +139,8 @@ const TAB_DEFS: readonly TabDef[] = [
     activeClasses: 'border-sky-400 bg-sky-500/10 text-sky-200',
   },
   {
-    id: 'ratings',
-    label: 'Ratings',
+    id: 'histograms',
+    label: 'Histograms',
     activeClasses: 'border-lime-400 bg-lime-500/10 text-lime-200',
   },
   {
@@ -463,7 +463,7 @@ export function App() {
         <FreeAgentPoolPanel league={league} />
       )}
 
-      {activeTab === 'ratings' && <RatingsDistributionPanel league={league} />}
+      {activeTab === 'histograms' && <RatingsDistributionPanel league={league} />}
 
       {activeTab === 'news' && (
         <>
@@ -526,7 +526,7 @@ function TabNav({
         return null;
       case 'college-games':
         return null;
-      case 'ratings':
+      case 'histograms':
         return null;
       case 'lifecycle':
         return null;
