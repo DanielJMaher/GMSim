@@ -12,7 +12,40 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+_Nothing yet._
+
+---
+
+## [0.130.0] — 2026-06-09
+
+Retrospective-hardening release: the scaffolding the project review found
+missing — CI, the promised scale gate, a one-command drift sweep, the
+knowledge layer built for real, and a self-maintaining inspector dev loop.
+
 ### Added
+
+- **Knowledge layer — the North Star boundary, built instead of described**
+  (`packages/engine/src/knowledge`). `prospectSnapshot(league, viewer, id)` →
+  `ProspectSnapshot`: the game-safe projection of the dossier assembly —
+  attributed, source-bylined, qualitative. Every dev-only / ground-truth /
+  numeric-rating / band field is stripped at the type level; confidence
+  surfaces as `tentative`/`moderate`/`firm`, never a number.
+  `knowledge/snapshot.test.ts` is the leak gate (recursive forbidden-key scan;
+  no digits in remark phrases). New engine subpaths `./knowledge` + `./npc-ai`.
+- **`npc-ai` is a real module** (`packages/engine/src/npc-ai`): the canonical,
+  auditable surface for NPC team decisions — re-exports every decision entry
+  point (board regen, `runDraft`, weekly + proactive trades, the FA auction,
+  street signings, poaching, UDFA promotion). Rule going forward: new NPC
+  decision behavior lands in (or is re-exported through) `npc-ai/` in the same
+  slice that creates it.
+- **Inspector "Game View"** (Scout Reports tab): an Inspector | Game View
+  toggle. Game View (`apps/web/src/GameView.tsx` — the first component split
+  out of the App.tsx monolith) renders **exclusively** from `ProspectSnapshot`
+  (its only data prop), so it structurally cannot show ratings or ground
+  truth: write-up prose, attributed strengths/concerns with confidence chips,
+  scheme fit, verified measurables, college production, injury history. An
+  amber inspector-only reality-check strip below preserves the standing
+  perceived-always-shows-real convention.
 
 - **CI test workflow** (`.github/workflows/ci.yml`): typecheck, inspector build,
   and the full engine suite (sharded 4 ways) now run on every push to `main` and
@@ -31,6 +64,23 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   only an agent error fails the command. First sweep: 5/5 agents clean of
   errors; flags match the known residuals (liquidator compressed tops pending
   cap-aware generation; class-talent rookie-current artifact).
+
+### Fixed
+
+- **Inspector relaunch ritual retired** (`apps/web/vite.config.ts`): the
+  engine is excluded from `optimizeDeps` (engine edits now hot-update instead
+  of serving from a frozen pre-bundle), and a `gmsim-version-watch` plugin
+  restarts the dev server when `package.json` changes (the version badge
+  follows `pnpm version:sync` automatically). A long-lived `pnpm dev` stays
+  current; CLAUDE.md's refresh section rewritten to match.
+
+### Changed
+
+- **CLAUDE.md invariants #3/#5/#6 now describe real mechanics**: the knowledge
+  module + its leak gate (was: an empty directory the docs called
+  "structurally enforced"), the league-tick benchmark as a live CI gate (was:
+  "not yet wired up"), and `npc-ai` as the re-export seam with the
+  lands-here rule (was: an empty directory).
 
 ---
 
