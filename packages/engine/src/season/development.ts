@@ -7,19 +7,30 @@ import type { PlayerId } from '../types/ids.js';
 import { PositionGroup } from '../types/enums.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { ALL_SKILL_KEYS, categoryFor } from '../players/skill-keys.js';
+import {
+  curveForPosition,
+  declineMultiplierFor,
+  declineFor,
+  cliffHazard,
+  type PositionAgingCurve,
+} from '../players/aging-curves.js';
 
 /**
- * Apply one year of development to a player. Hidden ceilings shift only
- * marginally (and only upward via exceptional-performance breakthroughs,
- * which we approximate with rare random ceiling bumps for very young
- * outperformers). Current ratings advance toward the ceiling based on
- * age stage and development archetype, with physical decline for
- * veterans/aging.
+ * Apply one year of development to a player (Living Careers S2).
  *
- * Source: Player Development System Design Document — hidden mechanics,
- * scheme-specific growth, archetype-based optimization. Phase 2 omits
- * the coaching focus allocation interface (deferred) and treats every
- * player as receiving baseline coaching attention.
+ * Growth closes the gap to the hidden ceiling, tapering out around the
+ * position's real peak age. Decline is position- and category-specific
+ * (physical first, technique post-peak, mental late) per
+ * `players/aging-curves.ts` — parameters derived from THE ACTUARY's real-NFL
+ * baselines and calibrated against its sim-side probe (`run actuary sim`).
+ * Past the position's cliff age, an annual hazard roll can produce a cliff
+ * season (a large permanent hit) — some RBs collapse at 28, some never seem
+ * to. Each player carries a hidden decline-rate multiplier so identical-age
+ * peers age differently.
+ *
+ * Source: Player Development System Design Document + the Living Careers
+ * plan (2026-06-10). Coaching-focus allocation remains deferred; every
+ * player receives baseline coaching attention.
  */
 export function advancePlayerDevelopment(
   prng: Prng,
@@ -28,9 +39,17 @@ export function advancePlayerDevelopment(
   performanceMultiplier = 1.0,
 ): Player {
   const ageNext = ageOfPlayer(player, league.seasonNumber + 1);
-  const stageNext = stageForAge(ageNext);
+  const curve = curveForPosition(player.position);
+  const declineMult = declineMultiplierFor(league, player);
 
-  const newCurrent = applyDevelopment(prng, player, stageNext, performanceMultiplier);
+  const newCurrent = applyDevelopment(
+    prng,
+    player,
+    ageNext,
+    curve,
+    declineMult,
+    performanceMultiplier,
+  );
   // Tier shifts as skills change. We don't store an "original" tier;
   // re-derive from new current ratings using the same skill-key logic
   // contracts use. The fine grade is the source of truth; tier derives from it.
@@ -55,22 +74,24 @@ export function ageOfPlayer(player: Player, seasonNumber: number): number {
   return simYear - birthYear;
 }
 
-type AgeStage = 'ROOKIE' | 'DEVELOPING' | 'PRIME' | 'VETERAN' | 'AGING';
-
-function stageForAge(age: number): AgeStage {
-  if (age <= 22) return 'ROOKIE';
-  if (age <= 24) return 'DEVELOPING';
-  if (age <= 29) return 'PRIME';
-  if (age <= 33) return 'VETERAN';
-  return 'AGING';
-}
-
 function applyDevelopment(
   prng: Prng,
   player: Player,
-  stage: AgeStage,
+  age: number,
+  curve: PositionAgingCurve,
+  declineMult: number,
   performanceMultiplier: number,
 ): PlayerSkills {
+  // Cliff roll first (one per player-year): past the position's cliff age,
+  // a hazard roll can produce a collapse season. The hit lands fully on
+  // physical keys and at 60% on technique keys; ratings never come back, so
+  // a cliff starts the end of a career, not a dip.
+  let cliffMagnitude = 0;
+  if (prng.next() < cliffHazard(curve, age)) {
+    cliffMagnitude =
+      curve.cliffMagnitudeMin + prng.next() * (curve.cliffMagnitudeMax - curve.cliffMagnitudeMin);
+  }
+
   const result = {} as PlayerSkills;
   for (const key of ALL_SKILL_KEYS) {
     const cur = player.current[key];
@@ -78,22 +99,28 @@ function applyDevelopment(
     const cat = categoryFor(key);
     let next = cur;
 
-    // Growth: close some fraction of the gap to ceiling, scaled by
-    // stage + archetype, then by season-performance multiplier on
-    // technical/mental skills (the categories players can grow into).
+    // Growth: close some fraction of the gap to ceiling, tapering toward the
+    // position's growth end, scaled by archetype, then by the
+    // season-performance multiplier on technical/mental skills.
     const gap = Math.max(0, ceil - cur);
     if (gap > 0) {
-      let rate = growthRate(stage, cat, player.developmentArchetype);
+      let rate = growthRate(age, curve, cat, player.developmentArchetype);
       if (cat === 'technical' || cat === 'mental') {
         rate *= performanceMultiplier;
       }
       next += gap * rate + prng.normal(0, 0.5);
     }
 
-    // Aging decline for physical skills only (per design doc).
-    if (cat === 'physical') {
-      if (stage === 'VETERAN') next -= prng.normal(0.6, 0.3);
-      else if (stage === 'AGING') next -= prng.normal(2.2, 0.7);
+    // Position- and category-specific aging decline.
+    const decline = declineFor(curve, cat, age) * declineMult;
+    if (decline > 0) {
+      next -= prng.normal(decline, decline * 0.3, { min: 0, max: decline * 2.5 });
+    }
+
+    // Cliff season: large permanent hit to the body, most of it physical.
+    if (cliffMagnitude > 0) {
+      if (cat === 'physical') next -= cliffMagnitude;
+      else if (cat === 'technical') next -= cliffMagnitude * 0.6;
     }
 
     result[key] = Math.max(1, Math.min(99, Math.round(next)));
@@ -102,55 +129,54 @@ function applyDevelopment(
 }
 
 /**
- * Per-stage, per-category, per-archetype growth rate. Returns the
- * fraction of remaining gap to ceiling closed in one year.
+ * Per-age, per-category, per-archetype growth rate: the fraction of the
+ * remaining gap to ceiling closed in one year.
  *
- * Numbers tuned so that:
- *   - A rookie's technical skills typically gain 6-12 points/yr
- *   - A prime player's technical skills gain 1-3 points/yr
- *   - Stable traits move minimally
- *   - Physical skills only ever decline (no growth post-rookie)
+ * Early-career learning is fast everywhere (rookies gain 6-12 technical
+ * points/yr); the taper is position-specific — growth dies out ~2 years
+ * past the position's `growthEnd` (a CB is done growing at ~25 while a QB
+ * keeps learning to 30+). Mental skills keep a floor of slow growth until
+ * their decline onset (film study never stops).
  */
 function growthRate(
-  stage: AgeStage,
+  age: number,
+  curve: PositionAgingCurve,
   category: 'physical' | 'technical' | 'mental' | 'stable',
   archetype: PlayerDevelopmentArchetype,
 ): number {
   let base = 0;
   if (category === 'physical') {
-    if (stage === 'ROOKIE') base = 0.05;
-    else base = 0; // post-rookie, only decline (handled separately)
+    base = age <= 22 ? 0.05 : 0; // post-rookie bodies only decline
   } else if (category === 'technical' || category === 'mental') {
-    if (stage === 'ROOKIE') base = 0.32;
-    else if (stage === 'DEVELOPING') base = 0.25;
-    else if (stage === 'PRIME') base = 0.1;
-    else if (stage === 'VETERAN') base = 0.04;
-    else base = 0.02; // AGING
+    const early = age <= 22 ? 0.3 : age === 23 ? 0.22 : age === 24 ? 0.16 : 0.1;
+    let taper = Math.min(1, Math.max(0, (curve.growthEnd + 2 - age) / 4));
+    if (category === 'mental' && age < curve.mentalDeclineOnset) {
+      taper = Math.max(taper, 0.3);
+    }
+    base = early * taper;
   } else {
     // stable
-    if (stage === 'ROOKIE') base = 0.1;
-    else if (stage === 'DEVELOPING') base = 0.08;
-    else base = 0.03;
+    base = age <= 22 ? 0.1 : age <= 24 ? 0.08 : 0.03;
   }
 
-  // Archetype modifiers
+  // Archetype modifiers (age-keyed equivalents of the old stage modifiers).
   switch (archetype) {
     case 'FAST_LEARNER':
-      base *= stage === 'ROOKIE' || stage === 'DEVELOPING' ? 1.5 : 0.9;
+      base *= age <= 24 ? 1.5 : 0.9;
       break;
     case 'SLOW_STEADY':
       base *= 0.85;
       break;
     case 'EARLY_BLOOMER':
-      base *= stage === 'ROOKIE' ? 1.7 : stage === 'AGING' ? 0.6 : 0.85;
+      base *= age <= 22 ? 1.7 : age >= 34 ? 0.6 : 0.85;
       break;
     case 'LATE_DEVELOPER':
-      base *= stage === 'ROOKIE' ? 0.6 : stage === 'PRIME' || stage === 'VETERAN' ? 1.5 : 1.0;
+      base *= age <= 22 ? 0.6 : age >= 25 && age <= 33 ? 1.5 : 1.0;
       break;
     case 'ADVERSITY_DRIVEN':
     case 'CONFIDENCE_DEPENDENT':
-      // Phase 2 placeholder — these archetypes need game-performance feedback,
-      // which the simulator doesn't yet track per-player. Treat as average.
+      // S4 placeholder — these archetypes get their data feed when the
+      // residual performance signal lands. Treat as average until then.
       break;
   }
 

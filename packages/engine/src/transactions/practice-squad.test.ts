@@ -58,26 +58,38 @@ describe('practice squad — bootstrap', () => {
 });
 
 describe('practice squad — offseason lifecycle', () => {
-  it('PS contracts expire each offseason and PS list is replaced with fresh rookies', () => {
+  it('PS refills each offseason by signing real unsigned young FAs, not inventing players', () => {
     let league = createLeague({ seed: 'ps-cycle' });
-    const psBeforeBySeason: Record<number, Set<string>> = {};
-    for (const team of Object.values(league.teams)) {
-      psBeforeBySeason[1] ??= new Set();
-      for (const id of team.practiceSquadIds) psBeforeBySeason[1]!.add(id);
-    }
+    const knownIds = new Set(Object.keys(league.players));
 
     league = simulateSeason(league);
     league = advanceSeason(league);
 
-    // After advance, every team is back to PS size, and the new PS players
-    // are *different* from the prior season's batch (those whose contracts
-    // expired either signed elsewhere as FAs or remain in the FA pool).
+    // After advance, every team is back to PS size, every PS player has a
+    // valid PS deal, and most slots were filled from the existing player
+    // pool (UDFAs + young fringe FAs + re-signed PS guys — Living Careers
+    // S2; before, ALL 512 slots/yr were invented 21-22-year-olds). Year 1
+    // is the worst case (no UDFA inflow yet, refillRosters absorbs part of
+    // the bootstrap supply), so allow up to 40% emergency fill here; the
+    // Actuary's entry-age gate polices the aggregate. Emergency fill is
+    // generated at DEVELOPING age (23-24, experience >= 1), so it never
+    // masquerades as a draft-class rookie.
+    let invented = 0;
+    let total = 0;
     for (const team of Object.values(league.teams)) {
       expect(team.practiceSquadIds.length).toBe(PRACTICE_SQUAD_SIZE);
       for (const id of team.practiceSquadIds) {
-        expect(psBeforeBySeason[1]!.has(id)).toBe(false);
+        const player = league.players[id]!;
+        expect(player.teamId).toBe(team.identity.id);
+        expect(player.contractId).not.toBeNull();
+        total++;
+        if (!knownIds.has(id) && id.includes('_PS')) {
+          invented++;
+          expect(player.experienceYears).toBeGreaterThanOrEqual(1);
+        }
       }
     }
+    expect(invented / total).toBeLessThan(0.4);
   });
 
   it('PS lifecycle stays stable across multiple seasons', () => {

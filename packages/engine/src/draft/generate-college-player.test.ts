@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Prng } from '../prng/index.js';
-import { generateCollegePlayer } from './generate-college-player.js';
+import { generateCollegePlayer, rollAgeForClass } from './generate-college-player.js';
 import { Position } from '../types/enums.js';
 import { COLLEGE_SCHOOLS, getSchoolById } from '../data/colleges/index.js';
 
@@ -315,5 +315,37 @@ describe('generateCollegePlayer', () => {
     expect(tiers.has('GROUP_OF_5')).toBe(true);
     expect(tiers.has('FCS')).toBe(true);
     expect(tiers.has('SMALL')).toBe(true);
+  });
+});
+
+describe('rollAgeForClass — entry-age realism (Living Careers S2)', () => {
+  function shares(classYear: 'JR' | 'SR' | 'RS_SR', n = 20000): Map<number, number> {
+    const prng = new Prng(`entry-age-${classYear}`);
+    const counts = new Map<number, number>();
+    for (let i = 0; i < n; i++) {
+      const age = rollAgeForClass(prng, classYear);
+      counts.set(age, (counts.get(age) ?? 0) + 1);
+    }
+    const out = new Map<number, number>();
+    for (const [age, c] of counts) out.set(age, c / n);
+    return out;
+  }
+
+  it('declared juniors are rarely 20 (real draftees: 0.6% age-20 league-wide)', () => {
+    const s = shares('JR');
+    expect(s.get(20) ?? 0).toBeGreaterThan(0.01);
+    expect(s.get(20) ?? 0).toBeLessThan(0.08);
+    expect(s.get(22) ?? 0).toBeGreaterThan(0.45);
+  });
+
+  it('seniors are overwhelmingly 22-23', () => {
+    const s = shares('SR');
+    expect((s.get(22) ?? 0) + (s.get(23) ?? 0)).toBeGreaterThan(0.85);
+    expect(s.get(21) ?? 0).toBeLessThan(0.12);
+  });
+
+  it('redshirt seniors skew 23-24', () => {
+    const s = shares('RS_SR');
+    expect((s.get(23) ?? 0) + (s.get(24) ?? 0)).toBeGreaterThan(0.8);
   });
 });

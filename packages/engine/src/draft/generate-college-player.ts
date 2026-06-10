@@ -62,18 +62,59 @@ export function pickCollegePosition(prng: Prng): Position {
   return prng.weighted(COLLEGE_POSITION_WEIGHTS);
 }
 
-const CLASS_YEAR_AGE_RANGE: Record<ClassYear, [number, number]> = {
-  TRUE_FR: [18, 19],
-  RS_FR: [19, 20],
-  SO: [19, 21],
-  JR: [20, 22],
-  SR: [21, 23],
-  RS_SR: [22, 24],
+/**
+ * Weighted age rolls per class year (Living Careers S2). The old uniform
+ * ranges made a declared junior age 20 a third of the time; real draft-entry
+ * ages (Actuary baselines, 2003-2024) run 0.6% at 20 / 13% at 21 / 75% at
+ * 22-23 / 9% at 24. Weights are set so the declared JR/SR/RS_SR mix lands
+ * near that distribution — verified by the Actuary's sim-side entry-age
+ * table (`run actuary sim`).
+ */
+export const CLASS_YEAR_AGE_WEIGHTS: Record<
+  ClassYear,
+  readonly { value: number; weight: number }[]
+> = {
+  // TRUE_FR weights drive the WHOLE ongoing pipeline's entry ages: every
+  // post-initial cohort is generated as TRUE_FR and walks the fixed 5-year
+  // ladder (→RS_FR→SO→JR→SR; everyone effectively redshirts), then enters
+  // the NFL the season AFTER their final college year. So an 18-year-old
+  // TRUE_FR who declares as a junior is a 22-year-old rookie; the senior
+  // path makes him 23; +1 for a 19 start. 70/30 lands the league's entry
+  // mix at ~80% 22-23 vs real 75.4%. Known structural limits vs real:
+  // almost no ≤21 rookies (real 13.7% — needs a 3-4-year college path, a
+  // future slice) and the 24s come from 19-starts rather than RS seniors.
+  TRUE_FR: [
+    { value: 18, weight: 70 },
+    { value: 19, weight: 30 },
+  ],
+  RS_FR: [
+    { value: 19, weight: 55 },
+    { value: 20, weight: 45 },
+  ],
+  SO: [
+    { value: 19, weight: 25 },
+    { value: 20, weight: 55 },
+    { value: 21, weight: 20 },
+  ],
+  JR: [
+    { value: 20, weight: 2 },
+    { value: 21, weight: 24 },
+    { value: 22, weight: 74 },
+  ],
+  SR: [
+    { value: 21, weight: 4 },
+    { value: 22, weight: 46 },
+    { value: 23, weight: 50 },
+  ],
+  RS_SR: [
+    { value: 22, weight: 10 },
+    { value: 23, weight: 45 },
+    { value: 24, weight: 45 },
+  ],
 };
 
-function rollAgeForClass(prng: Prng, classYear: ClassYear): number {
-  const [min, max] = CLASS_YEAR_AGE_RANGE[classYear];
-  return prng.nextRange(min, max + 1);
+export function rollAgeForClass(prng: Prng, classYear: ClassYear): number {
+  return prng.weighted(CLASS_YEAR_AGE_WEIGHTS[classYear]);
 }
 
 export interface GenerateCollegePlayerOptions {

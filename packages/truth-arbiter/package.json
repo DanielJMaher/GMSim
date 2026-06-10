@@ -1,6 +1,6 @@
 {
   "name": "@gmsim/truth-arbiter",
-  "version": "0.133.0",
+  "version": "0.134.0",
   "private": true,
   "type": "module",
   "description": "Ground-truth corpus of real NFL draft history (2014-2026) used to verify GMSim's generated rosters and draft classes.",

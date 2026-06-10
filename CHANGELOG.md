@@ -16,6 +16,62 @@ _Nothing yet._
 
 ---
 
+## [0.134.0] — 2026-06-10
+
+### Added
+
+- **Living Careers S2 — players finally age like NFL players.** The old
+  development model never declined technical/mental skills at any age, had
+  no per-position curves and no cliff — the root cause of the climbing
+  Histograms distribution. New `players/aging-curves.ts`: per-position
+  aging parameters hand-derived from the Actuary's real-NFL baselines
+  (peak ages RB 24 / CB 23 / WR-EDGE-LB 25 / IDL-QB 27; QB plateaus to 32),
+  consumed by a reworked `season/development.ts` — technique now erodes
+  post-peak (the key fix), mental holds to ~35, physical declines at
+  position-specific onsets with accelerating ramps, and past each
+  position's cliff age an annual hazard roll can produce a collapse season
+  (-15..-30%, permanent). Every player carries a hidden decline-rate
+  multiplier (seed-derived, durability-nudged — no save-format change), so
+  same-age peers age differently. Growth now tapers at the position's real
+  peak age instead of a global table.
+- **Actuary A2 — the sim-vs-real aging gate.** `run actuary sim [years]
+  [seeds]` forward-sims leagues (multi-seed pooling supported) and
+  recomputes the identical YoY-production-by-age table from simulated
+  careers, comparing peak ages, decline regions, the QB plateau, the 33+
+  cliff, and draft-entry ages against the real bar with `<-- DRIFT`
+  markers. Joins `run gates` (quick: 1×8 seasons; full: 2×12). Calibrated
+  result (2 seeds × 12 seasons pooled): entry ages 74.7% at 22-23 (real
+  75.4%), QB plateau +0.7%/yr, WR peak 25=25 with 8/8 decline cells, RB
+  8/9 (-33%/yr at 33), IDL peak 27=27; EDGE/LB/CB pass. Documented
+  residuals (all role-stickiness, S4 territory): TE/S production peaks
+  read late (TE1 target-share monopoly and tackle-stat coupling buffer
+  rating loss), QB's small decline cells read mildly positive while its
+  plateau matches, and the production-visible 33+ cliff reads -4.5 vs
+  real -20..-32 — real teams keep playing declining vets through bad
+  seasons; GMSim's rational depth chart benches them out of the
+  qualifying sample instantly.
+
+### Fixed
+
+- **Practice squads no longer invent ~440 fictional rookies a year.**
+  `refillPracticeSquad` generated fresh 21-22-year-olds for every PS slot
+  each offseason — more than the entire real draft+UDFA cohort (~360/yr),
+  pinning the league's entry-age mix far too young no matter what the
+  college pipeline produced. Squads now sign real unsigned young FAs
+  (UDFAs, bounced fringe, re-signed PS guys; experience ≤ 3, any-position
+  fallback); generation survives only as the creation bootstrap and an
+  emergency fallback that produces 23-24-year-old street journeymen
+  (experience ≥ 1) — invented bodies can never masquerade as draft-class
+  rookies again.
+- **Draft-entry ages match real distributions.** `CLASS_YEAR_AGE_WEIGHTS`
+  replaces uniform class-age ranges (a declared junior was age 20 a third
+  of the time vs 0.6% real); TRUE_FR weights (which drive the whole
+  ongoing pipeline through the fixed 5-year ladder) set so rookies enter
+  ~75% at 22-23. Known structural limit: almost no ≤21 rookies (real
+  13.7%) until a 3-4-year college path exists.
+
+---
+
 ## [0.133.0] — 2026-06-10
 
 ### Added

@@ -123,7 +123,9 @@ interface EnginePlayer {
   position: string;
   positionGroup: string;
   teamId: string | null;
+  birthDate: string;
   careerAwards: readonly { kind: string; seasonNumber: number }[];
+  careerStats: readonly AgingCareerSeason[];
   current: Record<string, number>;
   ceiling: Record<string, number>;
 }
@@ -596,6 +598,86 @@ export async function simulateDraftedCareers(
   const all: DraftedCareer[] = [];
   for (const seed of seeds) all.push(...simulateOneLeague(eng, seed, years));
   return all;
+}
+
+// ── The Actuary (A2): simulated career series for the aging probe ─────────
+
+/** One engine season stat line (subset of CareerSeasonStats the probe reads). */
+export interface AgingCareerSeason {
+  seasonNumber: number;
+  gamesPlayed: number;
+  passAttempts: number;
+  passingYards: number;
+  passingTds: number;
+  interceptionsThrown: number;
+  rushingAttempts: number;
+  rushingYards: number;
+  rushingTds: number;
+  targets: number;
+  receptions: number;
+  receivingYards: number;
+  receivingTds: number;
+  tackles: number;
+  sacks: number;
+  interceptions: number;
+}
+
+export interface AgingCareer {
+  position: string;
+  birthYear: number;
+  seasons: readonly AgingCareerSeason[];
+}
+
+export interface AgingSimResult {
+  careers: AgingCareer[];
+  /** Age (in the season they'll first play) of every in-sim drafted rookie. */
+  entryAges: number[];
+  /** Seasons simulated (career seasonNumbers run 1..seasons). */
+  seasons: number;
+}
+
+/**
+ * Forward-sim `years` seasons and capture every player's per-season stat
+ * series + birth year — the Actuary's A2 probe recomputes the same
+ * YoY-production-by-age table it builds from real NFL data on this surface.
+ * Players are upserted after every advance so retirees/washouts keep their
+ * career series (no survivor bias from end-state-only snapshots).
+ */
+export async function simulateAgingCareers(seed: string, years: number): Promise<AgingSimResult> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed });
+  const careers = new Map<string, { position: string; birthYear: number; seasons: readonly AgingCareerSeason[] }>();
+  const entryAges: number[] = [];
+  const seen = new Set<string>(Object.keys(league.players));
+
+  for (let y = 0; y < years; y++) {
+    league = eng.simulateSeason(league);
+    league = eng.advanceSeason(league);
+    for (const p of Object.values(league.players)) {
+      const rec = careers.get(p.id);
+      if (rec) {
+        careers.set(p.id, { ...rec, seasons: p.careerStats });
+      } else {
+        careers.set(p.id, {
+          position: p.position,
+          birthYear: Number(p.birthDate.slice(0, 4)),
+          seasons: p.careerStats,
+        });
+        // Newly-seen post-advance with no experience = drafted this offseason;
+        // their entry age is their age in the season they're about to play.
+        if (!seen.has(p.id) && p.experienceYears === 0) {
+          const simYear = 2026 + (league.seasonNumber - 1);
+          entryAges.push(simYear - Number(p.birthDate.slice(0, 4)));
+        }
+        seen.add(p.id);
+      }
+    }
+  }
+  return {
+    careers: [...careers.values()],
+    entryAges,
+    seasons: years,
+  };
 }
 
 // ── Skill Adjudicator (2c): league talent-grade + accolade audit ─────────

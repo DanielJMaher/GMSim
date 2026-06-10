@@ -68,6 +68,13 @@ const GATES: readonly Gate[] = [
     fullArgs: [],
     checks: 'media rank-spread gradient vs real NFLDraftBuzz spread',
   },
+  {
+    name: 'actuary',
+    entry: 'sim/actuary.js',
+    quickArgs: ['sim', '8'],
+    fullArgs: ['sim', '12', 'actuary-sim-1,actuary-sim-2'],
+    checks: 'per-position aging curves + entry ages vs the 2003-2024 real bar',
+  },
 ];
 
 /** Markers the agents print next to a metric that missed its target. */
