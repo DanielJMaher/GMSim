@@ -16,6 +16,37 @@ _Nothing yet._
 
 ---
 
+## [0.137.0] — 2026-06-10
+
+### Added
+
+- **Living Careers S5 — injury & usage wear (the thread's final slice).**
+  - **Injury proneness rises with age**: the per-game injury roll is scaled
+    by `injuryAgeMultiplier` — flat through 26, then +8.5%/yr, shifted by
+    current durability (which itself declines, so brittle veterans
+    compound). Actuary gate: sim injury-shortened risk rises ×1.67 from
+    ages 25-27 to 32-35 vs real ×1.46 ✓ (sim absolute volume runs below
+    real — a pre-existing injury-system level calibration, noted).
+  - **MAJOR injuries permanently scar** (`applyInjuryScar`, applied at
+    injury time in both the regular-season and playoff paths): durability
+    always takes a 2-5 point hit and each explosive trait coin-flips a
+    1-3 point step — the Gurley mechanism, and the injury road into
+    never-fulfilled careers. Deterministic per (player, tick).
+  - **RB touch odometer**: career touches (from `careerStats`) pull a
+    back's PHYSICAL decline 1-2 years earlier (≥1700 / ≥2600 touches) —
+    the data behind the RB cliff is mileage, not just birthdays.
+  - **Decline-aware retirement**: fringe/backup-tier vets gain a real
+    retirement hazard from 29 (+0.12, +0.3 from 32) — broken-down players
+    hang it up instead of riding the age table to 34. Observable effect:
+    33+ survivor pairs in the Actuary probe dropped ~40% because the
+    league stops employing cratered vets, like the real one.
+  - **Resurgences now require a trough**: a SECOND_PEAK window only arms
+    coming off a below-band season or an injury — the Warner arc rises
+    out of genuine adversity, and if the trough never comes, neither does
+    the second peak.
+
+---
+
 ## [0.136.0] — 2026-06-10
 
 ### Added

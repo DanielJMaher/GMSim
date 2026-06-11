@@ -4,6 +4,7 @@ import type { Player } from '../types/player.js';
 import type { TeamId } from '../types/ids.js';
 import type { Prng } from '../prng/index.js';
 import { simulateGame } from '../games/outcome.js';
+import { applyInjuryScar } from '../players/aging-curves.js';
 import { computeRecords, playoffSeeds } from './standings.js';
 import { Conference } from '../types/enums.js';
 import type { TeamRecord } from './standings.js';
@@ -254,8 +255,10 @@ function playMatchup(
     for (const inj of game.result.injuries) {
       const p = players[inj.playerId];
       if (!p) continue;
+      // S5: MAJOR injuries permanently scar the body (see applyInjuryScar).
+      const scarred = inj.severity === 'MAJOR' ? applyInjuryScar(p, occurredOnTick) : p;
       updates[inj.playerId] = {
-        ...p,
+        ...scarred,
         injury: {
           type: inj.type,
           severity: inj.severity,

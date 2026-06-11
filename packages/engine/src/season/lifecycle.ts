@@ -37,6 +37,7 @@ import type { Transaction } from '../types/transaction.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { computeRecords, divisionStandings } from './standings.js';
 import { advancePlayerDevelopment, computePerformanceMultipliers } from './development.js';
+import { applyInjuryScar } from '../players/aging-curves.js';
 import { processRetirements } from './retirement.js';
 import { seasonStatsForLeague } from './stats.js';
 import { seasonAwards, selectAccolades } from './awards.js';
@@ -463,8 +464,12 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
       for (const inj of played.result.injuries) {
         const p = playersDuringSeason[inj.playerId];
         if (!p) continue;
+        // S5: MAJOR injuries permanently scar the body (durability + a
+        // coin-flip step from each explosive trait) — applied at injury
+        // time, before the status flag.
+        const scarred = inj.severity === 'MAJOR' ? applyInjuryScar(p, currentTick) : p;
         updates[inj.playerId] = {
-          ...p,
+          ...scarred,
           injury: {
             type: inj.type,
             severity: inj.severity,

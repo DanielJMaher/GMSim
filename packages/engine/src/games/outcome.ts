@@ -12,6 +12,7 @@ import type { LeagueState } from '../types/league.js';
 import type { Prng } from '../prng/index.js';
 import { teamStrength, matchupFacets, applyAbilityBoosts, type MatchupFacets } from './strength.js';
 import { simulateGameWithDrives, type PlayerStatLine } from './drive-sim.js';
+import { injuryAgeMultiplier } from '../players/aging-curves.js';
 
 export interface SimulateGameOptions {
   homeTeam: TeamState;
@@ -329,7 +330,10 @@ function rollInjuries(
     for (const playerId of team.rosterIds) {
       const player = league.players[playerId];
       if (!player) continue;
-      const rate = perGameInjuryRate(player.position);
+      // S5: proneness rises with age + falls with durability (real bar:
+      // injury-shortened seasons run 17% mid-20s → 32% at 34).
+      const rate =
+        perGameInjuryRate(player.position) * injuryAgeMultiplier(player, league.seasonNumber);
       if (prng.next() < rate) {
         injuries.push(rollInjury(prng, playerId));
       }

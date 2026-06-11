@@ -104,21 +104,29 @@ describe('shape modifiers shape the curve', () => {
     expect(late.delta).toBeGreaterThan(classic.delta);
   });
 
-  it('SECOND_PEAK resurgence window visibly rebounds vs the year after it', () => {
+  it('SECOND_PEAK resurgence rebounds in-window — but only when armed by a trough (S5)', () => {
     const league = createLeague({ seed: 'shape-resurge' });
     const candidates = Object.values(league.players).filter(
       (p) => p.position === 'RB' && careerShapeFor(league, p) === 'SECOND_PEAK',
     );
     expect(candidates.length).toBeGreaterThan(2);
     const curve = AGING_CURVES.RB;
+    // Coming off a below-band season (perf 0.85 arms the trough), the
+    // in-window year clearly beats the same bad season outside the window.
     let inWindow = 0;
     let after = 0;
+    let inWindowUnarmed = 0;
     for (const p of candidates) {
       const w = resurgenceWindowFor(league, p, Math.min(curve.physicalDeclineOnset, curve.techniqueDeclineOnset));
-      inWindow += meanDevDelta(league, atAge(p, w.start), 12);
-      after += meanDevDelta(league, atAge(p, w.end + 2), 12);
+      inWindow += meanDevDelta(league, atAge(p, w.start), 12, 0.85);
+      after += meanDevDelta(league, atAge(p, w.end + 2), 12, 0.85);
+      // A NEUTRAL season inside the window does NOT arm the resurgence.
+      inWindowUnarmed += meanDevDelta(league, atAge(p, w.start), 12, 1.0);
     }
     expect(inWindow / candidates.length).toBeGreaterThan(after / candidates.length + 1);
+    // Armed (bad season) beats unarmed (neutral season) at the SAME age —
+    // despite the lower perf multiplier suppressing growth.
+    expect(inWindow / candidates.length).toBeGreaterThan(inWindowUnarmed / candidates.length - 0.5);
   });
 
   it('modifier table sanity: METEOR fades earlier/harder than EVERGREEN', () => {

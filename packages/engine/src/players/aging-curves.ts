@@ -364,3 +364,37 @@ export function cliffHazard(curve: PositionAgingCurve, age: number): number {
     curve.cliffHazardBase + curve.cliffHazardPerYear * (age - curve.cliffOnset),
   );
 }
+
+/**
+ * Injury proneness rises with age (Living Careers S5). Real bar (Actuary
+ * baselines): P(next season injury-shortened, ≤8 games) runs ~17% through
+ * the mid-20s, 20.8% at 28, 22% at 31, 31.6% at 34 — roughly a 1.8× rise.
+ * Scales the per-game injury roll: flat through 26, then +8.5%/yr, shifted
+ * by current durability (which itself declines with age, so brittle old
+ * players compound — as they should).
+ */
+export function injuryAgeMultiplier(player: Player, seasonNumber: number): number {
+  const age = 2026 + (seasonNumber - 1) - Number(player.birthDate.slice(0, 4));
+  const ageFactor = age <= 26 ? 1.0 : 1.0 + (Math.min(age, 36) - 26) * 0.085;
+  const durabilityFactor = 1 + (55 - player.current.durability) * 0.006;
+  return Math.max(0.6, ageFactor * durabilityFactor);
+}
+
+/**
+ * A MAJOR injury leaves permanent hidden damage (Living Careers S5) — the
+ * Gurley mechanism, and the injury path into never-fulfilled careers:
+ * durability always takes a hit, and each explosive trait has a coin-flip
+ * chance of losing a step. Deterministic from (player id, tick) so the same
+ * injury always scars the same way. Ratings never come back; ceilings are
+ * untouched (physical growth ended at 22 anyway).
+ */
+export function applyInjuryScar(player: Player, occurredOnTick: number): Player {
+  const prng = new Prng(`${player.id}:scar:${occurredOnTick}`);
+  const current = { ...player.current };
+  const hit = (v: number, amount: number): number => Math.max(1, Math.round(v - amount));
+  current.durability = hit(current.durability, prng.nextRange(2, 6));
+  for (const key of ['speed', 'acceleration', 'agility'] as const) {
+    if (prng.next() < 0.5) current[key] = hit(current[key], prng.nextRange(1, 4));
+  }
+  return { ...player, current };
+}

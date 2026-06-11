@@ -1,5 +1,6 @@
 import type { Prng } from '../prng/index.js';
 import type { LeagueState } from '../types/league.js';
+import type { Player } from '../types/player.js';
 import type { PlayerId, ContractId } from '../types/ids.js';
 import { ageOfPlayer } from './development.js';
 
@@ -36,6 +37,27 @@ export function retirementProbabilityForAge(age: number): number {
 
 export function rollRetirement(prng: Prng, age: number): boolean {
   const p = retirementProbabilityForAge(age);
+  if (p <= 0) return false;
+  if (p >= 1) return true;
+  return prng.next() < p;
+}
+
+/**
+ * Decline-aware retirement probability (Living Careers S5). The age table
+ * alone meant a cratered 31-year-old played until 34 no matter how far his
+ * body had gone — real broken-down vets hang it up when the league tells
+ * them they're done. Fringe/backup-tier vets get an added hazard from 29.
+ */
+export function retirementProbability(age: number, player: Player): number {
+  let p = retirementProbabilityForAge(age);
+  if (age >= 29 && (player.tier === 'FRINGE' || player.tier === 'BACKUP')) {
+    p += age >= 32 ? 0.3 : 0.12;
+  }
+  return Math.min(1, p);
+}
+
+export function rollRetirementFor(prng: Prng, age: number, player: Player): boolean {
+  const p = retirementProbability(age, player);
   if (p <= 0) return false;
   if (p >= 1) return true;
   return prng.next() < p;
@@ -140,9 +162,11 @@ export function processRetirements(
     for (const playerId of team.rosterIds) {
       const player = league.players[playerId]!;
       // Use the upcoming season's age (player will be one year older
-      // post-advance), so a 33→34 transition retires correctly.
+      // post-advance), so a 33→34 transition retires correctly. S5:
+      // decline-aware — broken-down vets exit before the age table alone
+      // would let them.
       const ageNext = ageOfPlayer(player, nextSeasonNumber);
-      const retires = rollRetirement(teamPrng.fork(`retire:${playerId}`), ageNext);
+      const retires = rollRetirementFor(teamPrng.fork(`retire:${playerId}`), ageNext, player);
 
       if (retires) {
         retiredPlayerIds.push(playerId);
@@ -169,7 +193,7 @@ export function processRetirements(
     const ageNext = ageOfPlayer(player, nextSeasonNumber);
     const isFreeAgent = player.teamId === null;
     const retires =
-      rollRetirement(offRosterPrng.fork(`retire:${player.id}`), ageNext) ||
+      rollRetirementFor(offRosterPrng.fork(`retire:${player.id}`), ageNext, player) ||
       rollWashout(
         offRosterPrng.fork(`washout:${player.id}`),
         // The fine-grained 8-tier grade — the coarse `tier` hid sub-starter

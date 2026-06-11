@@ -802,6 +802,55 @@ async function simProbe(
     console.log(`33+ cliff: thin sim sample (n=${cliffRatios.length}) — n/a`);
   }
 
+  // Drift check 6 (S5): injury proneness must RISE with age. Mirrors the
+  // real method — P(next season played but injury-shortened | qualified) —
+  // pooled into a mid-20s band vs a 30s band. Real bar: ~17% → ~28-32%
+  // (rise ratio ~1.55); the sim must show a clear rise (>= 1.2).
+  let youngD = 0;
+  let youngN = 0;
+  let oldD = 0;
+  let oldN = 0;
+  for (const career of sim.careers) {
+    const pos = mapEnginePos(career.position);
+    if (!pos) continue;
+    const bySeason = new Map(career.seasons.map((s) => [s.seasonNumber, s] as const));
+    for (const s of career.seasons) {
+      const cur = simSeasonEntry(pos, career.birthYear, s);
+      if (!cur.qual) continue;
+      const nxt = bySeason.get(s.seasonNumber + 1);
+      if (!nxt) continue;
+      if (cur.age >= 25 && cur.age <= 27) {
+        youngD++;
+        if (nxt.gamesPlayed <= MIN_GAMES) youngN++;
+      } else if (cur.age >= 32 && cur.age <= 35) {
+        oldD++;
+        if (nxt.gamesPlayed <= MIN_GAMES) oldN++;
+      }
+    }
+  }
+  if (youngD >= 50 && oldD >= 50) {
+    const youngRate = youngN / youngD;
+    const oldRate = oldN / oldD;
+    const rise = youngRate > 0 ? oldRate / youngRate : 0;
+    const realYoung =
+      ((baselines.injuryShortenedByAge['25']?.rate ?? 0.17) +
+        (baselines.injuryShortenedByAge['26']?.rate ?? 0.17) +
+        (baselines.injuryShortenedByAge['27']?.rate ?? 0.17)) /
+      3;
+    const realOld =
+      ((baselines.injuryShortenedByAge['32']?.rate ?? 0.2) +
+        (baselines.injuryShortenedByAge['33']?.rate ?? 0.24) +
+        (baselines.injuryShortenedByAge['34']?.rate ?? 0.32)) /
+      3;
+    const ok = rise >= 1.2;
+    console.log(
+      `injury-shortened next season: sim 25-27 ${(youngRate * 100).toFixed(1)}% vs 32-35 ${(oldRate * 100).toFixed(1)}% (rise ×${rise.toFixed(2)}; real ${(realYoung * 100).toFixed(0)}%→${(realOld * 100).toFixed(0)}%, ×${(realOld / realYoung).toFixed(2)}) ${ok ? '(ok)' : '<-- DRIFT (proneness flat with age)'}`,
+    );
+    if (!ok) flags.push('injury proneness');
+  } else {
+    console.log(`injury-shortened: thin sim sample (young n=${youngD}, old n=${oldD}) — n/a`);
+  }
+
   // Drift check 5: draft-entry ages.
   if (sim.entryAges.length > 0) {
     const n = sim.entryAges.length;

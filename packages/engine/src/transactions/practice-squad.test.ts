@@ -70,10 +70,12 @@ describe('practice squad — offseason lifecycle', () => {
     // pool (UDFAs + young fringe FAs + re-signed PS guys — Living Careers
     // S2; before, ALL 512 slots/yr were invented 21-22-year-olds). Year 1
     // is the worst case (no UDFA inflow yet, refillRosters absorbs part of
-    // the bootstrap supply), so allow up to 40% emergency fill here; the
-    // Actuary's entry-age gate polices the aggregate. Emergency fill is
-    // generated at DEVELOPING age (23-24, experience >= 1), so it never
-    // masquerades as a draft-class rookie.
+    // the bootstrap supply — and S5's decline-aware retirement opens more
+    // roster holes for refillRosters to fill first), so allow up to 50%
+    // emergency fill here; the Actuary's entry-age gate polices the
+    // aggregate (green: 74.7% of entrants at 22-23 vs real 75.4%).
+    // Emergency fill is generated at DEVELOPING age (23-24, experience
+    // >= 1), so it never masquerades as a draft-class rookie.
     let invented = 0;
     let total = 0;
     for (const team of Object.values(league.teams)) {
@@ -89,7 +91,7 @@ describe('practice squad — offseason lifecycle', () => {
         }
       }
     }
-    expect(invented / total).toBeLessThan(0.4);
+    expect(invented / total).toBeLessThan(0.5);
   });
 
   it('PS lifecycle stays stable across multiple seasons', () => {

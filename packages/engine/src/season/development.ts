@@ -51,7 +51,10 @@ export function advancePlayerDevelopment(
 
   // The hidden career shape (S3) bends the position curve per player —
   // METEORs fade early and hard, EVERGREENs barely age, SECOND_PEAKs get a
-  // seed-rolled 2-year resurgence window in the early-decline years.
+  // 2-year resurgence window in the early-decline years. S5: the window
+  // only ARMS off a real trough — a below-band season or an injury — so the
+  // Warner/Ricky arc rises out of genuine adversity. If the trough never
+  // comes during the window, the second peak never comes either.
   const shape = careerShapeFor(league, player);
   const mods = SHAPE_MODIFIERS[shape];
   let inResurgence = false;
@@ -59,7 +62,17 @@ export function advancePlayerDevelopment(
     const firstOnset =
       Math.min(curve.physicalDeclineOnset, curve.techniqueDeclineOnset) + mods.declineOnsetShift;
     const w = resurgenceWindowFor(league, player, firstOnset);
-    inResurgence = ageNext >= w.start && ageNext <= w.end;
+    const troughArmed = performanceMultiplier <= 0.92 || player.injury !== null;
+    inResurgence = troughArmed && ageNext >= w.start && ageNext <= w.end;
+  }
+
+  // S5: usage wear — career touches pull a back's PHYSICAL decline earlier
+  // (the data behind the RB cliff is odometer, not just birthdays).
+  let wearShift = 0;
+  if (curve.bucket === 'RB') {
+    let touches = 0;
+    for (const s of player.careerStats) touches += s.rushingAttempts + s.receptions;
+    wearShift = touches >= 2600 ? 2 : touches >= 1700 ? 1 : 0;
   }
 
   const { newCurrent, newCeiling } = applyDevelopment(
@@ -69,6 +82,7 @@ export function advancePlayerDevelopment(
     curve,
     mods,
     inResurgence,
+    wearShift,
     declineMult,
     performanceMultiplier,
   );
@@ -111,6 +125,7 @@ function applyDevelopment(
   curve: PositionAgingCurve,
   mods: ShapeModifiers,
   inResurgence: boolean,
+  wearShift: number,
   declineMult: number,
   performanceMultiplier: number,
 ): { newCurrent: PlayerSkills; newCeiling: PlayerSkills } {
@@ -186,7 +201,9 @@ function applyDevelopment(
     // (an onset shift of +3 delays both the start and the ramp progression),
     // nearly suppressed during a resurgence window. S4: bad seasons age a
     // post-peak player faster; strong late seasons slow the fade (bounded).
-    let decline = declineFor(curve, cat, age - mods.declineOnsetShift) * declineMult * mods.declineRateMult;
+    // S5: usage wear ages the BODY only (wearShift on physical keys).
+    const effAge = (cat === 'physical' ? age + wearShift : age) - mods.declineOnsetShift;
+    let decline = declineFor(curve, cat, effAge) * declineMult * mods.declineRateMult;
     if (age >= effGrowthEnd) {
       if (performanceMultiplier <= 0.85) decline *= 1.35;
       else if (performanceMultiplier <= 0.92) decline *= 1.2;
