@@ -828,12 +828,16 @@ async function simProbe(
       : `\nACTUARY A2: ${flags.length} drift flag(s): ${flags.join(', ')}`,
   );
   console.log(
-    '\nKNOWN RESIDUALS (S4 role-stickiness territory — expected until then):\n' +
-      '  - TE/S/CB production lags rating decline (TE1 target monopoly; tackle/INT\n' +
-      '    stats are weakly rating-coupled), so their peaks/regions read late/flat.\n' +
-      '  - QB decline cells read mildly positive while the plateau check passes.\n' +
-      '  - 33+ cliff reads ~-4 vs real -20..-32: the rational depth chart benches\n' +
-      '    cliffed vets out of the qualifying sample; real teams keep playing them.',
+    '\nKNOWN RESIDUALS (post-S4; ~5-8 flags expected, run-to-run threshold noise):\n' +
+      '  - S4 (residual perf signal + decline modulation) moved pooled decline\n' +
+      '    regions from +1..+6%/yr to roughly -3..+2; RB/WR/EDGE/CB clear the bar\n' +
+      '    in most runs, TE/S/LB/IDL/QB hover at 0..+2 vs real -3..-15.\n' +
+      '  - Root cause of the remaining gap: the drive sim has NO usage-vs-\n' +
+      '    efficiency split — usage share IS production share, so a fading\n' +
+      "    starter's per-game line cannot sag while he keeps the role. The fix\n" +
+      '    is a per-snap efficiency channel (future slice), NOT more aging knobs\n' +
+      '    (measured: steepening/stickiness in usage weights made this WORSE).\n' +
+      '  - Same mechanism keeps the 33+ cliff reading ~-4 vs real -20..-32.',
   );
 }
 

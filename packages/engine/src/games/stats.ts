@@ -5,6 +5,7 @@ import type { ScheduledGame, TeamGameStats } from '../types/game.js';
 import { type PlayerGameStats, emptyPlayerGameStats } from '../types/stats.js';
 import { Position, PositionGroup } from '../types/enums.js';
 import { getArchetypeById } from '../archetypes/index.js';
+import { roleStickinessBonus } from '../players/depth-chart.js';
 
 /**
  * Rank-weighted shares for spreading small per-game defensive turnover
@@ -160,12 +161,13 @@ function attributeOffense(
     .sort(byTierThenSkill);
   if (rbs.length > 0 && teamStats.rushingYards > 0) {
     const totalCarries = Math.max(1, Math.round(teamStats.rushingYards / 4.3));
-    const shares =
+    const ladder: number[] =
       rbs.length === 1
         ? [1]
         : rbs.length === 2
           ? [0.7, 0.3]
-          : [0.62, 0.25, 0.13, ...Array(rbs.length - 3).fill(0)];
+          : [0.62, 0.25, 0.13, ...(Array(rbs.length - 3).fill(0) as number[])];
+    const shares = skillAdjustedShares(rbs, ladder);
     splitInt(rbs, shares, totalCarries, (p, n) => (getOrInit(lines, p.id).rushingAttempts += n));
     splitInt(rbs, shares, teamStats.rushingYards, (p, n) => (getOrInit(lines, p.id).rushingYards += n));
     splitInt(rbs, shares, totalRushTds, (p, n) => (getOrInit(lines, p.id).rushingTds += n));
@@ -181,14 +183,17 @@ function attributeOffense(
         p.position === Position.TE ||
         p.position === Position.RB,
     )
-    .map((p) => ({ player: p, weight: receivingWeight(p) * keySkillAvg(p) }))
+    .map((p) => ({
+      player: p,
+      weight: receivingWeight(p) * (keySkillAvg(p) + roleStickinessBonus(p)),
+    }))
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 7) // top 7 get 95%+ of targets
     .map((x) => x.player);
   if (receivers.length > 0) {
     const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7.6));
     const totalCompletions = Math.round(totalAttempts * compRate);
-    const shares = recvSharesFor(receivers.length);
+    const shares = skillAdjustedShares(receivers, recvSharesFor(receivers.length));
     splitInt(receivers, shares, totalAttempts, (p, n) => (getOrInit(lines, p.id).targets += n));
     splitInt(receivers, shares, totalCompletions, (p, n) => (getOrInit(lines, p.id).receptions += n));
     splitInt(receivers, shares, teamStats.passingYards, (p, n) => (getOrInit(lines, p.id).receivingYards += n));
@@ -268,6 +273,36 @@ function recvSharesFor(n: number): number[] {
 }
 
 /**
+ * Continuous production coupling (Living Careers S4). The fixed rank-share
+ * ladders made production ORDINAL: a declining WR1 kept the full WR1 share
+ * until his rank flipped, so per-player production never showed gradual
+ * decline (the Actuary's pooled decline regions read ~0%/yr vs real ~-8).
+ * Blend each rank's ladder share with the player's actual rating relative
+ * to the best rating in the group — equal ratings reproduce the ladder
+ * exactly; a fading vet's share shrinks every year even while he holds the
+ * job, and a rising backup eats share before he takes it. Renormalized, so
+ * team totals are untouched.
+ */
+export function skillAdjustedShares(ranked: readonly Player[], ladder: readonly number[]): number[] {
+  const n = Math.min(ranked.length, ladder.length);
+  let top = 1;
+  for (let i = 0; i < n; i++) top = Math.max(top, keySkillAvg(ranked[i]!));
+  const raw: number[] = [];
+  let rawSum = 0;
+  let ladderSum = 0;
+  for (let i = 0; i < ladder.length; i++) {
+    const share = ladder[i]!;
+    ladderSum += share;
+    const p = ranked[i];
+    const adjusted = p && share > 0 ? share * Math.pow(keySkillAvg(p) / top, 2.0) : share;
+    raw.push(adjusted);
+    rawSum += adjusted;
+  }
+  if (rawSum <= 0) return [...ladder];
+  return raw.map((v) => (v * ladderSum) / rawSum);
+}
+
+/**
  * Per-QB completion rate (v0.98, overhaul Stage 5 sub-slice C). NFL avg is
  * ~64%; an accurate, decisive QB completes a higher share of the same
  * volume (Brady/Brees territory) while an erratic one dips. Driven by the
@@ -337,12 +372,15 @@ function attributeDefense(
     const interiorRanked = players
       .filter((p) => p.position === Position.DT || p.position === Position.NT)
       .sort(byTierThenSkill);
+    const edgeSlots = coupledSlots(edgesRanked, SACK_PICK_SLOTS);
+    const interiorSlots = coupledSlots(interiorRanked, SACK_PICK_SLOTS);
     for (let i = 0; i < totalSacks; i++) {
       const seed = `${gameId}:sack:${team.identity.abbreviation}:${i}`;
       const preferEdge = hashUnit(`${seed}:grp`) < 0.6;
       const primary = preferEdge ? edgesRanked : interiorRanked;
       const pool = primary.length > 0 ? primary : preferEdge ? interiorRanked : edgesRanked;
-      const pick = pickByRankWeight(pool, SACK_PICK_SLOTS, seed);
+      const slots = pool === edgesRanked ? edgeSlots : interiorSlots;
+      const pick = pickByRankWeight(pool, slots, seed);
       if (pick) getOrInit(lines, pick.id).sacks += 1;
     }
   }
@@ -364,16 +402,34 @@ function attributeDefense(
   if (totalInts > 0) {
     const dbsRanked = [...dbs].sort(byTierThenSkill);
     const lbsRanked = [...lbs].sort(byTierThenSkill);
+    const dbSlots = coupledSlots(dbsRanked, DEF_TURNOVER_SLOTS);
+    const lbSlots = coupledSlots(lbsRanked, DEF_TURNOVER_SLOTS);
     for (let i = 0; i < totalInts; i++) {
       const seed = `${gameId}:dint:${team.identity.abbreviation}:${i}`;
       // ~80% of picks go to a DB, ~20% to a LB (fall back if a group is empty).
       const preferDb = hashUnit(`${seed}:grp`) < 0.8;
       const primary = preferDb ? dbsRanked : lbsRanked;
       const pool = primary.length > 0 ? primary : preferDb ? lbsRanked : dbsRanked;
-      const pick = pickByRankWeight(pool, DEF_TURNOVER_SLOTS, seed);
+      const pick = pickByRankWeight(pool, pool === dbsRanked ? dbSlots : lbSlots, seed);
       if (pick) getOrInit(lines, pick.id).interceptions += 1;
     }
   }
+}
+
+/**
+ * Rating-coupled slot weights for the rank-weighted defensive draws (S4):
+ * the fixed slot ladders made sack/INT shares ordinal — a fading rusher
+ * kept his rank-0 draw odds until passed. Scaling each slot by the
+ * occupant's rating relative to the group's best makes event odds track
+ * the rating continuously, same as the offensive share coupling.
+ */
+function coupledSlots(ranked: readonly Player[], slots: readonly number[]): number[] {
+  const n = Math.min(ranked.length, slots.length);
+  let top = 1;
+  for (let i = 0; i < n; i++) top = Math.max(top, keySkillAvg(ranked[i]!));
+  return slots.map((w, i) =>
+    ranked[i] ? w * Math.pow(keySkillAvg(ranked[i]!) / top, 2.0) : w,
+  );
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -381,7 +437,10 @@ function attributeDefense(
 function byTierThenSkill(a: Player, b: Player): number {
   const t = tierRank(b) - tierRank(a);
   if (t !== 0) return t;
-  return keySkillAvg(b) - keySkillAvg(a);
+  // Role stickiness (S4): incumbent vets hold rank until clearly passed.
+  return (
+    keySkillAvg(b) + roleStickinessBonus(b) - (keySkillAvg(a) + roleStickinessBonus(a))
+  );
 }
 
 function tierRank(p: Player): number {

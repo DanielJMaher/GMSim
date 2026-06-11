@@ -46,6 +46,17 @@ async function reportGenerated(seedCount: number, years: number): Promise<void> 
   seedSpread('R1 Pro Bowl%', seeds, (s) =>
     pct(genMature.filter((c) => c.seed === s && c.round === 1), (c) => c.proBowls >= 1),
   );
+  // Censoring check (S4 instrumentation): the headline R1 PB% includes
+  // careers cut off at 6-11 visible seasons AND early sim years where the
+  // initial population still holds most ELITE slots. Restricting to the
+  // earliest cohorts (>= 9 visible seasons) separates "not enough runway"
+  // from "drafted players never reach the top".
+  const deepR1 = careers.filter((c) => c.round === 1 && c.draftedYear <= years - 9);
+  if (deepR1.length > 0) {
+    console.log(
+      `  [censoring] R1 PB% with >=9 visible seasons: ${pct(deepR1, (c) => c.proBowls >= 1).toFixed(1)}%  (n=${deepR1.length}; real mature R1 = ~43%)`,
+    );
+  }
 
   const realPB = (r: number): number =>
     pct(realMature.filter((p) => p.round === r && p.career), (p) => (p.career!.probowls ?? 0) >= 1);

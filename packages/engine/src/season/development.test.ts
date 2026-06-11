@@ -73,18 +73,45 @@ describe('computePerformanceMultipliers', () => {
     }
   });
 
-  it('below-half-median player gets the 0.95 multiplier', () => {
+  it('collapse-season player gets the 0.85 multiplier (S4 extended range)', () => {
     const league = createLeague({ seed: 'perf-mult-poor' });
     const wrs = Object.values(league.players).filter((p) => p.position === Position.WR);
     const stats = new Map<ReturnType<typeof PlayerId>, PlayerSeasonStats>();
-    // Five solid WRs and one struggler (well below half-median).
+    // Five solid WRs and one struggler (far below the band).
     for (let i = 0; i < 5; i++) {
       stats.set(wrs[i]!.id, statsFor(wrs[i]!.id, { receivingYards: 800, receivingTds: 5 }));
     }
     const strugglerId = wrs[5]!.id;
     stats.set(strugglerId, statsFor(strugglerId, { receivingYards: 100, receivingTds: 0 }));
     const multipliers = computePerformanceMultipliers(league, stats);
-    expect(multipliers.get(strugglerId)).toBe(0.95);
+    expect(multipliers.get(strugglerId)).toBe(0.85);
+  });
+
+  it('S4 residual: expectation is set by same-rating peers, not the whole group', () => {
+    // At league scale (hundreds of SKILL players with stats), a low-rated
+    // player producing modestly should be judged against his own band —
+    // give every SKILL player a stat line proportional to rating, then one
+    // bottom-band player a line 2x his band's: he reads as a breakout even
+    // though he's below the GROUP median.
+    const league = createLeague({ seed: 'perf-band' });
+    const skills = Object.values(league.players)
+      .filter((p) => p.positionGroup === PositionGroup.SKILL && p.teamId !== null)
+      .sort(
+        (a, b) =>
+          a.current.technicalSkill - b.current.technicalSkill || String(a.id).localeCompare(String(b.id)),
+      );
+    const stats = new Map<ReturnType<typeof PlayerId>, PlayerSeasonStats>();
+    for (const p of skills) {
+      stats.set(p.id, statsFor(p.id, { receivingYards: 200 + p.current.technicalSkill * 8 }));
+    }
+    // One bottom-band player doubles his expected production.
+    const sleeper = skills[5]!;
+    stats.set(
+      sleeper.id,
+      statsFor(sleeper.id, { receivingYards: (200 + sleeper.current.technicalSkill * 8) * 2.2 }),
+    );
+    const multipliers = computePerformanceMultipliers(league, stats);
+    expect(multipliers.get(sleeper.id)!).toBeGreaterThanOrEqual(1.12);
   });
 
   it('OL and ST players are not in the multiplier map (will fall back to neutral 1.0)', () => {
@@ -169,6 +196,43 @@ describe('advancePlayerDevelopment — performance multiplier', () => {
     const a = advancePlayerDevelopment(new Prng('x'), subject, league);
     const b = advancePlayerDevelopment(new Prng('x'), subject, league, 1.0);
     expect(a.current).toEqual(b.current);
+  });
+
+  it('S4: a collapse season accelerates a post-peak player\'s decline', () => {
+    const league = createLeague({ seed: 'dev-decline-mod' });
+    const rb = Object.values(league.players).find((p) => p.position === Position.RB)!;
+    const old: Player = { ...rb, birthDate: '1997-05-15' }; // ageNext 30
+    const sumKeys = (pl: Player) => {
+      let t = 0;
+      for (const k of ['speed', 'acceleration', 'agility', 'elusiveness'] as const) t += pl.current[k];
+      return t;
+    };
+    let badTotal = 0;
+    let goodTotal = 0;
+    for (let i = 0; i < 25; i++) {
+      badTotal += sumKeys(advancePlayerDevelopment(new Prng(`dm-${i}`), old, league, 0.85));
+      goodTotal += sumKeys(advancePlayerDevelopment(new Prng(`dm-${i}`), old, league, 1.12));
+    }
+    expect(badTotal).toBeLessThan(goodTotal);
+  });
+
+  it('S4: ADVERSITY_DRIVEN young players grow MORE after a bad season than peers do', () => {
+    const league = createLeague({ seed: 'dev-adversity' });
+    const base = Object.values(league.players).find(
+      (p) => p.position === Position.WR && p.ceiling.technicalSkill - p.current.technicalSkill > 8,
+    )!;
+    const young = { ...base, birthDate: '2004-05-15' }; // ageNext 23
+    const adversity: Player = { ...young, developmentArchetype: 'ADVERSITY_DRIVEN' };
+    const steady: Player = { ...young, developmentArchetype: 'SLOW_STEADY' };
+    let advTotal = 0;
+    let steadyTotal = 0;
+    for (let i = 0; i < 25; i++) {
+      advTotal += advancePlayerDevelopment(new Prng(`adv-${i}`), adversity, league, 0.92).current
+        .technicalSkill;
+      steadyTotal += advancePlayerDevelopment(new Prng(`adv-${i}`), steady, league, 0.92).current
+        .technicalSkill;
+    }
+    expect(advTotal).toBeGreaterThan(steadyTotal);
   });
 });
 

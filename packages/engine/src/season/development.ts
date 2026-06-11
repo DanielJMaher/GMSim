@@ -7,6 +7,7 @@ import type { PlayerId } from '../types/ids.js';
 import { PositionGroup } from '../types/enums.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { ALL_SKILL_KEYS, categoryFor } from '../players/skill-keys.js';
+import { keySkillAverage } from '../archetypes/key-skill.js';
 import {
   curveForPosition,
   declineMultiplierFor,
@@ -169,14 +170,28 @@ function applyDevelopment(
         rate *= mods.growthMult;
         if (inResurgence) rate = Math.max(rate, 0.12);
         rate *= performanceMultiplier;
+        // S4: the residual signal finally feeds the perf-reactive archetypes.
+        // ADVERSITY_DRIVEN players answer a bad year with a growth spurt;
+        // CONFIDENCE_DEPENDENT players amplify whichever way the season went.
+        if (player.developmentArchetype === 'ADVERSITY_DRIVEN' && performanceMultiplier <= 0.95) {
+          rate *= 1.35;
+        } else if (player.developmentArchetype === 'CONFIDENCE_DEPENDENT') {
+          rate *= Math.pow(performanceMultiplier, 0.6);
+        }
       }
       next += gap * rate + prng.normal(0, 0.5);
     }
 
     // Position- and category-specific aging decline, shifted/scaled by shape
     // (an onset shift of +3 delays both the start and the ramp progression),
-    // nearly suppressed during a resurgence window.
+    // nearly suppressed during a resurgence window. S4: bad seasons age a
+    // post-peak player faster; strong late seasons slow the fade (bounded).
     let decline = declineFor(curve, cat, age - mods.declineOnsetShift) * declineMult * mods.declineRateMult;
+    if (age >= effGrowthEnd) {
+      if (performanceMultiplier <= 0.85) decline *= 1.35;
+      else if (performanceMultiplier <= 0.92) decline *= 1.2;
+      else if (performanceMultiplier >= 1.12) decline *= 0.85;
+    }
     if (inResurgence) decline *= 0.35;
     if (decline > 0) {
       next -= prng.normal(decline, decline * 0.3, { min: 0, max: decline * 2.5 });
@@ -242,8 +257,8 @@ function growthRate(
       break;
     case 'ADVERSITY_DRIVEN':
     case 'CONFIDENCE_DEPENDENT':
-      // S4 placeholder — these archetypes get their data feed when the
-      // residual performance signal lands. Treat as average until then.
+      // Perf-reactive archetypes — handled in applyDevelopment where the
+      // season's performance multiplier is in scope (S4).
       break;
   }
 
@@ -309,59 +324,76 @@ function keySkillsForArchetype(archetypeId: string): readonly (keyof PlayerSkill
 // ─── Performance-driven growth multipliers ────────────────────────────
 
 /**
- * Compute a per-player development multiplier from their season stats.
- * Players who outperform the league median for their position group
- * grow faster (technical/mental skills only); below-median performers
- * grow slightly slower. Players with no stats (didn't play, OL, ST)
- * land on the neutral 1.0 multiplier — no penalty for unused players.
+ * Compute a per-player development multiplier from their season stats —
+ * v2 (Living Careers S4): the RESIDUAL signal. Expectation is set by
+ * SAME-RATING peers (rating quartiles within the position group), not the
+ * whole group's median — a star producing like a median star is neutral, so
+ * good players don't compound automatically (no rich-get-richer loop); a
+ * backup outproducing his band is a genuine breakout. Bands with fewer than
+ * four members fall back to the whole-group median.
  *
- * Multiplier mapping (relative score = playerScore / positionMedian):
- *   ≥ 1.5  → 1.30  (great season)
- *   ≥ 1.1  → 1.10  (above average)
- *   ≥ 0.5  → 1.00  (average / neutral)
- *   <  0.5 → 0.95  (below average; mild slow-down)
+ * Players with no stats (didn't play, OL, ST) land on the neutral 1.0
+ * multiplier — no penalty for unused players.
+ *
+ * Multiplier mapping (relative score = playerScore / bandMedian), hard caps:
+ *   ≥ 1.5  → 1.30  (breakout)
+ *   ≥ 1.15 → 1.12  (above band)
+ *   ≥ 0.55 → 1.00  (in band / neutral)
+ *   ≥ 0.30 → 0.92  (below band)
+ *   <  0.30 → 0.85 (collapse season)
+ *
+ * Consumed by `advancePlayerDevelopment`: scales tech/mental growth, feeds
+ * ADVERSITY_DRIVEN / CONFIDENCE_DEPENDENT, and modulates post-peak decline
+ * (bad years age you; good late years slow the fade).
  */
 export function computePerformanceMultipliers(
   league: LeagueState,
   seasonStats: ReadonlyMap<PlayerId, PlayerSeasonStats>,
 ): Map<PlayerId, number> {
-  // Collect scores per position group.
-  const scoresByGroup = new Map<PositionGroup, number[]>();
-  const playerScores = new Map<PlayerId, number>();
+  interface Entry {
+    playerId: PlayerId;
+    rating: number;
+    score: number;
+  }
+  const byGroup = new Map<PositionGroup, Entry[]>();
   for (const [playerId, stats] of seasonStats) {
     const player = league.players[playerId];
     if (!player) continue;
     const group = positionGroupFor(player.position);
     const score = scorePerformance(group, stats);
     if (score === null) continue;
-    playerScores.set(playerId, score);
-    const arr = scoresByGroup.get(group) ?? [];
-    arr.push(score);
-    scoresByGroup.set(group, arr);
+    const arr = byGroup.get(group) ?? [];
+    arr.push({ playerId, rating: keySkillAverage(player.current, player.archetype), score });
+    byGroup.set(group, arr);
   }
 
-  // Median per group.
-  const medianByGroup = new Map<PositionGroup, number>();
-  for (const [group, arr] of scoresByGroup) {
-    medianByGroup.set(group, median(arr));
-  }
-
+  const MIN_BAND = 4;
   const result = new Map<PlayerId, number>();
-  for (const [playerId, score] of playerScores) {
-    const player = league.players[playerId]!;
-    const group = positionGroupFor(player.position);
-    const groupMedian = medianByGroup.get(group);
-    if (!groupMedian || groupMedian <= 0) {
-      result.set(playerId, 1.0);
-      continue;
+  for (const [, entries] of byGroup) {
+    const groupMedian = median(entries.map((e) => e.score));
+    // Rating quartiles within the group — same-caliber peers.
+    const sorted = [...entries].sort((a, b) => a.rating - b.rating);
+    const bandSize = Math.ceil(sorted.length / 4);
+    for (let b = 0; b < 4; b++) {
+      const band = sorted.slice(b * bandSize, (b + 1) * bandSize);
+      if (band.length === 0) continue;
+      const expected =
+        band.length >= MIN_BAND ? median(band.map((e) => e.score)) : groupMedian;
+      for (const e of band) {
+        if (!expected || expected <= 0) {
+          result.set(e.playerId, 1.0);
+          continue;
+        }
+        const relative = e.score / expected;
+        let multiplier: number;
+        if (relative >= 1.5) multiplier = 1.3;
+        else if (relative >= 1.15) multiplier = 1.12;
+        else if (relative >= 0.55) multiplier = 1.0;
+        else if (relative >= 0.3) multiplier = 0.92;
+        else multiplier = 0.85;
+        result.set(e.playerId, multiplier);
+      }
     }
-    const relative = score / groupMedian;
-    let multiplier: number;
-    if (relative >= 1.5) multiplier = 1.3;
-    else if (relative >= 1.1) multiplier = 1.1;
-    else if (relative >= 0.5) multiplier = 1.0;
-    else multiplier = 0.95;
-    result.set(playerId, multiplier);
   }
   return result;
 }

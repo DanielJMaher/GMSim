@@ -10,6 +10,7 @@ import {
   depthRank,
   depthScore,
   isProjectedStarter,
+  roleStickinessBonus,
 } from './depth-chart.js';
 
 describe('depth chart (derived, slice 1)', () => {
@@ -36,12 +37,14 @@ describe('depth chart (derived, slice 1)', () => {
     expect(seen.size).toBe(league.teams[teamId]!.rosterIds.length);
   });
 
-  it('orders each position by the depth composite, best first', () => {
+  it('orders each position by the vet-adjusted composite, best first (S4 role stickiness)', () => {
     for (const slot of Object.values(chart.slots)) {
       for (let i = 1; i < slot.playerIds.length; i++) {
         const prev = league.players[slot.playerIds[i - 1]!]!;
         const cur = league.players[slot.playerIds[i]!]!;
-        expect(depthScore(prev)).toBeGreaterThanOrEqual(depthScore(cur));
+        expect(depthScore(prev) + roleStickinessBonus(prev)).toBeGreaterThanOrEqual(
+          depthScore(cur) + roleStickinessBonus(cur),
+        );
       }
     }
   });

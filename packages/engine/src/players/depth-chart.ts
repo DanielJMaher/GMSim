@@ -80,6 +80,20 @@ export function depthScore(player: Player): number {
 }
 
 /**
+ * Role stickiness (Living Careers S4): veterans hold their jobs until a
+ * challenger is CLEARLY better, not marginally better — real teams play the
+ * incumbent through a down year. Up to +4 composite points of incumbency
+ * (full at ~5 accrued seasons). Consumed by the depth-chart ordering and the
+ * game-sim stat attribution so a declining vet stays in the lineup an extra
+ * year or two and his decline is VISIBLE in production instead of him
+ * silently vanishing from the qualifying sample (the Actuary's
+ * production-coupling residual).
+ */
+export function roleStickinessBonus(player: Player): number {
+  return Math.min(4, player.experienceYears * 0.8);
+}
+
+/**
  * Compute one team's depth chart from its active roster. Pure and
  * deterministic: composite descending, player id ascending on ties.
  */
@@ -93,7 +107,9 @@ export function computeTeamDepthChart(league: LeagueState, teamId: TeamId): Team
   for (const playerId of team.rosterIds) {
     const player = league.players[playerId];
     if (!player) continue;
-    byPosition.get(player.position)?.push({ id: playerId, score: depthScore(player) });
+    byPosition
+      .get(player.position)
+      ?.push({ id: playerId, score: depthScore(player) + roleStickinessBonus(player) });
   }
 
   const slots = {} as Record<Position, DepthChartSlot>;

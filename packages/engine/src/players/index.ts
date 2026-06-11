@@ -52,6 +52,7 @@ export {
   depthScore,
   depthRank,
   isProjectedStarter,
+  roleStickinessBonus,
   type TeamDepthChart,
   type DepthChartSlot,
 } from './depth-chart.js';

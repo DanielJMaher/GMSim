@@ -233,6 +233,13 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
     .slice(0, 5);
 
   const covPos = new Set<Position>([Position.CB, Position.S, Position.NICKEL, Position.ILB, Position.OLB]);
+  // NOTE (Living Careers S4): no stickiness bonus or extra steepening in
+  // these weights — in the drive sim, usage share IS production share (no
+  // separate per-snap efficiency channel), so propping up a fading vet's
+  // weight cancels the decline the Actuary needs to see, and steepening
+  // measured WORSE on the pooled decline gate. The architectural fix for
+  // the remaining flat decline regions is a usage-vs-efficiency split — a
+  // future slice.
   const coverage: PRef[] = players
     .filter((p) => covPos.has(p.position))
     .map((p) => ({ id: p.id, weight: meanKeys(p, COV_KEYS) }))

@@ -16,6 +16,45 @@ _Nothing yet._
 
 ---
 
+## [0.136.0] — 2026-06-10
+
+### Added
+
+- **Living Careers S4 — the residual performance signal.**
+  `computePerformanceMultipliers` v2: a season is judged against
+  SAME-RATING peers (rating quartiles within the position group), not the
+  whole group's median — a star producing like a median star is neutral, so
+  good players don't compound automatically; a backup outproducing his band
+  is a real breakout. Range extended downward (0.92 below-band, 0.85
+  collapse). The signal now modulates POST-PEAK DECLINE too (bad years age
+  you ×1.2-1.35; strong late seasons slow the fade ×0.85, all bounded), and
+  finally feeds the perf-reactive development archetypes:
+  ADVERSITY_DRIVEN players answer a bad season with a growth spurt;
+  CONFIDENCE_DEPENDENT players amplify whichever way the season went —
+  the placeholder comment from Phase 2 is paid off.
+- **Role stickiness in the depth chart**: `roleStickinessBonus` (up to +4
+  composite at ~5 accrued seasons) — incumbent veterans hold chart spots
+  until a challenger is clearly better, consumed by the canonical depth
+  ordering (mood/needs/inspector) and the legacy topdown stat path.
+  Measured and deliberately NOT applied to the drive sim's usage weights:
+  usage share IS production share there, so propping up a fading vet's
+  weight cancels the decline the Actuary gate exists to detect.
+- **Actuary gate movement**: pooled decline-region medians improved from
+  +1..+5.7%/yr (S3) to roughly -3..+1 — RB (-3.0), EDGE (-4.2), WR and CB
+  clear the strict bar in most runs; bust gate stays near-exact (R1 4.5 vs
+  real 4.5). KNOWN RESIDUALS footer updated: the remaining flat regions and
+  the shallow 33+ cliff share one root cause — the drive sim has no
+  usage-vs-efficiency split, so a fading starter's per-game line can't sag
+  while he keeps the role. That split is the named future slice; more aging
+  knobs measurably make it worse.
+- **R1 Pro Bowl finding (instrumented)**: deep-cohort R1s (≥9 visible
+  seasons) reach a Pro Bowl at 12.1% vs the 10.3% headline — censoring is
+  NOT the explanation for the gap to real (~43%); in-sim draftees genuinely
+  contend at ~¼ the real rate against the initial population. Logged for
+  its own investigation.
+
+---
+
 ## [0.135.0] — 2026-06-10
 
 ### Added
