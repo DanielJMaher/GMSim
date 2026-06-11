@@ -195,10 +195,28 @@ gmSeat  += same input × 0.40                          // rule 1: ~2.5× slower
    - HC was **not** the GM's hire (inherited) → GM survives, ~95%.
    - HC was the GM's **first** hire fired → GM survives ~85%
      (`gmCoachFiringsSurvived` → 1).
-   - HC was the GM's **second+** hire fired → joint clean-house roll at
-     ~55–70% (scaled by gmSeat); survival demotes to lame-duck (gmSeat floor
-     raised so a mediocre next season finishes the job — the "within 12
-     months" pattern).
+   - HC was the GM's **second+** hire fired → **the GM goes.** Checked
+     against every such case we could find (2008–2026): when the second
+     own-hire failed with the GM in **years 4–7 of his tenure, zero GMs
+     survived it** — Gettleman (yr 4), Maccagnan (yr 4, fired weeks after
+     *hiring* #2), Baalke-JAX (yr 4), Baalke-SF (yr 6), Pace (yr 7) all went
+     same-day/same-cycle; McKenzie (yr 6) staggered ~10 months and was fired
+     in-season the next year. Keim (yr 10) and Dimitroff (yr 13) hit coach
+     #2's failure later and *still* died with him. The only two survivors in
+     the dataset sit **outside** the 4–7 band, and both are explained by the
+     seat-pressure inputs, not by a separate mercy roll:
+     - **Early-teardown hatch** (GM yr ≤3): Caserio survived *consecutive
+       one-and-done* firings in yrs 1–2 because expectedWins were at the
+       floor (BUILDING window) — gmSeat never accumulated.
+     - **Banked-credit hatch** (GM yr 8+): Telesco survived Lynn's firing in
+       yr 8 on a fresh 12-4 + playoff win — creditBank swallowed the hit
+       (then died jointly with coach #3).
+     Mechanically: second+-own-hire firing forces a joint fire at ~75%;
+     survivors become **lame ducks** (gmSeat floored near threshold) and are
+     fired within the next 12 months unless one of the two hatches applies
+     (low accumulated gmSeat or high creditBank). Net effect the Headhunter
+     gates on: survival of a 2nd-own-hire firing during GM years 4–7 ≈ 0
+     (≤5% of such events).
 3. **GM-only firing:** requires `gmSeat > threshold × 1.3` *without* an HC
    firing this cycle — the rare Robinson path. New GM then evaluates the
    inherited HC with elevated pressure next season (new-GM-wants-his-guy).
@@ -266,6 +284,7 @@ ecology against §2. Gate targets:
 | GM changes / season | 3.0 – 5.0 |
 | Joint clean-houses / season | 0.5 – 2.0 |
 | GM survives a given HC firing | 75 – 90% |
+| GM survives 2nd-own-hire firing while in GM yrs 4–7 | ≈0 (≤5% of such events) |
 | One-and-done HCs / season | ≤ 1.5 |
 | HC in-season firings / season (S2) | 1 – 3 |
 | Mean tenure of completed HC stints | 2.8 – 4.0 yrs |
