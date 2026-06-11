@@ -1,6 +1,6 @@
 {
   "name": "gmsim",
-  "version": "0.137.0",
+  "version": "0.137.1",
   "private": true,
   "description": "Authentic NFL GM simulator — single-player, 32-team Living League",
   "scripts": {

@@ -16,6 +16,18 @@ _Nothing yet._
 
 ---
 
+## [0.137.1] — 2026-06-10
+
+### Fixed
+
+- **Histograms tab: pinned axes.** Charts no longer rescale when filters
+  change, so distributions stay visually comparable across positions/teams:
+  Overall is pinned to X 0–100 / Y 0–200, Age to X 18–50 / Y 0–1000.
+  Out-of-range values clamp into the edge bins; bars taller than the pinned
+  Y clip at the top (hover shows the true count).
+
+---
+
 ## [0.137.0] — 2026-06-10
 
 ### Added

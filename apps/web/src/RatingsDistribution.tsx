@@ -21,37 +21,39 @@ const CHART_W = 800;
 const CHART_H = 260;
 const MARGIN = { top: 10, right: 10, bottom: 26, left: 40 };
 
-/** Round a max-count up to a friendly axis ceiling (1/2/5 × 10^k). */
-function niceCeil(n: number): number {
-  if (n <= 5) return 5;
-  const mag = Math.pow(10, Math.floor(Math.log10(n)));
-  for (const m of [1, 2, 5, 10]) {
-    if (n <= m * mag) return m * mag;
-  }
-  return 10 * mag;
-}
-
-/** One histogram card: 1-pt integer bins over `values`, count on Y. */
+/**
+ * One histogram card: 1-pt integer bins over `values`, count on Y. Axes are
+ * PINNED (`xMin`/`xMax`/`yMax`) so the chart doesn't rescale when filters
+ * change — distributions stay visually comparable across positions/teams.
+ * Out-of-range values clamp into the edge bins; bars taller than `yMax`
+ * clip at the top of the chart (hover shows the true count).
+ */
 function HistogramCard({
   title,
   unit,
   values,
   barClasses,
+  xMin,
+  xMax,
+  yMax,
 }: {
   title: string;
   unit: string;
   values: readonly number[];
   barClasses: string;
+  xMin: number;
+  xMax: number;
+  yMax: number;
 }) {
-  const { bins, minVal, maxCount } = useMemo(() => {
-    if (values.length === 0) return { bins: [] as number[], minVal: 0, maxCount: 0 };
-    const rounded = values.map((v) => Math.round(v));
-    const minVal = Math.min(...rounded);
-    const maxVal = Math.max(...rounded);
-    const bins = new Array<number>(maxVal - minVal + 1).fill(0);
-    for (const r of rounded) bins[r - minVal] = (bins[r - minVal] ?? 0) + 1;
-    return { bins, minVal, maxCount: Math.max(...bins) };
-  }, [values]);
+  const bins = useMemo(() => {
+    const out = new Array<number>(xMax - xMin + 1).fill(0);
+    for (const v of values) {
+      const r = Math.min(xMax, Math.max(xMin, Math.round(v)));
+      out[r - xMin] = (out[r - xMin] ?? 0) + 1;
+    }
+    return out;
+  }, [values, xMin, xMax]);
+  const minVal = xMin;
 
   const stats = useMemo(() => {
     if (values.length === 0) return null;
@@ -65,8 +67,8 @@ function HistogramCard({
 
   const innerW = CHART_W - MARGIN.left - MARGIN.right;
   const innerH = CHART_H - MARGIN.top - MARGIN.bottom;
-  const yCeil = niceCeil(maxCount);
-  const barW = bins.length > 0 ? innerW / bins.length : 0;
+  const yCeil = yMax;
+  const barW = innerW / bins.length;
   // Label every 5th value, or every 10th when the range is wide.
   const xLabelStep = bins.length > 45 ? 10 : 5;
   const yTicks = [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(yCeil * f));
@@ -82,7 +84,7 @@ function HistogramCard({
           </span>
         )}
       </div>
-      {bins.length === 0 ? (
+      {values.length === 0 ? (
         <div className="py-12 text-center text-xs text-zinc-600">
           No players match the current filters.
         </div>
@@ -118,11 +120,11 @@ function HistogramCard({
             );
           })}
 
-          {/* bars */}
+          {/* bars (clipped at the pinned yMax; hover shows the true count) */}
           {bins.map((count, i) => {
             if (count === 0) return null;
             const v = minVal + i;
-            const h = (count / yCeil) * innerH;
+            const h = (Math.min(count, yCeil) / yCeil) * innerH;
             return (
               <rect
                 key={v}
@@ -132,7 +134,7 @@ function HistogramCard({
                 height={h}
                 className={barClasses}
               >
-                <title>{`${unit} ${v}: ${count} player${count === 1 ? '' : 's'}`}</title>
+                <title>{`${unit} ${v}: ${count} player${count === 1 ? '' : 's'}${count > yCeil ? ' (clipped)' : ''}`}</title>
               </rect>
             );
           })}
@@ -273,12 +275,18 @@ export function RatingsDistributionPanel({ league }: { league: LeagueState }) {
           unit="Overall"
           values={overalls}
           barClasses="fill-lime-500/70 hover:fill-lime-300"
+          xMin={0}
+          xMax={100}
+          yMax={200}
         />
         <HistogramCard
           title="Age"
           unit="Age"
           values={ages}
           barClasses="fill-sky-500/70 hover:fill-sky-300"
+          xMin={18}
+          xMax={50}
+          yMax={1000}
         />
       </div>
     </section>
