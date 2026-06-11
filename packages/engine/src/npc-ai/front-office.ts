@@ -72,17 +72,11 @@ export const SEAT_MAX = 110;
 /** Lame-duck GMs (survived a 2nd-own-hire firing) are floored here. */
 export const LAME_DUCK_FLOOR = 62;
 /**
- * GM-only firings (no HC firing in the same cycle — the Robinson path,
- * folding in the real-world in-season GM firings S1 doesn't model yet)
- * need the GM seat above gmThreshold × this.
+ * GM-only firings (no HC firing in the same cycle — the Robinson path)
+ * need the GM seat above gmThreshold × this. Lame ducks don't use a
+ * bar at all: their cleanup is a hard rule (see `decideFiring`).
  */
 export const GM_ONLY_BAR = 1.0;
-/**
- * A lame-duck GM is already condemned — his bar drops below the normal
- * threshold so a mediocre next season finishes the job (the empirical
- * "gone within 12 months"; a genuinely strong season still saves him).
- */
-export const LAME_DUCK_BAR = 0.85;
 /** Sustained contention without a ring burns the coach (McDermott path). */
 export const RING_FATIGUE = 12;
 /** GM accumulated pressure below this opens the survive-coach-#2 hatch. */
@@ -92,7 +86,7 @@ export const SECOND_HIRE_JOINT_P = 0.75;
 /** P(joint fire) when coach #2+ fails but a hatch IS open. */
 export const SECOND_HIRE_HATCH_JOINT_P = 0.12;
 /** P(joint fire) when the GM's FIRST own hire is fired. */
-export const FIRST_HIRE_JOINT_P = 0.12;
+export const FIRST_HIRE_JOINT_P = 0.1;
 /** P(joint fire) when an INHERITED coach is fired. */
 export const INHERITED_JOINT_P = 0.05;
 /** Chance a GM vacancy is filled from the unemployed-retread pool. */
@@ -101,6 +95,30 @@ export const GM_RETREAD_P = 0.15;
 export const HC_RETREAD_P = 0.35;
 /** Retreads must have worked within this many seasons to stay hireable. */
 export const RETREAD_RECENCY = 6;
+
+// ── S2: in-season firings (v0.139) ──────────────────────────────────────
+
+/** Earliest games-played before a midseason firing is plausible (~Oct). */
+export const IN_SEASON_MIN_GAMES = 5;
+/** Hard gate: never fire a coach midseason above this win% (.35 ≈ 4-8). */
+export const IN_SEASON_WIN_PCT_CEILING = 0.35;
+/** The previewed seat must clear threshold × this — midseason is drastic. */
+export const IN_SEASON_BAR = 1.3;
+/** Once over the bar, per-week trigger roll (spreads firings Oct–Dec). */
+export const IN_SEASON_WEEKLY_P = 0.35;
+/**
+ * Carried-pressure gate: midseason firings hit coaches/GMs who ENTERED
+ * the season already warm (Saleh, Daboll, Rhule all carried years of
+ * misses). A cold seat survives a bad start to the offseason — unless
+ * the collapse is catastrophic (pace ≤ 3 wins, the Reich/Meyer path).
+ */
+export const IN_SEASON_CARRIED_FLOOR = 25;
+export const IN_SEASON_CATASTROPHE_PACE = 3;
+/** GM midseason firings are rarer and later (the Grier/Douglas window). */
+export const IN_SEASON_GM_MIN_WEEK = 8;
+export const IN_SEASON_GM_WEEKLY_P = 0.05;
+/** Chance the interim earns the permanent job (the Antonio Pierce path). */
+export const INTERIM_PROMOTION_P = 0.2;
 
 /** Mean wins in a 17-game season. */
 const MEAN_WINS = 8.5;
@@ -280,12 +298,19 @@ export function computeSeatUpdate(
 
   const impatience = ownerImpatience(owner);
   const heat = marketHeat(team);
+  // A winning record blunts the blade even when it misses expectations
+  // — 9-win firings exist (ring fatigue below) but at a damped rate.
+  const games = outcome.wins + outcome.losses + outcome.ties;
+  const winningDamp = games > 0 && outcome.wins > games / 2 ? 0.55 : 1;
 
   let hc = fo.seatPressure.hc * PRESSURE_DECAY;
   let gm = fo.seatPressure.gm * PRESSURE_DECAY;
 
-  hc += dHc > 0 ? dHc * HC_HEAT_SCALE * impatience * heat : dHc * HC_CREDIT_SCALE;
-  gm += dGm > 0 ? dGm * HC_HEAT_SCALE * GM_HEAT_RATIO * impatience * heat : dGm * GM_CREDIT_SCALE;
+  hc += dHc > 0 ? dHc * HC_HEAT_SCALE * impatience * heat * winningDamp : dHc * HC_CREDIT_SCALE;
+  gm +=
+    dGm > 0
+      ? dGm * HC_HEAT_SCALE * GM_HEAT_RATIO * impatience * heat * winningDamp
+      : dGm * GM_CREDIT_SCALE;
 
   // Ring fatigue: 4+ straight playoff years, no ring this year, an owner
   // who cares about legacy → the COACH wears it (the GM is spared, even
@@ -295,7 +320,7 @@ export function computeSeatUpdate(
     outcome.madePlayoffs &&
     outcome.championshipResult !== 'won_super_bowl' &&
     streak >= 4 &&
-    owner.spectrums.legacyMotivation >= 6
+    owner.spectrums.legacyMotivation >= 7
   ) {
     hc += RING_FATIGUE;
   }
@@ -341,6 +366,45 @@ function firingThreshold(owner: Owner, jitter: number): number {
 }
 
 /**
+ * The GM-accountability sub-ladder for an HC firing — shared by the
+ * Black Monday/finalize ladder and the in-season trigger (design §3.3,
+ * hardened): inherited shields, first-own-hire usually survives,
+ * second+-own-hire takes the GM down unless a hatch is open.
+ */
+function decideGmAccountability(
+  prng: Prng,
+  fo: FrontOfficeState,
+  hcWasOwnHire: boolean,
+  gmSeat: number,
+  gmThreshold: number,
+): { joint: boolean; gmBecomesLameDuck: boolean } {
+  if (fo.gmVacant) return { joint: false, gmBecomesLameDuck: false }; // already gone (Grier path)
+  if (!hcWasOwnHire) {
+    // Inherited coach fired — the GM is shielded (~95% survival).
+    return {
+      joint: gmSeat > gmThreshold * 1.2 || prng.next() < INHERITED_JOINT_P,
+      gmBecomesLameDuck: false,
+    };
+  }
+  if (fo.gmCoachFiringsSurvived === 0) {
+    // The GM's FIRST own hire fired — usually survives and picks #2.
+    return {
+      joint: gmSeat > gmThreshold * 1.15 || prng.next() < FIRST_HIRE_JOINT_P,
+      gmBecomesLameDuck: false,
+    };
+  }
+  // SECOND+ own hire fired — the GM goes. The only real-world survivors
+  // had LOW accumulated pressure: early-teardown years (expectations at
+  // the floor) or a heavy credit bank. In the 4–7-year band neither
+  // hatch is normally open ⇒ survival ≈ 0. Surviving WITHOUT a hatch is
+  // borrowed time (lame duck); hatch survivors (Caserio/Telesco) keep
+  // genuine power.
+  const hatchOpen = gmSeat < HATCH_PRESSURE_CEILING;
+  const joint = prng.next() < (hatchOpen ? SECOND_HIRE_HATCH_JOINT_P : SECOND_HIRE_JOINT_P);
+  return { joint, gmBecomesLameDuck: !joint && !hatchOpen };
+}
+
+/**
  * Run the firing ladder for one team given updated seat pressure.
  * Order is fixed: evaluate the HC first; GM accountability follows from
  * whose hire the fired coach was (design §3.3, hardened).
@@ -360,7 +424,8 @@ export function decideFiring(
   const threshold = firingThreshold(owner, jitter);
   const gmThreshold = threshold + 8; // the GM bar is inherently higher
 
-  let fireHc = seats.hc > threshold;
+  // A chair already fired in-season (S2) can't be fired again.
+  let fireHc = !fo.hcVacant && seats.hc > threshold;
   // HC year-1 grace: near-immune unless the season cratered (≤4 wins is
   // the one-and-done escape hatch — ~0.6/yr league-wide in real life).
   if (fireHc && hcSeasons <= 1 && outcome.wins > 4) fireHc = false;
@@ -371,29 +436,21 @@ export function decideFiring(
   const hcWasOwnHire = fo.hcHiredByGmId === team.gmId;
 
   if (fireHc) {
-    if (!hcWasOwnHire) {
-      // Inherited coach fired — the GM is shielded (~95% survival).
-      joint = seats.gm > gmThreshold * 1.2 || prng.next() < INHERITED_JOINT_P;
-    } else if (fo.gmCoachFiringsSurvived === 0) {
-      // The GM's FIRST own hire fired — usually survives and picks #2.
-      joint = seats.gm > gmThreshold * 1.15 || prng.next() < FIRST_HIRE_JOINT_P;
-    } else {
-      // SECOND+ own hire fired — the GM goes. The only real-world
-      // survivors had LOW accumulated pressure: early-teardown years
-      // (expectations at the floor) or a heavy credit bank. In the
-      // 4–7-year band neither hatch is normally open ⇒ survival ≈ 0.
-      const hatchOpen = seats.gm < HATCH_PRESSURE_CEILING;
-      joint = prng.next() < (hatchOpen ? SECOND_HIRE_HATCH_JOINT_P : SECOND_HIRE_JOINT_P);
-      // Surviving WITHOUT a hatch is borrowed time (lame duck). Hatch
-      // survivors (Caserio/Telesco pattern) genuinely keep power.
-      if (!joint && !hatchOpen) gmBecomesLameDuck = true;
-    }
+    const acc = decideGmAccountability(prng, fo, hcWasOwnHire, seats.gm, gmThreshold);
+    joint = acc.joint;
+    gmBecomesLameDuck = acc.gmBecomesLameDuck;
     fireGm = joint;
-  } else {
-    // GM-only firing without a coach firing — the Robinson path, plus
-    // the condemned-lame-duck cleanup at a reduced bar.
-    const bar = fo.gmLameDuck ? LAME_DUCK_BAR : GM_ONLY_BAR;
-    fireGm = seats.gm > gmThreshold * bar;
+  } else if (!fo.gmVacant) {
+    if (fo.gmLameDuck) {
+      // The condemned-lame-duck cleanup is a HARD rule (real-world:
+      // zero survivors): the floor reapplies every season, so only a
+      // ring — whose wipe lands below the floor — saves him. No owner
+      // quirk or jitter intervenes.
+      fireGm = seats.gm >= LAME_DUCK_FLOOR;
+    } else {
+      // GM-only firing without a coach firing — the Robinson path.
+      fireGm = seats.gm > gmThreshold * GM_ONLY_BAR;
+    }
   }
 
   // GM years 1–2 grace ("three drafts"): broken only by panic owners.
@@ -491,15 +548,21 @@ function evaluateTeams(
     const fo = team.frontOffice;
     const teamPrng = prng.fork(`eval:${teamId}`);
 
-    // 1. Stints accumulate this season for the sitting GM + HC.
-    let nextGm: Gm = {
-      ...gm,
-      careerStints: accumulateStint(gm.careerStints, teamId, 'GM', fo.gmHiredSeason, outcome),
-    };
-    let nextHc: HeadCoach = {
-      ...hc,
-      careerStints: accumulateStint(hc.careerStints, teamId, 'HC', fo.hcHiredSeason, outcome),
-    };
+    // 1. Stints accumulate this season for the sitting GM + HC. A chair
+    //    fired in-season (S2) already folded its partial record at the
+    //    firing and the caretaker/interim accumulates nothing.
+    let nextGm: Gm = fo.gmVacant
+      ? gm
+      : {
+          ...gm,
+          careerStints: accumulateStint(gm.careerStints, teamId, 'GM', fo.gmHiredSeason, outcome),
+        };
+    let nextHc: HeadCoach = fo.hcVacant
+      ? hc
+      : {
+          ...hc,
+          careerStints: accumulateStint(hc.careerStints, teamId, 'HC', fo.hcHiredSeason, outcome),
+        };
 
     // 2. Seat pressure update.
     const seats = computeSeatUpdate(team, owner, outcome, seasonNumber);
@@ -657,6 +720,275 @@ export function runPostSeasonFrontOffice(league: LeagueState, prng: Prng): Leagu
   return runHiringWindow(afterEvals, prng.fork('hiring'));
 }
 
+// ─── S2: in-season firings (v0.139) ─────────────────────────────────────────
+
+/**
+ * The midseason collapse trigger — runs on every regular-season week
+ * tick from ~October (5+ games) through the second-to-last week (the
+ * final week belongs to Black Monday). A coach is fired midseason when
+ * the team is under .350, his PREVIEWED seat (carried pressure + heat
+ * from the projected full-season pace) clears the threshold at a 1.3×
+ * bar, and a per-week roll fires (spreading firings across Oct–Dec, the
+ * real pattern: Saleh 2-3, Rhule 1-4, Reich 1-10, Daboll 2-8).
+ *
+ * The fired coach folds his partial-season record into his stint and an
+ * interim takes the seat (no stint accumulation, no TeamPersonality
+ * recompute — the org is in caretaker mode until the hiring window).
+ * GM accountability runs the same shared ladder, so midseason clean
+ * houses happen (Telesco/Staley, Ziegler/McDaniels). A rarer GM-only
+ * midseason firing (week 8+, the Grier/Douglas/Robinson pattern) fires
+ * when the GM's previewed seat is over the bar — boosted if the coach
+ * seat is already interim-occupied.
+ */
+export function runInSeasonFirings(
+  league: LeagueState,
+  prng: Prng,
+  weekIdx: number,
+  tick: number,
+): LeagueState {
+  const records = computeRecords(league);
+  const seasonNumber = league.seasonNumber;
+  const teams: Record<string, TeamState> = { ...league.teams };
+  const gms: Record<string, Gm> = { ...league.gms };
+  const coaches: Record<string, HeadCoach> = { ...league.coaches };
+  const log: Transaction[] = [];
+
+  for (const teamIn of Object.values(league.teams)) {
+    const teamId = teamIn.identity.id;
+    const team = teams[teamId]!;
+    let fo = team.frontOffice;
+    const r = records.get(teamId)!;
+    const games = r.wins + r.losses + r.ties;
+    if (games < IN_SEASON_MIN_GAMES) continue;
+
+    const owner = league.owners[team.ownerId]!;
+    const teamPrng = prng.fork(`midseason:${teamId}`);
+    const winPct = (r.wins + r.ties / 2) / games;
+    const paceWins = (r.wins / games) * 17;
+    const impatience = ownerImpatience(owner);
+    const heat = marketHeat(team);
+    const partial: SeasonOutcome = {
+      wins: r.wins,
+      losses: r.losses,
+      ties: r.ties,
+      madePlayoffs: false,
+    };
+
+    const jitter = (teamPrng.next() * 2 - 1) * 6;
+    const threshold = firingThreshold(owner, jitter);
+    const gmThreshold = threshold + 8;
+
+    const hcSeasons = seasonNumber - fo.hcHiredSeason + 1;
+    const gmSeasons = seasonNumber - fo.gmHiredSeason + 1;
+    // Projected-pace heat is discounted by how much season has been
+    // played — a 1-5 start is an extrapolation, a 2-10 start is a fact.
+    const confidence = games / 17;
+    const previewHc =
+      fo.seatPressure.hc * PRESSURE_DECAY +
+      Math.max(0, expectedWinsForTeam(team, hcSeasons) - paceWins) *
+        HC_HEAT_SCALE *
+        impatience *
+        heat *
+        confidence;
+    const previewGm =
+      fo.seatPressure.gm * PRESSURE_DECAY +
+      Math.max(0, expectedWinsForTeam(team, gmSeasons, 4) - paceWins) *
+        HC_HEAT_SCALE *
+        GM_HEAT_RATIO *
+        impatience *
+        heat *
+        confidence;
+
+    let nextTeam = team;
+    let hcFiredThisWeek = false;
+
+    // — HC collapse trigger —
+    if (
+      !fo.hcVacant &&
+      winPct <= IN_SEASON_WIN_PCT_CEILING &&
+      (fo.seatPressure.hc > IN_SEASON_CARRIED_FLOOR ||
+        paceWins <= IN_SEASON_CATASTROPHE_PACE) &&
+      previewHc > threshold * IN_SEASON_BAR
+    ) {
+      // Year-1 coaches are exempt unless the season is a catastrophe
+      // (pace ≤ 4 wins — the Urban Meyer hatch).
+      const yearOneGrace = hcSeasons <= 1 && paceWins > 4;
+      if (!yearOneGrace && teamPrng.next() < IN_SEASON_WEEKLY_P) {
+        hcFiredThisWeek = true;
+        const hc = coaches[team.headCoachId]!;
+        const hcWasOwnHire = fo.hcHiredByGmId === team.gmId;
+        // Midseason owners burn the coach and usually keep the GM
+        // through the coming search — damp the projected GM seat so
+        // midseason clean-houses stay the exception (Telesco/Ziegler),
+        // not the rule.
+        const acc = decideGmAccountability(
+          teamPrng,
+          fo,
+          hcWasOwnHire,
+          previewGm * 0.85,
+          gmThreshold,
+        );
+        const joint = acc.joint && (gmSeasons > 2 || owner.quirks.includes('PANIC_SELLER'));
+
+        // Fired coach: fold the partial season, close, hit the street.
+        const folded = accumulateStint(
+          hc.careerStints,
+          teamId,
+          'HC',
+          fo.hcHiredSeason,
+          partial,
+        );
+        coaches[team.headCoachId] = {
+          ...hc,
+          status: 'UNEMPLOYED',
+          careerStints: closeStint(
+            folded,
+            teamId,
+            'HC',
+            seasonNumber,
+            joint ? 'JOINT_FIRED' : 'FIRED_IN_SEASON',
+          ),
+        };
+        log.push({
+          kind: 'hc-fired',
+          tick,
+          seasonNumber,
+          teamId,
+          coachId: team.headCoachId,
+          jointWithGm: joint,
+          inSeason: true,
+          seasonsServed: hcSeasons,
+          wins: r.wins,
+          losses: r.losses,
+          ties: r.ties,
+          seatPressure: previewHc,
+          ownHireIndex: hcWasOwnHire ? fo.gmCoachFiringsSurvived + 1 : 0,
+          gmTenureSeasons: gmSeasons,
+        });
+
+        if (joint) {
+          const gm = gms[team.gmId]!;
+          const gmFolded = accumulateStint(
+            gm.careerStints,
+            teamId,
+            'GM',
+            fo.gmHiredSeason,
+            partial,
+          );
+          gms[team.gmId] = {
+            ...gm,
+            status: 'UNEMPLOYED',
+            careerStints: closeStint(gmFolded, teamId, 'GM', seasonNumber, 'JOINT_FIRED'),
+          };
+          log.push({
+            kind: 'gm-fired',
+            tick,
+            seasonNumber,
+            teamId,
+            gmId: team.gmId,
+            jointWithHc: true,
+            inSeason: true,
+            seasonsServed: gmSeasons,
+            wins: r.wins,
+            losses: r.losses,
+            ties: r.ties,
+            seatPressure: previewGm,
+          });
+        }
+
+        // Interim: a generated assistant thrust upward — low experience
+        // is the "slight penalty" until coach quality reaches game sim.
+        const gmForHire = joint ? null : gms[team.gmId]!;
+        const interimRaw = generateHeadCoach(
+          teamPrng.fork('interim'),
+          `${team.identity.abbreviation}_INT_S${seasonNumber}`,
+          owner,
+          gmForHire,
+        );
+        const interim: HeadCoach = {
+          ...interimRaw,
+          spectrums: {
+            ...interimRaw.spectrums,
+            experience: Math.min(interimRaw.spectrums.experience, 3),
+          },
+        };
+        coaches[interim.id] = interim;
+        log.push({
+          kind: 'hc-interim',
+          tick,
+          seasonNumber,
+          teamId,
+          coachId: interim.id,
+          weekIndex: weekIdx,
+        });
+
+        fo = {
+          ...fo,
+          hcVacant: true,
+          hcInterim: true,
+          gmVacant: fo.gmVacant || joint,
+          gmCoachFiringsSurvived:
+            hcWasOwnHire && !joint ? fo.gmCoachFiringsSurvived + 1 : fo.gmCoachFiringsSurvived,
+          gmLameDuck: fo.gmLameDuck || acc.gmBecomesLameDuck,
+        };
+        nextTeam = { ...team, headCoachId: interim.id, frontOffice: fo };
+      }
+    }
+
+    // — rare GM-only midseason firing (Grier/Douglas/Robinson) —
+    if (
+      !hcFiredThisWeek &&
+      !fo.gmVacant &&
+      weekIdx >= IN_SEASON_GM_MIN_WEEK &&
+      gmSeasons > 2 &&
+      fo.seatPressure.gm > IN_SEASON_CARRIED_FLOOR &&
+      (previewGm > gmThreshold * 1.25 || (fo.hcInterim && previewGm > gmThreshold * 1.05)) &&
+      teamPrng.next() < IN_SEASON_GM_WEEKLY_P
+    ) {
+      const gm = gms[nextTeam.gmId]!;
+      const gmFolded = accumulateStint(
+        gm.careerStints,
+        teamId,
+        'GM',
+        fo.gmHiredSeason,
+        partial,
+      );
+      gms[nextTeam.gmId] = {
+        ...gm,
+        status: 'UNEMPLOYED',
+        careerStints: closeStint(gmFolded, teamId, 'GM', seasonNumber, 'FIRED_IN_SEASON'),
+      };
+      log.push({
+        kind: 'gm-fired',
+        tick,
+        seasonNumber,
+        teamId,
+        gmId: nextTeam.gmId,
+        jointWithHc: false,
+        inSeason: true,
+        seasonsServed: gmSeasons,
+        wins: r.wins,
+        losses: r.losses,
+        ties: r.ties,
+        seatPressure: previewGm,
+      });
+      fo = { ...fo, gmVacant: true };
+      nextTeam = { ...nextTeam, frontOffice: fo };
+    }
+
+    if (nextTeam !== team) teams[teamId] = nextTeam;
+  }
+
+  if (log.length === 0) return league;
+  return {
+    ...league,
+    teams: teams as LeagueState['teams'],
+    gms: gms as LeagueState['gms'],
+    coaches: coaches as LeagueState['coaches'],
+    transactionLog: [...league.transactionLog, ...log],
+  };
+}
+
 // ─── The hiring window ──────────────────────────────────────────────────────
 
 interface RetreadCandidate<T> {
@@ -754,25 +1086,39 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
 
     if (fo.hcVacant) {
       const gm = gms[nextTeam.gmId]!;
-      const pool = retreadPool(coaches, 'HC', league.seasonNumber);
-      const useRetread = pool.length > 0 && hirePrng.next() < HC_RETREAD_P;
+      // S2: an interim caretaker sometimes earns the permanent job (the
+      // Antonio Pierce path); otherwise he returns to assistant-land
+      // (UNEMPLOYED with no closed stint → invisible to the retread pool).
+      const promoteInterim = nextFo.hcInterim && hirePrng.next() < INTERIM_PROMOTION_P;
       let hired: HeadCoach;
-      if (useRetread) {
-        const pick = hirePrng.weighted(pool.map((c) => ({ value: c.person, weight: c.weight })));
-        hired = { ...pick, status: 'EMPLOYED' };
+      let useRetread = false;
+      if (promoteInterim) {
+        hired = coaches[nextTeam.headCoachId]!;
       } else {
-        hired = generateHeadCoach(
-          hirePrng.fork('gen-hc'),
-          `${team.identity.abbreviation}_S${hiredSeason}`,
-          owner,
-          gm,
-        );
+        if (nextFo.hcInterim) {
+          const interim = coaches[nextTeam.headCoachId]!;
+          coaches[interim.id] = { ...interim, status: 'UNEMPLOYED' };
+        }
+        const pool = retreadPool(coaches, 'HC', league.seasonNumber);
+        useRetread = pool.length > 0 && hirePrng.next() < HC_RETREAD_P;
+        if (useRetread) {
+          const pick = hirePrng.weighted(pool.map((c) => ({ value: c.person, weight: c.weight })));
+          hired = { ...pick, status: 'EMPLOYED' };
+        } else {
+          hired = generateHeadCoach(
+            hirePrng.fork('gen-hc'),
+            `${team.identity.abbreviation}_S${hiredSeason}`,
+            owner,
+            gm,
+          );
+        }
       }
       coaches[hired.id] = hired;
       nextTeam = { ...nextTeam, headCoachId: hired.id };
       nextFo = {
         ...nextFo,
         hcVacant: false,
+        hcInterim: false,
         hcHiredSeason: hiredSeason,
         hcHiredByGmId: nextTeam.gmId,
         seatPressure: { ...nextFo.seatPressure, hc: 0 },
@@ -785,6 +1131,7 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
         coachId: hired.id,
         retread: useRetread,
         hiredByGmId: nextTeam.gmId,
+        ...(promoteInterim ? { promotedInterim: true } : {}),
       });
     }
 

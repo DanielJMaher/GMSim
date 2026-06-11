@@ -12,6 +12,7 @@ import type {
   TransactionGmFired,
   TransactionHcHired,
   TransactionGmHired,
+  TransactionHcInterim,
   LockerRoomIncidentFlavor,
 } from '../types/transaction.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
@@ -120,6 +121,8 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       return newsFromHcHired(txn, league);
     case 'gm-hired':
       return newsFromGmHired(txn, league);
+    case 'hc-interim':
+      return newsFromHcInterim(txn, league);
     case 'ir-move':
     case 'ps-promotion':
     case 'contract-expiration':
@@ -146,6 +149,26 @@ function newsFromHcFired(txn: TransactionHcFired, league: LeagueState): NewsItem
   const teamName = team?.identity.fullName ?? txn.teamId;
   const name = coach?.name ?? 'their head coach';
   const yrs = txn.seasonsServed === 1 ? 'one season' : `${txn.seasonsServed} seasons`;
+  if (txn.inSeason) {
+    // Midseason record is logged as the season-to-date start.
+    return {
+      tick: txn.tick,
+      seasonNumber: txn.seasonNumber,
+      severity: 5,
+      source: 'national_insider',
+      sourceKind: 'hc-fired',
+      headline: txn.jointWithGm
+        ? `BREAKING: ${teamName} clean house midseason — ${name} out`
+        : `BREAKING: ${teamName} fire head coach ${name} midseason`,
+      body: `${name} is out after a ${stintRecord(txn.wins, txn.losses, txn.ties)} start, ${yrs} into his tenure. ${
+        txn.jointWithGm
+          ? 'The general manager is gone with him — ownership has seen enough.'
+          : 'An interim takes over while ownership plans the offseason search.'
+      }`,
+      teamIds: [txn.teamId],
+      playerIds: [],
+    };
+  }
   return {
     tick: txn.tick,
     seasonNumber: txn.seasonNumber,
@@ -165,12 +188,43 @@ function newsFromHcFired(txn: TransactionHcFired, league: LeagueState): NewsItem
   };
 }
 
+function newsFromHcInterim(txn: TransactionHcInterim, league: LeagueState): NewsItem {
+  const team = league.teams[txn.teamId];
+  const coach = league.coaches[txn.coachId];
+  const teamName = team?.identity.fullName ?? txn.teamId;
+  const name = coach?.name ?? 'an assistant';
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity: 3,
+    source: 'beat_writer',
+    sourceKind: 'hc-interim',
+    headline: `${teamName} name ${name} interim head coach`,
+    body: `${name} takes over for the rest of the season while the organization conducts its search.`,
+    teamIds: [txn.teamId],
+    playerIds: [],
+  };
+}
+
 function newsFromGmFired(txn: TransactionGmFired, league: LeagueState): NewsItem {
   const team = league.teams[txn.teamId];
   const gm = league.gms[txn.gmId];
   const teamName = team?.identity.fullName ?? txn.teamId;
   const name = gm?.name ?? 'their general manager';
   const yrs = txn.seasonsServed === 1 ? 'one season' : `${txn.seasonsServed} seasons`;
+  if (txn.inSeason && !txn.jointWithHc) {
+    return {
+      tick: txn.tick,
+      seasonNumber: txn.seasonNumber,
+      severity: 5,
+      source: 'national_insider',
+      sourceKind: 'gm-fired',
+      headline: `BREAKING: ${teamName} fire GM ${name} midseason`,
+      body: `${name} is out ${yrs} into his tenure — a rare midseason front-office move that signals ownership has already decided on a new direction.`,
+      teamIds: [txn.teamId],
+      playerIds: [],
+    };
+  }
   return {
     tick: txn.tick,
     seasonNumber: txn.seasonNumber,
@@ -197,10 +251,14 @@ function newsFromHcHired(txn: TransactionHcHired, league: LeagueState): NewsItem
     severity: 4,
     source: 'national_insider',
     sourceKind: 'hc-hired',
-    headline: `${teamName} hire ${name} as head coach`,
-    body: txn.retread
-      ? `${name} gets another shot at the big chair after a previous NFL head-coaching stint.`
-      : `${name} takes his first NFL head-coaching job.`,
+    headline: txn.promotedInterim
+      ? `${teamName} remove the interim tag — ${name} is the head coach`
+      : `${teamName} hire ${name} as head coach`,
+    body: txn.promotedInterim
+      ? `${name} earned the permanent job with his caretaker stretch.`
+      : txn.retread
+        ? `${name} gets another shot at the big chair after a previous NFL head-coaching stint.`
+        : `${name} takes his first NFL head-coaching job.`,
     teamIds: [txn.teamId],
     playerIds: [],
   };

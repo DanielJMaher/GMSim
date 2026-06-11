@@ -3455,6 +3455,7 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'gm-fired':
     case 'hc-hired':
     case 'gm-hired':
+    case 'hc-interim':
       return [entry.teamId];
   }
 }
@@ -3480,6 +3481,7 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'gm-fired':
     case 'hc-hired':
     case 'gm-hired':
+    case 'hc-interim':
       return [];
   }
 }
@@ -3890,6 +3892,8 @@ function kindColor(kind: Transaction['kind']): string {
     case 'hc-hired':
     case 'gm-hired':
       return 'text-sky-400';
+    case 'hc-interim':
+      return 'text-amber-400';
   }
 }
 
@@ -3928,13 +3932,15 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${leak}${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} ${formatIncidentFlavor(entry.flavor)} (mood ${delta})`;
     }
     case 'hc-fired':
-      return `${teamLabel(entry.teamId)} fired HC ${league.coaches[entry.coachId]?.name ?? entry.coachId} · ${entry.seasonsServed}yr ${entry.wins}-${entry.losses}${entry.ties > 0 ? `-${entry.ties}` : ''}${entry.jointWithGm ? ' · CLEAN HOUSE' : ''}`;
+      return `${teamLabel(entry.teamId)} fired HC ${league.coaches[entry.coachId]?.name ?? entry.coachId}${entry.inSeason ? ' MIDSEASON' : ''} · ${entry.seasonsServed}yr ${entry.wins}-${entry.losses}${entry.ties > 0 ? `-${entry.ties}` : ''}${entry.jointWithGm ? ' · CLEAN HOUSE' : ''}`;
     case 'gm-fired':
-      return `${teamLabel(entry.teamId)} fired GM ${league.gms[entry.gmId]?.name ?? entry.gmId} · ${entry.seasonsServed}yr ${entry.wins}-${entry.losses}${entry.ties > 0 ? `-${entry.ties}` : ''}${entry.jointWithHc ? ' · with HC' : ''}`;
+      return `${teamLabel(entry.teamId)} fired GM ${league.gms[entry.gmId]?.name ?? entry.gmId}${entry.inSeason ? ' MIDSEASON' : ''} · ${entry.seasonsServed}yr ${entry.wins}-${entry.losses}${entry.ties > 0 ? `-${entry.ties}` : ''}${entry.jointWithHc ? ' · with HC' : ''}`;
     case 'hc-hired':
-      return `${teamLabel(entry.teamId)} hired HC ${league.coaches[entry.coachId]?.name ?? entry.coachId}${entry.retread ? ' (retread)' : ''}`;
+      return `${teamLabel(entry.teamId)} hired HC ${league.coaches[entry.coachId]?.name ?? entry.coachId}${entry.promotedInterim ? ' (interim promoted)' : entry.retread ? ' (retread)' : ''}`;
     case 'gm-hired':
       return `${teamLabel(entry.teamId)} hired GM ${league.gms[entry.gmId]?.name ?? entry.gmId}${entry.retread ? ' (retread)' : ''}`;
+    case 'hc-interim':
+      return `${teamLabel(entry.teamId)} named ${league.coaches[entry.coachId]?.name ?? entry.coachId} interim HC (week ${entry.weekIndex + 1})`;
   }
 }
 

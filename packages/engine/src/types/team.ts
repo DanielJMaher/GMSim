@@ -39,6 +39,15 @@ export interface FrontOfficeState {
   gmVacant: boolean;
   hcVacant: boolean;
   /**
+   * S2 (v0.139): an in-season HC firing installs a generated interim
+   * on `headCoachId` (hcVacant stays true — the seat is still open).
+   * Interims don't accumulate career stints, aren't fired again, and
+   * don't trigger a TeamPersonality recompute; the hiring window
+   * either promotes them (~20%, the Antonio Pierce path) or replaces
+   * them.
+   */
+  hcInterim: boolean;
+  /**
    * Owner-confidence pressure, accumulated per season. Range ~[-60,
    * 110]: negative = banked credit (playoff runs, beating
    * expectations), above the ~70 firing threshold = gone. Hidden

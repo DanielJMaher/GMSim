@@ -121,7 +121,11 @@ import type {
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import type { CollegePlayer, CollegeSchool, CollegeScout } from '../types/college.js';
 import { buildSeasonTimeline, type TimelineStep } from './timeline.js';
-import { runBlackMondayFirings, runPostSeasonFrontOffice } from '../npc-ai/front-office.js';
+import {
+  runBlackMondayFirings,
+  runPostSeasonFrontOffice,
+  runInSeasonFirings,
+} from '../npc-ai/front-office.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
 
@@ -631,18 +635,31 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
     lifecyclePhase: 'REGULAR_SEASON_WEEK',
   };
 
+  // S2 (v0.139): midseason front-office firings — after the week's
+  // results are folded in, from ~October on, never on the final week
+  // (the day-after-week-18 purge is Black Monday's job).
+  const afterFrontOffice =
+    !isLastRegSeasonWeek && weekIdx >= 4
+      ? runInSeasonFirings(
+          nextLeagueBase,
+          seasonPrng.fork(`front-office-${weekIdx + 1}`),
+          weekIdx,
+          currentTick,
+        )
+      : nextLeagueBase;
+
   // v0.62 media reports — fire AFTER all per-week subsystems so the
   // streak detector + headline templates see the just-played game's
   // result against the rest of the season.
   const mediaReports = generateWeeklyMediaReports(
     seasonPrng.fork(`media-week-${weekIdx + 1}`),
-    nextLeagueBase,
+    afterFrontOffice,
     weekIdx,
     currentTick,
   );
   return {
-    ...nextLeagueBase,
-    mediaReports: [...nextLeagueBase.mediaReports, ...mediaReports],
+    ...afterFrontOffice,
+    mediaReports: [...afterFrontOffice.mediaReports, ...mediaReports],
   };
 }
 

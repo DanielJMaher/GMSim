@@ -452,6 +452,8 @@ export interface HcFiringEvent {
   teamId: string;
   seasonsServed: number;
   jointWithGm: boolean;
+  /** S2: fired midseason (collapse trigger) vs the offseason window. */
+  inSeason: boolean;
   /** 0 = inherited, 1 = GM's first own hire, 2+ = second-plus own hire. */
   ownHireIndex: number;
   gmTenureSeasons: number;
@@ -464,6 +466,8 @@ export interface GmFiringEvent {
   teamId: string;
   seasonsServed: number;
   jointWithHc: boolean;
+  /** S2: fired midseason (the Grier/Douglas/Robinson pattern). */
+  inSeason: boolean;
 }
 
 export interface FrontOfficeHistory {
@@ -504,6 +508,7 @@ interface FoLeague {
     seasonsServed?: number;
     jointWithGm?: boolean;
     jointWithHc?: boolean;
+    inSeason?: boolean;
     ownHireIndex?: number;
     gmTenureSeasons?: number;
     retread?: boolean;
@@ -549,6 +554,7 @@ export async function simulateFrontOfficeHistory(
         teamId: tx.teamId ?? '',
         seasonsServed: tx.seasonsServed ?? 0,
         jointWithGm: tx.jointWithGm ?? false,
+        inSeason: tx.inSeason ?? false,
         ownHireIndex: tx.ownHireIndex ?? 0,
         gmTenureSeasons: tx.gmTenureSeasons ?? 0,
         winPctFiringSeason: winPctFor(tx.teamId ?? '', tx.seasonNumber),
@@ -559,6 +565,7 @@ export async function simulateFrontOfficeHistory(
         teamId: tx.teamId ?? '',
         seasonsServed: tx.seasonsServed ?? 0,
         jointWithHc: tx.jointWithHc ?? false,
+        inSeason: tx.inSeason ?? false,
       });
     } else if (tx.kind === 'hc-hired') {
       hcHiredTotal++;

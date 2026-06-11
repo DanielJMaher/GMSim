@@ -181,6 +181,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
         gmLameDuck: false,
         gmVacant: false,
         hcVacant: false,
+        hcInterim: false,
         seatPressure: { gm: 0, hc: 0 },
       },
     };

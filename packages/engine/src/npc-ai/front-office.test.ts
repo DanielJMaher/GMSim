@@ -221,12 +221,14 @@ describe('front-office lifecycle integration', () => {
   function firings(log: readonly Transaction[]): {
     hcFired: TransactionHcFired[];
     gmFired: TransactionGmFired[];
+    interims: Transaction[];
     hcHired: number;
     gmHired: number;
   } {
     return {
       hcFired: log.filter((t): t is TransactionHcFired => t.kind === 'hc-fired'),
       gmFired: log.filter((t): t is TransactionGmFired => t.kind === 'gm-fired'),
+      interims: log.filter((t) => t.kind === 'hc-interim'),
       hcHired: log.filter((t) => t.kind === 'hc-hired').length,
       gmHired: log.filter((t) => t.kind === 'gm-hired').length,
     };
@@ -245,9 +247,21 @@ describe('front-office lifecycle integration', () => {
     expect(f.hcHired).toBe(f.hcFired.length);
     expect(f.gmHired).toBe(f.gmFired.length);
 
+    // S2: every midseason firing installs an interim on the same tick;
+    // interims are exactly the midseason firings.
+    const midseason = f.hcFired.filter((t) => t.inSeason);
+    expect(f.interims.length).toBe(midseason.length);
+    for (const fired of midseason) {
+      const interim = f.interims.find(
+        (t) => t.kind === 'hc-interim' && t.teamId === fired.teamId && t.tick === fired.tick,
+      );
+      expect(interim).toBeDefined();
+    }
+
     for (const team of Object.values(lg.teams)) {
       expect(team.frontOffice.gmVacant).toBe(false);
       expect(team.frontOffice.hcVacant).toBe(false);
+      expect(team.frontOffice.hcInterim).toBe(false);
       const gm = lg.gms[team.gmId]!;
       const hc = lg.coaches[team.headCoachId]!;
       expect(gm.status).toBe('EMPLOYED');
@@ -283,7 +297,7 @@ describe('front-office lifecycle integration', () => {
       lg = simulateSeason(lg);
       lg = advanceSeason(lg);
       return lg.transactionLog.filter((t) =>
-        ['hc-fired', 'gm-fired', 'hc-hired', 'gm-hired'].includes(t.kind),
+        ['hc-fired', 'gm-fired', 'hc-hired', 'gm-hired', 'hc-interim'].includes(t.kind),
       );
     };
     expect(run()).toEqual(run());

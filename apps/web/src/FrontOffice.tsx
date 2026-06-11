@@ -20,17 +20,23 @@ import type {
   TransactionGmFired,
   TransactionHcHired,
   TransactionGmHired,
+  TransactionHcInterim,
 } from '@gmsim/engine/types';
 
 type CarouselTxn =
   | TransactionHcFired
   | TransactionGmFired
   | TransactionHcHired
-  | TransactionGmHired;
+  | TransactionGmHired
+  | TransactionHcInterim;
 
 function isCarouselTxn(t: Transaction): t is CarouselTxn {
   return (
-    t.kind === 'hc-fired' || t.kind === 'gm-fired' || t.kind === 'hc-hired' || t.kind === 'gm-hired'
+    t.kind === 'hc-fired' ||
+    t.kind === 'gm-fired' ||
+    t.kind === 'hc-hired' ||
+    t.kind === 'gm-hired' ||
+    t.kind === 'hc-interim'
   );
 }
 
@@ -195,7 +201,13 @@ function RegimeRow({ team, league }: { team: TeamState; league: LeagueState }) {
       </td>
       <td className="px-3 py-1.5 text-zinc-300">
         {hc?.name ?? '—'}
-        {fo.hcVacant && <span className="ml-1 text-red-400">(fired — seat open)</span>}
+        {fo.hcInterim ? (
+          <span className="ml-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-300">
+            INTERIM
+          </span>
+        ) : (
+          fo.hcVacant && <span className="ml-1 text-red-400">(fired — seat open)</span>
+        )}
       </td>
       <td className="px-3 py-1.5 font-mono text-zinc-400">{hcYr}</td>
       <td className="px-3 py-1.5 font-mono text-zinc-400">
@@ -230,20 +242,26 @@ function CarouselItem({
           : txn.ownHireIndex === 1
             ? "GM's hire #1"
             : `GM's hire #${txn.ownHireIndex}`;
-      body = `${team} fire HC ${name} — ${txn.seasonsServed}yr, ${fmtRecord(txn)} (${ownHire}, GM yr ${txn.gmTenureSeasons}, seat ${txn.seatPressure.toFixed(0)})${txn.jointWithGm ? ' — CLEAN HOUSE' : ''}`;
+      body = `${team} fire HC ${name}${txn.inSeason ? ' MIDSEASON' : ''} — ${txn.seasonsServed}yr, ${fmtRecord(txn)}${txn.inSeason ? ' start' : ''} (${ownHire}, GM yr ${txn.gmTenureSeasons}, seat ${txn.seatPressure.toFixed(0)})${txn.jointWithGm ? ' — CLEAN HOUSE' : ''}`;
       tone = txn.jointWithGm ? 'text-red-300' : 'text-amber-300';
       break;
     }
     case 'gm-fired': {
       const name = league.gms[txn.gmId]?.name ?? txn.gmId;
-      body = `${team} fire GM ${name} — ${txn.seasonsServed}yr, ${fmtRecord(txn)} (seat ${txn.seatPressure.toFixed(0)})${txn.jointWithHc ? ' — with his coach' : ' — GM-only'}`;
+      body = `${team} fire GM ${name}${txn.inSeason ? ' MIDSEASON' : ''} — ${txn.seasonsServed}yr, ${fmtRecord(txn)}${txn.inSeason ? ' start' : ''} (seat ${txn.seatPressure.toFixed(0)})${txn.jointWithHc ? ' — with his coach' : ' — GM-only'}`;
       tone = 'text-red-300';
       break;
     }
     case 'hc-hired': {
       const name = league.coaches[txn.coachId]?.name ?? txn.coachId;
-      body = `${team} hire HC ${name}${txn.retread ? ' (retread)' : ' (first-time HC)'}`;
+      body = `${team} hire HC ${name}${txn.promotedInterim ? ' (interim tag removed)' : txn.retread ? ' (retread)' : ' (first-time HC)'}`;
       tone = 'text-emerald-300';
+      break;
+    }
+    case 'hc-interim': {
+      const name = league.coaches[txn.coachId]?.name ?? txn.coachId;
+      body = `${team} name ${name} interim HC (week ${txn.weekIndex + 1})`;
+      tone = 'text-amber-300';
       break;
     }
     case 'gm-hired': {

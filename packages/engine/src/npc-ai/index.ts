@@ -55,6 +55,7 @@ export { runUdfaPromotion } from '../draft/udfa.js';
 export {
   runBlackMondayFirings,
   runPostSeasonFrontOffice,
+  runInSeasonFirings,
   runHiringWindow,
   computeSeatUpdate,
   decideFiring,

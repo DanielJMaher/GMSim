@@ -16,6 +16,52 @@ _Nothing yet._
 
 ---
 
+## [0.139.0] — 2026-06-11
+
+### Added
+
+- **GM hire/fire S2 — in-season firings & interim coaches** (design
+  §3.5; resolves Coaching Staff doc #8's "in-season changes" open thread).
+  - **Midseason HC collapse trigger** (`runInSeasonFirings`, runs on
+    regular-season week ticks from ~October, never on the final week —
+    that's Black Monday's job): fires when the team sits under .350, the
+    coach's *previewed* seat (carried pressure + projected-pace heat,
+    discounted by season progress — a 1-5 start is an extrapolation, a
+    2-10 start is a fact) clears the threshold at a 1.3× bar, gated on
+    carried pressure (cold seats survive bad starts to the offseason)
+    with a catastrophe hatch at ≤3-win pace (the Reich/Meyer path).
+    Per-week roll spreads firings across Oct–Dec.
+  - **Interim coaches**: a generated assistant (experience-capped) takes
+    the seat — no career stints, no TeamPersonality recompute, can't be
+    fired again. At the hiring window the interim earns the permanent
+    job ~20% of the time (the Antonio Pierce path, "interim tag
+    removed" news beat) or returns to assistant-land.
+  - **Midseason GM firings** (the Grier/Douglas/Robinson pattern): rare
+    (~0.6/yr), week 8+, requires carried pressure — boosted when the
+    coach seat is already interim-occupied. Midseason clean houses
+    happen too (Telesco/Staley, Ziegler/McDaniels) via the shared
+    accountability ladder, damped so the GM usually survives to run the
+    search. Fired-in-season personnel fold their partial-season record
+    into their stint (`FIRED_IN_SEASON`); season-end evaluation skips
+    vacant chairs.
+  - **Lame-duck cleanup is now a hard rule**: the real-world finding is
+    zero survivors, so a lame-duck GM dies at the next evaluation no
+    matter the owner — only a ring (whose seat-wipe lands below the
+    floor) saves him. Plus: a winning record damps firing heat 0.55×
+    (9+-win firings drop to 3.5%, present-but-rare), ring fatigue needs
+    legacyMotivation ≥ 7.
+  - **Headhunter S2 gates — ALL CHECKS IN ENVELOPE**: HC changes
+    5.7/season ✓, **GM changes 3.0 ✓ (S1's documented residual closed)**,
+    HC in-season 2.0/yr ✓, GM in-season 0.6/yr ✓, joint 1.7 ✓, survival
+    70.2% ✓, one-and-done 0.5/yr ✓, mean stint 3.7yr ✓, firing-season
+    win% .347 ✓, dead zone 0/8 keep the job ✓. Remaining gap to real
+    ~3.5-4.5 GM changes is resignations/poaching (unmodeled, floor 2.7).
+  - `hc-interim` transaction + news beat, MIDSEASON carousel copy,
+    INTERIM badge on the inspector Front Office tab, `hcInterim`
+    migration backfill for v0.138 saves.
+
+---
+
 ## [0.138.0] — 2026-06-11
 
 ### Added

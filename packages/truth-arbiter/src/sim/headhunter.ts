@@ -114,16 +114,21 @@ function report(h: FrontOfficeHistory): void {
   const hcPerSeason = h.hcFired.length / S;
   add('HC changes / season', fmt(hcPerSeason), hcPerSeason >= 5.5 && hcPerSeason <= 7.5, '5.5-7.5');
 
-  // Real ~3.5-4.5 includes in-season firings (~0.5-1/yr) and
-  // resignations — neither exists until S2. S1 floor is 2.2; tighten to
-  // 3.0 when in-season firings land.
+  // Real ~3.5-4.5 includes resignations/poaching, which still don't
+  // exist (S2 added in-season firings; the floor tightened 2.2 → 2.7).
   const gmPerSeason = h.gmFired.length / S;
   add(
     'GM changes / season',
     fmt(gmPerSeason),
-    gmPerSeason >= 2.2 && gmPerSeason <= 5.0,
-    '3.0-5.0 (S1 floor 2.2 — in-season firings are S2)',
+    gmPerSeason >= 2.7 && gmPerSeason <= 5.0,
+    '3.0-5.0 (S2 floor 2.7 — resignations still unmodeled)',
   );
+
+  const hcInSeason = h.hcFired.filter((e) => e.inSeason).length / S;
+  add('HC in-season firings / season', fmt(hcInSeason), hcInSeason >= 0.7 && hcInSeason <= 3.0, '1-3 (real: Saleh/Rhule/Reich/Daboll-style collapses)');
+
+  const gmInSeason = h.gmFired.filter((e) => e.inSeason).length / S;
+  add('GM in-season firings / season', fmt(gmInSeason), gmInSeason <= 1.5, '~0-1 (Grier/Douglas/Robinson pattern)');
 
   const jointPerSeason = h.hcFired.filter((e) => e.jointWithGm).length / S;
   add('Joint clean-houses / season', fmt(jointPerSeason), jointPerSeason >= 0.5 && jointPerSeason <= 2.0, '0.5-2.0');

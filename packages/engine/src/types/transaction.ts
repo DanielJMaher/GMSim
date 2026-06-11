@@ -69,7 +69,8 @@ export type Transaction =
   | TransactionHcFired
   | TransactionGmFired
   | TransactionHcHired
-  | TransactionGmHired;
+  | TransactionGmHired
+  | TransactionHcInterim;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -390,7 +391,10 @@ export interface TransactionHcFired extends TransactionBase {
   inSeason: boolean;
   /** Seasons coached for this team, inclusive. */
   seasonsServed: number;
-  /** Record across the stint, for the news line. */
+  /**
+   * Record for the news line: the full stint for offseason firings,
+   * the season-to-date start ("fired at 2-8") for in-season ones.
+   */
   wins: number;
   losses: number;
   ties: number;
@@ -428,6 +432,24 @@ export interface TransactionHcHired extends TransactionBase {
   retread: boolean;
   /** GM who made the hire (the "his guy" coupling). */
   hiredByGmId: GmId;
+  /**
+   * S2 (v0.139): true when the hire is the interim coach earning the
+   * permanent job (the Antonio Pierce path). Absent on v0.138 logs.
+   */
+  promotedInterim?: boolean;
+}
+
+/**
+ * S2 (v0.139): an in-season firing installs an interim head coach.
+ * Logged separately from `hc-hired` so "hires" always means the
+ * permanent seat being filled.
+ */
+export interface TransactionHcInterim extends TransactionBase {
+  kind: 'hc-interim';
+  teamId: TeamId;
+  coachId: CoachId;
+  /** Week index (0-based) the interim took over. */
+  weekIndex: number;
 }
 
 export interface TransactionGmHired extends TransactionBase {

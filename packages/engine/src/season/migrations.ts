@@ -577,11 +577,26 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
             gmLameDuck: false,
             gmVacant: false,
             hcVacant: false,
+            hcInterim: false,
             seatPressure: { gm: 0, hc: 0 },
           },
         };
       }
       next = { ...next, teams: teamsNext } as LeagueState;
+    }
+
+    // v0.139.0 in-season firings: `frontOffice.hcInterim`. v0.138 saves
+    // have frontOffice without the flag — backfill false.
+    {
+      const teamsNow = next.teams as Record<string, TeamState>;
+      const s = Object.values(teamsNow)[0];
+      if (s?.frontOffice && (s.frontOffice as { hcInterim?: unknown }).hcInterim === undefined) {
+        const teamsNext: Record<string, TeamState> = {};
+        for (const [id, team] of Object.entries(teamsNow)) {
+          teamsNext[id] = { ...team, frontOffice: { ...team.frontOffice, hcInterim: false } };
+        }
+        next = { ...next, teams: teamsNext } as LeagueState;
+      }
     }
 
     const gms = next.gms as Record<string, Gm>;
