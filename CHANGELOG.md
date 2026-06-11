@@ -16,6 +16,58 @@ _Nothing yet._
 
 ---
 
+## [0.138.0] — 2026-06-11
+
+### Added
+
+- **GM hire/fire S1 — regime mortality** (design:
+  `docs/design-docs/GM_HIRE_FIRE.md`). GMs and head coaches are no longer
+  immortal: owners evaluate both chairs every season and the firing ladder +
+  hiring market run league-wide.
+  - **Black Monday** (`BLACK_MONDAY` lifecycle step, the day after the final
+    regular-season week): owner evaluations + the firing ladder for the 18
+    non-playoff teams. Playoff teams are evaluated at `POST_SEASON_FINALIZE`
+    with their playoff results, followed by the league-wide hiring window
+    (before the combine — the new GM runs the draft, as in real life).
+  - **Expectation-relative seat pressure** (hidden ground truth on
+    `TeamState.frontOffice`): disappointment = expected wins (prior season
+    regressed to mean + competitive-window bump + tenure ramp) − wins −
+    playoff credit. Owner patience scales the heat (~×1.8 hair-trigger …
+    ×0.5 patient — the Dynasty doc's 2-3 vs 4-6 season triggers fall out);
+    playoff runs bank slow-decaying credit (the Keim/Telesco clock-reset);
+    a ring wipes both seats; grace clamps (HC year 1 unless ≤4 wins; GM
+    "three drafts") match the real one-and-done/early-firing rarity.
+  - **The firing ladder** (`npc-ai/front-office.ts` — NPC-AI invariant):
+    HC before GM; the GM survives an inherited coach's firing ~95% and his
+    FIRST own hire's ~85%, but his SECOND+ own hire's failure takes him
+    down — joint clean house at 75%, survivors lame-ducked and finished
+    within a year unless an empirical hatch (early-teardown / banked-credit
+    = low accumulated pressure) is open. Calibrated to Daniel's verified
+    finding: zero real GMs in years 4-7 survived coach #2's firing.
+  - **Hiring market**: fired personnel persist (`status: 'UNEMPLOYED'`,
+    `careerStints` résumés) as the retread pool (~15% of GM hires, ~35% of
+    HC hires, weighted by record); fresh candidates reuse the
+    owner-archetype-weighted generation; new GMs arrive with freshly
+    miscalibrated `perceivedOutletReliability` (the media-trust ecology
+    unblock); `TeamPersonality` recomputes on every change.
+  - **Transactions + news**: `hc-fired` / `gm-fired` / `hc-hired` /
+    `gm-hired` log entries with stint records and ladder context, surfaced
+    in the news feed ("CLEAN HOUSE" beats) and transaction log.
+  - **The Headhunter (agent #8)** — `run headhunter` (in `run gates`):
+    audits the firing ecology vs the real carousel. At v0.138: HC changes
+    5.5/season ✓, joint clean-houses 1.5 ✓, GM survives a HC firing 75% ✓,
+    mean HC stint 4.0yr ✓, firing-season win% .341 ✓, 9+-win firings 3.6%
+    (present-but-rare ✓), **2nd-own-hire dead zone 0/10 GMs keep the job ✓**.
+    Known S1 residual: GM changes 2.4/season vs real ~3.5-4.5 — in-season
+    firings + resignations are S2 mechanisms (gate floor 2.2 documents it).
+  - **Inspector Front Office tab**: per-team regime table (tenure, stint
+    records, REAL seat pressure, lame-duck/survived badges, "his guy" vs
+    inherited), the carousel feed, and the unemployed retread pools.
+  - Migration backfills `frontOffice` state + `status`/`careerStints` on
+    pre-v0.138 saves; open stints self-heal lazily.
+
+---
+
 ## [0.137.1] — 2026-06-10
 
 ### Fixed

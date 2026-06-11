@@ -87,6 +87,8 @@ export function generateHeadCoach(
     quirks,
     personality,
     careerAwards: [],
+    status: 'EMPLOYED',
+    careerStints: [],
   };
 }
 

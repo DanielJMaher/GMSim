@@ -1,4 +1,4 @@
-import type { PlayerId, TeamId, ContractId, CoachId, OwnerId, DraftPickId } from './ids.js';
+import type { PlayerId, TeamId, ContractId, CoachId, GmId, OwnerId, DraftPickId } from './ids.js';
 import type { TalentTier } from './player.js';
 import type { LeaguePhase } from './league.js';
 import type { WatchListReason } from './scout.js';
@@ -65,7 +65,11 @@ export type Transaction =
   | TransactionCapCut
   | TransactionMoodShift
   | TransactionTradeRequest
-  | TransactionLockerRoomIncident;
+  | TransactionLockerRoomIncident
+  | TransactionHcFired
+  | TransactionGmFired
+  | TransactionHcHired
+  | TransactionGmHired;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -369,6 +373,68 @@ export interface TransactionLockerRoomIncident extends TransactionBase {
   involvedCoachId?: CoachId;
   /** Optional owner when an ownership decision triggered the incident. */
   involvedOwnerId?: OwnerId;
+}
+
+/**
+ * Front-office lifecycle transactions (v0.138). One entry per firing /
+ * hiring so the news feed and the inspector carousel view read the
+ * whole regime history off the append-only log.
+ */
+export interface TransactionHcFired extends TransactionBase {
+  kind: 'hc-fired';
+  teamId: TeamId;
+  coachId: CoachId;
+  /** True when the GM went down in the same cycle (clean house). */
+  jointWithGm: boolean;
+  /** S2 will set this for mid-season firings; S1 is always false. */
+  inSeason: boolean;
+  /** Seasons coached for this team, inclusive. */
+  seasonsServed: number;
+  /** Record across the stint, for the news line. */
+  wins: number;
+  losses: number;
+  ties: number;
+  /** HC seat pressure at the moment of firing (inspector context). */
+  seatPressure: number;
+  /**
+   * Which of the sitting GM's coaches this was: 0 = inherited (not his
+   * hire), 1 = his first own hire, 2+ = second-plus own hire (the
+   * firing that takes the GM down). Headhunter/inspector surface.
+   */
+  ownHireIndex: number;
+  /** The sitting GM's tenure (seasons) at the moment of this firing. */
+  gmTenureSeasons: number;
+}
+
+export interface TransactionGmFired extends TransactionBase {
+  kind: 'gm-fired';
+  teamId: TeamId;
+  gmId: GmId;
+  /** True when fired in the same cycle as the HC (clean house). */
+  jointWithHc: boolean;
+  inSeason: boolean;
+  seasonsServed: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  seatPressure: number;
+}
+
+export interface TransactionHcHired extends TransactionBase {
+  kind: 'hc-hired';
+  teamId: TeamId;
+  coachId: CoachId;
+  /** True when the hire came from the unemployed-retread pool. */
+  retread: boolean;
+  /** GM who made the hire (the "his guy" coupling). */
+  hiredByGmId: GmId;
+}
+
+export interface TransactionGmHired extends TransactionBase {
+  kind: 'gm-hired';
+  teamId: TeamId;
+  gmId: GmId;
+  retread: boolean;
 }
 
 export type LockerRoomIncidentFlavor =

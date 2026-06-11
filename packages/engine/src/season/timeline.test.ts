@@ -74,6 +74,7 @@ describe('buildSeasonTimeline', () => {
       'DRAFT_DECLARATION',
       'SHRINE_BOWL',
       'SENIOR_BOWL',
+      'BLACK_MONDAY',
       'WILD_CARD',
       'DIVISIONAL',
       'CONFERENCE',
@@ -92,8 +93,9 @@ describe('buildSeasonTimeline', () => {
     }
     // READY_FOR_NEXT_SEASON is the wrap marker — not a dated step.
     expect(counts.get('READY_FOR_NEXT_SEASON')).toBeUndefined();
-    // 17 NFL weeks + 12 college weeks + 25 single-shot phases.
-    expect(timeline.length).toBe(17 + 12 + 25);
+    // 17 NFL weeks + 12 college weeks + 26 single-shot phases
+    // (v0.138 added BLACK_MONDAY).
+    expect(timeline.length).toBe(17 + 12 + 26);
   });
 
   it('places the all-star bowls in late Jan / early Feb, before the combine', () => {

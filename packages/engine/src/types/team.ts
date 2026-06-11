@@ -3,6 +3,51 @@ import type { Conference, Division, MarketSize, FranchiseHistory, CompetitiveWin
 import type { FanBaseProfile } from './personnel.js';
 
 /**
+ * Front-office lifecycle state (GM hire/fire design doc §3.1, v0.138).
+ * Ground truth — the game UI never reads seat pressure; the inspector
+ * (calibration lens) does.
+ */
+export interface FrontOfficeState {
+  /** First season the current GM works(ed) for this team. */
+  gmHiredSeason: number;
+  /** First season the current HC works(ed) for this team. */
+  hcHiredSeason: number;
+  /**
+   * GM who hired the current HC — the "his guy" coupling that drives
+   * the firing ladder. `null` = inherited (hired by a since-departed
+   * GM), which shields the current GM when this coach fails.
+   */
+  hcHiredByGmId: GmId | null;
+  /**
+   * How many of his OWN coach hires this GM has watched get fired
+   * while keeping his job. 0 → next own-hire firing is "coach #1"
+   * (GM usually survives); 1+ → "coach #2" (the GM goes, per the
+   * zero-survivors-in-years-4-7 finding).
+   */
+  gmCoachFiringsSurvived: number;
+  /**
+   * Set when a GM survives a 2nd-own-hire firing — his seat is floored
+   * near the firing threshold so a mediocre next season finishes the
+   * job (the empirical "gone within 12 months" pattern).
+   */
+  gmLameDuck: boolean;
+  /**
+   * Pending vacancies: the fired person's id stays on `gmId` /
+   * `headCoachId` (caretaker) until the hiring window fills the seat
+   * at POST_SEASON_FINALIZE; these flags mark the seat as open.
+   */
+  gmVacant: boolean;
+  hcVacant: boolean;
+  /**
+   * Owner-confidence pressure, accumulated per season. Range ~[-60,
+   * 110]: negative = banked credit (playoff runs, beating
+   * expectations), above the ~70 firing threshold = gone. Hidden
+   * ground truth per North Star.
+   */
+  seatPressure: { gm: number; hc: number };
+}
+
+/**
  * Base team identity — the immutable parts of a franchise (city, division,
  * conference, market size). These come from `packages/data/src/team-base`.
  *
@@ -88,6 +133,11 @@ export interface TeamState {
   competitiveWindow: CompetitiveWindow;
   /** Year-end win-loss across all simulated seasons; indexed by season number from league start. */
   seasonHistory: readonly TeamSeasonRecord[];
+  /**
+   * Front-office lifecycle state (v0.138). Pre-v0.138 saves backfill
+   * in `migrateLeagueForward` (hired seasons = 1, zero pressure).
+   */
+  frontOffice: FrontOfficeState;
 }
 
 export interface TeamSeasonRecord {

@@ -26,8 +26,8 @@
  *   Free agency    — the offseason auction, weekly street signings, poaching
  *   Roster         — UDFA promotion (post-draft scramble)
  *
- * Hire/fire (GM + coaching carousel) has no engine path yet — when it lands,
- * it lands HERE.
+ * Hire/fire — the front-office lifecycle (v0.138): owner evaluations,
+ * the firing ladder, and the hiring market live in `front-office.ts`.
  */
 
 // Draft day — each team's board (scheme/need/media-trust shaped) and the
@@ -49,3 +49,20 @@ export { runWeeklyPoaching } from '../transactions/poach.js';
 
 // Roster — the post-draft UDFA scramble.
 export { runUdfaPromotion } from '../draft/udfa.js';
+
+// Front office — Black Monday owner evaluations, the firing ladder, and
+// the Dec–Jan hiring window (GM hire/fire design doc, S1).
+export {
+  runBlackMondayFirings,
+  runPostSeasonFrontOffice,
+  runHiringWindow,
+  computeSeatUpdate,
+  decideFiring,
+  expectedWinsForTeam,
+  playoffOutcomeForTeam,
+  openCareerStint,
+  FIRING_THRESHOLD,
+  type SeasonOutcome,
+  type FiringDecision,
+  type SeatUpdate,
+} from './front-office.js';

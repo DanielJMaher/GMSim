@@ -121,6 +121,7 @@ import type {
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import type { CollegePlayer, CollegeSchool, CollegeScout } from '../types/college.js';
 import { buildSeasonTimeline, type TimelineStep } from './timeline.js';
+import { runBlackMondayFirings, runPostSeasonFrontOffice } from '../npc-ai/front-office.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
 
@@ -153,6 +154,7 @@ export type LifecyclePhase =
   | 'DRAFT_DECLARATION'
   | 'SHRINE_BOWL'
   | 'SENIOR_BOWL'
+  | 'BLACK_MONDAY'
   | 'WILD_CARD'
   | 'DIVISIONAL'
   | 'CONFERENCE'
@@ -197,6 +199,7 @@ export const LIFECYCLE_ORDER: readonly LifecyclePhase[] = [
   'DRAFT_DECLARATION',
   'SHRINE_BOWL',
   'SENIOR_BOWL',
+  'BLACK_MONDAY',
   'WILD_CARD',
   'DIVISIONAL',
   'CONFERENCE',
@@ -272,6 +275,8 @@ export function tickPhase(league: LeagueState): LeagueState {
   switch (target) {
     case 'PRESEASON':
       return applyPreseason(league, phasePrng);
+    case 'BLACK_MONDAY':
+      return applyBlackMonday(league, phasePrng);
     case 'TRADE_DEADLINE':
       return applyTradeDeadline(league);
     case 'SHRINE_BOWL':
@@ -649,6 +654,21 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
 // `seasonPrng.fork('playoffs')` — same root the pre-v0.56 monolith
 // used, so per-game fork labels resolve to identical streams.
 
+/**
+ * BLACK_MONDAY — the day after the final regular-season week (v0.138,
+ * front-office lifecycle S1). Owner evaluations + the firing ladder run
+ * for the 18 non-playoff teams; fired GMs/HCs flip to UNEMPLOYED and
+ * caretake their seats until the hiring window at POST_SEASON_FINALIZE.
+ * Playoff teams are evaluated there too, with their playoff results.
+ */
+function applyBlackMonday(league: LeagueState, prng: PrngClass): LeagueState {
+  if (!league.schedule) {
+    throw new Error('applyBlackMonday requires a played schedule');
+  }
+  const next = runBlackMondayFirings(league, prng);
+  return { ...next, lifecyclePhase: 'BLACK_MONDAY' };
+}
+
 function applyWildCard(league: LeagueState, prng: PrngClass): LeagueState {
   if (!league.schedule) {
     throw new Error('applyWildCard requires a populated league.schedule');
@@ -761,12 +781,17 @@ function applyIrMoves(
 // league into next season's tick + seasonNumber.
 
 function applyPostSeasonFinalize(
-  league: LeagueState,
+  leagueIn: LeagueState,
   prng: PrngClass,
 ): LeagueState {
-  if (!league.schedule) {
+  if (!leagueIn.schedule) {
     throw new Error('applyPostSeasonFinalize requires a played schedule');
   }
+  // Front-office lifecycle (v0.138): playoff-team owner evaluations +
+  // the league-wide hiring window run FIRST, so the rest of finalize
+  // (awards, development, retirement) operates on the post-carousel
+  // league and next season opens with every seat filled.
+  const league = runPostSeasonFrontOffice(leagueIn, prng.fork('front-office'));
   const records = computeRecords(league);
   const standings = divisionStandings(league, records);
   const nextSeasonNumber = league.seasonNumber + 1;

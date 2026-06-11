@@ -1,4 +1,4 @@
-import type { OwnerId, GmId, CoachId, MediaOutletId } from './ids.js';
+import type { OwnerId, GmId, CoachId, MediaOutletId, TeamId } from './ids.js';
 import type { PositionGroup } from './enums.js';
 import type { CareerAward } from './awards.js';
 
@@ -45,6 +45,49 @@ export interface Owner {
   /** 2–4 quirks per Personnel Generation doc. */
   quirks: readonly OwnerQuirk[];
   personality: PersonalityTraits;
+}
+
+// ─── FRONT-OFFICE LIFECYCLE (GM hire/fire design doc) ───────────────────────
+
+/**
+ * Employment status for GMs and head coaches. Fired personnel are
+ * NEVER deleted from `LeagueState.gms` / `coaches` — they flip to
+ * `UNEMPLOYED` and form the retread hiring market; their stints stay
+ * readable as history. `RETIRED` is reserved for future use (aging
+ * personnel); no S1 path sets it.
+ */
+export type PersonnelStatus = 'EMPLOYED' | 'UNEMPLOYED' | 'RETIRED';
+
+/** How a career stint ended. `null` end = the stint is still open. */
+export type StintEnd =
+  | 'FIRED'
+  | 'JOINT_FIRED'      // clean house — went down with the other chair
+  | 'FIRED_IN_SEASON'  // S2: mid-season firing
+  | 'RESIGNED'
+  | 'RETIRED';
+
+/**
+ * One job a GM or HC held — the résumé line. Append-only on
+ * `Gm.careerStints` / `HeadCoach.careerStints`. Season records
+ * accumulate onto the open stint once per season during the
+ * front-office evaluation; the stint closes (toSeason + end set)
+ * when the person is fired. Powers the retread market weighting and
+ * the inspector's records-during-tenure view.
+ */
+export interface CareerStint {
+  teamId: TeamId;
+  role: 'GM' | 'HC';
+  /** First season worked in this job (1-indexed league season). */
+  fromSeason: number;
+  /** Last season worked, or null while the stint is open. */
+  toSeason: number | null;
+  wins: number;
+  losses: number;
+  ties: number;
+  playoffAppearances: number;
+  /** Super Bowl wins during the stint. */
+  championships: number;
+  end: StintEnd | null;
 }
 
 // ─── GM ─────────────────────────────────────────────────────────────────────
@@ -120,6 +163,17 @@ export interface Gm {
    * accuracy when it is absent.
    */
   perceivedOutletReliability?: PerceivedOutletReliability;
+  /**
+   * Employment status (front-office lifecycle, v0.138). Pre-v0.138
+   * saves backfill `'EMPLOYED'` in `migrateLeagueForward`.
+   */
+  status: PersonnelStatus;
+  /**
+   * Job history résumé (front-office lifecycle, v0.138). The open
+   * stint is created lazily on first season evaluation, so backfilled
+   * saves self-heal. Pre-v0.138 saves backfill `[]`.
+   */
+  careerStints: readonly CareerStint[];
 }
 
 // ─── HEAD COACH ─────────────────────────────────────────────────────────────
@@ -179,6 +233,10 @@ export interface HeadCoach {
    * Populated by `advanceSeason`. Empty for newly-generated coaches.
    */
   careerAwards: readonly CareerAward[];
+  /** Employment status (front-office lifecycle, v0.138). See `Gm.status`. */
+  status: PersonnelStatus;
+  /** Job history résumé (front-office lifecycle, v0.138). See `Gm.careerStints`. */
+  careerStints: readonly CareerStint[];
 }
 
 // ─── PERSONALITY (shared across owner/gm/hc) ────────────────────────────────

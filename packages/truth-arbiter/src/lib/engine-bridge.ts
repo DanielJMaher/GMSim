@@ -445,6 +445,168 @@ interface LiquidatorLeague {
   contracts: Record<string, RawContract>;
 }
 
+// ── The Headhunter: front-office firing/hiring ecology ───────────────────
+
+export interface HcFiringEvent {
+  seasonNumber: number;
+  teamId: string;
+  seasonsServed: number;
+  jointWithGm: boolean;
+  /** 0 = inherited, 1 = GM's first own hire, 2+ = second-plus own hire. */
+  ownHireIndex: number;
+  gmTenureSeasons: number;
+  /** Team win% in the firing season (from seasonHistory), or null. */
+  winPctFiringSeason: number | null;
+}
+
+export interface GmFiringEvent {
+  seasonNumber: number;
+  teamId: string;
+  seasonsServed: number;
+  jointWithHc: boolean;
+}
+
+export interface FrontOfficeHistory {
+  seasons: number;
+  hcFired: HcFiringEvent[];
+  gmFired: GmFiringEvent[];
+  hcHiredTotal: number;
+  hcHiredRetreads: number;
+  gmHiredTotal: number;
+  gmHiredRetreads: number;
+  /** Lengths (seasons) of every CLOSED HC stint at sim end. */
+  completedHcStints: number[];
+  /** Seasons worked by each team's sitting GM at sim end. */
+  activeGmTenures: number[];
+  /** Longest GM tenure seen anywhere (closed stints + active). */
+  maxGmTenure: number;
+}
+
+interface FoTeam {
+  identity: { id: string };
+  seasonHistory: readonly { seasonNumber: number; wins: number; losses: number; ties: number }[];
+  frontOffice: { gmHiredSeason: number };
+}
+interface FoStint {
+  role: string;
+  fromSeason: number;
+  toSeason: number | null;
+}
+interface FoLeague {
+  seasonNumber: number;
+  teams: Record<string, FoTeam>;
+  gms: Record<string, { careerStints: readonly FoStint[] }>;
+  coaches: Record<string, { careerStints: readonly FoStint[] }>;
+  transactionLog: readonly {
+    kind: string;
+    seasonNumber: number;
+    teamId?: string;
+    seasonsServed?: number;
+    jointWithGm?: boolean;
+    jointWithHc?: boolean;
+    ownHireIndex?: number;
+    gmTenureSeasons?: number;
+    retread?: boolean;
+  }[];
+}
+
+/**
+ * Forward-sim `years` seasons and pool the entire front-office carousel —
+ * the surface the Headhunter audits against the real coach/GM firing
+ * ecology (GM hire/fire design doc §2/§4).
+ */
+export async function simulateFrontOfficeHistory(
+  seed: string,
+  years: number,
+): Promise<FrontOfficeHistory> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed }) as unknown as FoLeague;
+  for (let y = 0; y < years; y++) {
+    league = eng.advanceSeason(
+      eng.simulateSeason(league as unknown as EngineLeague),
+    ) as unknown as FoLeague;
+  }
+
+  const winPctFor = (teamId: string, seasonNumber: number): number | null => {
+    const team = league.teams[teamId];
+    const rec = team?.seasonHistory.find((s) => s.seasonNumber === seasonNumber);
+    if (!rec) return null;
+    const games = rec.wins + rec.losses + rec.ties;
+    return games > 0 ? (rec.wins + rec.ties / 2) / games : null;
+  };
+
+  const hcFired: HcFiringEvent[] = [];
+  const gmFired: GmFiringEvent[] = [];
+  let hcHiredTotal = 0;
+  let hcHiredRetreads = 0;
+  let gmHiredTotal = 0;
+  let gmHiredRetreads = 0;
+
+  for (const tx of league.transactionLog) {
+    if (tx.kind === 'hc-fired') {
+      hcFired.push({
+        seasonNumber: tx.seasonNumber,
+        teamId: tx.teamId ?? '',
+        seasonsServed: tx.seasonsServed ?? 0,
+        jointWithGm: tx.jointWithGm ?? false,
+        ownHireIndex: tx.ownHireIndex ?? 0,
+        gmTenureSeasons: tx.gmTenureSeasons ?? 0,
+        winPctFiringSeason: winPctFor(tx.teamId ?? '', tx.seasonNumber),
+      });
+    } else if (tx.kind === 'gm-fired') {
+      gmFired.push({
+        seasonNumber: tx.seasonNumber,
+        teamId: tx.teamId ?? '',
+        seasonsServed: tx.seasonsServed ?? 0,
+        jointWithHc: tx.jointWithHc ?? false,
+      });
+    } else if (tx.kind === 'hc-hired') {
+      hcHiredTotal++;
+      if (tx.retread) hcHiredRetreads++;
+    } else if (tx.kind === 'gm-hired') {
+      gmHiredTotal++;
+      if (tx.retread) gmHiredRetreads++;
+    }
+  }
+
+  const completedHcStints: number[] = [];
+  for (const hc of Object.values(league.coaches)) {
+    for (const s of hc.careerStints) {
+      if (s.role === 'HC' && s.toSeason !== null) {
+        completedHcStints.push(s.toSeason - s.fromSeason + 1);
+      }
+    }
+  }
+
+  const activeGmTenures: number[] = [];
+  for (const team of Object.values(league.teams)) {
+    // seasonNumber points at the upcoming season at sim end.
+    activeGmTenures.push(league.seasonNumber - team.frontOffice.gmHiredSeason);
+  }
+
+  let maxGmTenure = Math.max(0, ...activeGmTenures);
+  for (const gm of Object.values(league.gms)) {
+    for (const s of gm.careerStints) {
+      if (s.role === 'GM' && s.toSeason !== null) {
+        maxGmTenure = Math.max(maxGmTenure, s.toSeason - s.fromSeason + 1);
+      }
+    }
+  }
+
+  return {
+    seasons: years,
+    hcFired,
+    gmFired,
+    hcHiredTotal,
+    hcHiredRetreads,
+    gmHiredTotal,
+    gmHiredRetreads,
+    completedHcStints,
+    activeGmTenures,
+    maxGmTenure,
+  };
+}
+
 let cached: EngineModule | null = null;
 async function loadEngine(): Promise<EngineModule> {
   if (cached) return cached;

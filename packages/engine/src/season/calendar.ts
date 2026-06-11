@@ -52,6 +52,8 @@ export const CALENDAR_ANCHORS = {
   weekOneKickoff: { month: 9, day: 7 },
   /** Tuesday after Week 8 — the NFL trade deadline since 2022. */
   tradeDeadline: { month: 10, day: 27 },
+  /** Black Monday — the day-after-week-18 coach/GM purge window. */
+  blackMonday: { month: 1, day: 8 },
   /** Wild Card weekend, mid-January of the year after kickoff. */
   wildCard: { month: 1, day: 13 },
   /** Divisional round, third weekend of January. */
@@ -157,6 +159,8 @@ export function phaseCalendarLabel(
       return '🎓 Late January · Shrine Bowl';
     case 'SENIOR_BOWL':
       return '🎓 Early February · Senior Bowl';
+    case 'BLACK_MONDAY':
+      return 'Early January · Black Monday';
     case 'WILD_CARD':
       return 'Wild Card Round';
     case 'DIVISIONAL':
@@ -255,6 +259,8 @@ export function phaseCalendarDate(
       return { year: offseasonYear, ...CALENDAR_ANCHORS.shrineBowl };
     case 'SENIOR_BOWL':
       return { year: offseasonYear, ...CALENDAR_ANCHORS.seniorBowl };
+    case 'BLACK_MONDAY':
+      return { year: offseasonYear, ...CALENDAR_ANCHORS.blackMonday };
     case 'WILD_CARD':
       return { year: offseasonYear, ...CALENDAR_ANCHORS.wildCard };
     case 'DIVISIONAL':

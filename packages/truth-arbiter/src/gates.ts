@@ -75,6 +75,13 @@ const GATES: readonly Gate[] = [
     fullArgs: ['sim', '12', 'actuary-sim-1,actuary-sim-2'],
     checks: 'per-position aging curves + entry ages vs the 2003-2024 real bar',
   },
+  {
+    name: 'headhunter',
+    entry: 'sim/headhunter.js',
+    quickArgs: ['sim', '10'],
+    fullArgs: ['sim', '20', 'hh-1,hh-2'],
+    checks: 'front-office firing ecology vs the real coach/GM carousel',
+  },
 ];
 
 /** Markers the agents print next to a metric that missed its target. */

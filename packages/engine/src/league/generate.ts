@@ -171,6 +171,18 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
       fanBase: bundle.fanBase,
       competitiveWindow: pickStartingWindow(franchiseHistory),
       seasonHistory: [],
+      // Front-office lifecycle (v0.138): founding regimes arrive
+      // together, so the HC counts as the GM's own hire.
+      frontOffice: {
+        gmHiredSeason: 1,
+        hcHiredSeason: 1,
+        hcHiredByGmId: bundle.gm.id,
+        gmCoachFiringsSurvived: 0,
+        gmLameDuck: false,
+        gmVacant: false,
+        hcVacant: false,
+        seatPressure: { gm: 0, hc: 0 },
+      },
     };
 
     teams[identity.id] = team;

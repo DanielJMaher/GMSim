@@ -67,6 +67,7 @@ import type { CareerShape } from '@gmsim/engine';
 import { GameViewReport } from './GameView';
 import { DepthChartCard } from './DepthChart';
 import { RatingsDistributionPanel } from './RatingsDistribution';
+import { FrontOfficePanel } from './FrontOffice';
 import type { ProspectDossier, DossierViewer, AttributedPoint } from '@gmsim/engine';
 import type { OutletGroupQuality } from '@gmsim/engine';
 import type { CollegeSeasonStatLine, CollegeStatCategory } from '@gmsim/engine/types';
@@ -94,7 +95,7 @@ import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsi
  */
 const DEFAULT_SEED = 'phase-2-season';
 
-type InspectorTab = 'league' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'histograms' | 'news' | 'lifecycle';
+type InspectorTab = 'league' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'front-office' | 'histograms' | 'news' | 'lifecycle';
 
 interface TabDef {
   id: InspectorTab;
@@ -138,6 +139,11 @@ const TAB_DEFS: readonly TabDef[] = [
     id: 'free-agency',
     label: 'Free Agency',
     activeClasses: 'border-sky-400 bg-sky-500/10 text-sky-200',
+  },
+  {
+    id: 'front-office',
+    label: 'Front Office',
+    activeClasses: 'border-fuchsia-400 bg-fuchsia-500/10 text-fuchsia-200',
   },
   {
     id: 'histograms',
@@ -464,6 +470,8 @@ export function App() {
         <FreeAgentPoolPanel league={league} />
       )}
 
+      {activeTab === 'front-office' && <FrontOfficePanel league={league} />}
+
       {activeTab === 'histograms' && <RatingsDistributionPanel league={league} />}
 
       {activeTab === 'news' && (
@@ -526,6 +534,8 @@ function TabNav({
       case 'draft-audit':
         return null;
       case 'college-games':
+        return null;
+      case 'front-office':
         return null;
       case 'histograms':
         return null;
@@ -3441,6 +3451,10 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'mood-shift':
     case 'trade-request':
     case 'locker-room-incident':
+    case 'hc-fired':
+    case 'gm-fired':
+    case 'hc-hired':
+    case 'gm-hired':
       return [entry.teamId];
   }
 }
@@ -3462,6 +3476,11 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'mood-shift':
     case 'trade-request':
       return [entry.playerId];
+    case 'hc-fired':
+    case 'gm-fired':
+    case 'hc-hired':
+    case 'gm-hired':
+      return [];
   }
 }
 
@@ -3865,6 +3884,12 @@ function kindColor(kind: Transaction['kind']): string {
       return 'text-pink-400';
     case 'contract-expiration':
       return 'text-zinc-500';
+    case 'hc-fired':
+    case 'gm-fired':
+      return 'text-red-400';
+    case 'hc-hired':
+    case 'gm-hired':
+      return 'text-sky-400';
   }
 }
 
@@ -3902,6 +3927,14 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       const delta = entry.moodDelta >= 0 ? `+${entry.moodDelta.toFixed(1)}` : entry.moodDelta.toFixed(1);
       return `${leak}${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} ${formatIncidentFlavor(entry.flavor)} (mood ${delta})`;
     }
+    case 'hc-fired':
+      return `${teamLabel(entry.teamId)} fired HC ${league.coaches[entry.coachId]?.name ?? entry.coachId} · ${entry.seasonsServed}yr ${entry.wins}-${entry.losses}${entry.ties > 0 ? `-${entry.ties}` : ''}${entry.jointWithGm ? ' · CLEAN HOUSE' : ''}`;
+    case 'gm-fired':
+      return `${teamLabel(entry.teamId)} fired GM ${league.gms[entry.gmId]?.name ?? entry.gmId} · ${entry.seasonsServed}yr ${entry.wins}-${entry.losses}${entry.ties > 0 ? `-${entry.ties}` : ''}${entry.jointWithHc ? ' · with HC' : ''}`;
+    case 'hc-hired':
+      return `${teamLabel(entry.teamId)} hired HC ${league.coaches[entry.coachId]?.name ?? entry.coachId}${entry.retread ? ' (retread)' : ''}`;
+    case 'gm-hired':
+      return `${teamLabel(entry.teamId)} hired GM ${league.gms[entry.gmId]?.name ?? entry.gmId}${entry.retread ? ' (retread)' : ''}`;
   }
 }
 

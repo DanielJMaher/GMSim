@@ -8,6 +8,10 @@ import type {
   TransactionRelease,
   TransactionFreeAgentSign,
   TransactionCapCut,
+  TransactionHcFired,
+  TransactionGmFired,
+  TransactionHcHired,
+  TransactionGmHired,
   LockerRoomIncidentFlavor,
 } from '../types/transaction.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
@@ -108,6 +112,14 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       return newsFromCapCut(txn, league);
     case 'fa-sign':
       return newsFromFreeAgentSign(txn, league);
+    case 'hc-fired':
+      return newsFromHcFired(txn, league);
+    case 'gm-fired':
+      return newsFromGmFired(txn, league);
+    case 'hc-hired':
+      return newsFromHcHired(txn, league);
+    case 'gm-hired':
+      return newsFromGmHired(txn, league);
     case 'ir-move':
     case 'ps-promotion':
     case 'contract-expiration':
@@ -120,6 +132,98 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       // matching trade-request transaction emitted alongside it.
       return null;
   }
+}
+
+// ─── Front-office firings & hirings (v0.138) ────────────────────────────────
+
+function stintRecord(wins: number, losses: number, ties: number): string {
+  return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
+}
+
+function newsFromHcFired(txn: TransactionHcFired, league: LeagueState): NewsItem {
+  const team = league.teams[txn.teamId];
+  const coach = league.coaches[txn.coachId];
+  const teamName = team?.identity.fullName ?? txn.teamId;
+  const name = coach?.name ?? 'their head coach';
+  const yrs = txn.seasonsServed === 1 ? 'one season' : `${txn.seasonsServed} seasons`;
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity: txn.jointWithGm ? 5 : 4,
+    source: 'national_insider',
+    sourceKind: 'hc-fired',
+    headline: txn.jointWithGm
+      ? `${teamName} clean house: ${name} out as head coach`
+      : `${teamName} fire head coach ${name}`,
+    body: `${name} is out after ${yrs} (${stintRecord(txn.wins, txn.losses, txn.ties)}). ${
+      txn.jointWithGm
+        ? 'Ownership is rebuilding the entire football operation.'
+        : 'The front office survives the change — for now.'
+    }`,
+    teamIds: [txn.teamId],
+    playerIds: [],
+  };
+}
+
+function newsFromGmFired(txn: TransactionGmFired, league: LeagueState): NewsItem {
+  const team = league.teams[txn.teamId];
+  const gm = league.gms[txn.gmId];
+  const teamName = team?.identity.fullName ?? txn.teamId;
+  const name = gm?.name ?? 'their general manager';
+  const yrs = txn.seasonsServed === 1 ? 'one season' : `${txn.seasonsServed} seasons`;
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity: txn.jointWithHc ? 5 : 4,
+    source: 'national_insider',
+    sourceKind: 'gm-fired',
+    headline: `${teamName} part ways with GM ${name}`,
+    body: `${name} is out after ${yrs} running the roster (${stintRecord(txn.wins, txn.losses, txn.ties)})${
+      txn.jointWithHc ? ', part of a full house-cleaning' : ''
+    }.`,
+    teamIds: [txn.teamId],
+    playerIds: [],
+  };
+}
+
+function newsFromHcHired(txn: TransactionHcHired, league: LeagueState): NewsItem {
+  const team = league.teams[txn.teamId];
+  const coach = league.coaches[txn.coachId];
+  const teamName = team?.identity.fullName ?? txn.teamId;
+  const name = coach?.name ?? 'a new head coach';
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity: 4,
+    source: 'national_insider',
+    sourceKind: 'hc-hired',
+    headline: `${teamName} hire ${name} as head coach`,
+    body: txn.retread
+      ? `${name} gets another shot at the big chair after a previous NFL head-coaching stint.`
+      : `${name} takes his first NFL head-coaching job.`,
+    teamIds: [txn.teamId],
+    playerIds: [],
+  };
+}
+
+function newsFromGmHired(txn: TransactionGmHired, league: LeagueState): NewsItem {
+  const team = league.teams[txn.teamId];
+  const gm = league.gms[txn.gmId];
+  const teamName = team?.identity.fullName ?? txn.teamId;
+  const name = gm?.name ?? 'a new general manager';
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity: 4,
+    source: 'national_insider',
+    sourceKind: 'gm-hired',
+    headline: `${teamName} name ${name} general manager`,
+    body: txn.retread
+      ? `${name} returns to a GM chair to run the football operation.`
+      : `${name} gets his first shot at running a front office.`,
+    teamIds: [txn.teamId],
+    playerIds: [],
+  };
 }
 
 function newsFromIncident(

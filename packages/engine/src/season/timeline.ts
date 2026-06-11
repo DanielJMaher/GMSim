@@ -70,6 +70,7 @@ const SINGLE_SHOT_PHASES: readonly LifecyclePhase[] = [
   'DRAFT_DECLARATION',
   'SHRINE_BOWL',
   'SENIOR_BOWL',
+  'BLACK_MONDAY',
   'WILD_CARD',
   'DIVISIONAL',
   'CONFERENCE',

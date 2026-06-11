@@ -27,7 +27,7 @@ import {
   outletGroupProfiles,
 } from '../media/generate.js';
 import type { MediaOutlet } from '../types/media.js';
-import type { Gm, GmSpectrums } from '../types/personnel.js';
+import type { Gm, GmSpectrums, HeadCoach } from '../types/personnel.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -554,6 +554,55 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
   // fine — that's a property of *new* games). See media/voice.ts + §10.1.
   if ((next as unknown as { voiceSeed?: unknown }).voiceSeed === undefined) {
     next = { ...next, voiceSeed: deriveVoiceSeed(next.seed) } as LeagueState;
+  }
+
+  // v0.138.0 front-office lifecycle. Pre-v0.138 saves have no
+  // `TeamState.frontOffice` and no `status`/`careerStints` on GMs and
+  // coaches. Backfill: everyone employed, hired at season 1 (founding
+  // regimes — open stints self-heal lazily at the next evaluation),
+  // zero seat pressure, HC treated as the sitting GM's own hire.
+  {
+    const teams = next.teams as Record<string, TeamState>;
+    const sample = Object.values(teams)[0];
+    if (sample && (sample as { frontOffice?: unknown }).frontOffice === undefined) {
+      const teamsNext: Record<string, TeamState> = {};
+      for (const [id, team] of Object.entries(teams)) {
+        teamsNext[id] = {
+          ...team,
+          frontOffice: {
+            gmHiredSeason: 1,
+            hcHiredSeason: 1,
+            hcHiredByGmId: team.gmId,
+            gmCoachFiringsSurvived: 0,
+            gmLameDuck: false,
+            gmVacant: false,
+            hcVacant: false,
+            seatPressure: { gm: 0, hc: 0 },
+          },
+        };
+      }
+      next = { ...next, teams: teamsNext } as LeagueState;
+    }
+
+    const gms = next.gms as Record<string, Gm>;
+    const gmSample = Object.values(gms)[0];
+    if (gmSample && (gmSample as { status?: unknown }).status === undefined) {
+      const gmsNext: Record<string, Gm> = {};
+      for (const [id, gm] of Object.entries(gms)) {
+        gmsNext[id] = { ...gm, status: 'EMPLOYED', careerStints: [] };
+      }
+      next = { ...next, gms: gmsNext } as LeagueState;
+    }
+
+    const coaches = next.coaches as Record<string, HeadCoach>;
+    const hcSample = Object.values(coaches)[0];
+    if (hcSample && (hcSample as { status?: unknown }).status === undefined) {
+      const coachesNext: Record<string, HeadCoach> = {};
+      for (const [id, hc] of Object.entries(coaches)) {
+        coachesNext[id] = { ...hc, status: 'EMPLOYED', careerStints: [] };
+      }
+      next = { ...next, coaches: coachesNext } as LeagueState;
+    }
   }
 
   return next;

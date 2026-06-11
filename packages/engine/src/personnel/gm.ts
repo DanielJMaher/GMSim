@@ -55,6 +55,8 @@ export function generateGm(prng: Prng, idSeed: string, owner: Owner | null = nul
     positionalBias,
     quirks,
     personality,
+    status: 'EMPLOYED',
+    careerStints: [],
   };
 }
 
