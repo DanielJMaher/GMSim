@@ -16,6 +16,7 @@ import type {
   LockerRoomIncidentFlavor,
 } from '../types/transaction.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
+import { voicePrng } from '../media/voice.js';
 
 /**
  * News-feed module — MVP slice of Doc 12 (League News & Transaction Feed).
@@ -143,6 +144,32 @@ function stintRecord(wins: number, losses: number, ties: number): string {
   return ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
 }
 
+// S3 (v0.140): press-conference flavor — one voiced quote per beat.
+// Words ride `voiceSeed` (Living Voice), so the same firing reads
+// differently across playthroughs.
+const FIRING_QUOTES: readonly string[] = [
+  '"We owe our fans better than what they\'ve seen," ownership said in a statement.',
+  '"This was a difficult decision, but the results speak for themselves," the team said.',
+  '"We thank him for his work and wish him well. Our standard hasn\'t changed."',
+  '"Accountability starts at the top," ownership said. "Today it reached it."',
+];
+
+const HIRING_QUOTES: readonly string[] = [
+  '"This is a destination job, and we found the right person for it," the team said.',
+  'At his introductory press conference he promised "a tough, smart, disciplined team."',
+  '"We interviewed an exceptional group. He separated himself immediately."',
+  '"The vision was clear from the first conversation," ownership said of the hire.',
+];
+
+function presserQuote(
+  league: LeagueState,
+  txn: { tick: number; teamId: TeamId; kind: string },
+  pool: readonly string[],
+): string {
+  const vp = voicePrng(league.voiceSeed, 'presser', txn.tick, txn.teamId, txn.kind);
+  return vp.pick(pool);
+}
+
 function newsFromHcFired(txn: TransactionHcFired, league: LeagueState): NewsItem {
   const team = league.teams[txn.teamId];
   const coach = league.coaches[txn.coachId];
@@ -182,7 +209,7 @@ function newsFromHcFired(txn: TransactionHcFired, league: LeagueState): NewsItem
       txn.jointWithGm
         ? 'Ownership is rebuilding the entire football operation.'
         : 'The front office survives the change — for now.'
-    }`,
+    } ${presserQuote(league, txn, FIRING_QUOTES)}`,
     teamIds: [txn.teamId],
     playerIds: [],
   };
@@ -254,11 +281,15 @@ function newsFromHcHired(txn: TransactionHcHired, league: LeagueState): NewsItem
     headline: txn.promotedInterim
       ? `${teamName} remove the interim tag — ${name} is the head coach`
       : `${teamName} hire ${name} as head coach`,
-    body: txn.promotedInterim
-      ? `${name} earned the permanent job with his caretaker stretch.`
-      : txn.retread
-        ? `${name} gets another shot at the big chair after a previous NFL head-coaching stint.`
-        : `${name} takes his first NFL head-coaching job.`,
+    body: `${
+      txn.promotedInterim
+        ? `${name} earned the permanent job with his caretaker stretch.`
+        : txn.retread
+          ? `${name} gets another shot at the big chair after a previous NFL head-coaching stint.`
+          : txn.fromCoordinator
+            ? `${name} lands his first NFL head-coaching job after a strong coordinator run.`
+            : `${name} takes his first NFL head-coaching job.`
+    } ${presserQuote(league, txn, HIRING_QUOTES)}`,
     teamIds: [txn.teamId],
     playerIds: [],
   };

@@ -234,7 +234,10 @@ export type {
   ProspectBoardReport,
   NarrativeReport,
   ScoutReportBody,
+  HotSeatReport,
+  HotSeatHeat,
 } from './types/media.js';
+export { generateHotSeatReports } from './media/hot-seat.js';
 export type { MediaOutletId, MediaReportId } from './types/ids.js';
 
 // Roster transactions

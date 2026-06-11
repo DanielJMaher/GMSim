@@ -1,6 +1,6 @@
 import type { TeamState } from './team.js';
 import type { Player } from './player.js';
-import type { Owner, Gm, HeadCoach, TeamPersonality } from './personnel.js';
+import type { Owner, Gm, HeadCoach, Coordinator, TeamPersonality } from './personnel.js';
 import type { Scout, PlayerObservation, WatchListEntry } from './scout.js';
 import type {
   CollegePlayer,
@@ -17,7 +17,7 @@ import type {
 import type { Contract } from './contract.js';
 import type { SeasonSchedule } from './game.js';
 import type { Transaction } from './transaction.js';
-import type { TeamId, PlayerId, OwnerId, GmId, CoachId, ScoutId, ContractId, MediaOutletId } from './ids.js';
+import type { TeamId, PlayerId, OwnerId, GmId, CoachId, CoordinatorId, ScoutId, ContractId, MediaOutletId } from './ids.js';
 import type { MediaOutlet, MediaReport } from './media.js';
 import type {
   CollegeSeasonSchedule,
@@ -76,6 +76,13 @@ export interface LeagueState {
   owners: Readonly<Record<OwnerId, Owner>>;
   gms: Readonly<Record<GmId, Gm>>;
   coaches: Readonly<Record<CoachId, HeadCoach>>;
+  /**
+   * S4 (v0.140): the coordinator tier — 2 per team (OC + DC) plus the
+   * unemployed pool. The realistic HC hiring pipeline: hot coordinators
+   * get poached into head-coaching jobs (their entity converts to a
+   * `HeadCoach` and leaves this map). Backfilled by migration.
+   */
+  coordinators: Readonly<Record<CoordinatorId, Coordinator>>;
   scouts: Readonly<Record<ScoutId, Scout>>;
   contracts: Readonly<Record<ContractId, Contract>>;
 

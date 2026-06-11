@@ -27,7 +27,8 @@ import {
   outletGroupProfiles,
 } from '../media/generate.js';
 import type { MediaOutlet } from '../types/media.js';
-import type { Gm, GmSpectrums, HeadCoach } from '../types/personnel.js';
+import type { Gm, GmSpectrums, HeadCoach, Coordinator } from '../types/personnel.js';
+import { generateCoordinator } from '../personnel/coordinator.js';
 
 /**
  * Runtime forward-compatibility guards. Called at the top of season
@@ -578,6 +579,7 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
             gmVacant: false,
             hcVacant: false,
             hcInterim: false,
+            hcContractYearsRemaining: 4,
             seatPressure: { gm: 0, hc: 0 },
           },
         };
@@ -596,6 +598,37 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
           teamsNext[id] = { ...team, frontOffice: { ...team.frontOffice, hcInterim: false } };
         }
         next = { ...next, teams: teamsNext } as LeagueState;
+      }
+    }
+
+    // v0.140.0 coordinator tier + HC contracts. Pre-v0.140 saves have no
+    // `coordinators` map / `ocId`/`dcId` / `hcContractYearsRemaining` —
+    // backfill deterministically from the league seed.
+    {
+      const hasCoordinators =
+        (next as unknown as { coordinators?: unknown }).coordinators !== undefined;
+      if (!hasCoordinators) {
+        const teamsNow = next.teams as Record<string, TeamState>;
+        const coordinators: Record<string, Coordinator> = {};
+        const teamsNext: Record<string, TeamState> = {};
+        for (const [id, team] of Object.entries(teamsNow)) {
+          const prng = new Prng(`${next.seed}::coordinators::backfill::${id}`);
+          const oc = generateCoordinator(prng.fork('oc'), team.identity.abbreviation, 'OC');
+          const dc = generateCoordinator(prng.fork('dc'), team.identity.abbreviation, 'DC');
+          coordinators[oc.id] = oc;
+          coordinators[dc.id] = dc;
+          teamsNext[id] = {
+            ...team,
+            ocId: oc.id,
+            dcId: dc.id,
+            frontOffice: { ...team.frontOffice, hcContractYearsRemaining: 4 },
+          };
+        }
+        next = {
+          ...next,
+          teams: teamsNext,
+          coordinators,
+        } as unknown as LeagueState;
       }
     }
 

@@ -287,7 +287,7 @@ ecology against §2. Gate targets:
 | GM survives 2nd-own-hire firing while in GM yrs 4–7 | ≈0 (≤5% of such events) |
 | One-and-done HCs / season | ≤ 1.5 |
 | HC in-season firings / season (S2) | 1 – 3 |
-| Mean tenure of completed HC stints | 2.8 – 4.0 yrs |
+| Mean tenure of completed HC stints | ~4.9 yrs equilibrium (3.5 – 6.0) — *amended v0.140: the original 2.8–4.0 misread the "new hire lasts 3.2 yrs" stat, which is biased toward short stints; at 20% annual turnover, mean tenure at firing is 1/0.203 ≈ 4.9* |
 | Median active-GM tenure | 3 – 5 yrs |
 | Lifer existence | ≥1 GM reaching 12+ yrs per 30-yr sim |
 | Win% in HC's firing season | mean ~.330 – .420 |

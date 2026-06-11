@@ -63,6 +63,8 @@ function merge(histories: FrontOfficeHistory[]): FrontOfficeHistory {
     gmFired: histories.flatMap((h) => h.gmFired),
     hcHiredTotal: histories.reduce((n, h) => n + h.hcHiredTotal, 0),
     hcHiredRetreads: histories.reduce((n, h) => n + h.hcHiredRetreads, 0),
+    hcHiredFromCoordinators: histories.reduce((n, h) => n + h.hcHiredFromCoordinators, 0),
+    hcHiredPromotedInterims: histories.reduce((n, h) => n + h.hcHiredPromotedInterims, 0),
     gmHiredTotal: histories.reduce((n, h) => n + h.gmHiredTotal, 0),
     gmHiredRetreads: histories.reduce((n, h) => n + h.gmHiredRetreads, 0),
     completedHcStints: histories.flatMap((h) => h.completedHcStints),
@@ -139,8 +141,12 @@ function report(h: FrontOfficeHistory): void {
   const oneAndDone = h.hcFired.filter((e) => e.seasonsServed === 1).length / S;
   add('One-and-done HCs / season', fmt(oneAndDone), oneAndDone <= 1.5, '<=1.5');
 
+  // NOTE: this is mean tenure AT FIRING, not the "new hire lasts ~3.2
+  // years" stat (that one is biased toward short stints — long-tenured
+  // coaches generate fewer hires). At real ~20% annual turnover the
+  // equilibrium mean completed tenure is 1/0.203 ≈ 4.9 years.
   const meanStint = mean(h.completedHcStints);
-  add('Mean completed HC stint (yrs)', fmt(meanStint, 1), meanStint >= 2.8 && meanStint <= 4.2, '2.8-4.0');
+  add('Mean completed HC stint (yrs)', fmt(meanStint, 1), meanStint >= 3.5 && meanStint <= 6.0, '~4.9 equilibrium (3.5-6.0)');
 
   // Cold-start note: every league starts with 32 founding regimes at
   // tenure 0, so short runs inflate the active-tenure median relative
@@ -167,6 +173,24 @@ function report(h: FrontOfficeHistory): void {
   const nineWinRate = pct(nineWin, winPcts.length);
   add('Firings of 9+ win coaches', `${fmt(nineWinRate * 100, 1)}% (${nineWin})`, nineWinRate < 0.08, '<5% (loose <8%)');
 
+  // S4: the HC pipeline source mix. Real new-HC hires skew heavily
+  // toward coordinators off good units (~50-65%), with former HCs
+  // (retreads) ~25-35% and true outsiders rare.
+  const coordShare = pct(h.hcHiredFromCoordinators, h.hcHiredTotal);
+  add(
+    'HC hires from the coordinator pipeline',
+    `${fmt(coordShare * 100, 1)}%`,
+    coordShare >= 0.35 && coordShare <= 0.7,
+    '~50-65% (loose 35-70%)',
+  );
+  const retreadShare = pct(h.hcHiredRetreads, h.hcHiredTotal);
+  add(
+    'HC hires who are retread former HCs',
+    `${fmt(retreadShare * 100, 1)}%`,
+    retreadShare >= 0.12 && retreadShare <= 0.45,
+    '~25-35% (loose 12-45%)',
+  );
+
   const dz = deadZone(h);
   const dzKeptRate = pct(dz.keptJob, dz.n);
   add(
@@ -188,7 +212,7 @@ function report(h: FrontOfficeHistory): void {
 
   console.log('\n  context:');
   console.log(
-    `    HC hires: ${h.hcHiredTotal} (${fmt(pct(h.hcHiredRetreads, h.hcHiredTotal) * 100, 0)}% retreads | real ~35%)   GM hires: ${h.gmHiredTotal} (${fmt(pct(h.gmHiredRetreads, h.gmHiredTotal) * 100, 0)}% retreads | real ~12%)`,
+    `    HC hires: ${h.hcHiredTotal} (${h.hcHiredFromCoordinators} coordinator, ${h.hcHiredRetreads} retread, ${h.hcHiredPromotedInterims} promoted interim)   GM hires: ${h.gmHiredTotal} (${fmt(pct(h.gmHiredRetreads, h.gmHiredTotal) * 100, 0)}% retreads | real ~12%)`,
   );
   const tenureBuckets = [0, 0, 0, 0];
   for (const e of h.hcFired) {

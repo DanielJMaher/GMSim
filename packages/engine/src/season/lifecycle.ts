@@ -126,6 +126,7 @@ import {
   runPostSeasonFrontOffice,
   runInSeasonFirings,
 } from '../npc-ai/front-office.js';
+import { generateHotSeatReports } from '../media/hot-seat.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
 
@@ -657,9 +658,21 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
     weekIdx,
     currentTick,
   );
+  // S3 hot-seat beat — reads the post-firing state so a just-fired
+  // coach doesn't get "his seat is warming" coverage the same tick.
+  const hotSeatReports =
+    weekIdx >= 4
+      ? generateHotSeatReports(
+          seasonPrng.fork(`hot-seat-${weekIdx + 1}`),
+          afterFrontOffice,
+          weekIdx,
+          currentTick,
+          'REGULAR_SEASON_WEEK',
+        )
+      : [];
   return {
     ...afterFrontOffice,
-    mediaReports: [...afterFrontOffice.mediaReports, ...mediaReports],
+    mediaReports: [...afterFrontOffice.mediaReports, ...mediaReports, ...hotSeatReports],
   };
 }
 
@@ -1244,10 +1257,19 @@ function applyTradeDeadline(league: LeagueState): LeagueState {
 
 function applyPreseason(league: LeagueState, prng: PrngClass): LeagueState {
   // Preseason opens the media's coverage of the draft class (low
-  // intensity — early whispers).
+  // intensity — early whispers) — and of the carried hot seats (S3:
+  // "enters the season on the hot seat").
+  const hotSeat = generateHotSeatReports(
+    prng.fork('hot-seat-preseason'),
+    league,
+    null,
+    league.tick,
+    'PRESEASON',
+  );
   return {
     ...league,
     mediaCollegeObservations: mediaCoverageRound(league, prng, 0.25),
+    mediaReports: [...league.mediaReports, ...hotSeat],
     lifecyclePhase: 'PRESEASON',
   };
 }

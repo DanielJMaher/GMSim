@@ -13,9 +13,11 @@ import type {
   TransactionHcFired,
   TransactionGmFired,
 } from '../types/transaction.js';
+import type { TransactionHcHired } from '../types/transaction.js';
 import {
   computeSeatUpdate,
   decideFiring,
+  outletTrustCalibrationError,
   GM_HEAT_RATIO,
   LAME_DUCK_FLOOR,
   SECOND_HIRE_JOINT_P,
@@ -56,6 +58,8 @@ function fixtureTeam(overrides: Partial<TeamState['frontOffice']> = {}): TeamSta
       gmLameDuck: false,
       gmVacant: false,
       hcVacant: false,
+      hcInterim: false,
+      hcContractYearsRemaining: 4,
       seatPressure: { gm: 0, hc: 0 },
       ...overrides,
     },
@@ -289,6 +293,72 @@ describe('front-office lifecycle integration', () => {
       expect(open).toBeDefined();
       expect(open!.wins + open!.losses + open!.ties).toBe(seasonsPresided * 17);
     }
+
+    // S4: every coordinator seat resolves to an EMPLOYED coordinator of
+    // the right side, and the HC pipeline runs through them — poached
+    // coordinators convert to coaches carrying their OC/DC stints.
+    for (const team of Object.values(lg.teams)) {
+      const oc = lg.coordinators[team.ocId];
+      const dc = lg.coordinators[team.dcId];
+      expect(oc?.side).toBe('OC');
+      expect(dc?.side).toBe('DC');
+      expect(oc?.status).toBe('EMPLOYED');
+      expect(dc?.status).toBe('EMPLOYED');
+    }
+    const coordHires = lg.transactionLog.filter(
+      (t): t is TransactionHcHired => t.kind === 'hc-hired' && t.fromCoordinator === true,
+    );
+    expect(coordHires.length).toBeGreaterThanOrEqual(1);
+    for (const t of coordHires) {
+      const hc = lg.coaches[t.coachId]!;
+      expect(hc.careerStints.some((s) => s.role === 'OC' || s.role === 'DC')).toBe(true);
+      expect(lg.coordinators[t.coachId as unknown as keyof typeof lg.coordinators]).toBeUndefined();
+    }
+
+    // S3: hot-seat coverage exists once chairs heat up.
+    expect(lg.mediaReports.some((r) => r.kind === 'hot-seat')).toBe(true);
+
+    // S4: a surviving founding GM is better calibrated about outlets
+    // than he was at creation (the tenure-divergence learning).
+    const fresh = createLeague({ seed: 'carousel-3yr' });
+    const survivor = Object.values(lg.teams).find(
+      (t) =>
+        t.frontOffice.gmHiredSeason === 1 &&
+        fresh.gms[t.gmId] !== undefined &&
+        lg.gms[t.gmId]!.status === 'EMPLOYED',
+    );
+    expect(survivor).toBeDefined();
+    const before = outletTrustCalibrationError(fresh.gms[survivor!.gmId]!, fresh.mediaOutlets);
+    const after = outletTrustCalibrationError(lg.gms[survivor!.gmId]!, lg.mediaOutlets);
+    expect(before).not.toBeNull();
+    expect(after).not.toBeNull();
+    expect(after!).toBeLessThan(before!);
+  });
+
+  it('buyout reluctance: a cheap owner with years left on the deal fires less often at the margin', () => {
+    const cheapOwner: Owner = {
+      ...neutralOwner,
+      spectrums: { ...neutralOwner.spectrums, financialCommitment: 2 },
+    };
+    let firedLongDeal = 0;
+    let firedShortDeal = 0;
+    for (let i = 0; i < 300; i++) {
+      const longDeal = fixtureTeam({ hcContractYearsRemaining: 4 });
+      const shortDeal = fixtureTeam({ hcContractYearsRemaining: 2 });
+      if (
+        decideFiring(new Prng(`buyout:${i}`), longDeal, cheapOwner, { gm: 0, hc: 76 }, badSeason, 3)
+          .fireHc
+      ) {
+        firedLongDeal++;
+      }
+      if (
+        decideFiring(new Prng(`buyout:${i}`), shortDeal, cheapOwner, { gm: 0, hc: 76 }, badSeason, 3)
+          .fireHc
+      ) {
+        firedShortDeal++;
+      }
+    }
+    expect(firedLongDeal).toBeLessThan(firedShortDeal);
   });
 
   it('is deterministic: same seed → identical firing log', () => {

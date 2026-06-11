@@ -11,9 +11,11 @@
  */
 
 import { useMemo } from 'react';
-import { FIRING_THRESHOLD } from '@gmsim/engine/npc-ai';
+import { FIRING_THRESHOLD, outletTrustCalibrationError } from '@gmsim/engine/npc-ai';
+import { hotSeatKnowledge } from '@gmsim/engine/knowledge';
 import type { LeagueState, TeamState } from '@gmsim/engine/types';
 import type { CareerStint, Gm, HeadCoach } from '@gmsim/engine/types';
+import type { HotSeatReport } from '@gmsim/engine';
 import type {
   Transaction,
   TransactionHcFired,
@@ -78,6 +80,19 @@ export function FrontOfficePanel({ league }: { league: LeagueState }) {
     [league.teams],
   );
 
+  // Latest media read per chair this season — the PERCEIVED side of the
+  // perceived/real pair (S3).
+  const mediaReads = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of league.mediaReports) {
+      if (r.kind !== 'hot-seat' || r.seasonNumber !== league.seasonNumber) continue;
+      map.set(`${r.subjectTeamId}:${r.chair}`, (r as HotSeatReport).perceivedSeat);
+    }
+    return map;
+  }, [league.mediaReports, league.seasonNumber]);
+
+  const hotSeatFeed = useMemo(() => hotSeatKnowledge(league, { limit: 25 }), [league]);
+
   const carousel = useMemo(
     () => league.transactionLog.filter(isCarouselTxn).slice(-80).reverse(),
     [league.transactionLog],
@@ -102,8 +117,10 @@ export function FrontOfficePanel({ league }: { league: LeagueState }) {
           Regimes — seat pressure is ground truth (fire at ~{FIRING_THRESHOLD})
         </h2>
         <p className="mb-3 text-xs text-zinc-500">
-          Negative seat = banked credit. “His guy” = the sitting GM hired the HC (the coupling
-          that decides who burns when the coach fails). Records are the stint-to-date, playoff
+          Negative seat = banked credit. Seat columns are the <em>media / real</em> pair: the
+          latest outlet read this season vs the hidden truth (— = no coverage). “His guy” = the
+          sitting GM hired the HC. Trust± = the GM’s mean outlet-trust miscalibration (falls
+          with tenure as he learns who to believe). Records are stint-to-date, playoff
           appearances in parens.
         </p>
         <div className="overflow-x-auto rounded-lg border border-zinc-800">
@@ -114,22 +131,68 @@ export function FrontOfficePanel({ league }: { league: LeagueState }) {
                 <th className="px-3 py-2">GM</th>
                 <th className="px-3 py-2">Yr</th>
                 <th className="px-3 py-2">Stint</th>
-                <th className="px-3 py-2">GM seat</th>
+                <th className="px-3 py-2">GM seat M/R</th>
+                <th className="px-3 py-2">Trust±</th>
                 <th className="px-3 py-2">Flags</th>
                 <th className="px-3 py-2">HC</th>
                 <th className="px-3 py-2">Yr</th>
                 <th className="px-3 py-2">Stint</th>
-                <th className="px-3 py-2">HC seat</th>
+                <th className="px-3 py-2">HC seat M/R</th>
                 <th className="px-3 py-2">His guy?</th>
+                <th className="px-3 py-2">OC (stock)</th>
+                <th className="px-3 py-2">DC (stock)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60">
               {teams.map((team) => (
-                <RegimeRow key={team.identity.id} team={team} league={league} />
+                <RegimeRow
+                  key={team.identity.id}
+                  team={team}
+                  league={league}
+                  mediaReads={mediaReads}
+                />
               ))}
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section>
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wider text-zinc-300">
+          Hot Seat Watch — the game-safe knowledge feed
+        </h2>
+        <p className="mb-3 text-xs text-zinc-500">
+          What a player-facing UI would see: attributed coverage in heat bands, no numbers.
+          Outlets mis-read the hidden pressure through their accuracy/hype — watch which ones’
+          firing calls actually come true.
+        </p>
+        {hotSeatFeed.length === 0 ? (
+          <p className="text-xs text-zinc-600">No hot-seat coverage yet — sim into the season.</p>
+        ) : (
+          <ul className="space-y-1 text-xs">
+            {hotSeatFeed.map((item, i) => (
+              <li key={i} className="flex items-baseline gap-2">
+                <span className="shrink-0 font-mono text-[10px] text-zinc-600">
+                  S{item.seasonNumber}
+                  {item.weekNumber !== null ? ` W${item.weekNumber}` : ' off'}
+                </span>
+                <span
+                  className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] uppercase ${
+                    item.heat === 'inferno'
+                      ? 'bg-red-500/15 text-red-300'
+                      : item.heat === 'hot'
+                        ? 'bg-orange-500/15 text-orange-300'
+                        : 'bg-amber-500/15 text-amber-300'
+                  }`}
+                >
+                  {item.heat}
+                </span>
+                <span className="text-zinc-300">{item.headline}</span>
+                <span className="shrink-0 text-[10px] text-zinc-500">— {item.outletName}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section>
@@ -165,15 +228,28 @@ export function FrontOfficePanel({ league }: { league: LeagueState }) {
   );
 }
 
-function RegimeRow({ team, league }: { team: TeamState; league: LeagueState }) {
+function RegimeRow({
+  team,
+  league,
+  mediaReads,
+}: {
+  team: TeamState;
+  league: LeagueState;
+  mediaReads: ReadonlyMap<string, number>;
+}) {
   const gm = league.gms[team.gmId];
   const hc = league.coaches[team.headCoachId];
+  const oc = league.coordinators[team.ocId];
+  const dc = league.coordinators[team.dcId];
   const fo = team.frontOffice;
   const gmYr = league.seasonNumber - fo.gmHiredSeason + 1;
   const hcYr = league.seasonNumber - fo.hcHiredSeason + 1;
   const gmStint = gm ? openStint(gm.careerStints, team.identity.id, 'GM') : undefined;
   const hcStint = hc ? openStint(hc.careerStints, team.identity.id, 'HC') : undefined;
   const hisGuy = fo.hcHiredByGmId === team.gmId;
+  const trustErr = gm ? outletTrustCalibrationError(gm, league.mediaOutlets) : null;
+  const gmMedia = mediaReads.get(`${team.identity.id}:GM`);
+  const hcMedia = mediaReads.get(`${team.identity.id}:HC`);
 
   return (
     <tr className="hover:bg-zinc-900/40">
@@ -186,8 +262,13 @@ function RegimeRow({ team, league }: { team: TeamState; league: LeagueState }) {
       <td className="px-3 py-1.5 font-mono text-zinc-400">
         {gmStint ? `${fmtRecord(gmStint)} (${gmStint.playoffAppearances}p)` : '—'}
       </td>
-      <td className={`px-3 py-1.5 font-mono ${seatClasses(fo.seatPressure.gm)}`}>
-        {fmtSeat(fo.seatPressure.gm)}
+      <td className="px-3 py-1.5 font-mono">
+        <span className="text-zinc-500">{gmMedia !== undefined ? gmMedia.toFixed(0) : '—'}</span>
+        <span className="text-zinc-600"> / </span>
+        <span className={seatClasses(fo.seatPressure.gm)}>{fmtSeat(fo.seatPressure.gm)}</span>
+      </td>
+      <td className="px-3 py-1.5 font-mono text-zinc-400">
+        {trustErr !== null ? trustErr.toFixed(2) : '—'}
       </td>
       <td className="px-3 py-1.5 text-[10px]">
         {fo.gmLameDuck && (
@@ -213,10 +294,18 @@ function RegimeRow({ team, league }: { team: TeamState; league: LeagueState }) {
       <td className="px-3 py-1.5 font-mono text-zinc-400">
         {hcStint ? `${fmtRecord(hcStint)} (${hcStint.playoffAppearances}p)` : '—'}
       </td>
-      <td className={`px-3 py-1.5 font-mono ${seatClasses(fo.seatPressure.hc)}`}>
-        {fmtSeat(fo.seatPressure.hc)}
+      <td className="px-3 py-1.5 font-mono">
+        <span className="text-zinc-500">{hcMedia !== undefined ? hcMedia.toFixed(0) : '—'}</span>
+        <span className="text-zinc-600"> / </span>
+        <span className={seatClasses(fo.seatPressure.hc)}>{fmtSeat(fo.seatPressure.hc)}</span>
       </td>
       <td className="px-3 py-1.5 text-zinc-400">{hisGuy ? '✓' : 'inherited'}</td>
+      <td className="px-3 py-1.5 text-zinc-400">
+        {oc ? `${oc.name} (${oc.stock.toFixed(1)})` : '—'}
+      </td>
+      <td className="px-3 py-1.5 text-zinc-400">
+        {dc ? `${dc.name} (${dc.stock.toFixed(1)})` : '—'}
+      </td>
     </tr>
   );
 }

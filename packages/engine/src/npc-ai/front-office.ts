@@ -1,13 +1,29 @@
 import type { LeagueState } from '../types/league.js';
 import type { TeamState, FrontOfficeState, TeamSeasonRecord } from '../types/team.js';
-import type { Owner, Gm, HeadCoach, CareerStint, StintEnd } from '../types/personnel.js';
+import type {
+  Owner,
+  Gm,
+  HeadCoach,
+  Coordinator,
+  CareerStint,
+  StintEnd,
+  PerceivedOutletReliability,
+} from '../types/personnel.js';
 import type { TeamId } from '../types/ids.js';
+import type { MediaOutlet } from '../types/media.js';
+import type { MediaOutletId } from '../types/ids.js';
+import type { PositionGroup } from '../types/enums.js';
 import type { Transaction } from '../types/transaction.js';
 import type { Prng } from '../prng/index.js';
 import { MarketSize, CompetitiveWindow } from '../types/enums.js';
-import { computeRecords, playoffSeeds } from '../season/standings.js';
+import { computeRecords, playoffSeeds, type TeamRecord } from '../season/standings.js';
 import { generateGm } from '../personnel/gm.js';
 import { generateHeadCoach } from '../personnel/hc.js';
+import {
+  generateCoordinator,
+  nudgeCoordinatorStock,
+  coordinatorToHeadCoach,
+} from '../personnel/coordinator.js';
 import { seedPerceivedOutletReliability } from '../personnel/perceived-outlet-trust.js';
 import { computeTeamPersonality } from '../personnel/team-personality.js';
 
@@ -59,7 +75,7 @@ export const FIRING_THRESHOLD = 70;
 /** Per-season decay of accumulated pressure/credit (≈25%/yr fade). */
 export const PRESSURE_DECAY = 0.7;
 /** Pressure points per win of disappointment, HC seat. */
-export const HC_HEAT_SCALE = 23;
+export const HC_HEAT_SCALE = 25;
 /** GM seat heats at this fraction of the HC rate (rule 1: ~2-2.5× slower). */
 export const GM_HEAT_RATIO = 0.48;
 /** Credit (negative disappointment) cools the HC seat at this rate. */
@@ -91,10 +107,29 @@ export const FIRST_HIRE_JOINT_P = 0.1;
 export const INHERITED_JOINT_P = 0.05;
 /** Chance a GM vacancy is filled from the unemployed-retread pool. */
 export const GM_RETREAD_P = 0.15;
-/** Chance an HC vacancy is filled from the retread pool (retreads are common). */
-export const HC_RETREAD_P = 0.35;
+/**
+ * HC hiring source mix (S4): retread first (~28%), else a poached
+ * coordinator (~80% of the remainder ⇒ ~57% of hires — most real new
+ * HCs are coordinators off good units), else a generated outsider.
+ */
+export const HC_SOURCE_RETREAD_P = 0.28;
+export const HC_SOURCE_COORDINATOR_P = 0.8;
+/** Chance a coordinator vacancy refills from the unemployed pool. */
+export const COORDINATOR_RETREAD_P = 0.3;
 /** Retreads must have worked within this many seasons to stay hireable. */
 export const RETREAD_RECENCY = 6;
+/** Contract length (seasons) on a permanent HC hire. */
+export const HC_CONTRACT_YEARS = 5;
+/**
+ * Buyout reluctance: a cheap owner (financialCommitment ≤ 4) facing 3+
+ * remaining contract years needs this much extra pressure to fire.
+ */
+export const BUYOUT_RELUCTANCE_BUMP = 6;
+/** A final-year coach is cheap to move on from. */
+export const FINAL_YEAR_CUT = 5;
+/** GM outlet-trust learning rate per season: base + evolutionRate span. */
+export const TRUST_LEARNING_BASE = 0.03;
+export const TRUST_LEARNING_SPAN = 0.09;
 
 // ── S2: in-season firings (v0.139) ──────────────────────────────────────
 
@@ -116,7 +151,7 @@ export const IN_SEASON_CARRIED_FLOOR = 25;
 export const IN_SEASON_CATASTROPHE_PACE = 3;
 /** GM midseason firings are rarer and later (the Grier/Douglas window). */
 export const IN_SEASON_GM_MIN_WEEK = 8;
-export const IN_SEASON_GM_WEEKLY_P = 0.05;
+export const IN_SEASON_GM_WEEKLY_P = 0.06;
 /** Chance the interim earns the permanent job (the Antonio Pierce path). */
 export const INTERIM_PROMOTION_P = 0.2;
 
@@ -366,6 +401,19 @@ function firingThreshold(owner: Owner, jitter: number): number {
 }
 
 /**
+ * S4 contract effects on the HC threshold: cheap owners hesitate to
+ * eat 3+ remaining years; a final-year coach is cheap to fire.
+ */
+function contractThresholdAdjust(owner: Owner, fo: FrontOfficeState): number {
+  let adj = 0;
+  if (owner.spectrums.financialCommitment <= 4 && fo.hcContractYearsRemaining >= 3) {
+    adj += BUYOUT_RELUCTANCE_BUMP;
+  }
+  if (fo.hcContractYearsRemaining <= 1) adj -= FINAL_YEAR_CUT;
+  return adj;
+}
+
+/**
  * The GM-accountability sub-ladder for an HC firing — shared by the
  * Black Monday/finalize ladder and the in-season trigger (design §3.3,
  * hardened): inherited shields, first-own-hire usually survives,
@@ -422,10 +470,11 @@ export function decideFiring(
   const gmSeasons = seasonNumber - fo.gmHiredSeason + 1;
   const jitter = (prng.next() * 2 - 1) * 6;
   const threshold = firingThreshold(owner, jitter);
+  const hcThreshold = threshold + contractThresholdAdjust(owner, fo);
   const gmThreshold = threshold + 8; // the GM bar is inherently higher
 
   // A chair already fired in-season (S2) can't be fired again.
-  let fireHc = !fo.hcVacant && seats.hc > threshold;
+  let fireHc = !fo.hcVacant && seats.hc > hcThreshold;
   // HC year-1 grace: near-immune unless the season cratered (≤4 wins is
   // the one-and-done escape hatch — ~0.6/yr league-wide in real life).
   if (fireHc && hcSeasons <= 1 && outcome.wins > 4) fireHc = false;
@@ -457,6 +506,16 @@ export function decideFiring(
   if (fireGm && gmSeasons <= 2 && !owner.quirks.includes('PANIC_SELLER')) {
     fireGm = false;
     if (joint) joint = false;
+  }
+
+  // The lame-duck cleanup is unconditional — it applies whether or not
+  // the coach chair churned this cycle (a lame duck can't hide behind
+  // his next coach's accountability roll). Only a ring (whose wipe
+  // lands below the floor) saves him. Lame ducks are always 3+ seasons
+  // in (two hires deep), so no grace interaction.
+  if (!fireGm && fo.gmLameDuck && !fo.gmVacant && seats.gm >= LAME_DUCK_FLOOR) {
+    fireGm = true;
+    joint = fireHc;
   }
 
   return { fireHc, fireGm, joint: fireHc && fireGm, hcWasOwnHire, gmBecomesLameDuck };
@@ -574,6 +633,13 @@ function evaluateTeams(
       ...fo,
       seatPressure: { gm: seats.gm, hc: seats.hc },
       gmLameDuck: fo.gmLameDuck || decision.gmBecomesLameDuck,
+      // S4 contract clock: tick down each season; a coach with real
+      // banked credit gets a quiet extension back to 4 years.
+      hcContractYearsRemaining: fo.hcVacant
+        ? fo.hcContractYearsRemaining
+        : seats.hc < -20
+          ? 4
+          : Math.max(0, fo.hcContractYearsRemaining - 1),
     };
 
     if (decision.fireHc) {
@@ -717,7 +783,167 @@ export function runPostSeasonFrontOffice(league: LeagueState, prng: Prng): Leagu
   }
 
   const afterEvals = evaluateTeams(league, prng.fork('playoff-evals'), playoffTeamIds, outcomes);
-  return runHiringWindow(afterEvals, prng.fork('hiring'));
+  // S4: coordinator stocks/stints track their units; surviving GMs
+  // learn which outlets to trust (the tenure-divergence ecology).
+  const afterCoordinators = runCoordinatorSeasonPass(afterEvals, records);
+  const afterLearning = runGmTrustLearning(afterCoordinators);
+  return runHiringWindow(afterLearning, prng.fork('hiring'));
+}
+
+// ─── S4: coordinator season pass + GM outlet-trust learning ─────────────────
+
+/**
+ * Once per season (at finalize): every coordinator's open stint folds
+ * in his team's season, and his hidden stock nudges by his unit's
+ * league rank — points scored for OCs, points allowed for DCs. Stock
+ * is what makes him an HC candidate.
+ */
+function runCoordinatorSeasonPass(
+  league: LeagueState,
+  records: Map<TeamId, TeamRecord>,
+): LeagueState {
+  const byPointsFor = [...records.values()]
+    .sort((a, b) => b.pointsFor - a.pointsFor)
+    .map((r) => r.teamId);
+  const byPointsAllowed = [...records.values()]
+    .sort((a, b) => a.pointsAgainst - b.pointsAgainst)
+    .map((r) => r.teamId);
+  const ocRank = new Map(byPointsFor.map((id, i) => [id, i + 1]));
+  const dcRank = new Map(byPointsAllowed.map((id, i) => [id, i + 1]));
+
+  const coordinators: Record<string, Coordinator> = { ...league.coordinators };
+  for (const team of Object.values(league.teams)) {
+    const id = team.identity.id;
+    const r = records.get(id)!;
+    const playoff = playoffOutcomeForTeam(league, id);
+    const outcome: SeasonOutcome = {
+      wins: r.wins,
+      losses: r.losses,
+      ties: r.ties,
+      madePlayoffs: playoff.madePlayoffs,
+      ...(playoff.championshipResult
+        ? { championshipResult: playoff.championshipResult }
+        : {}),
+    };
+    const seats: ReadonlyArray<readonly [string, number]> = [
+      [team.ocId, ocRank.get(id)!],
+      [team.dcId, dcRank.get(id)!],
+    ];
+    for (const [coordId, rank] of seats) {
+      const c = coordinators[coordId];
+      if (!c) continue;
+      coordinators[coordId] = nudgeCoordinatorStock(
+        {
+          ...c,
+          careerStints: accumulateStint(c.careerStints, id, c.side, league.seasonNumber, outcome),
+        },
+        rank,
+      );
+    }
+  }
+  return { ...league, coordinators: coordinators as LeagueState['coordinators'] };
+}
+
+/**
+ * Surviving GMs' perceived outlet reliability converges toward each
+ * outlet's true accuracy at a rate set by their `evolutionRate`
+ * (~0.04–0.12/season). New GMs arrive freshly miscalibrated, so trust
+ * calibration visibly diverges by tenure: the old hands know which
+ * voices are real; the new guys chase the wrong ones.
+ */
+function runGmTrustLearning(league: LeagueState): LeagueState {
+  const gms: Record<string, Gm> = {};
+  let changed = false;
+  for (const [id, gm] of Object.entries(league.gms)) {
+    if (gm.status !== 'EMPLOYED' || !gm.perceivedOutletReliability) {
+      gms[id] = gm;
+      continue;
+    }
+    const rate = TRUST_LEARNING_BASE + (gm.spectrums.evolutionRate / 10) * TRUST_LEARNING_SPAN;
+    const next: Record<string, Record<string, number>> = {};
+    for (const [outletId, groups] of Object.entries(gm.perceivedOutletReliability)) {
+      const outlet = league.mediaOutlets[outletId as MediaOutletId];
+      const ng: Record<string, number> = {};
+      for (const [g, perceived] of Object.entries(groups)) {
+        const truth = outlet?.accuracyByGroup[g as PositionGroup] ?? perceived;
+        ng[g] = perceived + rate * (truth - perceived);
+      }
+      next[outletId] = ng;
+    }
+    gms[id] = { ...gm, perceivedOutletReliability: next as unknown as PerceivedOutletReliability };
+    changed = true;
+  }
+  if (!changed) return league;
+  return { ...league, gms: gms as LeagueState['gms'] };
+}
+
+/**
+ * Mean absolute miscalibration of a GM's outlet trust vs ground truth
+ * (lower = sharper). Inspector surface for the tenure-divergence view;
+ * null when the GM has no perceived-reliability map.
+ */
+export function outletTrustCalibrationError(
+  gm: Gm,
+  outlets: Readonly<Record<MediaOutletId, MediaOutlet>>,
+): number | null {
+  if (!gm.perceivedOutletReliability) return null;
+  let sum = 0;
+  let n = 0;
+  for (const [outletId, groups] of Object.entries(gm.perceivedOutletReliability)) {
+    const outlet = outlets[outletId as MediaOutletId];
+    if (!outlet) continue;
+    for (const [g, perceived] of Object.entries(groups)) {
+      const truth = outlet.accuracyByGroup[g as PositionGroup];
+      if (truth === undefined) continue;
+      sum += Math.abs(perceived - truth);
+      n++;
+    }
+  }
+  return n > 0 ? sum / n : null;
+}
+
+// ─── Seat-pressure previews (shared with the hot-seat media, S3) ────────────
+
+/**
+ * The mid-season read on a chair: carried pressure plus heat from the
+ * projected full-season pace, discounted by how much season has been
+ * played. With no games yet (offseason), the carried pressure IS the
+ * read. Used by the in-season firing trigger and the hot-seat media.
+ */
+export function previewSeatPressure(
+  team: TeamState,
+  owner: Owner,
+  record: { wins: number; losses: number; ties: number } | null,
+  seasonNumber: number,
+): { gm: number; hc: number } {
+  const fo = team.frontOffice;
+  const games = record ? record.wins + record.losses + record.ties : 0;
+  if (!record || games === 0) {
+    return { gm: fo.seatPressure.gm, hc: fo.seatPressure.hc };
+  }
+  const paceWins = (record.wins / games) * 17;
+  const confidence = games / 17;
+  const impatience = ownerImpatience(owner);
+  const heat = marketHeat(team);
+  const hcSeasons = seasonNumber - fo.hcHiredSeason + 1;
+  const gmSeasons = seasonNumber - fo.gmHiredSeason + 1;
+  return {
+    hc:
+      fo.seatPressure.hc * PRESSURE_DECAY +
+      Math.max(0, expectedWinsForTeam(team, hcSeasons) - paceWins) *
+        HC_HEAT_SCALE *
+        impatience *
+        heat *
+        confidence,
+    gm:
+      fo.seatPressure.gm * PRESSURE_DECAY +
+      Math.max(0, expectedWinsForTeam(team, gmSeasons, 4) - paceWins) *
+        HC_HEAT_SCALE *
+        GM_HEAT_RATIO *
+        impatience *
+        heat *
+        confidence,
+  };
 }
 
 // ─── S2: in-season firings (v0.139) ─────────────────────────────────────────
@@ -751,6 +977,7 @@ export function runInSeasonFirings(
   const teams: Record<string, TeamState> = { ...league.teams };
   const gms: Record<string, Gm> = { ...league.gms };
   const coaches: Record<string, HeadCoach> = { ...league.coaches };
+  const coordinators: Record<string, Coordinator> = { ...league.coordinators };
   const log: Transaction[] = [];
 
   for (const teamIn of Object.values(league.teams)) {
@@ -765,8 +992,6 @@ export function runInSeasonFirings(
     const teamPrng = prng.fork(`midseason:${teamId}`);
     const winPct = (r.wins + r.ties / 2) / games;
     const paceWins = (r.wins / games) * 17;
-    const impatience = ownerImpatience(owner);
-    const heat = marketHeat(team);
     const partial: SeasonOutcome = {
       wins: r.wins,
       losses: r.losses,
@@ -775,29 +1000,13 @@ export function runInSeasonFirings(
     };
 
     const jitter = (teamPrng.next() * 2 - 1) * 6;
-    const threshold = firingThreshold(owner, jitter);
-    const gmThreshold = threshold + 8;
+    const baseThreshold = firingThreshold(owner, jitter);
+    const threshold = baseThreshold + contractThresholdAdjust(owner, fo);
+    const gmThreshold = baseThreshold + 8;
 
     const hcSeasons = seasonNumber - fo.hcHiredSeason + 1;
     const gmSeasons = seasonNumber - fo.gmHiredSeason + 1;
-    // Projected-pace heat is discounted by how much season has been
-    // played — a 1-5 start is an extrapolation, a 2-10 start is a fact.
-    const confidence = games / 17;
-    const previewHc =
-      fo.seatPressure.hc * PRESSURE_DECAY +
-      Math.max(0, expectedWinsForTeam(team, hcSeasons) - paceWins) *
-        HC_HEAT_SCALE *
-        impatience *
-        heat *
-        confidence;
-    const previewGm =
-      fo.seatPressure.gm * PRESSURE_DECAY +
-      Math.max(0, expectedWinsForTeam(team, gmSeasons, 4) - paceWins) *
-        HC_HEAT_SCALE *
-        GM_HEAT_RATIO *
-        impatience *
-        heat *
-        confidence;
+    const { hc: previewHc, gm: previewGm } = previewSeatPressure(team, owner, r, seasonNumber);
 
     let nextTeam = team;
     let hcFiredThisWeek = false;
@@ -896,20 +1105,61 @@ export function runInSeasonFirings(
           });
         }
 
-        // Interim: a generated assistant thrust upward — low experience
-        // is the "slight penalty" until coach quality reaches game sim.
+        // Interim: the team's higher-stock coordinator steps up (S4 —
+        // the real pattern). His coordinator stint closes PROMOTED with
+        // the partial season folded in; his old seat backfills quietly;
+        // experience is capped — the "slight penalty" until coach
+        // quality reaches game sim.
         const gmForHire = joint ? null : gms[team.gmId]!;
-        const interimRaw = generateHeadCoach(
-          teamPrng.fork('interim'),
-          `${team.identity.abbreviation}_INT_S${seasonNumber}`,
-          owner,
-          gmForHire,
-        );
-        const interim: HeadCoach = {
-          ...interimRaw,
+        const oc = coordinators[team.ocId];
+        const dc = coordinators[team.dcId];
+        const stepUp = oc && dc ? (oc.stock >= dc.stock ? oc : dc) : (oc ?? dc);
+        let interim: HeadCoach;
+        if (stepUp) {
+          const closed: Coordinator = {
+            ...stepUp,
+            careerStints: closeStint(
+              accumulateStint(stepUp.careerStints, teamId, stepUp.side, seasonNumber, partial),
+              teamId,
+              stepUp.side,
+              seasonNumber,
+              'PROMOTED',
+            ),
+          };
+          interim = coordinatorToHeadCoach(
+            teamPrng.fork('interim'),
+            closed,
+            `${team.identity.abbreviation}_INT_S${seasonNumber}`,
+            owner,
+            gmForHire,
+          );
+          delete coordinators[stepUp.id];
+          const backfill = generateCoordinator(
+            teamPrng.fork('interim-backfill'),
+            `${team.identity.abbreviation}_S${seasonNumber}W${weekIdx}`,
+            stepUp.side,
+          );
+          coordinators[backfill.id] = backfill;
+          nextTeam =
+            stepUp.side === 'OC'
+              ? { ...team, ocId: backfill.id }
+              : { ...team, dcId: backfill.id };
+        } else {
+          // Degenerate fallback (no coordinators — shouldn't happen
+          // post-migration): generate an assistant.
+          interim = generateHeadCoach(
+            teamPrng.fork('interim'),
+            `${team.identity.abbreviation}_INT_S${seasonNumber}`,
+            owner,
+            gmForHire,
+          );
+          nextTeam = team;
+        }
+        interim = {
+          ...interim,
           spectrums: {
-            ...interimRaw.spectrums,
-            experience: Math.min(interimRaw.spectrums.experience, 3),
+            ...interim.spectrums,
+            experience: Math.min(interim.spectrums.experience, 3),
           },
         };
         coaches[interim.id] = interim;
@@ -931,7 +1181,7 @@ export function runInSeasonFirings(
             hcWasOwnHire && !joint ? fo.gmCoachFiringsSurvived + 1 : fo.gmCoachFiringsSurvived,
           gmLameDuck: fo.gmLameDuck || acc.gmBecomesLameDuck,
         };
-        nextTeam = { ...team, headCoachId: interim.id, frontOffice: fo };
+        nextTeam = { ...nextTeam, headCoachId: interim.id, frontOffice: fo };
       }
     }
 
@@ -985,6 +1235,7 @@ export function runInSeasonFirings(
     teams: teams as LeagueState['teams'],
     gms: gms as LeagueState['gms'],
     coaches: coaches as LeagueState['coaches'],
+    coordinators: coordinators as LeagueState['coordinators'],
     transactionLog: [...league.transactionLog, ...log],
   };
 }
@@ -1019,16 +1270,46 @@ function retreadPool<T extends Gm | HeadCoach>(
 }
 
 /**
+ * Pick or generate a coordinator for an open seat: ~30% from the
+ * unemployed pool (stock-weighted, recency-gated), else a fresh face.
+ */
+function fillCoordinatorSeat(
+  prng: Prng,
+  coordinators: Record<string, Coordinator>,
+  side: Coordinator['side'],
+  idSeed: string,
+  currentSeason: number,
+): Coordinator {
+  const pool = Object.values(coordinators).filter((c) => {
+    if (c.status !== 'UNEMPLOYED' || c.side !== side) return false;
+    const last = [...c.careerStints]
+      .filter((s) => s.toSeason !== null)
+      .sort((a, b) => (b.toSeason ?? 0) - (a.toSeason ?? 0))[0];
+    return last ? currentSeason - (last.toSeason ?? 0) <= RETREAD_RECENCY : false;
+  });
+  if (pool.length > 0 && prng.next() < COORDINATOR_RETREAD_P) {
+    const pick = prng.weighted(pool.map((c) => ({ value: c, weight: Math.max(0.2, c.stock) })));
+    return { ...pick, status: 'EMPLOYED' };
+  }
+  return generateCoordinator(prng.fork('gen'), idSeed, side);
+}
+
+/**
  * Fill every vacant seat league-wide: GM first (so the incoming GM
- * shapes the coach archetype), then HC. New GMs arrive with FRESH
- * miscalibrated outlet-trust priors — the media-trust ecology churn
- * this module exists to unblock. Retreads keep their learned beliefs.
+ * shapes the coach archetype), then HC — sourced retread → poached
+ * coordinator (the dominant pipeline) → generated outsider. A new
+ * permanent HC turns over the team's coordinator staff (S4); a team
+ * that loses its coordinator to another team's big chair backfills.
+ * New GMs arrive with FRESH miscalibrated outlet-trust priors — the
+ * media-trust ecology churn this module exists to unblock. Retreads
+ * keep their learned beliefs.
  */
 export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
   const hiredSeason = league.seasonNumber + 1; // first season they work
   const teams: Record<string, TeamState> = { ...league.teams };
   const gms: Record<string, Gm> = { ...league.gms };
   const coaches: Record<string, HeadCoach> = { ...league.coaches };
+  const coordinators: Record<string, Coordinator> = { ...league.coordinators };
   const personalities = { ...league.teamPersonalities };
   const log: Transaction[] = [];
 
@@ -1088,10 +1369,12 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
       const gm = gms[nextTeam.gmId]!;
       // S2: an interim caretaker sometimes earns the permanent job (the
       // Antonio Pierce path); otherwise he returns to assistant-land
-      // (UNEMPLOYED with no closed stint → invisible to the retread pool).
+      // (UNEMPLOYED with no closed HC stint → invisible to the HC
+      // retread pool).
       const promoteInterim = nextFo.hcInterim && hirePrng.next() < INTERIM_PROMOTION_P;
       let hired: HeadCoach;
       let useRetread = false;
+      let fromCoordinator = false;
       if (promoteInterim) {
         hired = coaches[nextTeam.headCoachId]!;
       } else {
@@ -1099,18 +1382,70 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
           const interim = coaches[nextTeam.headCoachId]!;
           coaches[interim.id] = { ...interim, status: 'UNEMPLOYED' };
         }
+        // S4 source mix: retread → poached coordinator → outsider.
         const pool = retreadPool(coaches, 'HC', league.seasonNumber);
-        useRetread = pool.length > 0 && hirePrng.next() < HC_RETREAD_P;
+        useRetread = pool.length > 0 && hirePrng.next() < HC_SOURCE_RETREAD_P;
         if (useRetread) {
           const pick = hirePrng.weighted(pool.map((c) => ({ value: c.person, weight: c.weight })));
           hired = { ...pick, status: 'EMPLOYED' };
         } else {
-          hired = generateHeadCoach(
-            hirePrng.fork('gen-hc'),
-            `${team.identity.abbreviation}_S${hiredSeason}`,
-            owner,
-            gm,
+          const candidates = Object.values(coordinators).filter(
+            (c) => c.status === 'EMPLOYED',
           );
+          if (candidates.length > 0 && hirePrng.next() < HC_SOURCE_COORDINATOR_P) {
+            fromCoordinator = true;
+            const pick = hirePrng.weighted(
+              candidates.map((c) => ({ value: c, weight: Math.max(0.2, c.stock * c.stock) })),
+            );
+            // Close his coordinator chapter (season already folded by
+            // the coordinator season pass) and convert.
+            const closed: Coordinator = {
+              ...pick,
+              careerStints: closeStint(
+                pick.careerStints,
+                pick.careerStints.find((s) => s.toSeason === null)?.teamId ?? teamId,
+                pick.side,
+                league.seasonNumber,
+                'PROMOTED',
+              ),
+            };
+            hired = coordinatorToHeadCoach(
+              hirePrng.fork('convert'),
+              closed,
+              `${team.identity.abbreviation}_S${hiredSeason}`,
+              owner,
+              gm,
+            );
+            delete coordinators[pick.id];
+            // Backfill the seat he left — on whichever team held him.
+            for (const t of Object.values(teams)) {
+              if (t.ocId === pick.id || t.dcId === pick.id) {
+                const backfill = fillCoordinatorSeat(
+                  hirePrng.fork(`poach-backfill:${t.identity.id}`),
+                  coordinators,
+                  pick.side,
+                  `${t.identity.abbreviation}_S${hiredSeason}`,
+                  league.seasonNumber,
+                );
+                coordinators[backfill.id] = backfill;
+                teams[t.identity.id] =
+                  pick.side === 'OC'
+                    ? { ...t, ocId: backfill.id }
+                    : { ...t, dcId: backfill.id };
+                if (t.identity.id === teamId) {
+                  nextTeam = teams[teamId]!;
+                }
+                break;
+              }
+            }
+          } else {
+            hired = generateHeadCoach(
+              hirePrng.fork('gen-hc'),
+              `${team.identity.abbreviation}_S${hiredSeason}`,
+              owner,
+              gm,
+            );
+          }
         }
       }
       coaches[hired.id] = hired;
@@ -1121,6 +1456,7 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
         hcInterim: false,
         hcHiredSeason: hiredSeason,
         hcHiredByGmId: nextTeam.gmId,
+        hcContractYearsRemaining: HC_CONTRACT_YEARS,
         seatPressure: { ...nextFo.seatPressure, hc: 0 },
       };
       log.push({
@@ -1132,7 +1468,39 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
         retread: useRetread,
         hiredByGmId: nextTeam.gmId,
         ...(promoteInterim ? { promotedInterim: true } : {}),
+        ...(fromCoordinator ? { fromCoordinator: true } : {}),
       });
+
+      // S4 staff turnover: a new permanent boss brings his own
+      // coordinators. The outgoing pair (any seat not already churned
+      // by a midseason promotion or the poach above) hits the street.
+      for (const side of ['OC', 'DC'] as const) {
+        const seatId = side === 'OC' ? nextTeam.ocId : nextTeam.dcId;
+        const incumbent = coordinators[seatId];
+        if (incumbent && incumbent.status === 'EMPLOYED') {
+          coordinators[seatId] = {
+            ...incumbent,
+            status: 'UNEMPLOYED',
+            careerStints: closeStint(
+              incumbent.careerStints,
+              teamId,
+              side,
+              league.seasonNumber,
+              'FIRED',
+            ),
+          };
+        }
+        const replacement = fillCoordinatorSeat(
+          hirePrng.fork(`staff:${side}`),
+          coordinators,
+          side,
+          `${team.identity.abbreviation}_S${hiredSeason}${side}`,
+          league.seasonNumber,
+        );
+        coordinators[replacement.id] = replacement;
+        nextTeam =
+          side === 'OC' ? { ...nextTeam, ocId: replacement.id } : { ...nextTeam, dcId: replacement.id };
+      }
     }
 
     nextTeam = { ...nextTeam, frontOffice: nextFo };
@@ -1150,6 +1518,7 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
     teams: teams as LeagueState['teams'],
     gms: gms as LeagueState['gms'],
     coaches: coaches as LeagueState['coaches'],
+    coordinators: coordinators as LeagueState['coordinators'],
     teamPersonalities: personalities,
     transactionLog: [...league.transactionLog, ...log],
   };

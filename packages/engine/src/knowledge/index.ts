@@ -27,6 +27,14 @@ export {
   type ConfidenceLabel,
 } from './snapshot.js';
 
+// Front-office knowledge (S3, v0.140): the game-safe hot-seat feed —
+// attributed, qualitative heat bands, no seat-pressure numbers.
+export {
+  hotSeatKnowledge,
+  type HotSeatKnowledgeItem,
+  type HotSeatKnowledgeOptions,
+} from './front-office.js';
+
 // The viewer concept (a team's scouting department, or a media outlet) is
 // shared with the dossier assembly.
 export type { DossierViewer } from '../draft/dossier.js';

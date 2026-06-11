@@ -437,6 +437,11 @@ export interface TransactionHcHired extends TransactionBase {
    * permanent job (the Antonio Pierce path). Absent on v0.138 logs.
    */
   promotedInterim?: boolean;
+  /**
+   * S4 (v0.140): true when the hire is a coordinator poached into the
+   * big chair — the dominant real-world HC pipeline.
+   */
+  fromCoordinator?: boolean;
 }
 
 /**

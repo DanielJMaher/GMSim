@@ -7,6 +7,7 @@ import type {
   OwnerId,
   GmId,
   CoachId,
+  CoordinatorId,
   ScoutId,
 } from '../types/ids.js';
 import type { TeamState } from '../types/team.js';
@@ -14,8 +15,10 @@ import type {
   Owner,
   Gm,
   HeadCoach,
+  Coordinator,
   TeamPersonality,
 } from '../types/personnel.js';
+import { generateCoordinator } from '../personnel/coordinator.js';
 import type { Scout } from '../types/scout.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
@@ -89,6 +92,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   const owners: Record<string, Owner> = {};
   const gms: Record<string, Gm> = {};
   const coaches: Record<string, HeadCoach> = {};
+  const coordinators: Record<string, Coordinator> = {};
   const scouts: Record<string, Scout> = {};
   const teamPersonalities: Record<string, TeamPersonality> = {};
   const players: Record<string, Player> = {};
@@ -156,11 +160,19 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     }
     collegeScoutsByTeam[identity.id] = teamCollegeScouts;
 
+    // S4 (v0.140): the founding coordinator staff.
+    const oc = generateCoordinator(teamPrng.fork('oc'), identity.abbreviation, 'OC');
+    const dc = generateCoordinator(teamPrng.fork('dc'), identity.abbreviation, 'DC');
+    coordinators[oc.id] = oc;
+    coordinators[dc.id] = dc;
+
     const team: TeamState = {
       identity,
       ownerId: bundle.owner.id,
       gmId: bundle.gm.id,
       headCoachId: bundle.headCoach.id,
+      ocId: oc.id,
+      dcId: dc.id,
       scoutIds,
       collegeScoutIds,
       rosterIds,
@@ -182,6 +194,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
         gmVacant: false,
         hcVacant: false,
         hcInterim: false,
+        hcContractYearsRemaining: 4,
         seatPressure: { gm: 0, hc: 0 },
       },
     };
@@ -247,6 +260,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     owners: owners as Readonly<Record<OwnerId, Owner>>,
     gms: gms as Readonly<Record<GmId, Gm>>,
     coaches: coaches as Readonly<Record<CoachId, HeadCoach>>,
+    coordinators: coordinators as Readonly<Record<CoordinatorId, Coordinator>>,
     scouts: scouts as Readonly<Record<ScoutId, Scout>>,
     contracts: contracts as Readonly<Record<ContractIdType, Contract>>,
     teamPersonalities: teamPersonalities as Readonly<Record<TeamId, TeamPersonality>>,

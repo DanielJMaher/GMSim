@@ -1,4 +1,4 @@
-import type { TeamId, OwnerId, GmId, CoachId, ScoutId, PlayerId } from './ids.js';
+import type { TeamId, OwnerId, GmId, CoachId, CoordinatorId, ScoutId, PlayerId } from './ids.js';
 import type { Conference, Division, MarketSize, FranchiseHistory, CompetitiveWindow } from './enums.js';
 import type { FanBaseProfile } from './personnel.js';
 
@@ -48,6 +48,14 @@ export interface FrontOfficeState {
    */
   hcInterim: boolean;
   /**
+   * S4 (v0.140): seasons left on the HC's contract. Set to 5 on a
+   * permanent hire, decremented each season, quietly extended back to
+   * 4 when the coach has banked real credit. Cheap owners hesitate to
+   * eat 3+ remaining years (threshold bump); a final-year coach is
+   * cheap to move on from (threshold cut).
+   */
+  hcContractYearsRemaining: number;
+  /**
    * Owner-confidence pressure, accumulated per season. Range ~[-60,
    * 110]: negative = banked credit (playoff runs, beating
    * expectations), above the ~70 firing threshold = gone. Hidden
@@ -93,6 +101,12 @@ export interface TeamState {
   ownerId: OwnerId;
   gmId: GmId;
   headCoachId: CoachId;
+  /**
+   * S4 (v0.140): the coordinator tier. Resolved via
+   * `LeagueState.coordinators`. Backfilled by migration on older saves.
+   */
+  ocId: CoordinatorId;
+  dcId: CoordinatorId;
   /**
    * NFL player scouts on staff. 3–5 per team; count + accuracy mean
    * tied to Owner `financialCommitment` + GM `talentEvaluationAccuracy`

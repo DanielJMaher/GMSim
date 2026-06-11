@@ -1,4 +1,4 @@
-import type { OwnerId, GmId, CoachId, MediaOutletId, TeamId } from './ids.js';
+import type { OwnerId, GmId, CoachId, CoordinatorId, MediaOutletId, TeamId } from './ids.js';
 import type { PositionGroup } from './enums.js';
 import type { CareerAward } from './awards.js';
 
@@ -63,6 +63,7 @@ export type StintEnd =
   | 'FIRED'
   | 'JOINT_FIRED'      // clean house — went down with the other chair
   | 'FIRED_IN_SEASON'  // S2: mid-season firing
+  | 'PROMOTED'         // S4: coordinator left for a head-coaching job
   | 'RESIGNED'
   | 'RETIRED';
 
@@ -76,7 +77,8 @@ export type StintEnd =
  */
 export interface CareerStint {
   teamId: TeamId;
-  role: 'GM' | 'HC';
+  /** S4 (v0.140) extended with the coordinator tier (OC/DC stints). */
+  role: 'GM' | 'HC' | 'OC' | 'DC';
   /** First season worked in this job (1-indexed league season). */
   fromSeason: number;
   /** Last season worked, or null while the stint is open. */
@@ -236,6 +238,36 @@ export interface HeadCoach {
   /** Employment status (front-office lifecycle, v0.138). See `Gm.status`. */
   status: PersonnelStatus;
   /** Job history résumé (front-office lifecycle, v0.138). See `Gm.careerStints`. */
+  careerStints: readonly CareerStint[];
+}
+
+// ─── COORDINATORS (S4, v0.140) ──────────────────────────────────────────────
+
+/**
+ * A coordinator — the tier beneath head coach (Coaching Staff doc #8).
+ * Deliberately LITE relative to `HeadCoach`: a name, a side, a scheme,
+ * and a hidden `stock` (league reputation, 1-10) that moves with his
+ * unit's season performance. Coordinators are carousel entities — they
+ * do not influence game sim in S4 (same as HCs; that's a named future
+ * thread). Their purpose: the realistic HC hiring pipeline. Most new
+ * head coaches are coordinators poached off successful units; a hired
+ * coordinator converts to a full `HeadCoach` (carrying his OC/DC
+ * career stints) and his old seat backfills.
+ */
+export interface Coordinator {
+  id: CoordinatorId;
+  name: string;
+  side: 'OC' | 'DC';
+  /** Scheme he runs — `OffensiveSchemeArchetype` for OCs, `DefensiveSchemeArchetype` for DCs. */
+  scheme: OffensiveSchemeArchetype | DefensiveSchemeArchetype;
+  /**
+   * Hidden coaching quality / league reputation, 1-10. Nudged each
+   * season by his unit's league rank (points scored for OCs, points
+   * allowed for DCs). Drives HC-candidacy weighting. Never shown
+   * numerically in a game UI; the inspector exposes it.
+   */
+  stock: number;
+  status: PersonnelStatus;
   careerStints: readonly CareerStint[];
 }
 

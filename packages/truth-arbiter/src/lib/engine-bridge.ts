@@ -476,6 +476,10 @@ export interface FrontOfficeHistory {
   gmFired: GmFiringEvent[];
   hcHiredTotal: number;
   hcHiredRetreads: number;
+  /** S4: hires poached from the coordinator tier. */
+  hcHiredFromCoordinators: number;
+  /** S2/S4: interims who earned the permanent job. */
+  hcHiredPromotedInterims: number;
   gmHiredTotal: number;
   gmHiredRetreads: number;
   /** Lengths (seasons) of every CLOSED HC stint at sim end. */
@@ -512,6 +516,8 @@ interface FoLeague {
     ownHireIndex?: number;
     gmTenureSeasons?: number;
     retread?: boolean;
+    fromCoordinator?: boolean;
+    promotedInterim?: boolean;
   }[];
 }
 
@@ -544,6 +550,8 @@ export async function simulateFrontOfficeHistory(
   const gmFired: GmFiringEvent[] = [];
   let hcHiredTotal = 0;
   let hcHiredRetreads = 0;
+  let hcHiredFromCoordinators = 0;
+  let hcHiredPromotedInterims = 0;
   let gmHiredTotal = 0;
   let gmHiredRetreads = 0;
 
@@ -570,6 +578,8 @@ export async function simulateFrontOfficeHistory(
     } else if (tx.kind === 'hc-hired') {
       hcHiredTotal++;
       if (tx.retread) hcHiredRetreads++;
+      if (tx.fromCoordinator) hcHiredFromCoordinators++;
+      if (tx.promotedInterim) hcHiredPromotedInterims++;
     } else if (tx.kind === 'gm-hired') {
       gmHiredTotal++;
       if (tx.retread) gmHiredRetreads++;
@@ -606,6 +616,8 @@ export async function simulateFrontOfficeHistory(
     gmFired,
     hcHiredTotal,
     hcHiredRetreads,
+    hcHiredFromCoordinators,
+    hcHiredPromotedInterims,
     gmHiredTotal,
     gmHiredRetreads,
     completedHcStints,

@@ -61,6 +61,8 @@ export {
   decideFiring,
   expectedWinsForTeam,
   playoffOutcomeForTeam,
+  previewSeatPressure,
+  outletTrustCalibrationError,
   openCareerStint,
   FIRING_THRESHOLD,
   type SeasonOutcome,

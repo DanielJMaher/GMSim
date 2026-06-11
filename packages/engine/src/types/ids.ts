@@ -16,6 +16,7 @@ export type GameId = Brand<string, 'GameId'>;
 export type SeasonId = Brand<string, 'SeasonId'>;
 export type MediaOutletId = Brand<string, 'MediaOutletId'>;
 export type MediaReportId = Brand<string, 'MediaReportId'>;
+export type CoordinatorId = Brand<string, 'CoordinatorId'>;
 
 export const TeamId = (s: string): TeamId => s as TeamId;
 export const PlayerId = (s: string): PlayerId => s as PlayerId;
@@ -29,3 +30,4 @@ export const GameId = (s: string): GameId => s as GameId;
 export const SeasonId = (s: string): SeasonId => s as SeasonId;
 export const MediaOutletId = (s: string): MediaOutletId => s as MediaOutletId;
 export const MediaReportId = (s: string): MediaReportId => s as MediaReportId;
+export const CoordinatorId = (s: string): CoordinatorId => s as CoordinatorId;

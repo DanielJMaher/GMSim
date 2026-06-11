@@ -237,6 +237,35 @@ export interface NarrativeReport extends MediaReportBase {
 }
 
 /**
+ * Qualitative hot-seat band — what a game surface is allowed to show
+ * (the knowledge layer strips the numeric read).
+ */
+export type HotSeatHeat = 'warm' | 'hot' | 'inferno';
+
+/**
+ * S3 (v0.140) — hot-seat coverage: an outlet's read on a coach's or
+ * GM's job security. The outlet PERCEIVES the hidden seat pressure
+ * through its own accuracy (sloppy outlets miss wide) and hype (loud
+ * outlets run hotter), so some outlets call firings that never come —
+ * that's the point. Selection (which chairs get covered) rides the
+ * world seed; phrasing rides `voiceSeed` (Living Voice split).
+ */
+export interface HotSeatReport extends MediaReportBase {
+  kind: 'hot-seat';
+  subjectTeamId: TeamId;
+  chair: 'HC' | 'GM';
+  /** Subject's display name, frozen at filing (reports are dated artifacts). */
+  subjectName: string;
+  /**
+   * The outlet's numeric read of the hidden seat pressure. Persisted
+   * for the inspector's perceived/real pair; NEVER shown in a game UI
+   * — the knowledge layer exposes only the qualitative `heat` band.
+   */
+  perceivedSeat: number;
+  heat: HotSeatHeat;
+}
+
+/**
  * Discriminated union of all media report shapes. v0.62 only emits
  * `TeamWeekReport`; the other kinds reserve their slot in the union
  * so college-season generators drop in without breaking consumers.
@@ -245,4 +274,5 @@ export type MediaReport =
   | TeamWeekReport
   | PlayerTakeReport
   | ProspectBoardReport
-  | NarrativeReport;
+  | NarrativeReport
+  | HotSeatReport;

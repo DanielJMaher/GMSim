@@ -16,6 +16,56 @@ _Nothing yet._
 
 ---
 
+## [0.140.0] — 2026-06-11
+
+### Added
+
+- **GM hire/fire S3 — the hot seat as a media object.**
+  - **Hot-seat coverage** (`media/hot-seat.ts`): outlets read the HIDDEN
+    seat pressure through their own accuracy and hype — a sharp insider
+    lands near the truth, sports radio misses wide and runs hot — so some
+    outlets call firings that never come, and the player learns who to
+    believe by watching. Weekly beat from October (post-firing state) +
+    a preseason "enters the season on the hot seat" batch; capped at 4
+    reports/tick; Living Voice split (world seed selects + perceives,
+    `voiceSeed` phrases — same world, different words per playthrough).
+  - **Knowledge surface** (`knowledge/front-office.ts`,
+    `hotSeatKnowledge`): the game-safe feed — attribution + qualitative
+    heat bands (warm/hot/inferno), no numbers; leak-gated by
+    `knowledge/front-office.test.ts`.
+  - **Inspector perceived/real pair**: the Front Office tab seat columns
+    become Media/Real (latest outlet read vs hidden truth) per the
+    standing inspector convention, plus a Hot Seat Watch section that
+    renders the knowledge feed verbatim.
+  - **Press-conference flavor**: firing/hiring news bodies carry a
+    voiced ownership/introductory quote.
+- **GM hire/fire S4 — carousel depth (Coaching Staff doc #8's first rung).**
+  - **The coordinator tier**: every team carries an OC + DC (lite
+    entities — name, side, scheme, hidden `stock` that tracks their
+    unit's season rank). **The HC pipeline now runs through them**: ~50%
+    of new head coaches are coordinators poached off good units
+    (stock²-weighted), converting to full `HeadCoach` entities carrying
+    their OC/DC career stints; their old seats backfill; a new permanent
+    HC turns over his coordinator staff. Midseason interims are now the
+    team's higher-stock coordinator stepping up (and sometimes keeping
+    the job). Headhunter gates: coordinator-pipeline share 50%,
+    retread share 33% — both on the real mix.
+  - **Coach contracts**: `hcContractYearsRemaining` (5 on hire, quiet
+    extension on banked credit). Cheap owners hesitate to eat 3+
+    remaining years (+6 threshold); a final-year coach is cheap to fire
+    (−5). Also fixed a lame-duck leak: the zero-survivors cleanup is now
+    unconditional — a condemned GM can't hide behind his next coach's
+    accountability roll.
+  - **GM media-trust learning (long-blocked, now live)**: surviving GMs'
+    `perceivedOutletReliability` converges toward each outlet's true
+    accuracy at `evolutionRate`-scaled speed (~0.04–0.12/season), while
+    new GMs arrive freshly miscalibrated — trust calibration visibly
+    diverges by tenure (Trust± column in the inspector).
+  - Migration backfills coordinators + contract years on pre-v0.140
+    saves.
+
+---
+
 ## [0.139.0] — 2026-06-11
 
 ### Added
