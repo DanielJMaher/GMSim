@@ -70,6 +70,14 @@ interface MediaObs {
 }
 interface EngineModule {
   athleticBaseline: (position: string) => AthleticBaseline;
+  pickValue: (overallPick: number, yearsOut?: number) => number;
+  neutralPlayerTradeValue: (
+    tier: string,
+    position: string,
+    age: number,
+    yearsRemaining?: number,
+  ) => number;
+  CHART_POINT_TO_DOLLARS: number;
   computeConsensusBoard: (perTeamBoards: Record<string, unknown>) => ConsensusEntry[];
   positionGroupFor: (position: string) => string;
   tickPhase: (league: EngineLeague) => EngineLeague;
@@ -623,6 +631,37 @@ export async function simulateFrontOfficeHistory(
     completedHcStints,
     activeGmTenures,
     maxGmTenure,
+  };
+}
+
+// ── The Barterer: trade-value primitives (Doc 5 chart + neutral player value) ─
+
+export interface TradeValuePrimitives {
+  /** Doc 5 chart points for a pick at `overallPick`, discounted `yearsOut`. */
+  pickValue: (overallPick: number, yearsOut?: number) => number;
+  /** League-neutral player value in $M (tier × position × age × contract). */
+  neutralPlayerValueMillions: (
+    tier: string,
+    position: string,
+    age: number,
+    yearsRemaining?: number,
+  ) => number;
+  /** $ per chart point — converts player $ values into pick-chart points. */
+  chartPointToDollars: number;
+}
+
+/**
+ * The engine's own trade-valuation primitives, so the Barterer values real
+ * NFL trades by exactly the chart GMSim's GMs use — retune the engine and
+ * the real-trade envelope follows automatically.
+ */
+export async function tradeValuePrimitives(): Promise<TradeValuePrimitives> {
+  const eng = await loadEngine();
+  return {
+    pickValue: (overallPick, yearsOut) => eng.pickValue(overallPick, yearsOut),
+    neutralPlayerValueMillions: (tier, position, age, yearsRemaining) =>
+      eng.neutralPlayerTradeValue(tier, position, age, yearsRemaining),
+    chartPointToDollars: eng.CHART_POINT_TO_DOLLARS,
   };
 }
 

@@ -34,6 +34,8 @@
     "narrator": "tsc -p tsconfig.json && node dist/voice/narrator.js"
   },
   "dependencies": {
+    "hyparquet": "^1.26.0",
+    "hyparquet-compressors": "^1.1.1",
     "node-html-parser": "^6.1.13"
   },
   "devDependencies": {

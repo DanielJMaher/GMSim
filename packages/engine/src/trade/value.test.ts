@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
-import { evaluatePlayerValue, evaluateTradePackage, evaluatePickValue } from './value.js';
+import {
+  evaluatePlayerValue,
+  evaluateTradePackage,
+  evaluatePickValue,
+  neutralPlayerTradeValue,
+} from './value.js';
 import { CompetitiveWindow, Position } from '../types/enums.js';
 import type { LeagueState } from '../types/league.js';
 import type { Player, PlayerId } from '../types/player.js';
@@ -385,6 +390,37 @@ describe('evaluatePickValue', () => {
       { ...baseLeague, currentWeek: 7 },
     );
     expect(deadline.total).toBeCloseTo(baseline.total, 5);
+  });
+});
+
+describe('neutralPlayerTradeValue', () => {
+  it('matches tier base × positional × age band with no team factors', () => {
+    // Prime-age STAR QB: 28 × 2.0 × 1.0 = 56.
+    expect(neutralPlayerTradeValue('STAR', Position.QB, 27)).toBeCloseTo(56, 5);
+    // Aging STARTER RB: 10 × 0.9 × 0.9 (age 30-32 band) = 8.1.
+    expect(neutralPlayerTradeValue('STARTER', Position.RB, 31)).toBeCloseTo(8.1, 5);
+  });
+
+  it('applies the rental discount / cost-certainty premium when yearsRemaining is given', () => {
+    const base = neutralPlayerTradeValue('STARTER', Position.WR, 27);
+    expect(neutralPlayerTradeValue('STARTER', Position.WR, 27, 1)).toBeCloseTo(base * 0.9, 5);
+    expect(neutralPlayerTradeValue('STARTER', Position.WR, 27, 2)).toBeCloseTo(base, 5);
+    expect(neutralPlayerTradeValue('STARTER', Position.WR, 27, 4)).toBeCloseTo(base * 1.05, 5);
+  });
+
+  it('agrees with evaluatePlayerValue tier-base × positional × ageContract composition', () => {
+    // A full evaluation with team factors stripped out should reduce to the
+    // neutral baseline: divide out schemeFit/timing/rosterState/ability.
+    const league = createLeague({ seed: 'tv-neutral-consistency' });
+    const team = Object.values(league.teams)[0]!;
+    const player = makeSyntheticAged(league, { tier: 'STAR', position: Position.WR }, 27);
+    const noContract = { ...player, contractId: null };
+    const v = evaluatePlayerValue(team, noContract, league);
+    const f = v.factors;
+    const stripped =
+      v.total /
+      (f.schemeFit.multiplier * f.timing.multiplier * f.rosterState.multiplier * f.ability.multiplier);
+    expect(stripped).toBeCloseTo(neutralPlayerTradeValue('STAR', Position.WR, 27), 5);
   });
 });
 

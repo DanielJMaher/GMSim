@@ -130,7 +130,7 @@ export interface PickValueBreakdown {
  * scout-consensus + Pro-Bowl recognition land they'll add their own
  * factor lines to PlayerValueBreakdown; this conversion stays put.
  */
-const CHART_POINT_TO_DOLLARS = 3000;
+export const CHART_POINT_TO_DOLLARS = 3000;
 
 /**
  * Round-midpoint slot used to value future-year picks (we don't
@@ -408,27 +408,7 @@ function schemeFitFactor(
  */
 function ageContractFactor(player: Player, league: LeagueState): ValueFactor {
   const age = ageOfPlayer(player, league.seasonNumber);
-  let ageMult: number;
-  let ageLabel: string;
-  if (age <= 22) {
-    ageMult = 1.1;
-    ageLabel = `age ${age} (rookie upside)`;
-  } else if (age <= 24) {
-    ageMult = 1.05;
-    ageLabel = `age ${age} (developing)`;
-  } else if (age <= 29) {
-    ageMult = 1.0;
-    ageLabel = `age ${age} (prime)`;
-  } else if (age <= 32) {
-    ageMult = 0.9;
-    ageLabel = `age ${age} (declining)`;
-  } else if (age <= 35) {
-    ageMult = 0.75;
-    ageLabel = `age ${age} (veteran)`;
-  } else {
-    ageMult = 0.55;
-    ageLabel = `age ${age} (aging)`;
-  }
+  const { multiplier: ageMult, label: ageLabel } = tradeAgeBand(age);
 
   let contractMult = 1.0;
   let contractLabel = 'no contract';
@@ -436,14 +416,12 @@ function ageContractFactor(player: Player, league: LeagueState): ValueFactor {
     const contract = league.contracts[player.contractId];
     if (contract) {
       const yrs = contract.yearsRemaining;
+      contractMult = contractYearsMultiplier(yrs);
       if (yrs <= 1) {
-        contractMult = 0.9;
         contractLabel = `${yrs}-yr rental`;
       } else if (yrs === 2) {
-        contractMult = 1.0;
         contractLabel = '2-yr deal';
       } else {
-        contractMult = 1.05;
         contractLabel = `${yrs}-yr cost certainty`;
       }
       // Expensive-contract discount: every $5M of Y1 cap hit above
@@ -477,6 +455,50 @@ const EXPECTED_Y1_HIT_BY_TIER: Record<TalentTier, number> = {
 
 function expectedY1HitFor(tier: TalentTier): number {
   return EXPECTED_Y1_HIT_BY_TIER[tier];
+}
+
+/** Age band of the trade-value age curve — shared by ageContractFactor and
+ *  the neutral baseline below so the two can never drift apart. */
+function tradeAgeBand(age: number): { multiplier: number; label: string } {
+  if (age <= 22) return { multiplier: 1.1, label: `age ${age} (rookie upside)` };
+  if (age <= 24) return { multiplier: 1.05, label: `age ${age} (developing)` };
+  if (age <= 29) return { multiplier: 1.0, label: `age ${age} (prime)` };
+  if (age <= 32) return { multiplier: 0.9, label: `age ${age} (declining)` };
+  if (age <= 35) return { multiplier: 0.75, label: `age ${age} (veteran)` };
+  return { multiplier: 0.55, label: `age ${age} (aging)` };
+}
+
+/** Contract-length multiplier: expiring deals discount as rentals, long
+ *  deals carry a cost-certainty premium. */
+function contractYearsMultiplier(yearsRemaining: number): number {
+  if (yearsRemaining <= 1) return 0.9;
+  if (yearsRemaining === 2) return 1.0;
+  return 1.05;
+}
+
+/**
+ * League-neutral baseline value of a player in $M: tier base × positional
+ * hierarchy × age curve × (optional) contract-length multiplier — the
+ * factors of `evaluatePlayerValue` that don't depend on the evaluating
+ * team. Scheme fit, roster state, timing and ability-vs-baseline are all
+ * treated as 1.0 (a hypothetical league-average evaluator).
+ *
+ * This is the bridge surface The Barterer uses to value real NFL trades
+ * by our own chart (deviation-from-fair envelope); it is also the natural
+ * starting point for any future "estimated league-wide market value" UI
+ * read. Composes with `CHART_POINT_TO_DOLLARS` to express players and
+ * draft picks in the same unit.
+ */
+export function neutralPlayerTradeValue(
+  tier: TalentTier,
+  position: Position,
+  age: number,
+  yearsRemaining?: number,
+): number {
+  const base = TIER_BASE_MILLIONS[tier] * (POSITIONAL_MULTIPLIER[position] ?? 1.0);
+  const contractMult =
+    yearsRemaining === undefined ? 1.0 : contractYearsMultiplier(yearsRemaining);
+  return base * tradeAgeBand(age).multiplier * contractMult;
 }
 
 /**

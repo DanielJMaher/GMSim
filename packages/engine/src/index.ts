@@ -272,6 +272,8 @@ export {
   evaluatePlayerValue,
   evaluateTradePackage,
   evaluatePickValue,
+  neutralPlayerTradeValue,
+  CHART_POINT_TO_DOLLARS,
 } from './trade/value.js';
 export type {
   PlayerValueBreakdown,

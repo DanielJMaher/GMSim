@@ -1,10 +1,10 @@
-import { readFile, access } from 'node:fs/promises';
-import { createGunzip } from 'node:zlib';
-import { createReadStream, createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { resolve } from 'node:path';
-import { DATA_DIR } from '../lib/config.js';
+import { readFile } from 'node:fs/promises';
 import { splitCsvLine, csvNum } from '../lib/csv.js';
+import {
+  ensureContractsCsv,
+  CONTRACTS_CSV_PATH,
+  OTC_BUCKET,
+} from '../lib/otc.js';
 import {
   loadLeagueContracts,
   loadFreeAgentSignings,
@@ -29,23 +29,8 @@ import {
  *   pnpm --filter @gmsim/truth-arbiter run liquidator [seed]
  */
 
-const CONTRACTS_URL =
-  'https://github.com/nflverse/nflverse-data/releases/download/contracts/historical_contracts.csv.gz';
-const GZ_PATH = resolve(DATA_DIR, 'historical_contracts.csv.gz');
-const CSV_PATH = resolve(DATA_DIR, 'historical_contracts.csv');
-
 /** Only contracts signed in this year or later count toward "current market". */
 const MARKET_SINCE = 2021;
-
-/** GMSim position → OTC position bucket. */
-const OTC_BUCKET: Record<string, string> = {
-  QB: 'QB', RB: 'RB', FB: 'FB', WR: 'WR', TE: 'TE',
-  LT: 'LT', RT: 'RT', LG: 'LG', RG: 'RG', C: 'C',
-  EDGE: 'ED', DT: 'IDL', NT: 'IDL',
-  OLB: 'LB', ILB: 'LB',
-  CB: 'CB', NICKEL: 'CB', S: 'S',
-  K: 'K', P: 'P', LS: 'LS',
-};
 
 /** Display order for the report. */
 const POS_ORDER = ['QB', 'ED', 'WR', 'CB', 'LT', 'IDL', 'S', 'RT', 'TE', 'LG', 'RG', 'C', 'LB', 'RB', 'K', 'P', 'LS', 'FB'];
@@ -61,23 +46,6 @@ interface RealRow {
   guaranteed: number;
 }
 
-async function exists(p: string): Promise<boolean> {
-  try { await access(p); return true; } catch { return false; }
-}
-
-async function ensureCorpus(): Promise<void> {
-  if (await exists(CSV_PATH)) return;
-  if (!(await exists(GZ_PATH))) {
-    process.stdout.write('  fetching OTC contracts (nflverse mirror)…');
-    const res = await fetch(CONTRACTS_URL);
-    if (!res.ok) throw new Error(`contracts → HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    await (await import('node:fs/promises')).writeFile(GZ_PATH, buf);
-    process.stdout.write(` ${(buf.length / 1e6).toFixed(1)}MB\n`);
-  }
-  await pipeline(createReadStream(GZ_PATH), createGunzip(), createWriteStream(CSV_PATH));
-}
-
 /**
  * Veteran-FA proxy: a contract signed ≥4 seasons after the player was drafted
  * is a post-rookie-scale open-market deal — the closest real-data analog to
@@ -88,8 +56,8 @@ async function ensureCorpus(): Promise<void> {
 const VETERAN_FA_MIN_YEARS_SINCE_DRAFT = 4;
 
 async function loadReal(veteranFaOnly = false): Promise<RealRow[]> {
-  await ensureCorpus();
-  const csv = await readFile(CSV_PATH, 'utf8');
+  await ensureContractsCsv();
+  const csv = await readFile(CONTRACTS_CSV_PATH, 'utf8');
   const nl = csv.indexOf('\n');
   const header = splitCsvLine(csv.slice(0, nl));
   const col = (n: string): number => header.indexOf(n);

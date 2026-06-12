@@ -16,6 +16,54 @@ _Nothing yet._
 
 ---
 
+## [0.141.0] — 2026-06-11
+
+### Added
+
+- **The Barterer slice 2 — the deviation-from-fair envelope** (Daniel's
+  framing: value real NFL trades by OUR chart and measure how far from
+  chart-fair real GMs stray, to bound how lopsided GMSim's GMs may be).
+  - **Real source replaced** — slice 1's spotrac ledger (which served the
+    same ~29 recent trades for every year URL) is replaced by the open
+    nflverse `nfldata` trade dataset: **1,675 trades / 2002–2026**, with
+    exact pick numbers and PFR player ids. The slice-1 structural bar is
+    recomputed on the full corpus (77 trades/yr modern era · 52%
+    player-for-picks · traded-player mean age 26.6 · a 1st in 12%).
+  - **Tier oracle for real players — the market's own verdict**: veteran
+    deals tier by APY-vs-cap percentile within position bucket (cutoffs
+    from GMSim's own league tier mix via the engine bridge); players still
+    on slot-priced rookie deals tier by their NEXT contract's verdict
+    (busts correctly tier low, so dump trades score fair); no next deal
+    ever → FRINGE. Joins: pfr→gsis id into the OTC ledger; **99% of
+    2015+ traded players tiered**.
+  - **Both sides valued by the engine's own primitives** (new exports
+    `neutralPlayerTradeValue` + `CHART_POINT_TO_DOLLARS` from
+    `trade/value.ts`, bridged): picks at the Doc 5 chart (exact slot for
+    current-year picks, round midpoints for future years), players at the
+    league-neutral value (tier × position × age × contract length).
+  - **THE FINDING — the player↔pick exchange rate**: real draft-day pick
+    swaps hug our chart (median deviation 1.14x, 1% beyond 2:1 — the
+    pick chart is validated), but the market pays only **~1–6% of our
+    $-anchored neutral player points** in pick currency for most veterans
+    (flat across tiers, ~10% floor for FRINGE; true blue-chip primes are
+    the fat tail at ~25–45%). This adverse-selection exchange rate is the
+    named calibration target for player-for-pick NPC trade logic.
+  - **THE ENVELOPE** (residual deviation after the fitted tier×age
+    exchange rate, 2015+): median **1.33x**, p90 **3.46x**, p95 **6.84x**;
+    in-season deadline trades run looser (p50 1.71) than offseason (1.27).
+    Valued ledger written to `data/barterer-trades.json`. Slice 3 (next):
+    compare GMSim's simulated trades to these same percentiles in
+    `run gates`.
+  - **OTC contracts corpus refreshed + shared** (`lib/otc.ts`): the
+    nflverse `historical_contracts.csv.gz` asset was abandoned mid-2022 —
+    the corpus now reads the daily-rebuilt parquet (via `hyparquet`) and
+    materializes the legacy CSV layout. The Liquidator's real-market
+    window now extends through 2026; its known cap-aware-generation
+    residual reads wider against the fuller sample (QB top-of-market sim
+    12.9% vs real 24.1%) — same defect, better instrument.
+
+---
+
 ## [0.140.0] — 2026-06-11
 
 ### Added
