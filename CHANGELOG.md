@@ -16,6 +16,41 @@ _Nothing yet._
 
 ---
 
+## [0.145.0] — 2026-06-12
+
+### Added
+
+- **Need-aware QB surplus at the top of the draft** (slice 2 of the
+  Scorekeeper plan; fixes Daniel's "Baltimore drafted a QB at #2 behind a
+  75 OVR / 4,600-yard starter" report).
+  - The v0.143 slot premium was roster-blind — the full ×1.6 QB boost
+    applied at premier slots regardless of the picking team's QB room. Real
+    #1 overalls are 75% QBs *because the teams picking there need one*; no
+    settled team has spent a top-8 pick on a QB in the wage-scale era
+    (succession swings — Love, Hurts — happen at pick 26+/round 2).
+  - **`runDraft` QB-settled set**: seeded per round from
+    `hasDesperateQbNeed`, updated in-draft when a team takes a QB. Settled
+    teams get NO QB slot boost and a dampened QB read inside the premier
+    window (`qbSettledPickFactor`: ×0.6 through pick 8, neutral after) so a
+    board-topping QB routes to the trade-up market instead of becoming a
+    redundant pick. Non-QB premiums stay need-blind (real teams take BPA
+    EDGE/LT while stacked).
+  - **QB reach** now keys off the same in-draft set — a team holding two
+    premier picks can no longer reach for a second passer in the same round.
+  - **GOAT trade-up gate extension** (`trade-up.ts`): inside the top-8
+    window a QB-settled team won't trade UP for a QB
+    (`EvaluateTradeUpArgs.qbSettledTeams`, optional/back-compat).
+  - All re-exported through `npc-ai` (`QB_SETTLED_DAMPEN`,
+    `QB_SETTLED_DAMPEN_END_PICK`, `qbSettledPickFactor`).
+  - Tests: `draft/qb-settled-gate.test.ts` (settled team passes on a
+    board-topping QB at #1; the same board makes a desperate team take him;
+    no double-QB across two premier picks). Goatinator cache cleared
+    (`data/goat/`); the 50-seed recalibration sweep is deliberately deferred
+    (Daniel: no gates) — run `pnpm --filter @gmsim/truth-arbiter run
+    goatinator` before trusting top-of-draft mix numbers.
+
+---
+
 ## [0.144.0] — 2026-06-12
 
 ### Added

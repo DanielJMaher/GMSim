@@ -42,6 +42,14 @@ export {
   SLOT_PREMIUM_DECAY_END_PICK,
 } from '../draft/position-value.js';
 export { GOAT_SLOT_CEILING, GOAT_MIN_POSITION_VALUE } from '../draft/trade-up.js';
+// Need-aware QB surplus (v0.145): the QB slot premium only applies to
+// QB-desperate teams; settled teams get a dampened QB read in the premier
+// window and won't GOAT-trade-up for a passer.
+export {
+  QB_SETTLED_DAMPEN,
+  QB_SETTLED_DAMPEN_END_PICK,
+  qbSettledPickFactor,
+} from '../draft/position-value.js';
 
 // Trades — in-season weekly trade matching + the deadline/proactive lane
 // (fire-sales, contender consolidation).

@@ -18,7 +18,7 @@ import {
   qbPremiumForGm,
   QB_CURRENT_PICK_PREMIUM,
 } from './chart-modifiers.js';
-import { slotAwarePickBoost } from './position-value.js';
+import { slotAwarePickBoost, qbSettledPickFactor } from './position-value.js';
 
 /**
  * How credible the best available QB must be for a QB-desperate team to REACH
@@ -162,6 +162,17 @@ export function runDraft(
     }
   }
 
+  // QB-settled teams (v0.145): the slot premium is a surplus argument and
+  // QB surplus needs the hole — a team with an established/franchise-dev QB
+  // gets NO QB boost and a dampened QB read inside the premier window (see
+  // position-value.ts). Seeded from roster state, then updated in-draft:
+  // once a team takes a QB this round it's settled for the rest of it (a
+  // team holding two top picks must not double-draft passers).
+  const qbSettled = new Set<TeamId>();
+  for (const team of Object.values(league.teams)) {
+    if (!hasDesperateQbNeed(team, league.players)) qbSettled.add(team.identity.id);
+  }
+
   // Per-team trade-up counter (v0.52). Tracks how many times each
   // team has initiated as the trading-up side so the evaluator can
   // enforce `MAX_TRADE_UPS_PER_TEAM` and prevent one aggressive team
@@ -197,6 +208,7 @@ export function runDraft(
         tradeUpsFiredSoFar: tradeUps.length,
         tradeUpsByTeamSoFar: tradeUpsByTeam,
         teamContexts: teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
+        qbSettledTeams: qbSettled,
       });
       if (proposal) {
         applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
@@ -246,7 +258,14 @@ export function runDraft(
         if (!cp) continue;
         considered++;
         const position = entry.assignedPosition ?? cp.nflProjectedPosition;
-        const weighted = entry.priority * slotAwarePickBoost(position, overallPick);
+        // Need-aware QB surplus (v0.145): a QB-settled team gets no QB boost
+        // and a dampened QB read in the premier window — the surplus argument
+        // only holds where the roster has the hole.
+        const boost =
+          position === 'QB' && qbSettled.has(teamId)
+            ? qbSettledPickFactor(overallPick)
+            : slotAwarePickBoost(position, overallPick);
+        const weighted = entry.priority * boost;
         if (weighted > bestWeighted) {
           bestWeighted = weighted;
           chosen = cp;
@@ -264,7 +283,10 @@ export function runDraft(
     // but won't burn a premium slot on a camp arm. Only the top available QB on
     // the board is considered (the others are worse). Fires whether the team's
     // top pick was a board entry or it's about to fall to BPA.
-    if (chosen && chosen.nflProjectedPosition !== 'QB' && team && hasDesperateQbNeed(team, league.players)) {
+    // (v0.145: the settled set replaces a direct hasDesperateQbNeed check —
+    // identical at round start, stronger in-round: a team that already took
+    // a QB this round can't reach for a second one.)
+    if (chosen && chosen.nflProjectedPosition !== 'QB' && team && !qbSettled.has(teamId)) {
       const topPriority = boardEntry?.priority ?? 0;
       for (let r = 0; r < board.length && r < QB_REACH_MAX_BOARD_RANK; r++) {
         const entry = board[r]!;
@@ -305,6 +327,8 @@ export function runDraft(
     newPlayers.push(promoted.player);
     newContracts.push(promoted.contract);
     appendRosterAddition(rosterAdditions, teamId, promoted.player.id);
+    // A team that just took its QB is settled for the rest of this round.
+    if (promoted.player.position === 'QB') qbSettled.add(teamId);
     availableById.delete(chosen.id);
     removed.add(chosen.id);
 

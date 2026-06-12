@@ -261,6 +261,15 @@ export interface EvaluateTradeUpArgs {
    * trading-up perspective check entirely (slice-1 v0.46 behavior).
    */
   teamContexts?: Readonly<Record<TeamId, TeamChartContext>>;
+  /**
+   * Teams that already have their quarterback (established starter,
+   * franchise-dev rookie-window QB, or a QB taken earlier in this same
+   * draft) — v0.145. Inside the GOAT window a settled team will not
+   * trade UP for a QB: real premier-slot QB trade-ups are made by
+   * QB-needy teams. Optional for back-compat; when omitted the GOAT
+   * gate stays purely positional (v0.143 behavior).
+   */
+  qbSettledTeams?: ReadonlySet<TeamId>;
 }
 
 /**
@@ -362,6 +371,12 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
         targetPosition &&
         (POSITION_DRAFT_VALUE[targetPosition] ?? 1.0) < GOAT_MIN_POSITION_VALUE
       ) {
+        continue;
+      }
+      // Need-aware extension (v0.145): premier-slot QB trade-ups are
+      // franchise-QB hunts — a team that already has its quarterback
+      // doesn't burn top-8 capital on another one.
+      if (targetPosition === 'QB' && args.qbSettledTeams?.has(candidateTeamId)) {
         continue;
       }
     }

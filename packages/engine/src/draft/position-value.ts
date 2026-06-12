@@ -161,3 +161,25 @@ export function slotAwarePickBoost(position: Position, overallPick: number): num
   const extra = Math.max(0, slotPremiumStrength(overallPick) - BOARD_PREMIUM_STRENGTH);
   return 1 + (value - 1) * extra;
 }
+
+// ─── QB-room gate on the slot premium (v0.145 — need-aware surplus) ──────
+//
+// The slot premium is a SURPLUS argument, and the QB surplus only exists
+// where the roster has the hole: real #1 overalls are 75% QBs because the
+// teams picking there are QB-desperate, not because surplus overrides a
+// filled QB room. No team with an established starter has spent a top-8
+// pick on a QB in the wage-scale era (succession swings — Love, Hurts —
+// happen at pick 26+/round 2). The pick loop therefore applies the QB
+// boost only to QB-needy teams (`hasDesperateQbNeed`, the same condition
+// that gates the QB reach); a SETTLED team's QB entries are instead
+// dampened inside the premier window, so a board-topping QB routes to the
+// trade-up market (the desperate team below pays up) instead of becoming
+// a redundant pick. Non-QB premiums stay need-blind — real teams do take
+// BPA EDGE/LT while stacked.
+export const QB_SETTLED_DAMPEN = 0.6;
+export const QB_SETTLED_DAMPEN_END_PICK = 8;
+
+/** Pick-time QB factor for a team that already has its quarterback. */
+export function qbSettledPickFactor(overallPick: number): number {
+  return overallPick <= QB_SETTLED_DAMPEN_END_PICK ? QB_SETTLED_DAMPEN : 1.0;
+}
