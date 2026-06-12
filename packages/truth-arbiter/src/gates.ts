@@ -82,6 +82,13 @@ const GATES: readonly Gate[] = [
     fullArgs: ['sim', '20', 'hh-1,hh-2'],
     checks: 'front-office firing ecology vs the real coach/GM carousel',
   },
+  {
+    name: 'scorekeeper',
+    entry: 'sim/scorekeeper.js',
+    quickArgs: ['sim', '3', '2'],
+    fullArgs: ['sim', '6', '8'],
+    checks: 'per-game box scores + stats↔W/L coupling vs the 2011-2025 bar',
+  },
 ];
 
 /** Markers the agents print next to a metric that missed its target. */

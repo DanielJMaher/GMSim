@@ -16,6 +16,41 @@ _Nothing yet._
 
 ---
 
+## [0.146.0] — 2026-06-12
+
+### Added
+
+- **The Scorekeeper — game-results realism authority** (8th data-agent;
+  slice 3 of the plan). The Magistrate guards the drive level; the
+  Scorekeeper guards the level above: per-game team box scores, internal
+  coherence, and the stats↔W/L relationship.
+  - **Real bar** (nflverse games.csv + stats_team_week, REG 2011-2025,
+    7,838 team-games, auto-fetch + disk-cached): points 22.8 ±10.1 ·
+    pass 245.4 ±75.4 · rush 114.5 ±51.1 · att 34.3 · comp 63.3% · sacks
+    2.4 · giveaways 1.3 (INT-only 0.8) · home win% 55.4 · wins sd 3.3
+    (p5 3.2/p95 13.8) · Pythagorean RMSE 1.43 · winners-vs-losers pass
+    +9.5 / rush +35.1 / giveaways −0.9 · double-entry holds 7,837/7,838.
+  - `pnpm --filter @gmsim/truth-arbiter run scorekeeper [sim years seeds]`
+    — seed-parallel workers, cached in `data/scorekeeper/`; engine bridge
+    `simulateBoxScores` (uses the v0.144 stat-line `teamId` for per-side
+    attempts and the double-entry check). Wired into `run gates`
+    (quick `sim 3 2`, full `sim 6 8`).
+  - **First findings (named residuals — mechanism fixes, do NOT knob-chase):**
+    1. **W-L pass delta +96.5 vs real +9.5** — GMSim play-calling is not
+       score-aware, so passing volume tracks team quality and predicts
+       winning; real trailing teams throw more (game script). Engine
+       follow-up: situational pass/run mix in `drive-sim` (related to the
+       named per-snap usage-vs-efficiency Actuary thread).
+    2. **Scoring/pass volume ~13% hot per game** (26.0 ppg vs 22.8; pass
+       303 vs 245) while the Magistrate's per-drive bar is green ⇒ pace
+       (drives/game) likely high — the two agents now bracket it.
+    3. **Home win% 64.5 vs 55.4** — emergent HFA too strong across real
+       rosters (`HOME_FIELD_EDGE`).
+    4. Completion% 66.4 vs 63.3 (marginal).
+    Sample: 2 seeds × 2 seasons smoke run; re-run wider before tuning.
+
+---
+
 ## [0.145.0] — 2026-06-12
 
 ### Added

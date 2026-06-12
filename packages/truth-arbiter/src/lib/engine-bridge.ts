@@ -1281,3 +1281,136 @@ export async function gmsimMediaSpread(seed: string): Promise<MediaSpreadProspec
   out.sort((a, b) => a.consensusRank - b.consensusRank);
   return out;
 }
+
+// ── The Scorekeeper: per-game box scores + season W/L ────────────────────────
+
+export interface SkTeamGame {
+  season: number;
+  teamId: string;
+  home: boolean;
+  points: number;
+  oppPoints: number;
+  passYds: number;
+  rushYds: number;
+  passAttempts: number;
+  passCompletions: number;
+  giveaways: number;
+  sacksSuffered: number;
+}
+
+export interface SkSeasonTeam {
+  season: number;
+  teamId: string;
+  /** Ties count 0.5. */
+  wins: number;
+  games: number;
+  pf: number;
+  pa: number;
+}
+
+export interface SkSimResult {
+  games: SkTeamGame[];
+  seasons: SkSeasonTeam[];
+  /** Team-games where the lines' passing yards != receiving yards (must be 0). */
+  doubleEntryViolations: number;
+}
+
+interface SkStatLine {
+  teamId?: string;
+  passAttempts: number;
+  passCompletions: number;
+  passingYards: number;
+  receivingYards: number;
+}
+interface SkTeamStats {
+  passingYards: number;
+  rushingYards: number;
+  turnovers: number;
+  sacks: number;
+}
+interface SkGame {
+  homeTeamId: string;
+  awayTeamId: string;
+  result: {
+    homeScore: number;
+    awayScore: number;
+    homeStats: SkTeamStats;
+    awayStats: SkTeamStats;
+    playerStats?: SkStatLine[];
+  } | null;
+}
+interface SkLeague {
+  seasonNumber: number;
+  schedule: { regularSeason: SkGame[][] } | null;
+}
+
+/**
+ * Forward-sim `years` regular seasons and harvest every team-game box line
+ * plus per-season W/L records — the Scorekeeper's raw material. Per-side
+ * pass attempts/completions come from the player stat lines (joined by the
+ * sim-time `teamId`, v0.144), which also lets each team-game's double-entry
+ * invariant (passing == receiving) be checked here.
+ */
+export async function simulateBoxScores(seed: string, years: number): Promise<SkSimResult> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed }) as unknown as SkLeague;
+  const games: SkTeamGame[] = [];
+  const seasons: SkSeasonTeam[] = [];
+  let doubleEntryViolations = 0;
+
+  for (let y = 0; y < years; y++) {
+    const played = eng.simulateSeason(league as unknown as EngineLeague) as unknown as SkLeague;
+    const season = played.seasonNumber;
+    const byTeam = new Map<string, SkSeasonTeam>();
+
+    for (const g of played.schedule?.regularSeason.flat() ?? []) {
+      const r = g.result;
+      if (!r) continue;
+
+      const lineAgg = new Map<string, { att: number; comp: number; pass: number; recv: number }>();
+      for (const l of r.playerStats ?? []) {
+        const tid = l.teamId ?? '';
+        const a = lineAgg.get(tid) ?? { att: 0, comp: 0, pass: 0, recv: 0 };
+        a.att += l.passAttempts;
+        a.comp += l.passCompletions;
+        a.pass += l.passingYards;
+        a.recv += l.receivingYards;
+        lineAgg.set(tid, a);
+      }
+
+      for (const home of [true, false]) {
+        const tid = home ? g.homeTeamId : g.awayTeamId;
+        const ts = home ? r.homeStats : r.awayStats;
+        const oppTs = home ? r.awayStats : r.homeStats;
+        const points = home ? r.homeScore : r.awayScore;
+        const oppPoints = home ? r.awayScore : r.homeScore;
+        const lines = lineAgg.get(tid) ?? { att: 0, comp: 0, pass: 0, recv: 0 };
+        if (lines.pass !== lines.recv) doubleEntryViolations++;
+
+        games.push({
+          season,
+          teamId: tid,
+          home,
+          points,
+          oppPoints,
+          passYds: ts.passingYards,
+          rushYds: ts.rushingYards,
+          passAttempts: lines.att,
+          passCompletions: lines.comp,
+          giveaways: ts.turnovers,
+          sacksSuffered: oppTs.sacks,
+        });
+
+        const rec = byTeam.get(tid) ?? { season, teamId: tid, wins: 0, games: 0, pf: 0, pa: 0 };
+        rec.games++;
+        rec.pf += points;
+        rec.pa += oppPoints;
+        rec.wins += points > oppPoints ? 1 : points === oppPoints ? 0.5 : 0;
+        byTeam.set(tid, rec);
+      }
+    }
+    seasons.push(...byTeam.values());
+    league = eng.advanceSeason(played as unknown as EngineLeague) as unknown as SkLeague;
+  }
+  return { games, seasons, doubleEntryViolations };
+}
