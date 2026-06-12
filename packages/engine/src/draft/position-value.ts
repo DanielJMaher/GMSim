@@ -104,3 +104,60 @@ export function boardPositionalFactor(position: Position): number {
   const value = POSITION_DRAFT_VALUE[position];
   return 1 + (value - 1) * BOARD_PREMIUM_STRENGTH;
 }
+
+// ─── Slot-aware premium (v0.143 — the Goatinator finding) ────────────────
+//
+// Boards are talent rankings and stay lightly shaded (above) so they keep
+// team-to-team divergence. But the PICK at a premier slot is a surplus-value
+// decision, not BPA: real #1 overalls are 75% QBs, and nobody has spent one
+// on a guard or a safety in the wage-scale era. The Goatinator measured
+// GMSim's #1 at 23% QB with DBs going first 16% of the time — because the
+// board's ×1.09-compressed QB factor lets raw talent win the top slots.
+//
+// At pick time the decision loop re-ranks its top remaining board entries
+// with positional value at a SLOT-DEPENDENT strength: full surplus thinking
+// at #1 overall, decaying linearly back to the board's baseline by
+// `SLOT_PREMIUM_DECAY_END_PICK` — beyond that, behavior is exactly the old
+// take-your-board-order. Calibrated against the Goatinator's real bar
+// (top-10 mix + #1/#2/#3 QB share).
+
+/** Positional strength applied at #1 overall (1.0 = full POSITION_DRAFT_VALUE). */
+export const SLOT_PREMIUM_FULL_STRENGTH = 1.0;
+
+/** Overall pick where the slot premium has fully decayed to the board baseline. */
+export const SLOT_PREMIUM_DECAY_END_PICK = 40;
+
+/**
+ * Exponential decay constant (in picks). The premium must fade FAST: a
+ * linear decay held ~80% strength at pick 10 and the calibration run
+ * showed QB/EDGE flooding the entire top 10 (+12/+17pp) while LB/RB/TE
+ * dropped to zero — real drafts still spend picks 4-10 on the Sauce
+ * Gardners and Bijan Robinsons. τ=5 keeps full GOAT thinking at 1-3
+ * (~72% strength at #3) but is down to ~27% by pick 10.
+ */
+export const SLOT_PREMIUM_DECAY_TAU = 5;
+
+/** Positional shading strength in effect when picking at `overallPick`. */
+export function slotPremiumStrength(overallPick: number): number {
+  if (overallPick <= 1) return SLOT_PREMIUM_FULL_STRENGTH;
+  if (overallPick >= SLOT_PREMIUM_DECAY_END_PICK) return BOARD_PREMIUM_STRENGTH;
+  const decayed =
+    BOARD_PREMIUM_STRENGTH +
+    (SLOT_PREMIUM_FULL_STRENGTH - BOARD_PREMIUM_STRENGTH) *
+      Math.exp(-(overallPick - 1) / SLOT_PREMIUM_DECAY_TAU);
+  return decayed;
+}
+
+/**
+ * Pick-time multiplier applied ON TOP of a board entry's priority (which
+ * already carries the compressed `boardPositionalFactor`): the EXTRA
+ * positional strength this slot demands beyond the board baseline, so the
+ * composed weight ≈ `1 + (value − 1) × slotPremiumStrength`. Returns 1.0
+ * for every position once the decay window ends — pick order beyond
+ * `SLOT_PREMIUM_DECAY_END_PICK` is untouched.
+ */
+export function slotAwarePickBoost(position: Position, overallPick: number): number {
+  const value = POSITION_DRAFT_VALUE[position] ?? 1.0;
+  const extra = Math.max(0, slotPremiumStrength(overallPick) - BOARD_PREMIUM_STRENGTH);
+  return 1 + (value - 1) * extra;
+}

@@ -18,6 +18,7 @@ import {
   qbPremiumForGm,
   QB_CURRENT_PICK_PREMIUM,
 } from './chart-modifiers.js';
+import { slotAwarePickBoost } from './position-value.js';
 
 /**
  * How credible the best available QB must be for a QB-desperate team to REACH
@@ -32,6 +33,22 @@ import {
  */
 const QB_REACH_PRIORITY_RATIO = 0.85;
 const QB_REACH_MAX_BOARD_RANK = 12;
+
+/**
+ * How many still-available board entries the on-clock team weighs with the
+ * slot-aware positional premium (v0.143). Real war rooms debate a handful of
+ * names at a premier slot; ten keeps the re-rank among genuine candidates
+ * without letting a mid-board QB leapfrog half the class.
+ */
+const SLOT_RERANK_DEPTH = 10;
+
+// Calibration note (v0.143): a 0.75 credibility floor on the re-rank was
+// tested and NEVER binds — prospects winning premier slots on the premium
+// are already within ~25% of the board top (scout-perceived priorities
+// cluster tightly up there). The #2/#3 QB overshoot vs real (59%/44% vs
+// 44%/25%) is therefore not a board-reach artifact; it's the missing
+// class-relative QB quality bar (real teams pass on non-elite QB2s
+// entirely) — a named future mechanism, not a re-rank knob.
 
 export interface RunDraftOptions {
   /** Order in which teams pick. Length sets how many picks fire. */
@@ -210,18 +227,32 @@ export function runDraft(
     const overallPick = startingOverallPick + i;
     const board = league.draftBoards[teamId] ?? [];
 
-    // Walk the team's own board for the highest-priority available pick.
+    // Walk the team's own board for the strongest available pick. At premier
+    // slots the pick is a SURPLUS decision, not raw board order (v0.143 — the
+    // Goatinator finding): the top remaining entries are re-weighted by the
+    // slot-aware positional premium — full strength at #1 overall, decayed
+    // back to plain board order by pick ~40 — so a board-topping guard no
+    // longer goes #1 over a near-equal QB/EDGE. Ties (and every pick past the
+    // decay window, where the boost is 1.0 everywhere) resolve to board order.
     let chosen: CollegePlayer | null = null;
     let boardRank: number | null = null;
     let boardEntry: (typeof board)[number] | null = null;
-    for (let r = 0; r < board.length; r++) {
-      const entry = board[r]!;
-      const cp = availableById.get(entry.collegePlayerId);
-      if (cp) {
-        chosen = cp;
-        boardRank = r + 1;
-        boardEntry = entry;
-        break;
+    {
+      let bestWeighted = -Infinity;
+      let considered = 0;
+      for (let r = 0; r < board.length && considered < SLOT_RERANK_DEPTH; r++) {
+        const entry = board[r]!;
+        const cp = availableById.get(entry.collegePlayerId);
+        if (!cp) continue;
+        considered++;
+        const position = entry.assignedPosition ?? cp.nflProjectedPosition;
+        const weighted = entry.priority * slotAwarePickBoost(position, overallPick);
+        if (weighted > bestWeighted) {
+          bestWeighted = weighted;
+          chosen = cp;
+          boardRank = r + 1;
+          boardEntry = entry;
+        }
       }
     }
 

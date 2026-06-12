@@ -31,6 +31,7 @@ import type {
 } from '../types/college.js';
 import type { TeamId, DraftPickId, PlayerId } from '../types/ids.js';
 import { pickValue as basePickValue } from './pick-value.js';
+import { POSITION_DRAFT_VALUE } from './position-value.js';
 import {
   pickValueForTeam,
   NEUTRAL_MODIFIERS,
@@ -94,6 +95,20 @@ export const MAX_TRADE_UPS_PER_DRAFT = 250;
  * inert.
  */
 export const TRADE_UP_TARGET_SLOT_CEILING = 999;
+
+/**
+ * The GOAT gate (v0.143 — the Goatinator finding). Real trade-ups into the
+ * premier slots are franchise-cornerstone hunts: since 2002 the traded-into
+ * top of round 1 is QBs and WRs (plus the odd EDGE), and nobody has burned
+ * a top-slot trade-up on a safety or an off-ball linebacker. GMSim was
+ * trading up into the top 10 for DBs as often as QBs (19% vs 12%). When the
+ * slot being acquired is at or above `GOAT_SLOT_CEILING`, the candidate's
+ * target must play a position whose draft value clears
+ * `GOAT_MIN_POSITION_VALUE` — QB (1.6), EDGE (1.4), LT (1.3), WR (1.12)
+ * qualify; CB (1.1) and below don't. Slots 9+ trade exactly as before.
+ */
+export const GOAT_SLOT_CEILING = 8;
+export const GOAT_MIN_POSITION_VALUE = 1.12;
 
 /**
  * Maximum board depth at which the on-clock team's top-K still-
@@ -336,6 +351,20 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     const candidateTop = findTopAvailable(candidateBoard, args.availableById);
     if (!candidateTop) continue;
     if (!atRiskIds.has(candidateTop.entry.collegePlayerId)) continue;
+    // The GOAT gate: premier slots only change hands for premium positions.
+    // Fails open when the target's position can't be resolved — the gate
+    // shapes behavior, it doesn't veto degenerate inputs.
+    if (args.overallPick <= GOAT_SLOT_CEILING) {
+      const targetProspect = args.availableById.get(candidateTop.entry.collegePlayerId);
+      const targetPosition =
+        candidateTop.entry.assignedPosition ?? targetProspect?.nflProjectedPosition;
+      if (
+        targetPosition &&
+        (POSITION_DRAFT_VALUE[targetPosition] ?? 1.0) < GOAT_MIN_POSITION_VALUE
+      ) {
+        continue;
+      }
+    }
     const swapOverallPick = args.overallPick + (j - args.onClockIndex);
     if (
       !bestCandidate ||

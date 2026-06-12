@@ -34,6 +34,14 @@
 // 32-team pick loop (trade-ups, QB-need reaches, conversions).
 export { regenerateDraftBoards, regenerateDraftBoardsForLeague } from '../draft/board.js';
 export { runDraft } from '../draft/event.js';
+// Top-of-draft surplus behavior (v0.143 — the Goatinator): premier slots
+// pick by positional surplus, and trade-ups into them are GOAT hunts.
+export {
+  slotPremiumStrength,
+  slotAwarePickBoost,
+  SLOT_PREMIUM_DECAY_END_PICK,
+} from '../draft/position-value.js';
+export { GOAT_SLOT_CEILING, GOAT_MIN_POSITION_VALUE } from '../draft/trade-up.js';
 
 // Trades — in-season weekly trade matching + the deadline/proactive lane
 // (fire-sales, contender consolidation).

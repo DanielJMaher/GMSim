@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Prng } from '../prng/index.js';
 import { runDraft, applyDraftResult } from './event.js';
 import { rollJuniorDeclarations } from './declaration.js';
+import { POSITION_DRAFT_VALUE } from './position-value.js';
+import { GOAT_MIN_POSITION_VALUE } from './trade-up.js';
 import { computeDraftOrder } from './draft-order.js';
 import { createLeague } from '../league/generate.js';
 import { simulateSeason } from '../season/runner.js';
@@ -301,9 +303,14 @@ describe('draft integration in advanceSeason', () => {
     // pick. Drive runDraft directly.
     const baseLeague = createLeague({ seed: 'tradeup-direct' });
     const declaredPool = rollJuniorDeclarations(new Prng('d'), baseLeague.collegePool);
-    // Find the first declared eligible prospect — that's our target X.
+    // Find the first declared eligible PREMIUM-position prospect — that's our
+    // target X. (The v0.143 GOAT gate only lets premium positions trade into
+    // the top slots — which is also the realistic top-of-draft scenario.)
     const targetProspect = declaredPool.find(
-      (cp) => cp.isDraftEligible && cp.hasDeclared,
+      (cp) =>
+        cp.isDraftEligible &&
+        cp.hasDeclared &&
+        (POSITION_DRAFT_VALUE[cp.nflProjectedPosition] ?? 1.0) >= GOAT_MIN_POSITION_VALUE,
     )!;
     expect(targetProspect).toBeDefined();
 

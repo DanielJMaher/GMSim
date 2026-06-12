@@ -16,6 +16,36 @@ _Nothing yet._
 
 ---
 
+## [0.143.0] — 2026-06-12
+
+### Added
+
+- **Top-of-draft surplus behavior** (engine fix driven by the Goatinator's
+  baseline finding; Daniel-approved over agent-side tweaks).
+  - **Slot-aware positional premium** (`slotPremiumStrength` /
+    `slotAwarePickBoost` in `draft/position-value.ts`, applied in the
+    `runDraft` pick loop): premier slots pick by positional surplus, not
+    raw board order — full `POSITION_DRAFT_VALUE` weighting at #1 overall,
+    exponential decay (τ=5) to the 0.15 board baseline by pick 40, board
+    order untouched beyond. A board-topping guard no longer goes #1 over a
+    near-equal QB. Linear decay was tried first and rejected (held 80%
+    strength at pick 10 — QB/EDGE flooded the whole top 10, LB/RB/TE → 0%).
+  - **The GOAT gate** (`draft/trade-up.ts`): trade-ups into slots 1-8 only
+    fire when the candidate's target plays a premium position
+    (`POSITION_DRAFT_VALUE ≥ 1.12` — QB/EDGE/LT/WR); fails open on
+    unresolvable positions. Both mechanisms re-exported through `npc-ai`.
+  - **50-seed × 20-draft verification (Goatinator)**: #1 overall QB share
+    23% → **73%** (real 75%); in-draft trade-up rate into the top 10 **16%
+    = real**; traded-into slots now QB-led (22% vs real 23%, DBs 19% → 11%).
+  - Named residuals (recorded, not knob-chased): EDGE top-10 +15pp is
+    class-generation oversupply (→ Arbiter class-mix slice); #2/#3 QB
+    overshoot (53%/41% vs 44%/25%) needs a class-relative QB quality bar —
+    a tested 0.75 re-rank credibility floor provably never binds; pre-draft
+    acquisition of top-10 picks remains ~2x real (→ the Barterer's
+    player↔pick exchange-rate engine follow-up).
+
+---
+
 ## [0.142.0] — 2026-06-12
 
 ### Added
