@@ -16,6 +16,33 @@ _Nothing yet._
 
 ---
 
+## [0.149.0] — 2026-06-12
+
+### Added
+
+- **Game-script play-calling in the drive sim** (the Scorekeeper's #1
+  finding: GMSim winners out-passed losers by **+96.5 yds/game vs real
+  +9.5** — a score-blind pass rate made passing volume track team quality
+  and predict winning; in the real NFL trailing teams throw their way back
+  and leaders run the clock out).
+  - `gameScriptShift(offenseScoreDiff, progress)` in `games/drive-sim.ts`:
+    pass-rate shift per drive, + when trailing / − when leading, linear in
+    game progress, saturating at a two-score margin
+    (`SCRIPT_MAX_SHIFT = 0.22` → a team down 14+ late passes ~0.79, a team
+    up 14+ late runs at ~0.35 pass). **Centered** — symmetric in the score
+    difference, so the league-wide pass rate and the Magistrate drive bar
+    hold; 3rd-and-long stays pass-dominant (dampened shift).
+  - Both sim paths (facet-only Magistrate path + live attributed path) get
+    the script via `runGame`.
+  - Tests: `games/game-script.test.ts` — shift shape + the behavioral
+    invariant that losers pass at a higher RATE than winners (rate, not raw
+    attempts: winners sustain drives and take more snaps, which is exactly
+    the confound that hid this defect).
+  - Verification against the Scorekeeper/Magistrate bars queued (sim caches
+    cleared; Goatinator run was occupying the engine dist).
+
+---
+
 ## [0.148.0] — 2026-06-12
 
 ### Added

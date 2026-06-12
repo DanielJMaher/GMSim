@@ -93,10 +93,35 @@ function fgSuccess(distance: number): number {
   return 0.25;
 }
 
-function passRate(down: number, togo: number): number {
-  if (down >= 3 && togo >= 6) return 0.82;
-  if (down >= 3 && togo <= 2) return 0.35;
-  return PASS_RATE;
+// ── Game script (v0.149 — the Scorekeeper's W-L pass-delta finding) ──────
+//
+// Real winners out-pass losers by only ~+9.5 yds/game (REG 2011-2025)
+// because play-calling follows the SCORE: trailing teams throw their way
+// back (garbage time included), leading teams run the clock out. A
+// score-blind PASS_RATE made GMSim's pass volume track team quality, so
+// winners out-passed losers by ~+96 yds. The shift is CENTERED — symmetric
+// in the score difference, so one side's extra passes are the other side's
+// extra runs and the league-wide pass rate / Magistrate drive bar hold —
+// and ramps quadratically with game progress (the script is a second-half
+// phenomenon; a 7-point first-quarter lead barely changes the calls).
+export const SCRIPT_MAX_SHIFT = 0.22;
+
+/** Pass-rate shift for the OFFENSE: + when trailing, − when leading.
+ *  `progress` is 0..1 of regulation; one score = half effect, two+ scores
+ *  saturate. Linear ramp — a team down two scores at halftime is already
+ *  half-committed to the script (real 2nd-half trailing pass rates run
+ *  ~0.68-0.75), and fully committed by the end. Exported for tests. */
+export function gameScriptShift(offenseScoreDiff: number, progress: number): number {
+  const deficit = clamp(-offenseScoreDiff / 14, -1, 1);
+  return deficit * progress * SCRIPT_MAX_SHIFT;
+}
+
+function passRate(down: number, togo: number, scriptShift: number): number {
+  // 3rd-and-long is pass-dominant regardless of script (dampened shift);
+  // 3rd-and-short and neutral downs carry the full script.
+  if (down >= 3 && togo >= 6) return clamp(0.82 + scriptShift * 0.4, 0.15, 0.95);
+  if (down >= 3 && togo <= 2) return clamp(0.35 + scriptShift, 0.15, 0.95);
+  return clamp(PASS_RATE + scriptShift, 0.15, 0.92);
 }
 
 interface DriveCtx {
@@ -121,8 +146,14 @@ interface PlayResult {
 }
 
 /** Resolve one play's OUTCOME from the matchup (the calibrated 1a logic). */
-function resolvePlay(prng: Prng, ctx: DriveCtx, down: number, togo: number): PlayResult {
-  const isPass = prng.next() < passRate(down, togo);
+function resolvePlay(
+  prng: Prng,
+  ctx: DriveCtx,
+  down: number,
+  togo: number,
+  scriptShift = 0,
+): PlayResult {
+  const isPass = prng.next() < passRate(down, togo, scriptShift);
   if (isPass) {
     if (prng.next() < clamp(SACK_RATE - ctx.protEdge * 0.0018, 0.02, 0.14)) {
       return { isPass, gain: -SACK_YDS, kind: 'sack' };
@@ -305,6 +336,7 @@ function simulateDrive(
   ctx: DriveCtx,
   startYardline: number,
   attr: Attr | null,
+  scriptShift = 0,
 ): { result: DriveResult; plays: number; yards: number } {
   let ballOn = startYardline;
   let down = 1;
@@ -333,7 +365,7 @@ function simulateDrive(
     }
 
     plays++;
-    const pr = resolvePlay(prng, ctx, down, togo);
+    const pr = resolvePlay(prng, ctx, down, togo, scriptShift);
 
     // ── Attribute the play's outcome to specific players (stage 1b). ──
     let scorer: { id: string; kind: 'rec' | 'rush'; passer?: string } | null = null;
@@ -445,13 +477,24 @@ function runGame(
   let homeScore = 0;
   let awayScore = 0;
   let d = 0;
+  let totalPlays = 0;
   let offense: 'home' | 'away' = 'home';
 
   const playDrive = (tag: string): { result: DriveResult; plays: number; yards: number } => {
     const off = offense === 'home' ? home : away;
     const def = offense === 'home' ? away : home;
     const attr: Attr | null = stats && off.pers && def.pers ? { off: off.pers, def: def.pers, stats } : null;
-    const drive = simulateDrive(prng.fork(tag), off.ctx, KICKOFF_START, attr);
+    // Game script (v0.149): the offense calls plays knowing the score and
+    // how late it is — trailing late tilts pass, leading late tilts run.
+    const diff = offense === 'home' ? homeScore - awayScore : awayScore - homeScore;
+    const progress = Math.min(1, totalPlays / (2 * HALF_PLAYS));
+    const drive = simulateDrive(
+      prng.fork(tag),
+      off.ctx,
+      KICKOFF_START,
+      attr,
+      gameScriptShift(diff, progress),
+    );
     driveLog.push({ offense, ...drive });
     const pts = POINTS[drive.result] ?? 0;
     if (offense === 'home') homeScore += pts;
@@ -473,6 +516,7 @@ function runGame(
       }
       const drive = playDrive(`drive:${half}:${d++}`);
       halfPlays += drive.plays;
+      totalPlays += drive.plays;
       offense = offense === 'home' ? 'away' : 'home';
     }
   }
