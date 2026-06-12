@@ -56,6 +56,17 @@ export {
 export { runWeeklyNpcTrades } from '../transactions/npc-trade.js';
 export { runProactiveTrades } from '../transactions/proactive-trades.js';
 
+// Re-sign window (v0.148) — teams keep their own expiring players before
+// the FA market opens (tier/age/mood desire + cap gate, franchise-QB
+// floor). Real bar: primary starters stay 78.4% year-over-year.
+export {
+  applyResigningWindow,
+  resignProbability,
+  RESIGN_BASE_BY_TIER,
+  RESIGN_QB_FLOOR,
+  RESIGN_INCUMBENT_PREMIUM,
+} from '../transactions/re-sign.js';
+
 // Free agency — the offseason auction (bids shaped by GM personality, cap
 // room, rookie-pool reserve), weekly mid-season gap-fills, and poaching
 // other teams' practice squads.

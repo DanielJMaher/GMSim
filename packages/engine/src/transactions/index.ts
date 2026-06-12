@@ -12,6 +12,13 @@ export {
   refillRosters,
 } from './offseason.js';
 export {
+  applyResigningWindow,
+  resignProbability,
+  RESIGN_BASE_BY_TIER,
+  RESIGN_QB_FLOOR,
+  RESIGN_INCUMBENT_PREMIUM,
+} from './re-sign.js';
+export {
   auctionFreeAgent,
   computeTeamCashBid,
   computePlayerPreference,

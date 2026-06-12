@@ -46,8 +46,10 @@ import { WEEKS_PER_LEAGUE_YEAR } from '../contracts/constants.js';
 import {
   applyContractExpirations,
   applyCapCuts,
+  applyMinimalCapCasualties,
   refillRosters,
 } from '../transactions/offseason.js';
+import { applyResigningWindow } from '../transactions/re-sign.js';
 import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
@@ -959,14 +961,19 @@ function applyPostSeasonFinalize(
 
 // ─── Phase 2: OFFSEASON_TRANSACTIONS ────────────────────────────────────
 //
-// Contract expirations → cap cuts → proactive trades → NFL scouting
-// cycle → FA refill → practice squad → mood drift → final watch lists.
+// Re-sign window → contract expirations → cap cuts → proactive trades →
+// NFL scouting cycle → FA refill → practice squad → mood drift → final
+// watch lists.
 
 function applyOffseasonTransactions(
   league: LeagueState,
   prng: PrngClass,
 ): LeagueState {
-  let offseason = applyContractExpirations(league);
+  // Teams keep their own expiring players BEFORE the market opens
+  // (v0.148): tier/age/mood-driven desire + cap gate, franchise QBs
+  // floored — only what they don't (or can't) keep reaches the auction.
+  let offseason = applyResigningWindow(prng.fork('re-sign-window'), league, league.tick);
+  offseason = applyContractExpirations(offseason);
   offseason = applyCapCuts(offseason);
   offseason = runProactiveTrades(
     prng.fork('proactive-trade-offseason'),
@@ -979,6 +986,12 @@ function applyOffseasonTransactions(
     league.tick,
   );
   offseason = refillRosters(offseason, league.tick);
+  // Final cap-compliance pass (v0.148): proactive trades don't cap-validate
+  // the receiving side (named Liquidator follow-up), which was latent while
+  // teams carried offseason slack — the re-sign window now keeps rosters
+  // near the cap, so a fire-sale buyer can end the phase slightly over.
+  // League rule: you must BE compliant; minimal casualties, not stars.
+  offseason = applyMinimalCapCasualties(offseason);
   offseason = refillPracticeSquad(
     prng.fork('practice-squad'),
     offseason,
@@ -1113,7 +1126,12 @@ function applyPostDraftRoster(
       justDraftedRookieIds.add(pick.promotedPlayerId);
     }
   }
-  let offseason = preseasonCuts(league, {
+  // Rookie contracts land with no rookie-pool reservation (named Liquidator
+  // follow-up), so an at-cap team exits the draft slightly over. Shed the
+  // cheapest sufficient cap casualty BEFORE the cutdown to 53 — the real
+  // final-cuts cap casualty — while the roster still has slack bodies.
+  let offseason = applyMinimalCapCasualties(league, justDraftedRookieIds);
+  offseason = preseasonCuts(offseason, {
     protectedPlayerIds: justDraftedRookieIds,
   });
   const udfaResult = runUdfaPromotion(prng.fork('udfa'), offseason, {

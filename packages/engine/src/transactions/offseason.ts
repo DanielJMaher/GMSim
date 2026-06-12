@@ -122,6 +122,88 @@ export function applyCapCuts(league: LeagueState): LeagueState {
   return working;
 }
 
+/**
+ * Cap-compliance pass with MINIMAL casualties (v0.148). `applyCapCuts`
+ * sheds the largest positive saving first — right for a team $40M over,
+ * but a team nudged $0.5M over (rookie contracts land with no rookie-pool
+ * reservation; an un-cap-checked trade) would dump a star for pocket
+ * change. Real cutdown casualties are the cheapest sufficient vet: cut
+ * the SMALLEST positive saving that clears the overage alone, falling
+ * back to the largest when no single cut suffices.
+ */
+export function applyMinimalCapCasualties(
+  league: LeagueState,
+  protectedPlayerIds?: ReadonlySet<PlayerId>,
+): LeagueState {
+  let working = league;
+  for (const teamId of Object.keys(league.teams) as TeamId[]) {
+    while (true) {
+      const team = working.teams[teamId]!;
+      const over = teamCapUsage(team, working) - working.salaryCap;
+      if (over <= 0) break;
+      const candidate = pickMinimalCasualty(team, working, over, protectedPlayerIds);
+      if (!candidate) break;
+      working = applyRelease(
+        working,
+        teamId,
+        candidate.playerId,
+        candidate.deadMoney,
+        candidate.saving,
+      );
+    }
+  }
+  return working;
+}
+
+function pickMinimalCasualty(
+  team: TeamState,
+  league: LeagueState,
+  over: number,
+  protectedPlayerIds?: ReadonlySet<PlayerId>,
+): CutCandidate | null {
+  // TRUE saving per candidate via hypothetical-cut recompute. The naive
+  // `hit − dead` is wrong under the offseason Top-51 rule: cutting a
+  // below-the-line contract saves nothing (it wasn't counted) while ADDING
+  // dead money, and cutting a counted contract promotes the 52nd hit into
+  // the count. Recomputing `teamCapUsage` on a hypothetical roster is
+  // exact under whatever accounting the cap module applies.
+  const usageNow = teamCapUsage(team, league);
+  let smallestSufficient: CutCandidate | null = null;
+  let largest: CutCandidate | null = null;
+  for (const playerId of team.rosterIds) {
+    if (protectedPlayerIds?.has(playerId)) continue;
+    const player = league.players[playerId];
+    if (!player || !player.contractId) continue;
+    const contract = league.contracts[player.contractId];
+    if (!contract) continue;
+    const dead = deadMoneyOnPreJune1Release(contract);
+    const hypo: TeamState = {
+      ...team,
+      rosterIds: team.rosterIds.filter((id) => id !== playerId),
+      deadMoneyByYear: addToYear(team.deadMoneyByYear, 0, dead),
+    };
+    const saving = usageNow - teamCapUsage(hypo, league);
+    if (saving <= 0) continue;
+    const cand: CutCandidate = { playerId, deadMoney: dead, saving };
+    if (
+      saving >= over &&
+      (!smallestSufficient ||
+        saving < smallestSufficient.saving ||
+        (saving === smallestSufficient.saving && playerId < smallestSufficient.playerId))
+    ) {
+      smallestSufficient = cand;
+    }
+    if (
+      !largest ||
+      saving > largest.saving ||
+      (saving === largest.saving && playerId < largest.playerId)
+    ) {
+      largest = cand;
+    }
+  }
+  return smallestSufficient ?? largest;
+}
+
 interface CutCandidate {
   playerId: PlayerId;
   deadMoney: number;

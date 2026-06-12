@@ -16,6 +16,60 @@ _Nothing yet._
 
 ---
 
+## [0.148.0] — 2026-06-12
+
+### Added
+
+- **The re-sign window — teams keep their own expiring players**
+  (franchise-QB retention; the named league defect from v0.144's diagnosis).
+  - **Real bar** (nflverse games.csv starting QBs, 2011-2024 season pairs):
+    primary QBs with 10+ starts stay with their team **78.4%**
+    year-over-year (12.9% start elsewhere, 8.7% don't start again).
+    Pre-fix GMSim dumped every expiring contract straight into the FA
+    auction — the incumbent team was just another bidder — and **~45% of
+    primary passers changed teams in a single offseason**, mass-producing
+    the QB-desperate teams behind Daniel's year-1 draft observations.
+  - **`applyResigningWindow`** (`transactions/re-sign.ts`, re-exported via
+    `npc-ai`): runs before `applyContractExpirations`. Tier-based desire
+    (STAR 0.88 / STARTER 0.75 / BACKUP 0.35 / FRINGE 0.12), an
+    established-QB floor (0.93 — franchise QBs essentially never reach the
+    market), age dampers (30/33 non-QB, 36/39 QB — aging vets test the
+    market), mood dampers (a wants-out player forces the door), and a
+    stars-first **cap gate** (deal must fit; over-committed teams suffer
+    the realistic cap casualty). New deal = open-market tier shape at a
+    1.05 incumbent premium. New `re-sign` transaction kind.
+  - Cap gate reserves FA budget (`RESIGN_CAP_HEADROOM` 0.9 — re-signing
+    stars to 100% of cap left teams unable to refill to 53).
+  - **Verified vs the bar** (2 seeds × 3 seasons, 125 season-pairs):
+    stayed **80.0%** (real 78.4) · moved **12.0%** (real 12.9) · gone
+    **8.0%** (real 8.7) — from ~55/29/16 pre-fix. First calibration; no
+    knob iteration needed.
+  - Tests: `transactions/re-sign.test.ts` (probability shape, window
+    integration incl. the expiration step not dropping a re-signed player,
+    cap-blocked walk, determinism).
+
+### Fixed
+
+- **Top-51-aware cap casualties.** Teams now enter the draft near the cap
+  (re-signs + FA), exposing two latent holes: rookie contracts land with
+  no rookie-pool reservation, and proactive trades don't cap-validate the
+  receiving side (both NAMED Liquidator follow-ups) — teams ended
+  `advanceSeason` slightly over the cap. New
+  **`applyMinimalCapCasualties`** (offseason.ts): sheds the *cheapest
+  sufficient* casualty (not the star a largest-saving-first cut would
+  dump for a $0.5M overage), with TRUE savings computed by
+  hypothetical-cut recompute — the naive `hit − dead` is wrong under the
+  offseason **Top-51 rule** (cutting a below-the-line contract saves
+  nothing while adding dead money; cutting a counted one promotes the
+  52nd hit). Runs at the end of offseason transactions and before the
+  post-draft cutdown (rookies protected). The pre-existing largest-first
+  `applyCapCuts` shares the naive-saving flaw on deep-over teams —
+  noted, not touched here.
+  - ⚠ `data/scorekeeper/` sim cache invalidated by this slice (league
+    evolution differs) — clear before the next `run scorekeeper sim`.
+
+---
+
 ## [0.147.0] — 2026-06-12
 
 ### Added

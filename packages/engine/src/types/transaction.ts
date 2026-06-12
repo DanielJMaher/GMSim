@@ -58,6 +58,7 @@ export interface FaSignPreferenceFactors {
 export type Transaction =
   | TransactionRelease
   | TransactionFreeAgentSign
+  | TransactionResign
   | TransactionTrade
   | TransactionIrMove
   | TransactionPsPromotion
@@ -136,6 +137,25 @@ export interface TransactionFreeAgentSign extends TransactionBase {
    * from tick. Optional for back-compat with pre-v0.22 saves.
    */
   phaseAtSigning?: LeaguePhase;
+}
+
+/**
+ * A team re-signed its own expiring player BEFORE he hit free agency
+ * (v0.148 — the re-sign window). Real teams keep ~78% of their primary
+ * starters year-over-year by extending them; before this step existed,
+ * every expiring contract dumped straight into the FA auction and ~45%
+ * of primary passers changed teams in a single offseason.
+ */
+export interface TransactionResign extends TransactionBase {
+  kind: 're-sign';
+  teamId: TeamId;
+  playerId: PlayerId;
+  /** The NEW contract replacing the expiring one. */
+  contractId: ContractId;
+  /** Year-1 cap hit on the new deal. */
+  yearOneCapHit: number;
+  /** Real years on the new deal. */
+  years: number;
 }
 
 export interface TransactionTrade extends TransactionBase {
