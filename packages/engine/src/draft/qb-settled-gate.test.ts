@@ -131,6 +131,42 @@ describe('need-aware QB surplus at the top of the draft', () => {
     expect(result.removedFromCollegePool.has(qb.id)).toBe(true);
   });
 
+  it('every pick records its team\'s pick-time needs and desperate-QB flag (v0.147 snapshot)', () => {
+    const base = leagueWithDeclaredPool('settled-gate');
+    const tid = settledTeamId(base);
+    const desperateLeague = strippedOfQbs(base, tid);
+    const { board } = craftedBoard(desperateLeague);
+    const league = {
+      ...desperateLeague,
+      draftBoards: { ...desperateLeague.draftBoards, [tid]: board },
+    };
+
+    const result = runDraft(new Prng('draft'), league, {
+      draftOrder: [tid],
+      pickedOnTick: 0,
+      seasonNumber: league.seasonNumber + 1,
+      round: 1,
+      startingOverallPick: 1,
+    });
+    const pick = result.picks[0]!;
+    // The snapshot reflects the pre-pick roster: stripped of QBs, the team is
+    // desperate, and QB floors into the recorded top needs.
+    expect(pick.qbDesperateAtPick).toBe(true);
+    expect(pick.needsAtPick).toBeDefined();
+    expect(pick.needsAtPick!.length).toBeGreaterThan(0);
+    expect(pick.needsAtPick).toContain(Position.QB);
+
+    // A settled team's record carries the flag as false.
+    const settled = runDraft(new Prng('draft'), { ...base }, {
+      draftOrder: [tid],
+      pickedOnTick: 0,
+      seasonNumber: base.seasonNumber + 1,
+      round: 1,
+      startingOverallPick: 1,
+    });
+    expect(settled.picks[0]!.qbDesperateAtPick).toBe(false);
+  });
+
   it('a desperate team holding two premier picks does not double-draft QBs in the round', () => {
     const base = leagueWithDeclaredPool('settled-gate');
     const tid = settledTeamId(base);

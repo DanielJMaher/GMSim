@@ -5,8 +5,9 @@ import type { TeamId, PlayerId, ContractId, DraftPickId } from '../types/ids.js'
 import type { TeamState } from '../types/team.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
+import type { Position } from '../types/enums.js';
 import { promoteProspectToPlayer } from './promote.js';
-import { hasDesperateQbNeed } from './team-needs.js';
+import { hasDesperateQbNeed, computeTeamNeeds } from './team-needs.js';
 import {
   evaluateTradeUpForPick,
   applyTradeUpToWorkingAssets,
@@ -173,6 +174,12 @@ export function runDraft(
     if (!hasDesperateQbNeed(team, league.players)) qbSettled.add(team.identity.id);
   }
 
+  // Pick-time needs snapshot (v0.147): each record stores the top of the
+  // picking team's need list over the SAME league state the pick logic
+  // consulted — live-computed needs are wrong the moment the rookie lands.
+  // Memoized per team; rosters are frozen for the duration of the round.
+  const needsMemo = new Map<TeamId, readonly Position[]>();
+
   // Per-team trade-up counter (v0.52). Tracks how many times each
   // team has initiated as the trading-up side so the evaluator can
   // enforce `MAX_TRADE_UPS_PER_TEAM` and prevent one aggressive team
@@ -238,6 +245,15 @@ export function runDraft(
 
     const overallPick = startingOverallPick + i;
     const board = league.draftBoards[teamId] ?? [];
+
+    // Captured BEFORE this pick mutates the settled set — what the war room
+    // acted on when it went on the clock (v0.147 snapshot).
+    const qbDesperateAtPick = !qbSettled.has(teamId);
+    let needsAtPick = needsMemo.get(teamId);
+    if (!needsAtPick) {
+      needsAtPick = computeTeamNeeds(team, league).slice(0, 5).map((n) => n.position);
+      needsMemo.set(teamId, needsAtPick);
+    }
 
     // Walk the team's own board for the strongest available pick. At premier
     // slots the pick is a SURPLUS decision, not raw board order (v0.143 — the
@@ -344,6 +360,8 @@ export function runDraft(
       boardRankAtPick: boardRank,
       boardPriorityAtPick: boardEntry?.priority ?? null,
       boardReasonAtPick: boardEntry?.reason ?? null,
+      needsAtPick,
+      qbDesperateAtPick,
       ...(convertedFromPosition ? { convertedFromPosition } : {}),
       ...(pickAsset
         ? { pickAssetId: pickAsset.id, originalTeamId: pickAsset.originalTeamId }

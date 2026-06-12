@@ -63,7 +63,7 @@ import type {
   MediaOutletId,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
-import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot, careerShapeFor, declineMultiplierFor, curveForPosition } from '@gmsim/engine';
+import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, hasDesperateQbNeed, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot, careerShapeFor, declineMultiplierFor, curveForPosition } from '@gmsim/engine';
 import type { CareerShape } from '@gmsim/engine';
 import { GameViewReport } from './GameView';
 import { DepthChartCard } from './DepthChart';
@@ -1607,13 +1607,17 @@ function collegeStatHeadline(
 function TeamNeedsStrip({
   needs,
   topN = 5,
-  label = 'Needs',
+  label = 'Needs (now)',
   tone = 'amber',
+  qbDesperate = false,
 }: {
   needs: readonly PositionNeed[];
   topN?: number;
   label?: string;
   tone?: 'amber' | 'sky';
+  /** Show the binary desperate-QB badge the engine's draft logic acts on —
+   *  the scored top-N can bury QB under sheer volume of other holes. */
+  qbDesperate?: boolean;
 }) {
   const top = needs.slice(0, topN);
   const accent =
@@ -1623,6 +1627,14 @@ function TeamNeedsStrip({
   return (
     <div className="flex flex-wrap items-baseline gap-1.5 text-[11px]">
       <span className="uppercase tracking-wide text-[10px] text-zinc-500">{label}</span>
+      {qbDesperate && (
+        <span
+          className="rounded border border-rose-500/50 bg-rose-500/15 px-1.5 py-0.5 font-mono text-[10px] uppercase text-rose-300"
+          title="hasDesperateQbNeed — no starter-quality QB and no recent first-round QB on the roster. This binary flag (not the scored list below) drives the QB reach and the need-aware slot premium, so it can be true even when QB doesn't crack the top-5 scored needs."
+        >
+          QB-desperate
+        </span>
+      )}
       {top.map((n, i) => (
         <span
           key={n.position}
@@ -1885,7 +1897,10 @@ function DraftBoardsPanel({ league }: { league: LeagueState }) {
 
       {selectedTeamNeeds.length > 0 && (
         <div className="mb-3">
-          <TeamNeedsStrip needs={selectedTeamNeeds} />
+          <TeamNeedsStrip
+            needs={selectedTeamNeeds}
+            qbDesperate={selectedTeam ? hasDesperateQbNeed(selectedTeam, league.players) : false}
+          />
         </div>
       )}
 
@@ -2349,14 +2364,46 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
             </span>
           )}
         </div>
-        {teamNeeds.length > 0 && (
-          <div className="mt-2">
-            <TeamNeedsStrip
-              needs={teamNeeds}
-              tone="sky"
-              label={`${team?.identity.abbreviation ?? 'Team'} needs`}
-            />
+        {currentPick.needsAtPick && currentPick.needsAtPick.length > 0 ? (
+          // Pick-time snapshot (v0.147) — what the war room saw when it went
+          // on the clock, NOT needs recomputed from the post-draft roster
+          // (the drafted rookie satisfies the very need that justified him).
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+            <span className="uppercase tracking-wide text-[10px] text-zinc-500">
+              {team?.identity.abbreviation ?? 'Team'} needs at pick
+            </span>
+            {currentPick.qbDesperateAtPick && (
+              <span
+                className="rounded border border-rose-500/50 bg-rose-500/15 px-1.5 py-0.5 font-mono text-[10px] uppercase text-rose-300"
+                title="hasDesperateQbNeed at pick time — the binary driver behind the QB reach and the need-aware slot premium."
+              >
+                QB-desperate
+              </span>
+            )}
+            {currentPick.needsAtPick.map((pos) => (
+              <span
+                key={pos}
+                className={`rounded border px-1.5 py-0.5 font-mono ${
+                  rookie && pos === rookie.position
+                    ? 'border-emerald-500/60 bg-emerald-500/15 text-emerald-300'
+                    : 'border-sky-500/40 bg-sky-500/10 text-sky-200'
+                }`}
+                title={rookie && pos === rookie.position ? 'This pick filled the need' : undefined}
+              >
+                {pos}
+              </span>
+            ))}
           </div>
+        ) : (
+          teamNeeds.length > 0 && (
+            <div className="mt-2">
+              <TeamNeedsStrip
+                needs={teamNeeds}
+                tone="sky"
+                label={`${team?.identity.abbreviation ?? 'Team'} needs (now — pre-snapshot draft)`}
+              />
+            </div>
+          )
         )}
       </div>
 

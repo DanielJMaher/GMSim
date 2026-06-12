@@ -909,6 +909,23 @@ export interface DraftPickRecord {
    * back-compat.
    */
   originalTeamId?: TeamId;
+  /**
+   * The picking team's top positional needs AT PICK TIME (v0.147) — the top
+   * of `computeTeamNeeds` over the same league state the pick logic itself
+   * consulted. Needs computed live from current rosters are wrong the moment
+   * the pick lands (the drafted rookie satisfies the very need that justified
+   * him — "QB isn't listed as a need" was this). The replay must show what
+   * the war room saw. Optional for pre-v0.147 saves.
+   */
+  needsAtPick?: readonly Position[];
+  /**
+   * Whether the picking team had a DESPERATE quarterback need at pick time
+   * (`hasDesperateQbNeed` — the binary driver behind the QB reach and the
+   * need-aware slot premium). Surfaced separately from `needsAtPick` because
+   * the scored top-5 can bury QB under sheer volume of other holes even when
+   * this flag is what the engine actually acted on. Optional for back-compat.
+   */
+  qbDesperateAtPick?: boolean;
 }
 
 // ─── Trade-up history (Doc 3 — draft trades, v0.45 firing + v0.52 persistence) ─

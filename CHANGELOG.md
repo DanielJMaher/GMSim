@@ -16,6 +16,29 @@ _Nothing yet._
 
 ---
 
+## [0.147.0] — 2026-06-12
+
+### Added
+
+- **Pick-time needs snapshot** (slice 4 of the Scorekeeper plan; fixes
+  Daniel's "QB isn't listed as a need when it clearly was").
+  - `DraftPickRecord.needsAtPick` (top-5 of `computeTeamNeeds` over the same
+    league state the pick logic consulted) + `qbDesperateAtPick` (the binary
+    `hasDesperateQbNeed` driver). Needs recomputed live from current rosters
+    are wrong the moment the rookie lands — he satisfies the very need that
+    justified him. Optional fields; pre-v0.147 saves unaffected.
+  - **Inspector — draft replay** shows "needs at pick" badges from the
+    snapshot (the filled need highlighted green, a rose **QB-desperate**
+    badge when the flag drove the pick), falling back to live needs labeled
+    "(now — pre-snapshot draft)" on old saves.
+  - **`TeamNeedsStrip`** default label is now **"Needs (now)"** and it can
+    render the desperate-QB badge — the binary driver is visible even when
+    the scored top-5 buries QB under volume of other holes (the second half
+    of the original confusion).
+  - Snapshot test added to `qb-settled-gate.test.ts`.
+
+---
+
 ## [0.146.0] — 2026-06-12
 
 ### Added
