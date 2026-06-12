@@ -1,4 +1,4 @@
-import type { PlayerId } from './ids.js';
+import type { PlayerId, TeamId } from './ids.js';
 
 /**
  * Per-player stat line for a single game. All values are integer
@@ -16,6 +16,15 @@ import type { PlayerId } from './ids.js';
  */
 export interface PlayerGameStats {
   playerId: PlayerId;
+  /**
+   * Team the player ACCRUED this line with — captured at sim time, when the
+   * game knows both rosters. Stats outlive roster membership (trades, cuts,
+   * FA departures, retirement), so any team-scoped view must join through
+   * this field, never through the team's current `rosterIds` (that join
+   * silently drops departed contributors — the "650-yard QB room" defect).
+   * Optional only for saves recorded before this field existed.
+   */
+  teamId?: TeamId;
 
   // ── Passing ────────────────────────────────────────────────────
   passAttempts: number;
@@ -63,9 +72,10 @@ export interface CareerSeasonStats extends PlayerSeasonStats {
 /**
  * Convenience: a zeroed stat line. Used as the addition identity.
  */
-export function emptyPlayerGameStats(playerId: PlayerId): PlayerGameStats {
+export function emptyPlayerGameStats(playerId: PlayerId, teamId?: TeamId): PlayerGameStats {
   return {
     playerId,
+    ...(teamId !== undefined ? { teamId } : {}),
     passAttempts: 0,
     passCompletions: 0,
     passingYards: 0,

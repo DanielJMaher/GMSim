@@ -87,10 +87,11 @@ function isNonEmpty(s: PlayerGameStats): boolean {
 function getOrInit(
   lines: Map<string, PlayerGameStats>,
   playerId: string,
+  teamId: TeamState['identity']['id'],
 ): PlayerGameStats {
   let s = lines.get(playerId);
   if (!s) {
-    s = emptyPlayerGameStats(playerId as PlayerGameStats['playerId']);
+    s = emptyPlayerGameStats(playerId as PlayerGameStats['playerId'], teamId);
     lines.set(playerId, s);
   }
   return s;
@@ -106,6 +107,7 @@ function attributeOffense(
   lines: Map<string, PlayerGameStats>,
   league: LeagueState,
 ): void {
+  const tid = team.identity.id;
   const players = team.rosterIds
     .map((id) => league.players[id])
     .filter((p): p is Player => Boolean(p));
@@ -148,11 +150,11 @@ function attributeOffense(
 
     // QB1 ~93% of pass volume, QB2 ~7%.
     const shares = qbs.length === 1 ? [1] : qbs.length === 2 ? [0.93, 0.07] : [0.93, 0.07, 0];
-    splitInt(qbs, shares, totalAttempts, (qb, n) => (getOrInit(lines, qb.id).passAttempts += n));
-    splitInt(qbs, shares, totalCompletions, (qb, n) => (getOrInit(lines, qb.id).passCompletions += n));
-    splitInt(qbs, shares, teamStats.passingYards, (qb, n) => (getOrInit(lines, qb.id).passingYards += n));
-    splitInt(qbs, shares, totalPassTds, (qb, n) => (getOrInit(lines, qb.id).passingTds += n));
-    splitInt(qbs, shares, totalInts, (qb, n) => (getOrInit(lines, qb.id).interceptionsThrown += n));
+    splitInt(qbs, shares, totalAttempts, (qb, n) => (getOrInit(lines, qb.id, tid).passAttempts += n));
+    splitInt(qbs, shares, totalCompletions, (qb, n) => (getOrInit(lines, qb.id, tid).passCompletions += n));
+    splitInt(qbs, shares, teamStats.passingYards, (qb, n) => (getOrInit(lines, qb.id, tid).passingYards += n));
+    splitInt(qbs, shares, totalPassTds, (qb, n) => (getOrInit(lines, qb.id, tid).passingTds += n));
+    splitInt(qbs, shares, totalInts, (qb, n) => (getOrInit(lines, qb.id, tid).interceptionsThrown += n));
   }
 
   // ── Rushing ──────────────────────────────────────────────────────
@@ -168,9 +170,9 @@ function attributeOffense(
           ? [0.7, 0.3]
           : [0.62, 0.25, 0.13, ...(Array(rbs.length - 3).fill(0) as number[])];
     const shares = skillAdjustedShares(rbs, ladder);
-    splitInt(rbs, shares, totalCarries, (p, n) => (getOrInit(lines, p.id).rushingAttempts += n));
-    splitInt(rbs, shares, teamStats.rushingYards, (p, n) => (getOrInit(lines, p.id).rushingYards += n));
-    splitInt(rbs, shares, totalRushTds, (p, n) => (getOrInit(lines, p.id).rushingTds += n));
+    splitInt(rbs, shares, totalCarries, (p, n) => (getOrInit(lines, p.id, tid).rushingAttempts += n));
+    splitInt(rbs, shares, teamStats.rushingYards, (p, n) => (getOrInit(lines, p.id, tid).rushingYards += n));
+    splitInt(rbs, shares, totalRushTds, (p, n) => (getOrInit(lines, p.id, tid).rushingTds += n));
   }
 
   // ── Receiving ────────────────────────────────────────────────────
@@ -194,10 +196,10 @@ function attributeOffense(
     const totalAttempts = Math.max(0, Math.round(teamStats.passingYards / 7.6));
     const totalCompletions = Math.round(totalAttempts * compRate);
     const shares = skillAdjustedShares(receivers, recvSharesFor(receivers.length));
-    splitInt(receivers, shares, totalAttempts, (p, n) => (getOrInit(lines, p.id).targets += n));
-    splitInt(receivers, shares, totalCompletions, (p, n) => (getOrInit(lines, p.id).receptions += n));
-    splitInt(receivers, shares, teamStats.passingYards, (p, n) => (getOrInit(lines, p.id).receivingYards += n));
-    splitInt(receivers, shares, totalPassTds, (p, n) => (getOrInit(lines, p.id).receivingTds += n));
+    splitInt(receivers, shares, totalAttempts, (p, n) => (getOrInit(lines, p.id, tid).targets += n));
+    splitInt(receivers, shares, totalCompletions, (p, n) => (getOrInit(lines, p.id, tid).receptions += n));
+    splitInt(receivers, shares, teamStats.passingYards, (p, n) => (getOrInit(lines, p.id, tid).receivingYards += n));
+    splitInt(receivers, shares, totalPassTds, (p, n) => (getOrInit(lines, p.id, tid).receivingTds += n));
   }
 }
 
@@ -339,6 +341,7 @@ function attributeDefense(
   lines: Map<string, PlayerGameStats>,
   league: LeagueState,
 ): void {
+  const tid = team.identity.id;
   const players = team.rosterIds
     .map((id) => league.players[id])
     .filter((p): p is Player => Boolean(p));
@@ -356,9 +359,9 @@ function attributeDefense(
   const dbTackles = Math.round(totalTackles * 0.30);
   const dlTackles = Math.round(totalTackles * 0.15);
 
-  distributeBySkill(lbs, lbTackles, (p, n) => (getOrInit(lines, p.id).tackles += n));
-  distributeBySkill(dbs, dbTackles, (p, n) => (getOrInit(lines, p.id).tackles += n));
-  distributeBySkill(dls, dlTackles, (p, n) => (getOrInit(lines, p.id).tackles += n));
+  distributeBySkill(lbs, lbTackles, (p, n) => (getOrInit(lines, p.id, tid).tackles += n));
+  distributeBySkill(dbs, dbTackles, (p, n) => (getOrInit(lines, p.id, tid).tackles += n));
+  distributeBySkill(dls, dlTackles, (p, n) => (getOrInit(lines, p.id, tid).tackles += n));
 
   // ── Sacks ────────────────────────────────────────────────────────
   // `ownStats.sacks` = sacks this team's defense generated. EDGE rushers
@@ -381,7 +384,7 @@ function attributeDefense(
       const pool = primary.length > 0 ? primary : preferEdge ? interiorRanked : edgesRanked;
       const slots = pool === edgesRanked ? edgeSlots : interiorSlots;
       const pick = pickByRankWeight(pool, slots, seed);
-      if (pick) getOrInit(lines, pick.id).sacks += 1;
+      if (pick) getOrInit(lines, pick.id, tid).sacks += 1;
     }
   }
 
@@ -411,7 +414,7 @@ function attributeDefense(
       const primary = preferDb ? dbsRanked : lbsRanked;
       const pool = primary.length > 0 ? primary : preferDb ? lbsRanked : dbsRanked;
       const pick = pickByRankWeight(pool, pool === dbsRanked ? dbSlots : lbSlots, seed);
-      if (pick) getOrInit(lines, pick.id).interceptions += 1;
+      if (pick) getOrInit(lines, pick.id, tid).interceptions += 1;
     }
   }
 }

@@ -16,6 +16,46 @@ _Nothing yet._
 
 ---
 
+## [0.144.0] — 2026-06-12
+
+### Added
+
+- **Stats truth — team-accrued stat attribution** (slice 1 of the Scorekeeper
+  plan; root-caused from Daniel's "650-yard QB room" year-1 report).
+  - **Diagnosis first** (instrument-then-fix): the drive sim was coherent all
+    along — 285 games × 3 seeds, 0 double-entry violations (team passing ==
+    team receiving by construction). The illusion was the inspector joining
+    season stats through the team's **current** `rosterIds`: a starting QB
+    who left in the offseason took his ~4-5k passing yards out of the team
+    view while his receivers' yards stayed. Reproduced on 9-12 of 32 teams
+    per seed after one offseason.
+  - **`PlayerGameStats.teamId`**: every stat line is stamped at sim time with
+    the team it was accrued for (both bottom-up and legacy top-down paths).
+    Optional for pre-existing saves; no migration needed.
+  - **`seasonStatsForTeam(league, teamId)`** (exported): season stats joined
+    through the line's sim-time `teamId`, never the current roster — includes
+    departed contributors, so a team's box score always adds up. League-wide
+    aggregation drops `teamId` when a player accrued stats with two teams
+    (midseason trade).
+  - **Inspector: "Departed contributors" panel** in the team drawer — players
+    who put up stats for this team but are off the roster, with their stat
+    line and where they went (signed with X / traded to X / released /
+    contract expired — unsigned / retired).
+  - **Coherence invariants locked** (`season/stats-coherence.test.ts`): per
+    team-game passing == receiving, completions == receptions, attempts ==
+    targets; season-level double-entry per team; the departed-passer
+    regression (accrual join keeps the yards, naive roster join loses them);
+    league totals preserved under the team filter; QB share of stable-roster
+    team passing > 80%.
+  - **Named league-level finding** (NOT fixed here, needs its own slice):
+    ~45% of primary passers (>2,500 yds) leave their team in a single
+    offseason — 43 FA departures / 17 expired-unsigned / 9 retired / 3 traded
+    of 159 across 5 seeds. Real NFL retains franchise QBs (tags/extensions).
+    This floods the league with QB-needy teams and is upstream of the QB
+    draft-demand pressure Daniel observed.
+
+---
+
 ## [0.143.0] — 2026-06-12
 
 ### Added

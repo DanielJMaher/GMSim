@@ -142,6 +142,7 @@ export {
   retirementProbabilityForAge,
   processRetirements,
   seasonStatsForLeague,
+  seasonStatsForTeam,
   playerSeasonStats,
   seasonAwards,
   weeklyMoodUpdate,

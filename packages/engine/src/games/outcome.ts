@@ -115,9 +115,16 @@ function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): Schedul
   });
   const stats = sim.playerStats ?? new Map<string, PlayerStatLine>();
 
+  // Stamp each line with the team it was accrued for (rosters at sim time) —
+  // stats must survive roster churn (trades/cuts/FA), so team-scoped views
+  // join through `teamId`, not the team's later rosterIds.
+  const homeIds = new Set<string>(homeTeam.rosterIds);
   const playerStats: PlayerGameStats[] = [];
   for (const [pid, l] of stats) {
-    const g = emptyPlayerGameStats(pid as PlayerGameStats['playerId']);
+    const g = emptyPlayerGameStats(
+      pid as PlayerGameStats['playerId'],
+      homeIds.has(pid) ? homeTeam.identity.id : awayTeam.identity.id,
+    );
     g.passAttempts = l.passAttempts;
     g.passCompletions = l.passCompletions;
     g.passingYards = l.passingYards;

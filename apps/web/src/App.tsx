@@ -13,6 +13,7 @@ import {
   winPct,
   ageOfPlayer,
   seasonStatsForLeague,
+  seasonStatsForTeam,
   seasonAwards,
   freeAgents,
   releasePlayer,
@@ -5115,10 +5116,128 @@ function TeamDetail({
           ))}
       </div>
 
+      {seasonStats && <DepartedContributorsPanel team={team} league={league} />}
+
       {team.seasonHistory.length > 0 && (
         <SeasonHistoryTable history={team.seasonHistory} />
       )}
     </section>
+  );
+}
+
+// ─── DEPARTED CONTRIBUTORS (stats truth) ───────────────────────────────────
+//
+// Players who accrued stats FOR this team this season but are no longer on
+// its roster (midseason trade, cut, offseason FA departure, retirement).
+// Joined through the stat line's sim-time `teamId` (`seasonStatsForTeam`),
+// never the current roster — without this section a departed starting QB's
+// yards silently vanish from the team view while his receivers' yards stay
+// (the "650-yard QB room" illusion: roster QBs show ~650 passing yds under
+// WRs showing 1300+ receiving yds each).
+function statImpact(s: PlayerSeasonStats): number {
+  return (
+    s.passingYards +
+    s.rushingYards +
+    s.receivingYards +
+    s.tackles * 5 +
+    s.sacks * 40 +
+    s.interceptions * 40
+  );
+}
+
+function seasonStatHeadline(s: PlayerSeasonStats): string {
+  const parts: string[] = [];
+  if (s.passAttempts > 0)
+    parts.push(`${s.passingYards.toLocaleString()} pass yds, ${s.passingTds} TD`);
+  if (s.rushingYards >= 100) parts.push(`${s.rushingYards.toLocaleString()} rush yds`);
+  if (s.receivingYards >= 100)
+    parts.push(`${s.receptions} rec, ${s.receivingYards.toLocaleString()} yds`);
+  if (s.sacks >= 2) parts.push(`${s.sacks} sk`);
+  if (s.interceptions >= 1) parts.push(`${s.interceptions} INT`);
+  if (parts.length === 0) parts.push(`${s.tackles} tkl`);
+  return `${parts.join(' · ')} (${s.gamesPlayed} g)`;
+}
+
+/** Where did he go? Latest transaction involving the player tells the story. */
+function departureNote(pid: PlayerId, league: LeagueState): string {
+  let note = '';
+  for (const tx of league.transactionLog) {
+    switch (tx.kind) {
+      case 'fa-sign':
+        if (tx.playerId === pid)
+          note = `signed with ${league.teams[tx.teamId]?.identity.abbreviation ?? '?'}`;
+        break;
+      case 'trade': {
+        if (tx.playersAToB.includes(pid))
+          note = `traded to ${league.teams[tx.teamBId]?.identity.abbreviation ?? '?'}`;
+        else if (tx.playersBToA.includes(pid))
+          note = `traded to ${league.teams[tx.teamAId]?.identity.abbreviation ?? '?'}`;
+        break;
+      }
+      case 'release':
+      case 'cap-cut':
+        if (tx.playerId === pid) note = 'released';
+        break;
+      case 'contract-expiration':
+        if (tx.playerId === pid) note = 'contract expired — unsigned';
+        break;
+      default:
+        break;
+    }
+  }
+  if (note) return note;
+  const p = league.players[pid];
+  if (!p) return 'retired';
+  return 'off roster';
+}
+
+function DepartedContributorsPanel({
+  team,
+  league,
+}: {
+  team: TeamState;
+  league: LeagueState;
+}) {
+  const departed = useMemo(() => {
+    const accrued = seasonStatsForTeam(league, team.identity.id);
+    const roster = new Set<PlayerId>(team.rosterIds);
+    const rows: { pid: PlayerId; s: PlayerSeasonStats }[] = [];
+    for (const [pid, s] of accrued) {
+      if (roster.has(pid)) continue;
+      if (statImpact(s) < 150) continue; // only meaningful contributors
+      rows.push({ pid, s });
+    }
+    rows.sort((a, b) => statImpact(b.s) - statImpact(a.s));
+    return rows;
+  }, [team, league]);
+
+  if (departed.length === 0) return null;
+  return (
+    <div className="mt-4 rounded border border-amber-500/30 bg-zinc-900/40 p-3">
+      <h3
+        className="mb-2 text-xs font-semibold uppercase tracking-wider text-amber-500/80"
+        title="Stats these players accrued WITH this team this season before leaving the roster (trade, cut, free agency, retirement). Without them the team's box score doesn't add up — e.g. receivers showing yards no rostered QB threw."
+      >
+        Departed contributors ({departed.length}) — their stats stay with this season
+      </h3>
+      <table className="min-w-full text-xs">
+        <tbody>
+          {departed.map(({ pid, s }) => {
+            const p = league.players[pid];
+            return (
+              <tr key={pid} className="border-t border-zinc-800/60 text-zinc-400">
+                <td className="px-2 py-1 font-mono text-zinc-500">{p?.position ?? '—'}</td>
+                <td className="px-2 py-1 text-zinc-300">
+                  {p ? `${p.firstName} ${p.lastName}` : '(retired player)'}
+                </td>
+                <td className="px-2 py-1 font-mono">{seasonStatHeadline(s)}</td>
+                <td className="px-2 py-1 italic text-amber-500/70">{departureNote(pid, league)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -5687,7 +5806,8 @@ function skillWeightChip(weight: number): { className: string; label: string } |
   return null;
 }
 
-type StatColumn = { key: keyof PlayerSeasonStats; label: string };
+// Numeric count keys only — excludes the identity fields (playerId, teamId).
+type StatColumn = { key: Exclude<keyof PlayerSeasonStats, 'playerId' | 'teamId'>; label: string };
 
 function careerStatColumns(position: Position): readonly StatColumn[] {
   switch (position) {

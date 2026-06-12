@@ -36,7 +36,7 @@ export {
   processRetirements,
 } from './retirement.js';
 export type { RetirementOutcome } from './retirement.js';
-export { seasonStatsForLeague, playerSeasonStats } from './stats.js';
+export { seasonStatsForLeague, seasonStatsForTeam, playerSeasonStats } from './stats.js';
 export { seasonAwards } from './awards.js';
 export type { SeasonAwards, PlayerAward, CoachAward } from './awards.js';
 export {
