@@ -1,7 +1,7 @@
 import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { DATA_DIR } from '../lib/config.js';
-import { splitCsvLine, csvNum } from '../lib/csv.js';
+import { csvNum, csvRows } from '../lib/csv.js';
 import { ensureContractsCsv, CONTRACTS_CSV_PATH, OTC_BUCKET } from '../lib/otc.js';
 import {
   loadLeagueContracts,
@@ -79,23 +79,6 @@ async function ensureCsv(url: string, path: string, label: string): Promise<stri
     process.stdout.write(` ${(text.length / 1e6).toFixed(1)}MB\n`);
   }
   return readFile(path, 'utf8');
-}
-
-/** Iterate CSV rows as header-keyed field arrays without materializing all lines. */
-function* csvRows(csv: string): Generator<{ get: (col: string) => string | undefined }> {
-  const nl = csv.indexOf('\n');
-  const header = splitCsvLine(csv.slice(0, nl).trim());
-  const idx = new Map(header.map((h, i) => [h, i] as const));
-  let from = nl + 1;
-  while (from < csv.length) {
-    let to = csv.indexOf('\n', from);
-    if (to === -1) to = csv.length;
-    const line = csv.slice(from, to).replace(/\r$/, '');
-    from = to + 1;
-    if (!line) continue;
-    const f = splitCsvLine(line);
-    yield { get: (col: string) => f[idx.get(col) ?? -1] };
-  }
 }
 
 // ── Real trades (nflverse nfldata) ───────────────────────────────────────────

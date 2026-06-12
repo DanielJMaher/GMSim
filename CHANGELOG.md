@@ -16,6 +16,32 @@ _Nothing yet._
 
 ---
 
+## [0.142.0] — 2026-06-12
+
+### Added
+
+- **The Goatinator — top-of-draft realism authority** (Daniel-directed; named
+  for the GOAT hunt — premier slots exist to land franchise QBs/EDGEs/WRs).
+  `pnpm --filter @gmsim/truth-arbiter run goatinator [sim <years> <seeds>]`.
+  - **Real bar** (nflverse draft_picks 1980-2026 + nfldata trades 2002-2026):
+    top-10 and #1/#2/#3 position mix with era splits (rookie-wage-scale era:
+    QB 22% of top-10, RB collapsed to 6%; **#1 overall is 75-76% QB**), and
+    trade-ups into the top 10 (22% of slots traded-into, 70% in the draft
+    window, traded-into slots skew QB 23%/WR 20%).
+  - **GMSim capture** (engine-bridge `simulateTopOfDraft`): seed-parallel
+    workers (resumable per-seed cache in `data/goat/`) harvest every top-10
+    draft record — position, traded-into (`originalTeamId !== teamId`),
+    in-draft trade-up (`tradeUpHistory`).
+  - **First 50-seed × 20-draft comparison**: GMSim's #1 overall is only 23%
+    QB vs real 75% (top-3 premium share 54% vs 75%) — the top of the draft
+    is position-blind BPA (`BOARD_PREMIUM_STRENGTH` compresses QB's 1.6
+    draft value to ×1.09); 42% of top-10 slots traded-into vs real 22%,
+    and GMSim trades up for DBs as often as QBs. Classes DO generate ~2
+    consensus-top-10 QBs (real 2.7) — pick behavior, not generation, is the
+    binding defect. Named engine follow-up: top-of-draft surplus behavior.
+
+---
+
 ## [0.141.0] — 2026-06-11
 
 ### Added

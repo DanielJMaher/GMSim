@@ -16,6 +16,7 @@
     "adjudicate": "tsc -p tsconfig.json && node dist/sim/skill-adjudicator.js",
     "magistrate": "tsc -p tsconfig.json && node dist/sim/magistrate.js",
     "barterer": "tsc -p tsconfig.json && node dist/sim/barterer.js",
+    "goatinator": "tsc -p tsconfig.json && node dist/sim/goatinator.js",
     "actuary": "tsc -p tsconfig.json && node dist/sim/actuary.js",
     "headhunter": "tsc -p tsconfig.json && node dist/sim/headhunter.js",
     "liquidator": "tsc -p tsconfig.json && node dist/cap/liquidator.js",

@@ -634,6 +634,81 @@ export async function simulateFrontOfficeHistory(
   };
 }
 
+// ── The Goatinator: top-of-draft capture (positions + trade-ups) ─────────────
+
+export interface TopPickRecord {
+  seasonNumber: number;
+  overallPick: number;
+  /** Engine position of the drafted player (resolved right after the draft). */
+  position: string;
+  /** Pick consumed by a team that didn't originally own the slot (any trade). */
+  tradedInto: boolean;
+  /** A trade-up fired for this slot inside the draft itself (v0.45 mechanic). */
+  inDraftTradeUp: boolean;
+}
+
+interface GoatLeague {
+  seasonNumber: number;
+  draftHistory: readonly {
+    seasonNumber: number;
+    overallPick: number;
+    teamId: string;
+    originalTeamId?: string;
+    promotedPlayerId: string;
+    collegePlayerId: string;
+  }[];
+  tradeUpHistory: readonly {
+    seasonNumber: number;
+    overallPick: number;
+    tradingUpTeamId: string;
+  }[];
+  players: Record<string, { position: string } | undefined>;
+}
+
+/**
+ * Forward-sim `years` seasons and capture every TOP-`maxPick` draft slot:
+ * who was taken (position) and whether the picking team owned the slot or
+ * traded into it — the Goatinator compares this against the real top-of-
+ * draft ecology (QB/EDGE/WR premium + trade-up incidence). Records are
+ * harvested right after each draft so positions resolve before any
+ * retirement purge.
+ */
+export async function simulateTopOfDraft(
+  seed: string,
+  years: number,
+  maxPick = 10,
+): Promise<TopPickRecord[]> {
+  const eng = await loadEngine();
+  let league = eng.createLeague({ seed }) as unknown as GoatLeague;
+  const out: TopPickRecord[] = [];
+  let processed = 0;
+  for (let y = 0; y < years; y++) {
+    league = eng.advanceSeason(
+      eng.simulateSeason(league as unknown as EngineLeague),
+    ) as unknown as GoatLeague;
+    for (; processed < league.draftHistory.length; processed++) {
+      const rec = league.draftHistory[processed]!;
+      if (rec.overallPick > maxPick) continue;
+      const player =
+        league.players[rec.promotedPlayerId] ?? league.players[rec.collegePlayerId];
+      out.push({
+        seasonNumber: rec.seasonNumber,
+        overallPick: rec.overallPick,
+        position: player?.position ?? 'UNKNOWN',
+        tradedInto:
+          rec.originalTeamId !== undefined && rec.originalTeamId !== rec.teamId,
+        inDraftTradeUp: league.tradeUpHistory.some(
+          (t) =>
+            t.seasonNumber === rec.seasonNumber &&
+            t.overallPick === rec.overallPick &&
+            t.tradingUpTeamId === rec.teamId,
+        ),
+      });
+    }
+  }
+  return out;
+}
+
 // ── The Barterer: trade-value primitives (Doc 5 chart + neutral player value) ─
 
 export interface TradeValuePrimitives {
