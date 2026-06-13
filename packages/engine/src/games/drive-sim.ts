@@ -104,22 +104,36 @@ function fgSuccess(distance: number): number {
 // extra runs and the league-wide pass rate / Magistrate drive bar hold —
 // and ramps quadratically with game progress (the script is a second-half
 // phenomenon; a 7-point first-quarter lead barely changes the calls).
-export const SCRIPT_MAX_SHIFT = 0.22;
-/** The leading side's script is much milder than the trailing side's —
- *  real teams up two scores in the 4th still pass ~0.47-0.50 (−0.08 vs
- *  base) while teams down two scores throw ~0.77 (+0.20). A symmetric
- *  shift overshot the winners' run tilt (W-L rush delta +64 vs real +35). */
-export const SCRIPT_LEAD_FACTOR = 0.45;
+// Script v2 (v0.153) — shape locked to the measured real pass-rate table
+// (nflverse pbp 2015-2024, 5,246 team-games; see _pace_script_out.txt):
+// the script is a Q4 STEP, not a ramp. Within-quarter shifts vs the tied
+// baseline: H1 ≈ nothing (Q2 variation is the two-minute drill, uniform
+// across score states); Q3 mild trail-side (+9pp down 14+), weak lead-side;
+// Q4 explodes and is LEAD-HEAVY — down 14+ → 79% pass (+20), down 1-6 →
+// 69% (+10), up 1-6 → 45% (−14!), up 7-13 → 39% (−20), up 14+ → 30% (−29).
+// Leaders protect ANY Q4 lead hard; trailers escalate with the deficit.
+export const SCRIPT_TRAIL_BASE = 0.08;
+export const SCRIPT_TRAIL_SLOPE = 0.12; // saturates ~10-point deficits
+export const SCRIPT_LEAD_BASE = 0.12;
+export const SCRIPT_LEAD_SLOPE = 0.17; // saturates ~14-point leads
+export const SCRIPT_Q3_TRAIL = 0.45; // Q3 strength as a fraction of Q4's
+export const SCRIPT_Q3_LEAD = 0.2;
 
-/** Pass-rate shift for the OFFENSE: + when trailing, − (milder) when
- *  leading. `progress` is 0..1 of regulation; one score = half effect,
- *  two+ scores saturate. Linear ramp — a team down two scores at halftime
- *  is already half-committed to the script (real 2nd-half trailing pass
- *  rates run ~0.68-0.75), fully committed by the end. Exported for tests. */
+/** Pass-rate shift for the OFFENSE: + when trailing, − when leading.
+ *  `progress` is 0..1 of regulation. Zero through the first half, partial
+ *  in Q3, full step in Q4. Exported for tests. */
 export function gameScriptShift(offenseScoreDiff: number, progress: number): number {
-  const deficit = clamp(-offenseScoreDiff / 14, -1, 1);
-  const raw = deficit * progress * SCRIPT_MAX_SHIFT;
-  return raw >= 0 ? raw : raw * SCRIPT_LEAD_FACTOR;
+  if (offenseScoreDiff === 0 || progress < 0.5) return 0;
+  if (offenseScoreDiff < 0) {
+    const d = -offenseScoreDiff;
+    const late = progress >= 0.75 ? 1 : SCRIPT_Q3_TRAIL;
+    return late * (SCRIPT_TRAIL_BASE + SCRIPT_TRAIL_SLOPE * clamp((d - 1) / 9, 0, 1));
+  }
+  const late = progress >= 0.75 ? 1 : SCRIPT_Q3_LEAD;
+  return (
+    -late *
+    (SCRIPT_LEAD_BASE + SCRIPT_LEAD_SLOPE * clamp((offenseScoreDiff - 1) / 13, 0, 1))
+  );
 }
 
 function passRate(down: number, togo: number, scriptShift: number): number {

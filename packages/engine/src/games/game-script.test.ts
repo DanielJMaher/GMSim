@@ -3,8 +3,10 @@ import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/generate.js';
 import {
   gameScriptShift,
-  SCRIPT_MAX_SHIFT,
-  SCRIPT_LEAD_FACTOR,
+  SCRIPT_TRAIL_BASE,
+  SCRIPT_TRAIL_SLOPE,
+  SCRIPT_LEAD_BASE,
+  SCRIPT_LEAD_SLOPE,
   simulateGameWithDrives,
 } from './drive-sim.js';
 
@@ -16,18 +18,29 @@ import {
  */
 
 describe('gameScriptShift', () => {
-  it('ramps with progress, saturates at two scores, and is asymmetric', () => {
-    // No script effect at kickoff regardless of (impossible) deficits.
+  it('matches the measured real table: Q4 step, lead-heavy, H1 silent', () => {
+    // First half: no script regardless of score (real H1 variation is the
+    // two-minute drill, uniform across score states).
     expect(gameScriptShift(-14, 0)).toBeCloseTo(0, 9);
-    // Full effect: trailing two scores at the end of regulation.
-    expect(gameScriptShift(-14, 1)).toBeCloseTo(SCRIPT_MAX_SHIFT, 5);
-    expect(gameScriptShift(-28, 1)).toBeCloseTo(SCRIPT_MAX_SHIFT, 5); // saturates
-    // Asymmetric: leaders tilt run far more mildly than trailers tilt pass
-    // (real teams up two scores late still pass ~0.47-0.50).
-    expect(gameScriptShift(14, 1)).toBeCloseTo(-SCRIPT_MAX_SHIFT * SCRIPT_LEAD_FACTOR, 5);
+    expect(gameScriptShift(-14, 0.49)).toBeCloseTo(0, 9);
     expect(gameScriptShift(0, 1)).toBeCloseTo(0, 9);
-    // Linear ramp — half the effect at halftime.
-    expect(gameScriptShift(-14, 0.5)).toBeCloseTo(SCRIPT_MAX_SHIFT / 2, 5);
+
+    // Q4 trail side: down 14+ → +0.20 (real 57→79); down ~3 → ~+0.11
+    // (real 57→69 within tolerance).
+    expect(gameScriptShift(-14, 1)).toBeCloseTo(SCRIPT_TRAIL_BASE + SCRIPT_TRAIL_SLOPE, 5);
+    expect(gameScriptShift(-28, 1)).toBeCloseTo(SCRIPT_TRAIL_BASE + SCRIPT_TRAIL_SLOPE, 5);
+    expect(gameScriptShift(-3, 1)).toBeGreaterThan(0.09);
+    expect(gameScriptShift(-3, 1)).toBeLessThan(0.13);
+
+    // Q4 lead side is HEAVIER than the trail side (real: up 14+ → 30% pass,
+    // a −0.29 swing vs the trailer's +0.22) and kicks in at ANY lead.
+    expect(gameScriptShift(14, 1)).toBeCloseTo(-(SCRIPT_LEAD_BASE + SCRIPT_LEAD_SLOPE), 5);
+    expect(Math.abs(gameScriptShift(14, 1))).toBeGreaterThan(gameScriptShift(-14, 1));
+    expect(gameScriptShift(3, 1)).toBeLessThan(-0.12); // real up-1..6 Q4 = −14pp
+
+    // Q3: partial strength, trail side stronger than lead side.
+    expect(gameScriptShift(-14, 0.6)).toBeCloseTo(0.45 * (SCRIPT_TRAIL_BASE + SCRIPT_TRAIL_SLOPE), 5);
+    expect(gameScriptShift(14, 0.6)).toBeCloseTo(-0.2 * (SCRIPT_LEAD_BASE + SCRIPT_LEAD_SLOPE), 5);
   });
 });
 
