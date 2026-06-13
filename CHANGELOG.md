@@ -16,6 +16,76 @@ _Nothing yet._
 
 ---
 
+## [0.154.0] — 2026-06-12
+
+### Added
+
+- **The draft-order ↔ QB-need correlation** — the mechanism that makes the
+  team picking #1 actually be QB-desperate, season after season. Three
+  findings, each verified by forward-sim:
+  - **★ The franchise-dev trap (the real #1-QB bottleneck).** The #1-overall
+    QB share stuck at ~25% (real 75%) despite fixing supply (v0.151) and
+    pricing (v0.152) because of a MULTI-SEASON EQUILIBRIUM artifact: over 20
+    sims, bad teams accumulate first-round dev QBs, the unconditional 4-year
+    `isFranchiseDevQb` window marked those rooms permanently "settled"
+    (desire 0), so the very teams holding top picks read settled forever and
+    an edge rusher went #1. **The Rosen rule** (`qbUpgradeDesire(…, {
+    premierSlot })`): at picks 1-3, a franchise-dev QB with 2+ seasons played
+    who is grading out a bust (bottom-half QB room) no longer settles the
+    room — real war rooms abandon failed R1 QBs exactly here (Murray over
+    Rosen, Wilson over Darnold, Williams over Fields). **#1-QB share
+    25% → 54%**; top-10 QB volume stays on bar at 25% (real 22%); #2-QB 43%
+    ≈ real 44%. (A 1-season window over picks 1-8 was tried first and
+    overshot top-10 QB volume to 32% via annual serial re-drafts — the
+    2-season / picks-1-3 tightening is the disciplined landing.)
+  - **Premier-slot binary** (picks 1-8): a non-settled room is fully in the
+    QB market at the revealed value, not graded — holding a top-8 pick is
+    itself the evidence (nobody half-drafts a QB at #3).
+  - **Record-aware QB re-sign** (`re-sign.ts`): losing teams cycle their
+    non-star QB1s back to the market (≤6 wins ×0.45, 7-8 wins ×0.75; stars
+    and non-QBs immune). Real bar (`_qb_churn_by_record`): primary QB changed
+    next season — ≤6 wins **43.3%** / 7-9 **29.5%** / 10+ **12.0%** (a 4:1
+    gradient GMSim had flat). Sim now reproduces the gradient direction
+    (≤6w 28% vs 10+w 16%) at ~half the real slope — the rest is mid-contract
+    benching/cuts by bad teams (a named future mechanism; re-sign only gates
+    expiring contracts), aggregate retention still on bar (81/13/6).
+  - **LESSON (recorded): a need signal can be individually correct yet wrong
+    in equilibrium — verify draft mechanisms over 20-season forward-sims,
+    not one draft.**
+  - Remaining #1 gap (54 vs 75) is now the EDGE top-10 over-supply (still
+    28% vs real 14% / 23% of #1 picks) — a separate slice; attribution probe
+    (`_edge_oversupply_probe`) queued.
+
+---
+
+## [0.153.0] — 2026-06-12
+
+### Changed
+
+- **Game script v2 — the measured Q4-step shape** (locked to the real
+  pass-rate table from 10y of pbp; see `_pace_script_out.txt`): H1 silent,
+  Q3 partial (trail 0.45 / lead 0.2), Q4 a step and LEAD-heavy (down-14+
+  → 79% pass; up-1..6 → 45%; up-14+ → 30%). Replaces the linear ramp and
+  the backwards 0.45 lead factor. Same research: hurry-up pace is NOT
+  needed (real winner/loser snaps 63.1/62.3 — compensation is pass-rate)
+  and GMSim's shared play budget matches real volume (62.7/team-game).
+
+---
+
+## [0.152.0] — 2026-06-12
+
+### Added
+
+- **Revealed top-slot QB value** (`QB_REVEALED_SLOT_VALUE = 2.0`):
+  full-desire teams weigh QBs at the revealed #1-pick preference instead
+  of the 1.6 APY-surplus value. Measured honestly: #1-QB share unmoved
+  (~25%) — pricing isn't the binding constraint; full-desire teams rarely
+  HOLD the top pick (QB top-10 volume on-bar but flat 25/23/23 across
+  slots vs real 75/44/25). Kept: it prices the war room correctly and
+  matters once the draft-order ↔ QB-need correlation lands (v0.154).
+
+---
+
 ## [0.151.0] — 2026-06-12
 
 ### Added

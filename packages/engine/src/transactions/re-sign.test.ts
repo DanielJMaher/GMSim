@@ -6,6 +6,7 @@ import {
   resignProbability,
   RESIGN_QB_FLOOR,
   RESIGN_BASE_BY_TIER,
+  RESIGN_QB_BAD_TEAM_FACTOR,
 } from './re-sign.js';
 import { applyContractExpirations } from './offseason.js';
 import { Position } from '../types/enums.js';
@@ -61,6 +62,32 @@ describe('resignProbability', () => {
     );
     const young: Player = { ...content, birthDate: '1999-01-01' }; // 27 in sim-year 2026
     expect(resignProbability(young, league.seasonNumber)).toBeGreaterThanOrEqual(RESIGN_QB_FLOOR);
+  });
+
+  it('losing teams cycle their non-star QBs; stars and non-QBs are immune (v0.154)', () => {
+    const qb = players.find(
+      (p) => p.position === Position.QB && p.tier === 'STARTER' && p.mood >= 60,
+    )!;
+    const neutral = resignProbability(qb, league.seasonNumber);
+    const badTeam = resignProbability(qb, league.seasonNumber, 4);
+    expect(badTeam / neutral).toBeCloseTo(RESIGN_QB_BAD_TEAM_FACTOR, 5);
+    // 7-8 wins: the milder mediocre dampen.
+    const mediocre = resignProbability(qb, league.seasonNumber, 8);
+    expect(mediocre).toBeGreaterThan(badTeam);
+    expect(mediocre).toBeLessThan(neutral);
+
+    const starQb = players.find((p) => p.position === Position.QB && p.tier === 'STAR');
+    if (starQb) {
+      expect(resignProbability(starQb, league.seasonNumber, 4)).toBeCloseTo(
+        resignProbability(starQb, league.seasonNumber),
+        5,
+      );
+    }
+    const nonQb = players.find((p) => p.position !== Position.QB && p.tier === 'STARTER')!;
+    expect(resignProbability(nonQb, league.seasonNumber, 4)).toBeCloseTo(
+      resignProbability(nonQb, league.seasonNumber),
+      5,
+    );
   });
 
   it('lets fringe players walk and dampens the disgruntled', () => {

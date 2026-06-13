@@ -176,24 +176,50 @@ export function hasDesperateQbNeed(
  *          picking high, since QB quality drives losing) still hunt the
  *          franchise QB at premier slots.
  */
-export function qbUpgradeDesire(team: TeamState, league: LeagueState): number {
+export function qbUpgradeDesire(
+  team: TeamState,
+  league: LeagueState,
+  opts?: {
+    /**
+     * THE ROSEN RULE (v0.154): evaluating at a premier slot (top-8 pick).
+     * The 4-year franchise-dev commitment is what stops teams drafting QBs
+     * every year — but it must not survive contact with a top-3 pick and a
+     * bust: bad teams that drafted a QB high stay bad, keep picking top-5,
+     * and the unconditional window made them read "settled" forever (the
+     * equilibrium #1 team was "perennial loser with an R1 kid" → EDGE).
+     * Real war rooms abandon failed R1 QBs exactly here: Rosen→Murray
+     * after ONE season, Darnold→Wilson, Fields→Williams. At a premier
+     * slot, a dev QB with a season played only settles the room if he
+     * isn't grading out as a bust (bottom-half QB-room rank).
+     */
+    premierSlot?: boolean;
+  },
+): number {
   if (hasDesperateQbNeed(team, league.players)) return 1.0;
 
-  const bestQbScore = (t: TeamState): { score: number; franchiseDev: boolean } => {
+  const bestQbScore = (t: TeamState): { score: number; devExp: number | null } => {
     let score = 0;
-    let franchiseDev = false;
+    let devExp: number | null = null;
     for (const pid of t.rosterIds) {
       const p = league.players[pid];
       if (!p || p.position !== 'QB') continue;
-      if (isFranchiseDevQb(p)) franchiseDev = true;
+      if (isFranchiseDevQb(p)) {
+        devExp = devExp === null ? p.experienceYears : Math.min(devExp, p.experienceYears);
+      }
       const s = keySkillAverage(p.current, p.archetype);
       if (s > score) score = s;
     }
-    return { score, franchiseDev };
+    return { score, devExp };
   };
 
   const mine = bestQbScore(team);
-  if (mine.franchiseDev) return 0; // committed to the kid — settled
+  // Two seasons before the abandon window opens: Rosen-after-one-year is
+  // the 15-year outlier; Darnold→Wilson and Fields→Williams (2-3 seasons)
+  // are the pattern. A 1-year window produced ANNUAL serial re-drafts
+  // (top-10 QB volume overshot to 32% vs real 22%).
+  const rosenWindowOpen =
+    opts?.premierSlot === true && mine.devExp !== null && mine.devExp >= 2;
+  if (mine.devExp !== null && !rosenWindowOpen) return 0; // committed to the kid
 
   let better = 0;
   let others = 0;
@@ -206,11 +232,14 @@ export function qbUpgradeDesire(team: TeamState, league: LeagueState): number {
   // Top quartile → 0 (you don't draft over him); bottom HALF → full hunt
   // (a median-or-worse starter never stops a team from taking the consensus
   // franchise QB at the top — Pittsburgh/Pickett wouldn't pass on Caleb);
-  // second quartile graded. First cut at (−0.25)/0.5 ×0.9 recovered the
-  // #1-overall QB share only to 22% (real 75%) — the slot premium needs
-  // near-full desire to outrank EDGE, and the teams actually picking high
-  // are almost all bottom-half QB rooms.
-  return Math.max(0, Math.min(1, (worseFraction - 0.25) / 0.25));
+  // second quartile graded.
+  const desire = Math.max(0, Math.min(1, (worseFraction - 0.25) / 0.25));
+  if (rosenWindowOpen) {
+    // Abandoning the R1 kid takes a BUST grade, not a mid one: only a
+    // bottom-half-grading dev QB re-opens the hunt; otherwise still his.
+    return desire >= 0.9 ? desire : 0;
+  }
+  return desire;
 }
 
 export interface PositionNeed {

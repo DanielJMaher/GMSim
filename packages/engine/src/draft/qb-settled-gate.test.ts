@@ -62,10 +62,14 @@ function craftedBoard(league: LeagueState): {
 }
 
 function settledTeamId(league: LeagueState): TeamId {
-  // Genuinely settled (v0.150): zero upgrade desire — a top-quartile QB room
-  // or a franchise-dev kid. A merely not-desperate team with a mediocre
-  // starter now hunts the franchise QB proportionally (the Carolina case).
-  const team = Object.values(league.teams).find((t) => qbUpgradeDesire(t, league) === 0);
+  // Genuinely settled (v0.150/v0.154): zero desire under BOTH the regular
+  // and the premier-slot (Rosen-aware) evaluation — a top-quartile QB room,
+  // or a dev kid who isn't grading out as a bust.
+  const team = Object.values(league.teams).find(
+    (t) =>
+      qbUpgradeDesire(t, league) === 0 &&
+      qbUpgradeDesire(t, league, { premierSlot: true }) === 0,
+  );
   if (!team) throw new Error('no zero-desire team in fixture league');
   return team.identity.id;
 }
@@ -219,6 +223,55 @@ describe('need-aware QB surplus at the top of the draft', () => {
       startingOverallPick: 1,
     });
     expect(result.newPlayers[0]!.position).toBe(Position.QB);
+  });
+
+  it('premier slots are binary: a graded-desire team hunts at #1 but not at #15 (v0.154)', () => {
+    // Holding a top-8 pick is itself evidence the QB room isn't the answer —
+    // a 2nd/3rd-quartile room takes the franchise QB at #1 (Tennessee/Ward)
+    // but does NOT chase him from the mid-first.
+    let found: { league: LeagueState; tid: TeamId } | null = null;
+    for (const seed of ['settled-gate', 'desire-grade', 'script-behavior']) {
+      const base = leagueWithDeclaredPool(seed);
+      const team = Object.values(base.teams).find((t) => {
+        const d = qbUpgradeDesire(t, base);
+        return d >= 0.3 && d < 1;
+      });
+      if (team) {
+        found = { league: base, tid: team.identity.id };
+        break;
+      }
+    }
+    if (!found) throw new Error('no graded-desire team across fixture seeds');
+
+    const pool = available(found.league);
+    const qb = pool.find((cp) => cp.nflProjectedPosition === Position.QB)!;
+    const nonQb = pool.find(
+      (cp) =>
+        cp.nflProjectedPosition === Position.EDGE || cp.nflProjectedPosition === Position.LT,
+    )!;
+    const board = [entry(nonQb, 100), entry(qb, 78)];
+    const league = {
+      ...found.league,
+      draftBoards: { ...found.league.draftBoards, [found.tid]: board },
+    };
+
+    const atOne = runDraft(new Prng('draft'), league, {
+      draftOrder: [found.tid],
+      pickedOnTick: 0,
+      seasonNumber: league.seasonNumber + 1,
+      round: 1,
+      startingOverallPick: 1,
+    });
+    expect(atOne.newPlayers[0]!.position).toBe(Position.QB);
+
+    const atFifteen = runDraft(new Prng('draft'), league, {
+      draftOrder: [found.tid],
+      pickedOnTick: 0,
+      seasonNumber: league.seasonNumber + 1,
+      round: 1,
+      startingOverallPick: 15,
+    });
+    expect(atFifteen.newPlayers[0]!.position).not.toBe(Position.QB);
   });
 
   it('a desperate team holding two premier picks does not double-draft QBs in the round', () => {

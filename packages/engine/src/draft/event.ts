@@ -23,6 +23,7 @@ import {
   slotAwarePickBoost,
   qbSettledPickFactor,
   qbRevealedSlotBoost,
+  QB_SETTLED_DAMPEN_END_PICK,
 } from './position-value.js';
 
 /**
@@ -46,6 +47,14 @@ const QB_REACH_MAX_BOARD_RANK = 12;
  * QB reads are dampened (the Baltimore gate).
  */
 const QB_HUNT_DESIRE_MIN = 0.3;
+
+/**
+ * The Rosen rule's reach (v0.154): a bust-grading franchise-dev QB only
+ * stops settling his team for picks 1-3 — the real re-draft-over-the-kid
+ * slots (Murray #1, Wilson #2, Williams #1). At 4-8 teams give the kid
+ * the extra year.
+ */
+const QB_ROSEN_MAX_PICK = 3;
 
 /**
  * How many still-available board entries the on-clock team weighs with the
@@ -183,8 +192,15 @@ export function runDraft(
   // Updated in-draft: once a team takes a QB this round its desire is 0
   // (a team holding two top picks must not double-draft passers).
   const qbDesire = new Map<TeamId, number>();
+  // Rosen-aware desire for premier slots (v0.154): the 4-year franchise-dev
+  // commitment doesn't survive a top-8 pick + a bust-grading kid.
+  const qbPremierDesire = new Map<TeamId, number>();
   for (const team of Object.values(league.teams)) {
     qbDesire.set(team.identity.id, qbUpgradeDesire(team, league));
+    qbPremierDesire.set(
+      team.identity.id,
+      qbUpgradeDesire(team, league, { premierSlot: true }),
+    );
   }
   // Teams settled enough that they won't trade UP into the GOAT window for
   // a QB. Rebuilt when a QB pick zeroes a team's desire (32 entries; cheap).
@@ -269,10 +285,16 @@ export function runDraft(
     const overallPick = startingOverallPick + i;
     const board = league.draftBoards[teamId] ?? [];
 
-    // Captured BEFORE this pick mutates the desire map — what the war room
-    // acted on when it went on the clock (v0.147 snapshot).
-    const teamQbDesire = qbDesire.get(teamId) ?? 0;
-    const qbDesperateAtPick = teamQbDesire >= 1;
+    // Captured BEFORE this pick mutates the desire maps — what the war room
+    // acted on when it went on the clock (v0.147 snapshot). Inside the
+    // premier window the Rosen-aware desire applies (a bust-grading dev QB
+    // no longer settles the room).
+    const rawQbDesire = qbDesire.get(teamId) ?? 0;
+    const teamQbDesire =
+      overallPick <= QB_ROSEN_MAX_PICK
+        ? Math.max(rawQbDesire, qbPremierDesire.get(teamId) ?? 0)
+        : rawQbDesire;
+    const qbDesperateAtPick = rawQbDesire >= 1;
     let needsAtPick = needsMemo.get(teamId);
     if (!needsAtPick) {
       needsAtPick = computeTeamNeeds(team, league).slice(0, 5).map((n) => n.position);
@@ -298,15 +320,18 @@ export function runDraft(
         if (!cp) continue;
         considered++;
         const position = entry.assignedPosition ?? cp.nflProjectedPosition;
-        // Need-aware QB surplus (v0.145, graded v0.150, revealed v0.152):
-        // full-desire teams weigh QBs at the REVEALED top-slot value (2.0 —
-        // Young-over-Anderson behavior), graded teams proportionally at the
-        // surplus value, settled rooms get the dampened read.
+        // Need-aware QB surplus (v0.145, graded v0.150, revealed v0.152,
+        // premier-slot binary v0.154): INSIDE the premier window a team is
+        // either out of the QB market (settled room → dampen) or fully in
+        // it at the revealed value — holding a top-8 pick is itself the
+        // evidence your QB isn't the answer (Tennessee/Ward over a median
+        // Levis; nobody half-drafts a QB at #3). Beyond the window, the
+        // graded desire scales the surplus premium as before.
         const boost =
           position === 'QB'
             ? teamQbDesire < QB_HUNT_DESIRE_MIN
               ? qbSettledPickFactor(overallPick)
-              : teamQbDesire >= 1
+              : teamQbDesire >= 1 || overallPick <= QB_SETTLED_DAMPEN_END_PICK
                 ? qbRevealedSlotBoost(overallPick)
                 : 1 + (slotAwarePickBoost(position, overallPick) - 1) * teamQbDesire
             : slotAwarePickBoost(position, overallPick);
@@ -375,6 +400,7 @@ export function runDraft(
     // A team that just took its QB is settled for the rest of this round.
     if (promoted.player.position === 'QB') {
       qbDesire.set(teamId, 0);
+      qbPremierDesire.set(teamId, 0);
       qbSettledTeams = buildQbSettledSet();
     }
     availableById.delete(chosen.id);
