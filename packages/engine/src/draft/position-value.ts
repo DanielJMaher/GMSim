@@ -149,17 +149,36 @@ export function slotPremiumStrength(overallPick: number): number {
 }
 
 /**
+ * How much of the slot premium NON-QB positions receive (v0.155). QB now
+ * has its own dedicated top-slot path (`qbRevealedSlotBoost` / graded
+ * desire), so `slotAwarePickBoost` only ever shades non-QB positions — and
+ * the Goatinator showed EDGE flooding the top 10 (35% of picks vs real 14%)
+ * NOT on talent but on premium: the EDGE-oversupply probe found only 21% of
+ * top-10 edges were their team's board #1 (mean board rank 3.8), i.e. the
+ * 1.4 value was vaulting board-rank-4 edges over board-top non-premium
+ * prospects. Real GMs take one blue-chip edge near the top, not three. This
+ * factor (0.5) halves the non-QB premium spread so edges go closer to
+ * board-talent order; OL/WR/DB — which the probe showed win at board #1, on
+ * talent, not premium — barely move (they weren't riding the premium). QB
+ * is unaffected (separate path). */
+export const SLOT_PREMIUM_NONQB_FACTOR = 0.5;
+
+/**
  * Pick-time multiplier applied ON TOP of a board entry's priority (which
  * already carries the compressed `boardPositionalFactor`): the EXTRA
  * positional strength this slot demands beyond the board baseline, so the
- * composed weight ≈ `1 + (value − 1) × slotPremiumStrength`. Returns 1.0
- * for every position once the decay window ends — pick order beyond
- * `SLOT_PREMIUM_DECAY_END_PICK` is untouched.
+ * composed weight ≈ `1 + (value − 1) × slotPremiumStrength × nonQbFactor`.
+ * Returns 1.0 for every position once the decay window ends — pick order
+ * beyond `SLOT_PREMIUM_DECAY_END_PICK` is untouched.
  */
 export function slotAwarePickBoost(position: Position, overallPick: number): number {
   const value = POSITION_DRAFT_VALUE[position] ?? 1.0;
   const extra = Math.max(0, slotPremiumStrength(overallPick) - BOARD_PREMIUM_STRENGTH);
-  return 1 + (value - 1) * extra;
+  // QB routes through its own boost (qbRevealedSlotBoost) in the pick loop;
+  // when this is called for QB (the graded-desire path beyond the GOAT
+  // window) keep full strength, else damp to the non-QB factor.
+  const factor = position === 'QB' ? 1 : SLOT_PREMIUM_NONQB_FACTOR;
+  return 1 + (value - 1) * extra * factor;
 }
 
 // ─── QB-room gate on the slot premium (v0.145 — need-aware surplus) ──────

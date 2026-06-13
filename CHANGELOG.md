@@ -16,6 +16,30 @@ _Nothing yet._
 
 ---
 
+## [0.155.0] — 2026-06-12
+
+### Changed
+
+- **Damped the non-QB slot premium** (`SLOT_PREMIUM_NONQB_FACTOR = 0.5`) —
+  the EDGE top-10 over-supply. The attribution probe (`_edge_oversupply_probe`)
+  found EDGE took 35% of top-10 picks (real 14%) but only **21% were the
+  team's board #1** (mean board rank 3.8) — edges were winning on the slot
+  premium, not talent, with the 1.4 value vaulting board-rank-4 edges over
+  board-top non-premium prospects. Every other non-QB group won at board #1
+  (on talent), so halving the non-QB premium spread lowers EDGE without
+  touching them. QB is unaffected (its own `qbRevealedSlotBoost` path) and
+  `POSITION_DRAFT_VALUE` is untouched (no trade/needs ripple).
+  - **Goatinator 8×20:** EDGE top-10 28% → **24%** (real 14); WR 16% → **14%
+    = on bar**; LB 3% → 5% (toward real 8); OL flat at 13% (it's
+    talent-limited, not premium — confirmed it doesn't crater); #1-QB held
+    at 51%; in-draft trade-ups 15% (real 16). Draft guards 59/59.
+  - Named residuals: EDGE still +10pp is now SUPPLY-side (the
+    `CLASS_TOP_GRADE_MULT` EDGE ×1.65 may run slightly hot — a class-gen
+    lever, not a premium one); OL under (13 vs 19) is its own board/supply
+    issue. Both separate slices.
+
+---
+
 ## [0.154.0] — 2026-06-12
 
 ### Added
