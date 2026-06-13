@@ -475,9 +475,21 @@ interface Side {
   pers: TeamPersonnel | null;
 }
 
-/** Home-field edge added to the home offense's drive context. Tuned so two
- *  identical teams produce a ~55-57% home win rate (real NFL HFA). */
-const HOME_FIELD_EDGE = 9;
+/**
+ * Home-field edge as a ZERO-SUM half-edge (v0.156): the home offense gets
+ * +HOME_FIELD_EDGE on its pass/run edges and the away offense gets the
+ * SAME amount subtracted (home defense plays up at home). The old model
+ * added +9 to the home side ONLY, which was non-zero-sum: because
+ * `resolvePlay` turns edge into yards (`+passEdge×0.05`) and completions
+ * (`+passEdge×0.004`), the un-debited home boost injected league-wide
+ * passing/scoring inflation (+24% scoring, yds/completion 13.7 vs real
+ * 11.3) that the Magistrate never caught — its facet-audit path applies no
+ * HFA. A symmetric ±edge keeps the league scoring mean ON the calibrated
+ * baseline for ANY magnitude (home gain == away loss), so this constant
+ * tunes ONLY the home win rate. Calibrated to the real 55.4% home win%
+ * (Scorekeeper bar) for identical teams; the differential is 2×.
+ */
+const HOME_FIELD_EDGE = 2;
 
 interface GameOpts {
   /** Resolve a regulation tie with overtime + a yardage/coin tiebreak so the
@@ -601,14 +613,20 @@ export function simulateGameWithDrives(
   const hf = matchupFacets(homeTeam, league);
   const af = matchupFacets(awayTeam, league);
   const homeCtx = driveCtx(hf, af);
+  const awayCtx = driveCtx(af, hf);
   if (!opts.neutralSite) {
+    // Zero-sum: home offense plays up, away offense plays down by the same
+    // amount (home defense plays up at home). League scoring mean is
+    // unchanged; only the home/away win balance shifts.
     homeCtx.passEdge += HOME_FIELD_EDGE;
     homeCtx.runEdge += HOME_FIELD_EDGE;
+    awayCtx.passEdge -= HOME_FIELD_EDGE;
+    awayCtx.runEdge -= HOME_FIELD_EDGE;
   }
   return runGame(
     prng,
     { ctx: homeCtx, pers: buildTeamPersonnel(playersOf(homeTeam)) },
-    { ctx: driveCtx(af, hf), pers: buildTeamPersonnel(playersOf(awayTeam)) },
+    { ctx: awayCtx, pers: buildTeamPersonnel(playersOf(awayTeam)) },
     new Map<string, PlayerStatLine>(),
     { resolveTie: true },
   );

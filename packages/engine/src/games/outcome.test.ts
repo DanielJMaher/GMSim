@@ -71,7 +71,9 @@ describe('simulateGame', () => {
       });
       if (game.result!.homeScore > game.result!.awayScore) homeWins++;
     }
-    // HFA of 3 should put home win rate around 55-58%.
+    // Zero-sum HFA (v0.156, HOME_FIELD_EDGE=2 each side) lands the league
+    // home win rate at ~57% (real 55.4%); identical-team single-seed runs
+    // sit a touch wider. The band is the contract.
     expect(homeWins / trials).toBeGreaterThan(0.5);
     expect(homeWins / trials).toBeLessThan(0.7);
   });

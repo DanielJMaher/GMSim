@@ -16,6 +16,37 @@ _Nothing yet._
 
 ---
 
+## [0.156.0] — 2026-06-13
+
+### Fixed
+
+- **Zero-sum home-field advantage** — the pinned source of the Scorekeeper's
+  scoring inflation AND the home-win-rate drift, both cleared by one change.
+  - **Diagnosis (code-certain):** `simulateGameWithDrives` added
+    `HOME_FIELD_EDGE = 9` to the home offense's pass/run edges and **never
+    debited the away team**. Since `resolvePlay` turns edge into yards
+    (`+passEdge×0.05`) and completions (`+passEdge×0.004`), the un-debited
+    home boost injected league-wide passing/scoring inflation that the
+    Magistrate never caught — its facet-audit path applies no HFA, which is
+    exactly why it read green while the live league ran hot.
+  - **Fix:** apply HFA symmetrically — home offense `+HOME_FIELD_EDGE`, away
+    offense `−HOME_FIELD_EDGE` (home defense plays up at home). Because the
+    home gain equals the away loss, the league scoring mean stays on the
+    calibrated baseline for **any** magnitude, so the constant became a pure
+    home-win-rate knob, decoupled from scoring. Re-tuned to `2` per side
+    (was `9` home-only).
+  - **Scorekeeper 3×2:** points/game 26.2 → **23.7** (real 22.8, was drift);
+    home win% 65.0 → **57.2** (real 55.4, was drift); completion% 66.2 →
+    64.3 (in band); W-L pass delta 70 → 57. Magistrate drive bar unchanged
+    (facet path has no HFA). Full suite 1105/0.
+  - Named residual (separate slice): pass yds still 289 vs real 245 = a high
+    `YDS_PER_COMPLETION` baseline (13.4 vs real 11.3/completion); it trades
+    against the now-on-bar points + Magistrate yards/drive, so it needs its
+    own Magistrate-validated pass. The W-L pass/rush deltas (57/58) are the
+    usage-vs-efficiency split (the Actuary A2 family).
+
+---
+
 ## [0.155.0] — 2026-06-12
 
 ### Changed
