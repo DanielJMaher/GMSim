@@ -183,3 +183,23 @@ export const QB_SETTLED_DAMPEN_END_PICK = 8;
 export function qbSettledPickFactor(overallPick: number): number {
   return overallPick <= QB_SETTLED_DAMPEN_END_PICK ? QB_SETTLED_DAMPEN : 1.0;
 }
+
+// ─── Revealed top-slot QB preference (v0.152) ────────────────────────────
+//
+// POSITION_DRAFT_VALUE.QB = 1.6 prices the APY-surplus argument, but the
+// REVEALED preference at the top of real drafts is stronger: 75% of #1
+// overalls are QBs, Carolina took Young over Anderson with Anderson the
+// consensus better prospect, and three-firsts trade-up packages exist only
+// for QBs. v0.151 fixed QB supply at the top of the class (top-10 volume
+// on the real bar) yet the #1 slot still went EDGE — the 1.6/1.4 ratio
+// makes a full-desire team need its QB within ~87% of the top EDGE's
+// priority. A FULL-desire team (no answer at QB, or a bottom-half room)
+// weighs QBs at this value instead; graded/settled teams are untouched.
+export const QB_REVEALED_SLOT_VALUE = 2.0;
+
+/** Slot boost for a full-desire team's QB candidates — same decay as the
+ *  regular premium, stronger value. ~1.85 at #1, board-neutral by ~40. */
+export function qbRevealedSlotBoost(overallPick: number): number {
+  const extra = Math.max(0, slotPremiumStrength(overallPick) - BOARD_PREMIUM_STRENGTH);
+  return 1 + (QB_REVEALED_SLOT_VALUE - 1) * extra;
+}

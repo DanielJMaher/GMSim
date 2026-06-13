@@ -19,7 +19,11 @@ import {
   qbPremiumForGm,
   QB_CURRENT_PICK_PREMIUM,
 } from './chart-modifiers.js';
-import { slotAwarePickBoost, qbSettledPickFactor } from './position-value.js';
+import {
+  slotAwarePickBoost,
+  qbSettledPickFactor,
+  qbRevealedSlotBoost,
+} from './position-value.js';
 
 /**
  * How credible the best available QB must be for a QB-desperate team to REACH
@@ -294,15 +298,17 @@ export function runDraft(
         if (!cp) continue;
         considered++;
         const position = entry.assignedPosition ?? cp.nflProjectedPosition;
-        // Need-aware QB surplus (v0.145, graded v0.150): the QB slot premium
-        // scales with the team's upgrade desire — full for the desperate,
-        // proportional for bottom-feeders with mediocre starters, and a
-        // dampened read in the premier window for genuinely settled rooms.
+        // Need-aware QB surplus (v0.145, graded v0.150, revealed v0.152):
+        // full-desire teams weigh QBs at the REVEALED top-slot value (2.0 —
+        // Young-over-Anderson behavior), graded teams proportionally at the
+        // surplus value, settled rooms get the dampened read.
         const boost =
           position === 'QB'
             ? teamQbDesire < QB_HUNT_DESIRE_MIN
               ? qbSettledPickFactor(overallPick)
-              : 1 + (slotAwarePickBoost(position, overallPick) - 1) * teamQbDesire
+              : teamQbDesire >= 1
+                ? qbRevealedSlotBoost(overallPick)
+                : 1 + (slotAwarePickBoost(position, overallPick) - 1) * teamQbDesire
             : slotAwarePickBoost(position, overallPick);
         const weighted = entry.priority * boost;
         if (weighted > bestWeighted) {

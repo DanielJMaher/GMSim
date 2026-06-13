@@ -194,6 +194,33 @@ describe('need-aware QB surplus at the top of the draft', () => {
     expect(settled.picks[0]!.qbDesperateAtPick).toBe(false);
   });
 
+  it('a full-desire team takes the QB at #1 even from board rank 2 (revealed preference, v0.152)', () => {
+    const base = leagueWithDeclaredPool('settled-gate');
+    const tid = settledTeamId(base);
+    const desperate = strippedOfQbs(base, tid);
+    const pool = available(desperate);
+    const qb = pool.find((cp) => cp.nflProjectedPosition === Position.QB);
+    const nonQb = pool.find(
+      (cp) =>
+        cp.nflProjectedPosition === Position.EDGE || cp.nflProjectedPosition === Position.LT,
+    );
+    if (!qb || !nonQb) throw new Error('pool lacks a QB or EDGE/LT prospect');
+    // EDGE clearly tops the board; the QB sits at 78% of his priority —
+    // below the 1.6-value threshold (~87%) but above the revealed-2.0
+    // threshold (~72%). Real war room: take the franchise QB.
+    const board = [entry(nonQb, 100), entry(qb, 78)];
+    const league = { ...desperate, draftBoards: { ...desperate.draftBoards, [tid]: board } };
+
+    const result = runDraft(new Prng('draft'), league, {
+      draftOrder: [tid],
+      pickedOnTick: 0,
+      seasonNumber: league.seasonNumber + 1,
+      round: 1,
+      startingOverallPick: 1,
+    });
+    expect(result.newPlayers[0]!.position).toBe(Position.QB);
+  });
+
   it('a desperate team holding two premier picks does not double-draft QBs in the round', () => {
     const base = leagueWithDeclaredPool('settled-gate');
     const tid = settledTeamId(base);
