@@ -16,6 +16,33 @@ _Nothing yet._
 
 ---
 
+## [0.151.0] — 2026-06-12
+
+### Added
+
+- **Class top-of-pyramid position mix** (`CLASS_TOP_GRADE_MULT`, the Arbiter
+  class-mix slice — the probe-proven binding constraint behind the #1-QB
+  share). Position and talent were rolled independently, so the top of
+  every class mirrored the pool mix (QB 5.8% of prospects → a top-10-talent
+  QB in only ~45% of classes; real boards ~80%). Per-NFL-position
+  multipliers on the ELITE/STAR grade weights for COLLEGE generation only
+  (QB ×2.15 · EDGE ×1.65 · LT ×1.4 · RB ×0.5 · ILB/OLB ×0.7/0.6 ·
+  specialists ≈0), each = real NMDD top-32 share ÷ pool share, so
+  Σ share×mult ≈ 1.0 and the league-wide grade distribution (Skill
+  Adjudicator guards) holds by construction. Mass borrowed within-position
+  from the STARTER band — prospect counts unchanged, only top-end shape.
+  - **Verified (Goatinator 8×20): top-10 QB volume 20% vs real 22% — ON
+    BAR** (was 10-15%); top-32 DL healed (7 vs 7.8); pyramid steepened for
+    free (blue-chip drop 3.3 → 6.2, STAR-in-top-32 12 → 18) since premium
+    positions now tower where real ones do.
+  - **#1-overall QB share unmoved (~24%)** — with credible QBs now present,
+    EDGEs still beat them to the top slot ⇒ the last mechanism is the
+    1.6/1.4 value ratio understating revealed top-slot QB preference
+    (next slice). LB consensus over-rank (+4.7 top-32) persists after
+    thinning LB supply ⇒ board/media-side lean, named separately.
+
+---
+
 ## [0.150.0] — 2026-06-12
 
 ### Added

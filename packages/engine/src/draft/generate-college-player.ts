@@ -34,7 +34,7 @@ import { getArchetypeById } from '../archetypes/index.js';
  * The pool generator samples from this distribution to decide
  * what college position each prospect plays.
  */
-const COLLEGE_POSITION_WEIGHTS: ReadonlyArray<{ value: Position; weight: number }> = [
+export const COLLEGE_POSITION_WEIGHTS: ReadonlyArray<{ value: Position; weight: number }> = [
   { value: Position.QB, weight: 6 },
   { value: Position.RB, weight: 9 },
   { value: Position.FB, weight: 1 },
@@ -177,7 +177,9 @@ export function generateCollegePlayer(
   // Use ROOKIE realization curve — college prospects are physically
   // close to their ceiling but not yet polished. Same dial NFL rookies
   // get when they enter the league.
-  const skillRoll = rollSkills(prng.fork('skills'), archetype, 'ROOKIE', projection.projected);
+  const skillRoll = rollSkills(prng.fork('skills'), archetype, 'ROOKIE', projection.projected, {
+    classTopTilt: true, // top-of-class position mix follows the real bar (v0.151)
+  });
   const current = skillRoll.current;
   const ceiling = skillRoll.ceiling;
   // Talent-spread fix Lever 2 (2026-06-03): the prospect's tier is the tier the

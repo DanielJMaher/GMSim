@@ -73,8 +73,69 @@ export function gradeToTier(grade: TalentGrade): TalentTier {
   return GRADE_TO_TIER[grade];
 }
 
-export function rollTalentGrade(prng: Prng): TalentGrade {
-  return prng.weighted(GRADE_WEIGHTS);
+/**
+ * Per-NFL-position multiplier on the ELITE+STAR grade weights for DRAFT-CLASS
+ * generation (v0.151 — the Arbiter class-mix top-of-pyramid fix).
+ *
+ * Position and talent were rolled independently, so the top of every class
+ * mirrored the POOL's position mix (QB 5.8% of prospects → P(a QB ranks
+ * top-10 in class talent) ≈ 45%) — but real consensus boards put 12-13% QB
+ * in the top 32 and a top-10 QB1 in ~80% of classes. That scarcity was the
+ * probe-proven binding constraint behind the #1-overall QB share (28% vs
+ * real 75%): desperate teams pick EDGE/LT exactly when the class has no
+ * board-credible QB.
+ *
+ * Each multiplier = (real NMDD top-32 share) / (pool share), so the elite
+ * tier's position mix lands on the real bar while Σ poolShare×mult ≈ 1.0
+ * keeps the LEAGUE-WIDE grade distribution unchanged (the Skill
+ * Adjudicator's tier-dist + 99-scarcity guards hold by construction).
+ * Applied ONLY to college generation — NFL veteran generation keeps the
+ * Adjudicator-validated supply; the league's shape then evolves through
+ * drafts + realization (watch elite-QB supply in future `run adjudicate`).
+ */
+export const CLASS_TOP_GRADE_MULT: Readonly<Record<Position, number>> = {
+  QB: 2.15,
+  RB: 0.5,
+  FB: 0.2,
+  WR: 0.95,
+  TE: 0.45,
+  LT: 1.4,
+  LG: 0.9,
+  C: 0.85,
+  RG: 0.9,
+  RT: 1.05,
+  EDGE: 1.65,
+  DT: 1.2,
+  NT: 0.75,
+  ILB: 0.7,
+  OLB: 0.6,
+  CB: 1.15,
+  S: 0.95,
+  NICKEL: 0.9,
+  K: 0.3,
+  P: 0.3,
+  LS: 0.1,
+};
+
+export function rollTalentGrade(prng: Prng, classTopTiltPosition?: Position): TalentGrade {
+  if (classTopTiltPosition === undefined) return prng.weighted(GRADE_WEIGHTS);
+  const m = CLASS_TOP_GRADE_MULT[classTopTiltPosition] ?? 1;
+  if (m === 1) return prng.weighted(GRADE_WEIGHTS);
+  const elite = 1 * m;
+  const star = 4 * m;
+  // Borrow the shifted mass from (or return it to) the STARTER band so each
+  // position's total prospect count is untouched — only its top-end shape.
+  const starter = Math.max(5, 22 - (elite + star - 5));
+  return prng.weighted([
+    { value: 'ELITE' as TalentGrade, weight: elite },
+    { value: 'STAR' as TalentGrade, weight: star },
+    { value: 'HIGH_STARTER' as TalentGrade, weight: 13 },
+    { value: 'STARTER' as TalentGrade, weight: starter },
+    { value: 'WEAK_STARTER' as TalentGrade, weight: 18 },
+    { value: 'ROTATIONAL' as TalentGrade, weight: 22 },
+    { value: 'BACKUP' as TalentGrade, weight: 12 },
+    { value: 'FRINGE' as TalentGrade, weight: 8 },
+  ]);
 }
 
 /** Order of grades from best to worst (for thresholds + the Adjudicator). */
@@ -255,8 +316,9 @@ export function rollSkills(
   archetype: PlayerArchetype,
   ageStage: AgeStage,
   position: Position,
+  opts?: { classTopTilt?: boolean },
 ): RolledSkills {
-  const talentGrade = rollTalentGrade(prng);
+  const talentGrade = rollTalentGrade(prng, opts?.classTopTilt ? position : undefined);
   const tier = gradeToTier(talentGrade);
   const ceilingBaseline = GRADE_CEILING_MEAN[talentGrade];
   const realization = REALIZATION_BY_STAGE[ageStage];
