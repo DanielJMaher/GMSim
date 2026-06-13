@@ -16,6 +16,71 @@ _Nothing yet._
 
 ---
 
+## [0.150.0] — 2026-06-12
+
+### Added
+
+- **Graded QB-upgrade desire (`qbUpgradeDesire`)** — the class-relative QB
+  bar, promoted from named-future-mechanism to shipped after the v0.148
+  retention fix invalidated v0.143's calibration: with starting QBs no
+  longer walking en masse, nearly every team read "settled" under the
+  binary `hasDesperateQbNeed` and the **#1-overall QB share collapsed to
+  7%** (Goatinator 50×20; real 75%). Real top teams draft franchise QBs
+  over mediocre starters (Carolina/Young, Chicago/Williams).
+  - 1.0 = desperate (binary case) · 0 = franchise-dev kid or top-quartile
+    QB room (the true Baltimore case) · else scaled by the team's best-QB
+    rank league-wide (`keySkillAverage` — the same quality signal the
+    depth chart and sim use). Bad teams have bad QBs, so the teams
+    actually picking high hunt QBs again.
+  - `runDraft` scales the QB slot premium by desire (settled rooms keep
+    the v0.145 dampen); the QB reach stays desperate-only; the GOAT
+    trade-up gate blocks teams with desire < 0.3. Re-exported via npc-ai.
+  - `re-sign` transactions: news beat (star extensions are real beats) +
+    inspector transaction-panel handling (filter chip, color, summary).
+
+### Changed
+
+- **Game script is now asymmetric** (`SCRIPT_LEAD_FACTOR` 0.45): leaders
+  tilt run far more mildly than trailers tilt pass, matching measured real
+  rates (up-14 late ≈0.47 pass, down-14 late ≈0.79). The symmetric v0.149
+  shift overshot the winners' run tilt (W-L rush delta +64 vs real +35).
+
+### Verification — top of draft (Goatinator 8×20 ×2 rounds + desire probe)
+
+- #1-overall QB share: 7% (post-retention collapse) → 22% (graded curve)
+  → **28%** (steepened curve: top-quartile rooms settled, bottom-half =
+  full hunt). Top-10 QB volume 18% vs real 22% (near band); top-3
+  QB+EDGE+WR 75% = real.
+- **BINDING CONSTRAINT, probe-proven (`_qb_desire_probe`): class
+  top-of-pyramid QB credibility, not desire.** Desperate teams at #1 pick
+  EDGE/LT exactly when no QB cracks their board's top-12 at ≥0.85×top
+  priority (JAX desperate → LT rank 7; NYG desperate → EDGE) and take the
+  QB whenever a credible one exists (GB rank 4, TEN rank 12, TB rank 6).
+  Real classes put a #1-worthy QB on top ~75-80% of years; GMSim classes
+  do it far less often. → Owned by the QUEUED **Arbiter class-mix
+  top-of-pyramid slice** (the EDGE +18pp top-10 over-supply is the same
+  coin's other face). Relaxing the reach credibility gates is the wrong
+  knob (resurrects the camp-arm-at-#1 bug v0.112 fixed).
+- Calibration lesson recorded: v0.143's 73% was implicitly propped up by
+  broken FA retention (a binary-desperate team at almost every top pick,
+  with reach rights). Fixing the ecology (v0.148) exposed it.
+
+### Verification (Scorekeeper 3×2 · Magistrate 200)
+
+- Magistrate drive bar: **zero drift** under the game script (TD 22.7/21.7,
+  yards/drive 31.2/30.9, scoring 36.5/36.3) — centered as designed.
+- W-L pass delta **96.5 → 70.4** (real 9.5; symmetric setting reached 60.2
+  but with unreal leader play-calling). NAMED STRUCTURAL RESIDUAL — the
+  rest of the gap needs hurry-up pace (trailing teams can't add snaps
+  under the fixed play budget) + the per-snap usage-vs-efficiency split
+  (winner efficiency dominance), one mechanism family with the Actuary A2
+  thread. Do not knob-chase: 0.22/0.45 anchors to real rates.
+- Still flagged, unchanged, previously named: points/game 26.2 vs 22.8
+  (pace), home win% 65.0 vs 55.4 (HFA), W-L rush delta 57.9 vs 35.1 band
+  ≤55 (same pace/efficiency family).
+
+---
+
 ## [0.149.0] — 2026-06-12
 
 ### Added

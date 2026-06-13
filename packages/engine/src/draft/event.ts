@@ -7,7 +7,7 @@ import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { Position } from '../types/enums.js';
 import { promoteProspectToPlayer } from './promote.js';
-import { hasDesperateQbNeed, computeTeamNeeds } from './team-needs.js';
+import { computeTeamNeeds, qbUpgradeDesire } from './team-needs.js';
 import {
   evaluateTradeUpForPick,
   applyTradeUpToWorkingAssets,
@@ -34,6 +34,14 @@ import { slotAwarePickBoost, qbSettledPickFactor } from './position-value.js';
  */
 const QB_REACH_PRIORITY_RATIO = 0.85;
 const QB_REACH_MAX_BOARD_RANK = 12;
+
+/**
+ * Minimum QB-upgrade desire (v0.150, `qbUpgradeDesire`) for a team to hunt
+ * a QB at premier slots — below this it neither gets a QB slot premium nor
+ * trades up into the GOAT window for one, and inside the premier window its
+ * QB reads are dampened (the Baltimore gate).
+ */
+const QB_HUNT_DESIRE_MIN = 0.3;
 
 /**
  * How many still-available board entries the on-clock team weighs with the
@@ -163,16 +171,27 @@ export function runDraft(
     }
   }
 
-  // QB-settled teams (v0.145): the slot premium is a surplus argument and
-  // QB surplus needs the hole — a team with an established/franchise-dev QB
-  // gets NO QB boost and a dampened QB read inside the premier window (see
-  // position-value.ts). Seeded from roster state, then updated in-draft:
-  // once a team takes a QB this round it's settled for the rest of it (a
-  // team holding two top picks must not double-draft passers).
-  const qbSettled = new Set<TeamId>();
+  // QB-upgrade desire per team (v0.150 — graded, replacing the v0.145
+  // binary): 1.0 = no answer at QB (full slot premium + reach rights),
+  // 0 = franchise-dev kid or top-quartile QB room (the Baltimore dampen),
+  // in between = bottom-feeders with mediocre starters still hunt the
+  // franchise QB at premier slots (Carolina/Young, Chicago/Williams).
+  // Updated in-draft: once a team takes a QB this round its desire is 0
+  // (a team holding two top picks must not double-draft passers).
+  const qbDesire = new Map<TeamId, number>();
   for (const team of Object.values(league.teams)) {
-    if (!hasDesperateQbNeed(team, league.players)) qbSettled.add(team.identity.id);
+    qbDesire.set(team.identity.id, qbUpgradeDesire(team, league));
   }
+  // Teams settled enough that they won't trade UP into the GOAT window for
+  // a QB. Rebuilt when a QB pick zeroes a team's desire (32 entries; cheap).
+  const buildQbSettledSet = (): Set<TeamId> => {
+    const s = new Set<TeamId>();
+    for (const [tid, d] of qbDesire) {
+      if (d < QB_HUNT_DESIRE_MIN) s.add(tid);
+    }
+    return s;
+  };
+  let qbSettledTeams = buildQbSettledSet();
 
   // Pick-time needs snapshot (v0.147): each record stores the top of the
   // picking team's need list over the SAME league state the pick logic
@@ -215,7 +234,7 @@ export function runDraft(
         tradeUpsFiredSoFar: tradeUps.length,
         tradeUpsByTeamSoFar: tradeUpsByTeam,
         teamContexts: teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
-        qbSettledTeams: qbSettled,
+        qbSettledTeams,
       });
       if (proposal) {
         applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
@@ -246,9 +265,10 @@ export function runDraft(
     const overallPick = startingOverallPick + i;
     const board = league.draftBoards[teamId] ?? [];
 
-    // Captured BEFORE this pick mutates the settled set — what the war room
+    // Captured BEFORE this pick mutates the desire map — what the war room
     // acted on when it went on the clock (v0.147 snapshot).
-    const qbDesperateAtPick = !qbSettled.has(teamId);
+    const teamQbDesire = qbDesire.get(teamId) ?? 0;
+    const qbDesperateAtPick = teamQbDesire >= 1;
     let needsAtPick = needsMemo.get(teamId);
     if (!needsAtPick) {
       needsAtPick = computeTeamNeeds(team, league).slice(0, 5).map((n) => n.position);
@@ -274,12 +294,15 @@ export function runDraft(
         if (!cp) continue;
         considered++;
         const position = entry.assignedPosition ?? cp.nflProjectedPosition;
-        // Need-aware QB surplus (v0.145): a QB-settled team gets no QB boost
-        // and a dampened QB read in the premier window — the surplus argument
-        // only holds where the roster has the hole.
+        // Need-aware QB surplus (v0.145, graded v0.150): the QB slot premium
+        // scales with the team's upgrade desire — full for the desperate,
+        // proportional for bottom-feeders with mediocre starters, and a
+        // dampened read in the premier window for genuinely settled rooms.
         const boost =
-          position === 'QB' && qbSettled.has(teamId)
-            ? qbSettledPickFactor(overallPick)
+          position === 'QB'
+            ? teamQbDesire < QB_HUNT_DESIRE_MIN
+              ? qbSettledPickFactor(overallPick)
+              : 1 + (slotAwarePickBoost(position, overallPick) - 1) * teamQbDesire
             : slotAwarePickBoost(position, overallPick);
         const weighted = entry.priority * boost;
         if (weighted > bestWeighted) {
@@ -299,10 +322,10 @@ export function runDraft(
     // but won't burn a premium slot on a camp arm. Only the top available QB on
     // the board is considered (the others are worse). Fires whether the team's
     // top pick was a board entry or it's about to fall to BPA.
-    // (v0.145: the settled set replaces a direct hasDesperateQbNeed check —
-    // identical at round start, stronger in-round: a team that already took
-    // a QB this round can't reach for a second one.)
-    if (chosen && chosen.nflProjectedPosition !== 'QB' && team && !qbSettled.has(teamId)) {
+    // (Reaching a round early is DESPERATE behavior — desire 1.0 only, not
+    // the graded upgrade hunt. In-draft QB picks zero desire, so a team
+    // that already took a QB this round can't reach for a second one.)
+    if (chosen && chosen.nflProjectedPosition !== 'QB' && team && teamQbDesire >= 1) {
       const topPriority = boardEntry?.priority ?? 0;
       for (let r = 0; r < board.length && r < QB_REACH_MAX_BOARD_RANK; r++) {
         const entry = board[r]!;
@@ -344,7 +367,10 @@ export function runDraft(
     newContracts.push(promoted.contract);
     appendRosterAddition(rosterAdditions, teamId, promoted.player.id);
     // A team that just took its QB is settled for the rest of this round.
-    if (promoted.player.position === 'QB') qbSettled.add(teamId);
+    if (promoted.player.position === 'QB') {
+      qbDesire.set(teamId, 0);
+      qbSettledTeams = buildQbSettledSet();
+    }
     availableById.delete(chosen.id);
     removed.add(chosen.id);
 

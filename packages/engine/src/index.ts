@@ -385,6 +385,7 @@ export {
   computeTeamNeeds,
   positionNeedPressure,
   hasDesperateQbNeed,
+  qbUpgradeDesire,
   // draft grades — NFL.com 8-point scale (perceived/real per prospect)
   DRAFT_GRADE_BANDS,
   DRAFT_GRADE_FLOOR,

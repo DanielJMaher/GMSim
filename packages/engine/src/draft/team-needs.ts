@@ -4,6 +4,7 @@ import type { Player } from '../types/player.js';
 import type { Position } from '../types/enums.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { ageOfPlayer } from '../season/development.js';
+import { keySkillAverage } from '../archetypes/key-skill.js';
 import { POSITION_DRAFT_VALUE } from './position-value.js';
 
 /**
@@ -153,6 +154,63 @@ export function hasDesperateQbNeed(
     if (isFranchiseDevQb(p)) hasFranchiseDev = true;
   }
   return !hasStarterQb && !hasFranchiseDev;
+}
+
+/**
+ * QB upgrade DESIRE at the top of the draft (v0.150) — graded, not binary.
+ *
+ * The binary `hasDesperateQbNeed` undercounts real top-of-draft QB demand:
+ * the team picking #1 takes the franchise QB even when it HAS a mediocre
+ * starter (Carolina over the Darnold class, Chicago over Fields). The
+ * binary was good enough at v0.143 only because broken FA retention made
+ * ~45% of primary passers walk every offseason — once the re-sign window
+ * (v0.148) fixed the ecology, almost every team read "settled" and the
+ * #1-overall QB share collapsed to 7% (real: 75%).
+ *
+ *   1.0  — no starter-quality QB and no franchise-dev R1 QB (desperate)
+ *   0.0  — a franchise-dev R1 QB in his rookie window, or a top-quartile
+ *          QB room (the true Baltimore case — you don't draft over him)
+ *   else — scaled by where the team's best QB ranks among all 32 teams'
+ *          best QBs (`keySkillAverage`, the same quality signal the depth
+ *          chart and sim use): bottom-quartile rooms (~the teams actually
+ *          picking high, since QB quality drives losing) still hunt the
+ *          franchise QB at premier slots.
+ */
+export function qbUpgradeDesire(team: TeamState, league: LeagueState): number {
+  if (hasDesperateQbNeed(team, league.players)) return 1.0;
+
+  const bestQbScore = (t: TeamState): { score: number; franchiseDev: boolean } => {
+    let score = 0;
+    let franchiseDev = false;
+    for (const pid of t.rosterIds) {
+      const p = league.players[pid];
+      if (!p || p.position !== 'QB') continue;
+      if (isFranchiseDevQb(p)) franchiseDev = true;
+      const s = keySkillAverage(p.current, p.archetype);
+      if (s > score) score = s;
+    }
+    return { score, franchiseDev };
+  };
+
+  const mine = bestQbScore(team);
+  if (mine.franchiseDev) return 0; // committed to the kid — settled
+
+  let better = 0;
+  let others = 0;
+  for (const other of Object.values(league.teams)) {
+    if (other.identity.id === team.identity.id) continue;
+    others++;
+    if (bestQbScore(other).score > mine.score) better++;
+  }
+  const worseFraction = others > 0 ? better / others : 0; // 1 = league-worst QB room
+  // Top quartile → 0 (you don't draft over him); bottom HALF → full hunt
+  // (a median-or-worse starter never stops a team from taking the consensus
+  // franchise QB at the top — Pittsburgh/Pickett wouldn't pass on Caleb);
+  // second quartile graded. First cut at (−0.25)/0.5 ×0.9 recovered the
+  // #1-overall QB share only to 22% (real 75%) — the slot premium needs
+  // near-full desire to outrank EDGE, and the teams actually picking high
+  // are almost all bottom-half QB rooms.
+  return Math.max(0, Math.min(1, (worseFraction - 0.25) / 0.25));
 }
 
 export interface PositionNeed {

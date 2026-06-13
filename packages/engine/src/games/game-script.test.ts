@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/generate.js';
-import { gameScriptShift, SCRIPT_MAX_SHIFT, simulateGameWithDrives } from './drive-sim.js';
+import {
+  gameScriptShift,
+  SCRIPT_MAX_SHIFT,
+  SCRIPT_LEAD_FACTOR,
+  simulateGameWithDrives,
+} from './drive-sim.js';
 
 /**
  * Game-script play-calling (v0.149 — the Scorekeeper's W-L pass-delta
@@ -11,14 +16,15 @@ import { gameScriptShift, SCRIPT_MAX_SHIFT, simulateGameWithDrives } from './dri
  */
 
 describe('gameScriptShift', () => {
-  it('is centered, ramps with progress, and saturates at two scores', () => {
+  it('ramps with progress, saturates at two scores, and is asymmetric', () => {
     // No script effect at kickoff regardless of (impossible) deficits.
     expect(gameScriptShift(-14, 0)).toBeCloseTo(0, 9);
     // Full effect: trailing two scores at the end of regulation.
     expect(gameScriptShift(-14, 1)).toBeCloseTo(SCRIPT_MAX_SHIFT, 5);
     expect(gameScriptShift(-28, 1)).toBeCloseTo(SCRIPT_MAX_SHIFT, 5); // saturates
-    // Symmetric: the leading side runs as much extra as the trailer passes.
-    expect(gameScriptShift(14, 1)).toBeCloseTo(-SCRIPT_MAX_SHIFT, 5);
+    // Asymmetric: leaders tilt run far more mildly than trailers tilt pass
+    // (real teams up two scores late still pass ~0.47-0.50).
+    expect(gameScriptShift(14, 1)).toBeCloseTo(-SCRIPT_MAX_SHIFT * SCRIPT_LEAD_FACTOR, 5);
     expect(gameScriptShift(0, 1)).toBeCloseTo(0, 9);
     // Linear ramp — half the effect at halftime.
     expect(gameScriptShift(-14, 0.5)).toBeCloseTo(SCRIPT_MAX_SHIFT / 2, 5);

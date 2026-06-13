@@ -105,15 +105,21 @@ function fgSuccess(distance: number): number {
 // and ramps quadratically with game progress (the script is a second-half
 // phenomenon; a 7-point first-quarter lead barely changes the calls).
 export const SCRIPT_MAX_SHIFT = 0.22;
+/** The leading side's script is much milder than the trailing side's —
+ *  real teams up two scores in the 4th still pass ~0.47-0.50 (−0.08 vs
+ *  base) while teams down two scores throw ~0.77 (+0.20). A symmetric
+ *  shift overshot the winners' run tilt (W-L rush delta +64 vs real +35). */
+export const SCRIPT_LEAD_FACTOR = 0.45;
 
-/** Pass-rate shift for the OFFENSE: + when trailing, − when leading.
- *  `progress` is 0..1 of regulation; one score = half effect, two+ scores
- *  saturate. Linear ramp — a team down two scores at halftime is already
- *  half-committed to the script (real 2nd-half trailing pass rates run
- *  ~0.68-0.75), and fully committed by the end. Exported for tests. */
+/** Pass-rate shift for the OFFENSE: + when trailing, − (milder) when
+ *  leading. `progress` is 0..1 of regulation; one score = half effect,
+ *  two+ scores saturate. Linear ramp — a team down two scores at halftime
+ *  is already half-committed to the script (real 2nd-half trailing pass
+ *  rates run ~0.68-0.75), fully committed by the end. Exported for tests. */
 export function gameScriptShift(offenseScoreDiff: number, progress: number): number {
   const deficit = clamp(-offenseScoreDiff / 14, -1, 1);
-  return deficit * progress * SCRIPT_MAX_SHIFT;
+  const raw = deficit * progress * SCRIPT_MAX_SHIFT;
+  return raw >= 0 ? raw : raw * SCRIPT_LEAD_FACTOR;
 }
 
 function passRate(down: number, togo: number, scriptShift: number): number {

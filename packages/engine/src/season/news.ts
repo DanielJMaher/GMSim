@@ -7,6 +7,7 @@ import type {
   TransactionTradeRequest,
   TransactionRelease,
   TransactionFreeAgentSign,
+  TransactionResign,
   TransactionCapCut,
   TransactionHcFired,
   TransactionGmFired,
@@ -114,6 +115,8 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       return newsFromCapCut(txn, league);
     case 'fa-sign':
       return newsFromFreeAgentSign(txn, league);
+    case 're-sign':
+      return newsFromResign(txn, league);
     case 'hc-fired':
       return newsFromHcFired(txn, league);
     case 'gm-fired':
@@ -476,6 +479,30 @@ function newsFromFreeAgentSign(
       `at $${(txn.yearOneCapHit / 1e6).toFixed(1)}M Y1 cap hit.` +
       runnersFragment,
     teamIds: [txn.teamId, ...(txn.runnersUp ?? [])],
+    playerIds: [txn.playerId],
+  };
+}
+
+/** Re-sign window (v0.148): a star staying home before the market opens is
+ *  a real beat (extension announcements); depth re-signs are bookkeeping. */
+function newsFromResign(txn: TransactionResign, league: LeagueState): NewsItem | null {
+  const player = league.players[txn.playerId];
+  if (!player) return null;
+  if (player.tier !== 'STAR' && player.tier !== 'STARTER') return null;
+  const team = league.teams[txn.teamId];
+  const severity: NewsItem['severity'] = player.tier === 'STAR' ? 3 : 1;
+  const source: NewsSource = player.tier === 'STAR' ? 'national_insider' : 'beat_writer';
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity,
+    source,
+    sourceKind: 're-sign',
+    headline: `${abbrOf(team)} re-signs ${player.tier} ${nameOf(player)}`,
+    body:
+      `${nameOf(player)} stays with ${abbrOf(team)} on a ${txn.years}-year deal ` +
+      `($${(txn.yearOneCapHit / 1e6).toFixed(1)}M Y1 cap hit) without reaching the market.`,
+    teamIds: [txn.teamId],
     playerIds: [txn.playerId],
   };
 }

@@ -3,7 +3,7 @@ import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/generate.js';
 import { runDraft } from './event.js';
 import { rollJuniorDeclarations } from './declaration.js';
-import { hasDesperateQbNeed } from './team-needs.js';
+import { hasDesperateQbNeed, qbUpgradeDesire } from './team-needs.js';
 import { qbSettledPickFactor, QB_SETTLED_DAMPEN, slotAwarePickBoost } from './position-value.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
 import type { LeagueState } from '../types/league.js';
@@ -62,8 +62,11 @@ function craftedBoard(league: LeagueState): {
 }
 
 function settledTeamId(league: LeagueState): TeamId {
-  const team = Object.values(league.teams).find((t) => !hasDesperateQbNeed(t, league.players));
-  if (!team) throw new Error('no QB-settled team in fixture league');
+  // Genuinely settled (v0.150): zero upgrade desire — a top-quartile QB room
+  // or a franchise-dev kid. A merely not-desperate team with a mediocre
+  // starter now hunts the franchise QB proportionally (the Carolina case).
+  const team = Object.values(league.teams).find((t) => qbUpgradeDesire(t, league) === 0);
+  if (!team) throw new Error('no zero-desire team in fixture league');
   return team.identity.id;
 }
 
@@ -90,6 +93,30 @@ describe('qbSettledPickFactor', () => {
     expect(qbSettledPickFactor(9)).toBe(1);
     // And the dampen must actually undercut the boost it replaces.
     expect(QB_SETTLED_DAMPEN).toBeLessThan(slotAwarePickBoost(Position.QB, 1));
+  });
+});
+
+describe('qbUpgradeDesire', () => {
+  it('grades the QB room: desperate 1.0, league-best 0, mediocre in between', () => {
+    const league = createLeague({ seed: 'desire-grade' });
+    const teams = Object.values(league.teams);
+
+    const desires = teams.map((t) => qbUpgradeDesire(t, league));
+    // Desperate teams (if any) read exactly 1.
+    for (let i = 0; i < teams.length; i++) {
+      if (hasDesperateQbNeed(teams[i]!, league.players)) expect(desires[i]).toBe(1);
+      expect(desires[i]).toBeGreaterThanOrEqual(0);
+      expect(desires[i]).toBeLessThanOrEqual(1);
+    }
+    // The league has both settled (0) and hunting (>0) rooms — the graded
+    // landscape the slot premium needs.
+    expect(desires.some((d) => d === 0)).toBe(true);
+    expect(desires.some((d) => d > 0)).toBe(true);
+
+    // Stripping a team's QBs maxes its desire.
+    const t0 = teams[0]!;
+    const stripped = strippedOfQbs(league, t0.identity.id);
+    expect(qbUpgradeDesire(stripped.teams[t0.identity.id]!, stripped)).toBe(1);
   });
 });
 

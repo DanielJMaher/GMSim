@@ -3463,6 +3463,7 @@ function newsSourceChipClass(source: NewsSource): string {
 const TRANSACTION_KINDS = [
   ['release', 'releases'],
   ['fa-sign', 'FA signings'],
+  ['re-sign', 're-signs'],
   ['trade', 'trades'],
   ['ir-move', 'IR moves'],
   ['ps-promotion', 'PS promos'],
@@ -3478,6 +3479,7 @@ type TransactionKind = Transaction['kind'];
 /** Kinds that carry a dollar-denominated price. Min-price filter only applies to these. */
 const PRICE_KINDS: ReadonlySet<TransactionKind> = new Set([
   'fa-sign',
+  're-sign',
   'trade',
   'release',
   'cap-cut',
@@ -3493,6 +3495,7 @@ function transactionTeams(entry: Transaction): TeamId[] {
         : [entry.originTeamId, entry.signingTeamId];
     case 'release':
     case 'fa-sign':
+    case 're-sign':
     case 'ir-move':
     case 'contract-expiration':
     case 'cap-cut':
@@ -3518,6 +3521,7 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
         : [entry.playerId];
     case 'release':
     case 'fa-sign':
+    case 're-sign':
     case 'ir-move':
     case 'ps-promotion':
     case 'contract-expiration':
@@ -3922,6 +3926,8 @@ function kindColor(kind: Transaction['kind']): string {
     case 'fa-sign':
     case 'ps-promotion':
       return 'text-emerald-400';
+    case 're-sign':
+      return 'text-cyan-400';
     case 'trade':
       return 'text-amber-400';
     case 'ir-move':
@@ -3956,6 +3962,8 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${teamLabel(entry.teamId)} released ${playerLabel(entry.playerId)} · dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
     case 'fa-sign':
       return `${teamLabel(entry.teamId)} signed ${playerLabel(entry.playerId)} · cap $${(entry.yearOneCapHit / 1e6).toFixed(1)}M${entry.marketContract ? ' (FA market)' : ' (vet-min)'}`;
+    case 're-sign':
+      return `${teamLabel(entry.teamId)} re-signed ${playerLabel(entry.playerId)} · cap $${(entry.yearOneCapHit / 1e6).toFixed(1)}M × ${entry.years}yr (kept off the market)`;
     case 'trade':
       return `${teamLabel(entry.teamAId)} ↔ ${teamLabel(entry.teamBId)} · ${entry.playersAToB.length}+${entry.playersBToA.length} players`;
     case 'ir-move':
