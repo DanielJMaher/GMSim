@@ -104,7 +104,13 @@ interface EngineModule {
     homeTeam: unknown,
     awayTeam: unknown,
     league: EngineLeague,
-  ) => { homeScore: number; awayScore: number; playerStats: Map<string, PlayerStatLine> };
+    opts?: { neutralSite?: boolean },
+  ) => {
+    homeScore: number;
+    awayScore: number;
+    playerStats: Map<string, PlayerStatLine>;
+    driveLog: SimDrive[];
+  };
 }
 
 export interface PlayerStatLine {
@@ -162,6 +168,12 @@ interface EngineLeague {
  */
 export async function simulateDriveLogs(seed: string, numGames: number): Promise<SimDrive[]> {
   const eng = await loadEngine();
+  // Audit the LIVE game path (real rosters + HFA + game script), not the
+  // facet-only proxy (v0.157). The facet path (simulateGameDrives) used
+  // synthetic random matchups, which diverged from the league teams actually
+  // play — the Magistrate read green on the proxy while the live league ran
+  // hot. The live path is what produces the season the Scorekeeper measures,
+  // so the drive-realism authority must audit it too.
   const league = eng.createLeague({ seed });
   const teamIds = Object.keys(league.teams);
   const n = teamIds.length;
@@ -169,9 +181,13 @@ export async function simulateDriveLogs(seed: string, numGames: number): Promise
   for (let g = 0; g < numGames; g++) {
     const home = teamIds[g % n]!;
     const away = teamIds[(g * 7 + 1) % n] === home ? teamIds[(g * 7 + 2) % n]! : teamIds[(g * 7 + 1) % n]!;
-    const hf = eng.matchupFacets(league.teams[home], league);
-    const af = eng.matchupFacets(league.teams[away], league);
-    const res = eng.simulateGameDrives(new eng.Prng(`${seed}:g${g}`), hf, af);
+    const res = eng.simulateGameWithDrives(
+      new eng.Prng(`${seed}:g${g}`),
+      league.teams[home],
+      league.teams[away],
+      league,
+      {},
+    );
     out.push(...res.driveLog);
   }
   return out;

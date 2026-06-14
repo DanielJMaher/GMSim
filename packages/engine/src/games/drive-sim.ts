@@ -70,7 +70,13 @@ export interface DriveGameResult {
 const HALF_PLAYS = 62;
 const PASS_RATE = 0.57;
 const BASE_COMPLETION = 0.655;
-const YDS_PER_COMPLETION = 13;
+// v0.157: real yds/completion is 11.3 (Scorekeeper). The drive sim scores
+// PURELY GEOMETRICALLY (a TD needs ballOn to reach 100), so this constant
+// had to be 13 to make geometric accumulation yield real POINTS — at the
+// cost of +14% inflated YARDS (live yds/completion 13.4, plays/drive 6.3).
+// Lowered to 11.5 (≈ real yards) once the red-zone TD conversion below
+// backfills the points the shorter completions no longer grind out.
+const YDS_PER_COMPLETION = 11.5;
 const YDS_PER_COMPLETION_SD = 11;
 const RUN_YDS = 4.7;
 const RUN_YDS_SD = 7.5;
@@ -79,6 +85,34 @@ const SACK_YDS = 7;
 const INT_RATE = 0.03;
 const FUMBLE_LOST_RATE = 0.011;
 const KICKOFF_START = 27;
+
+// ── Red-zone trip resolution (v0.157) ────────────────────────────────────
+// Geometric scoring under-converts the red zone: real offenses score a TD on
+// ~58% of red-zone trips, kick a FG on ~30%, and fail on ~12% — but pure
+// yardage accumulation stalls on the short field (plays clamp, drives grind
+// and punt-equivalent), so it both under-scores AND, with an additive TD
+// hack, cannibalizes field goals. Instead, once a positive play reaches the
+// red zone the trip is RESOLVED as a real outcome distribution: TD (depth +
+// edge scaled), else FG (the chip shot), else a rare fail. This produces the
+// real TD AND FG rates BY CONSTRUCTION (no FG cannibalization) and decouples
+// POINTS from raw YARDS, letting YDS_PER_COMPLETION sit at the real ~11.5.
+// Mid-range FGs (outside the 20) still come from the geometric 4th-down
+// logic. Fires in BOTH the live and facet paths (keyed off field position +
+// edge, not player attribution) so the Magistrate and the live league agree.
+const RED_ZONE_LINE = 80; // the opponent's 20 — the real NFL red zone
+const RED_ZONE_TD_BASE = 0.52; // TD prob for a trip entering at the 20 (depth 0)
+const RED_ZONE_TD_DEPTH = 0.48; // additional TD prob at the goal line (depth 1)
+const RED_ZONE_TD_EDGE = 0.004; // per-point passEdge adjustment
+const RED_ZONE_FG_CONDITIONAL = 0.82; // of NON-TD trips, the share that kick (else fail)
+
+function redZoneTdChance(passEdge: number, ballOn: number): number {
+  const depth = (ballOn - RED_ZONE_LINE) / (100 - RED_ZONE_LINE); // 0..1
+  return clamp(
+    RED_ZONE_TD_BASE + depth * RED_ZONE_TD_DEPTH + passEdge * RED_ZONE_TD_EDGE,
+    0.06,
+    0.95,
+  );
+}
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
@@ -362,6 +396,7 @@ function simulateDrive(
   let down = 1;
   let togo = 10;
   let plays = 0;
+  let redZoneRolled = false; // red-zone TD conversion fires at most once/drive
 
   for (;;) {
     if (down === 4) {
@@ -442,7 +477,8 @@ function simulateDrive(
       return { result: 'TURNOVER', plays, yards: ballOn - startYardline };
     }
     ballOn += pr.gain;
-    if (ballOn >= 100) {
+    const advanced = pr.kind === 'complete' || pr.kind === 'run';
+    const scoreTd = (): { result: DriveResult; plays: number; yards: number } => {
       if (attr && scorer) {
         if (scorer.kind === 'rec') {
           line(attr.stats, scorer.id).receivingTds += 1;
@@ -452,6 +488,26 @@ function simulateDrive(
         }
       }
       return { result: 'TD', plays, yards: 100 - startYardline };
+    };
+    if (ballOn >= 100) return scoreTd();
+    // Red-zone trip resolution (v0.157): the first positive play to reach the
+    // red zone resolves the trip — TD (attributed to this play's carrier on
+    // the live path), else the chip-shot FG, else a rare fail — at real
+    // red-zone rates. Replaces the geometric grind inside the 20.
+    if (advanced && !redZoneRolled && ballOn >= RED_ZONE_LINE) {
+      redZoneRolled = true;
+      const roll = prng.next();
+      const pTd = redZoneTdChance(ctx.passEdge, ballOn);
+      if (roll < pTd) return scoreTd();
+      if (roll < pTd + (1 - pTd) * RED_ZONE_FG_CONDITIONAL) {
+        const fgDist = 100 - ballOn + 17;
+        return {
+          result: prng.next() < fgSuccess(fgDist) ? 'FG' : 'MISSED_FG',
+          plays,
+          yards: ballOn - startYardline,
+        };
+      }
+      return { result: 'DOWNS', plays, yards: ballOn - startYardline };
     }
     // A run/completion that didn't score ends in a tackle by the defense.
     if (attr && tackleEligible) {

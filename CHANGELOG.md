@@ -16,6 +16,50 @@ _Nothing yet._
 
 ---
 
+## [0.157.0] — 2026-06-13
+
+### Changed
+
+- **Red-zone trip resolution — decouples scoring from raw yardage.** The
+  drive sim scored purely geometrically (a TD required `ballOn` to reach
+  100), so yards and points were the same quantity: `YDS_PER_COMPLETION`
+  had to be 13 to make geometric accumulation yield real *points*, which
+  inflated *yards* by ~14% (live yds/completion 13.4 vs real 11.3; every QB
+  a 4,500-yd passer). Now, when a positive play first reaches the red zone,
+  the trip is RESOLVED as a real outcome distribution — TD (depth + edge
+  scaled), else the chip-shot FG, else a rare fail — at real red-zone rates,
+  replacing the geometric grind. This produces the real TD AND FG rates by
+  construction (no FG cannibalization) and lets `YDS_PER_COMPLETION` drop to
+  the real ~11.5.
+  - **Scorekeeper:** pass yds 289 → **256** (real 245, was out of band);
+    points 23.8; the drive mix landed TD 22.0 / FG 14.3 (live probe). The
+    resolution also shifted scoring toward conversion-efficiency over raw
+    volume, pulling the **W-L pass delta 57 → 36** and the **W-L rush delta
+    into band (51.6)** — the usage-vs-efficiency axis (#2) healing as a
+    side effect.
+- **The Magistrate now audits the LIVE game path** (`simulateDriveLogs` →
+  `simulateGameWithDrives`, was the facet-only `simulateGameDrives` proxy).
+  The synthetic-matchup proxy diverged from the league teams actually play
+  all session — it read green while the live league ran hot. The
+  drive-realism authority now audits reality: TD 20.3 / FG 14.6 / yds-per-
+  drive on-bar, FG drift cleared.
+  - **Named residual the honest Magistrate now surfaces:** Punt 40.5 vs
+    37.2 — the live league stalls at midfield slightly too often
+    (points/drive 1.81 vs 1.95). Verified *not* a red-zone or 4th-down
+    issue; it's the 3rd-down-conversion / drive-sustain mechanism the
+    geometric model lacks (penalties, YAC, situational play). The facet
+    proxy was hiding it. = the next deeper slice.
+
+### Tests
+
+- **Multi-seed HC mood-dispersion guard.** The "good HCs lift their teams"
+  dispersion was a fragile single-seed magnitude statistic that drifted
+  with every roster/scoring change (0.49 → 0.22 across v0.144-157, direction
+  always intact). Averaged over 3 seeds so per-seed noise cancels; direction
+  asserted per seed, magnitude on the seed-averaged gap.
+
+---
+
 ## [0.156.0] — 2026-06-13
 
 ### Fixed
