@@ -16,6 +16,41 @@ _Nothing yet._
 
 ---
 
+## [0.158.0] — 2026-06-14
+
+### Changed
+
+- **Drive-sustain pass — the Magistrate is now fully green (0 drift).** The
+  live league stalled at midfield too often (Punt 40.5 vs real 37.2, drives
+  short). Closed it with three coupled levers in `drive-sim.ts`:
+  - **Drive-extending defensive penalties** (`DEF_PENALTY_RATE` 0.025/
+    play-iteration): an automatic first down (DPI / holding / illegal
+    contact) the geometric pass/run model entirely lacked. Resolves before
+    the down logic so it can rescue a 4th-down punt; adds field position but
+    is NOT attributed to any player's pass/rush line, so it sustains drives
+    without re-inflating the box score. Kept gentle — penalties sustain
+    drives *into* the red-zone resolution, so an aggressive rate over-scores
+    (0.045 → 26 ppg); they're paired with a red-zone trim.
+  - **Turnover rate** nudged up (INT 0.03 → 0.033, fumble 0.011 → 0.014):
+    the live league under-turned-over (10.0 giveaways/100 drives vs real
+    11.5). Turnovers replace punts at ~0 points and widen the
+    winner-vs-loser giveaway gap toward real.
+  - **`RED_ZONE_TD_BASE` 0.52 → 0.48** to absorb the penalties' red-zone
+    scoring and keep TD%/points on bar.
+  - **Result — Magistrate (live path): Punt 40.5 → 37.0 (real 37.2),
+    Turnover 10.0 → 11.3 (real 11.5), FG 14.7 (real 14.6), yards/drive
+    29.0 → 30.3 (real 30.9), TD 20.4 — ZERO drift.** Scorekeeper box score
+    holds (pass 254, points 24.7, W-L rush delta in band). Full suite
+    1105/0.
+  - Named residuals (deeper, separate slices): **W-L pass delta 34.8**
+    (barely over band) — the per-snap usage-vs-efficiency channel (Actuary
+    A2), the only flag left; and **points at the band ceiling (24.7)** —
+    traces to drives/game running slightly high (plays/drive 5.25 vs 5.5;
+    the turnover bump ends drives a touch faster), a pace nuance worth a
+    drives/game check + plays/drive nudge.
+
+---
+
 ## [0.157.0] — 2026-06-13
 
 ### Changed

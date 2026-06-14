@@ -82,9 +82,36 @@ const RUN_YDS = 4.7;
 const RUN_YDS_SD = 7.5;
 const SACK_RATE = 0.06;
 const SACK_YDS = 7;
-const INT_RATE = 0.03;
-const FUMBLE_LOST_RATE = 0.011;
+// v0.158: nudged up (INT 0.03→0.033, fumble 0.011→0.014) — the live league
+// under-turned-over (10.0 giveaways/100 drives vs real 11.5), so drives that
+// should have ended in takeaways were punting instead. Raising both moves
+// turnovers onto the bar, trims the high punt rate (turnovers replace punts
+// at ~0 points), and widens the winner-vs-loser giveaway gap toward real.
+const INT_RATE = 0.033;
+const FUMBLE_LOST_RATE = 0.014;
 const KICKOFF_START = 27;
+
+// ── Drive-extending defensive penalties (v0.158) ─────────────────────────
+// The geometric pass/run model has no penalties, so it under-sustains: real
+// drives convert via DPI / defensive holding / illegal contact (automatic
+// first downs) that the model misses, leaving GMSim drives short (plays/
+// drive 5.22 vs 5.5, yards/drive 29.0 vs 30.9) and punting too much (40.5
+// vs 37.2). A per-play chance of a drive-extending defensive penalty gives
+// an automatic first down + penalty yards. It adds FIELD POSITION (drive
+// yards) but is NOT attributed to any player's pass/rush line, so it closes
+// the sustain gap without re-inflating the de-inflated box score. Fires in
+// both the live and facet paths. Kept GENTLE (~0.025/play-iteration ≈ 2
+// per team-game): penalties sustain drives INTO the red zone where the trip
+// resolution converts them, so an aggressive rate over-scores — the red-zone
+// TD base is trimmed in tandem and turnovers carry most of the punt fix.
+const DEF_PENALTY_RATE = 0.025;
+
+/** Penalty yardage for a drive-extending defensive foul: usually a 5-yard
+ *  (holding / illegal contact / offsides) auto first down, sometimes a big
+ *  DPI spot foul. */
+function penaltyYards(prng: Prng): number {
+  return prng.next() < 0.25 ? prng.nextRange(12, 28) : 5;
+}
 
 // ── Red-zone trip resolution (v0.157) ────────────────────────────────────
 // Geometric scoring under-converts the red zone: real offenses score a TD on
@@ -100,7 +127,7 @@ const KICKOFF_START = 27;
 // logic. Fires in BOTH the live and facet paths (keyed off field position +
 // edge, not player attribution) so the Magistrate and the live league agree.
 const RED_ZONE_LINE = 80; // the opponent's 20 — the real NFL red zone
-const RED_ZONE_TD_BASE = 0.52; // TD prob for a trip entering at the 20 (depth 0)
+const RED_ZONE_TD_BASE = 0.48; // TD prob for a trip entering at the 20 (depth 0)
 const RED_ZONE_TD_DEPTH = 0.48; // additional TD prob at the goal line (depth 1)
 const RED_ZONE_TD_EDGE = 0.004; // per-point passEdge adjustment
 const RED_ZONE_FG_CONDITIONAL = 0.82; // of NON-TD trips, the share that kick (else fail)
@@ -399,6 +426,18 @@ function simulateDrive(
   let redZoneRolled = false; // red-zone TD conversion fires at most once/drive
 
   for (;;) {
+    // Drive-extending defensive penalty (v0.158): an automatic first down
+    // (DPI / holding / illegal contact) the per-play model otherwise misses.
+    // Resolves before the down logic so it can also rescue a 4th-down punt;
+    // adds field position but no player pass/rush stat, and doesn't consume a
+    // down or count as an offensive play. A DPI in the end zone spots at the
+    // 1 (no penalty TD).
+    if (prng.next() < DEF_PENALTY_RATE) {
+      ballOn = Math.min(99, ballOn + penaltyYards(prng));
+      down = 1;
+      togo = Math.min(10, 100 - ballOn);
+      continue;
+    }
     if (down === 4) {
       const toGoal = 100 - ballOn;
       const fgDist = toGoal + 17;
