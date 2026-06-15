@@ -213,6 +213,20 @@ export function App() {
   }, [league]);
 
   const seasonSimmed = league.schedule !== null;
+  // A season is "complete" (ready to advance) only when every regular-season
+  // game has a result — NOT merely when the schedule object exists. The
+  // schedule is generated and filled in week-by-week (the first regular-season
+  // tick creates it with week 1 already played), so `schedule !== null` flips
+  // true at 16/272 games. The header action used to read that as "season done"
+  // and offer "Advance to Year N+1" from week 1 onward, so a tick-stepping user
+  // could skip the rest of the season's results in one click. Gating Advance on
+  // the games actually being played restores the clean simulate→advance step.
+  const seasonComplete = useMemo(
+    () =>
+      league.schedule !== null &&
+      league.schedule.regularSeason.every((week) => week.every((g) => g.result !== null)),
+    [league],
+  );
   const records = useMemo(() => (seasonSimmed ? computeRecords(league) : null), [league, seasonSimmed]);
   const seasonStats = useMemo(
     () => (seasonSimmed ? seasonStatsForLeague(league) : null),
@@ -305,7 +319,7 @@ export function App() {
             </span>
             <span className="ml-2 text-base font-normal text-zinc-500">
               Season {league.seasonNumber}
-              {seasonSimmed ? ' (in progress)' : ' (preseason)'}
+              {!seasonSimmed ? ' (preseason)' : seasonComplete ? ' (complete)' : ' (in progress)'}
             </span>
           </h1>
           <p className="mt-1 text-sm text-zinc-400">
@@ -361,7 +375,7 @@ export function App() {
               🎲 Voice
             </button>
           </form>
-          {seasonSimmed ? (
+          {seasonComplete ? (
             <button
               onClick={advance}
               className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-sm text-amber-300 hover:bg-amber-500/20"
@@ -373,7 +387,7 @@ export function App() {
               onClick={simulate}
               className="rounded border border-sky-500/40 bg-sky-500/10 px-3 py-1 text-sm text-sky-300 hover:bg-sky-500/20"
             >
-              Simulate Season {league.seasonNumber}
+              {seasonSimmed ? 'Finish' : 'Simulate'} Season {league.seasonNumber}
             </button>
           )}
           <div className="flex items-center gap-1 rounded border border-zinc-800 bg-zinc-900/40 px-2 py-1 text-xs text-zinc-500">

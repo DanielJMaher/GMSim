@@ -16,6 +16,25 @@ _Nothing yet._
 
 ---
 
+## [0.159.1] — 2026-06-15
+
+### Fixed
+
+- **Inspector: "Advance to Year N+1" no longer appears mid-season.** The header
+  action gated on `schedule !== null`, which flips true on the first
+  regular-season tick (the schedule is generated with week 1 already played —
+  16/272 games), so the button offered to advance the year through the _entire_
+  season; clicking it mid-season silently fast-forwarded past the rest of the
+  results. Now gated on `seasonComplete` (every regular-season game has a
+  result): preseason shows "Simulate Season N", a partially-played season shows
+  "Finish Season N" (completes the current season), and only a fully-played
+  season shows "Advance to Year N+1". The header reads preseason / in progress /
+  complete to match. (`advanceSeason` was already correct — it nulls the
+  schedule on the offseason cycle; the bug was purely the inspector's
+  done-vs-in-progress signal.)
+
+---
+
 ## [0.159.0] — 2026-06-15
 
 ### Fixed
