@@ -82,13 +82,18 @@ const RUN_YDS = 4.7;
 const RUN_YDS_SD = 7.5;
 const SACK_RATE = 0.06;
 const SACK_YDS = 7;
-// v0.158: nudged up (INT 0.03→0.033, fumble 0.011→0.014) — the live league
-// under-turned-over (10.0 giveaways/100 drives vs real 11.5), so drives that
-// should have ended in takeaways were punting instead. Raising both moves
-// turnovers onto the bar, trims the high punt rate (turnovers replace punts
-// at ~0 points), and widens the winner-vs-loser giveaway gap toward real.
-const INT_RATE = 0.033;
-const FUMBLE_LOST_RATE = 0.014;
+// v0.158 raised both (INT 0.03→0.033, fumble 0.011→0.014) to lift total
+// drive-level turnovers onto the bar (10.0→11.3 giveaways/100 drives, real
+// 11.5). But it did so by over-feeding the INT channel: box-score INTs ran
+// 1.0/team-game (real 0.8) and the turnover MIX came out ~81% INT vs the real
+// ~62% — which also inflated the def-INT leaderboard (a cluster of ball-hawks
+// at the top). v0.159 rebalances the SAME total toward fumbles: INT back down
+// and fumble up so the league keeps its ~11.3 takeaways/100 drives (Magistrate
+// untouched) while box INTs land at the real ~0.8 and the INT/fumble split
+// matches real. Fumbles aren't attributed to a defender, so shifting load off
+// INTs de-inflates the picks leaderboard without touching team turnovers.
+const INT_RATE = 0.027;
+const FUMBLE_LOST_RATE = 0.022;
 const KICKOFF_START = 27;
 
 // ── Drive-extending defensive penalties (v0.158) ─────────────────────────
@@ -304,6 +309,27 @@ function recvSteep(score: number): number {
   return Math.pow(Math.max(0, score - 35), 1.6);
 }
 
+/** Pass rush uses a gentler curve still: the cube let an elite edge with a
+ *  weak supporting cast vacuum 60%+ of his team's sacks (a 25-sack season,
+ *  above the real ~18 leader / 22.5 record). A lower floor + ^1.4 compresses
+ *  the elite-vs-rotation gap so even a dominant edge tops out near the real
+ *  ~40% of team sacks, landing the league leader in the real ~18 range. */
+function prushSteep(score: number): number {
+  return Math.pow(Math.max(0, score - 25), 1.4);
+}
+
+/** Sack-share role factor by position. EDGE rushers generate the bulk of
+ *  sacks; interior linemen and blitzing off-ball LBs get a real but smaller
+ *  share. Without this, a high-rated NT/DT competed equally with edges and
+ *  could LEAD the league in sacks (a 24-sack NT) — interior linemen almost
+ *  never do. Matches the real ~edge 60% / interior 30% / LB 10% sack split. */
+const PRUSH_POS_FACTOR: Partial<Record<Position, number>> = {
+  [Position.EDGE]: 1.0,
+  [Position.DT]: 0.5,
+  [Position.NT]: 0.4,
+  [Position.OLB]: 0.5,
+};
+
 const QB_TIER_RANK: Record<string, number> = { STAR: 4, STARTER: 3, BACKUP: 2, FRINGE: 1 };
 
 /** Share of dropbacks the backup QB takes (spot duty / garbage time). Keeps the
@@ -336,13 +362,15 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
     .sort((a, b) => b.weight - a.weight)
     .slice(0, 3);
 
-  const passRushPos = new Set<Position>([Position.EDGE, Position.DT, Position.NT, Position.OLB]);
   const passRush: PRef[] = players
-    .filter((p) => passRushPos.has(p.position))
-    .map((p) => ({ id: p.id, weight: steep(meanKeys(p, PRUSH_KEYS)) }))
+    .filter((p) => PRUSH_POS_FACTOR[p.position] !== undefined)
+    .map((p) => ({
+      id: p.id,
+      weight: prushSteep(meanKeys(p, PRUSH_KEYS)) * (PRUSH_POS_FACTOR[p.position] ?? 0),
+    }))
     .filter((r) => r.weight > 0)
     .sort((a, b) => b.weight - a.weight)
-    .slice(0, 5);
+    .slice(0, 6);
 
   const covPos = new Set<Position>([Position.CB, Position.S, Position.NICKEL, Position.ILB, Position.OLB]);
   // NOTE (Living Careers S4): no stickiness bonus or extra steepening in

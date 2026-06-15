@@ -89,6 +89,13 @@ const GATES: readonly Gate[] = [
     fullArgs: ['sim', '6', '8'],
     checks: 'per-game box scores + stats↔W/L coupling vs the 2011-2025 bar',
   },
+  {
+    name: 'star',
+    entry: 'sim/star-separation.js',
+    quickArgs: [],
+    fullArgs: ['star-2'],
+    checks: 'individual stat LEADERS vs real single-season ceilings (sacks/INT/yards)',
+  },
 ];
 
 /** Markers the agents print next to a metric that missed its target. */

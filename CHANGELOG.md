@@ -16,6 +16,46 @@ _Nothing yet._
 
 ---
 
+## [0.159.0] — 2026-06-15
+
+### Fixed
+
+- **De-inflated the individual stat leaderboards (sacks + defensive INTs).**
+  Team aggregates were on bar, but the bottom-up per-player attribution
+  over-concentrated, so league leaders ran above real single-season records
+  (a 25-sack edge, a 24-sack _nose tackle_, a cluster of DBs tied at 7 INTs).
+  The team-aggregate Scorekeeper never saw it — per-team sacks/INTs can be
+  on bar while one player hoards the production.
+  - **Sacks** (`drive-sim.ts`): pass-rush attribution reused the shared cube
+    `steep` curve with no positional factor, so an elite edge with a weak
+    supporting cast vacuumed ~60% of his team's sacks and a high-rated
+    interior lineman could lead the league. New gentler `prushSteep` (floor
+    25, exp 1.4) caps a dominant edge near the real ~40% of team sacks, and a
+    `PRUSH_POS_FACTOR` (EDGE 1.0 / DT 0.5 / NT 0.4 / OLB 0.5) keeps edges atop
+    the board. Leader 25 → 20 (all EDGE); STAR-edge average 16 → 13 (real
+    edge1 ~12). The shared `steep` (rushers) is untouched.
+  - **Defensive INTs** (`drive-sim.ts`): the v0.158 turnover bump over-fed
+    the INT channel — the turnover _mix_ came out ~81% INT (real ~62%) and
+    box INTs ran 1.0/team-game (real 0.8). Rebalanced the _same total_ toward
+    fumbles (`INT_RATE` 0.033 → 0.027, `FUMBLE_LOST_RATE` 0.014 → 0.022);
+    fumbles aren't attributed to a defender, so this de-inflates the picks
+    board without touching team turnovers. Magistrate turnover rate holds
+    (11.4, real 11.5); thrown INT 1.0 → 0.9; def-INT cluster of 7s →
+    7/7/6/5/5/5.
+
+### Added
+
+- **`star` is now a `run gates` gate.** The star-separation check gained real
+  single-season _leader_ ceilings (sacks / INT / passing / rushing /
+  receiving) plus the previously-missing defensive-INT leaderboard, and emits
+  `<-- DRIFT` when a sim leader exceeds its ceiling. Leaderboard inflation was
+  invisible to the pre-push sweep because the Scorekeeper only audits team
+  aggregates — this closes that gap so the same class of regression can't slip
+  through silently again. Full sweep after the fixes: zero new drift (`star`
+  0, `magistrate` 0); suite 1105/0.
+
+---
+
 ## [0.158.0] — 2026-06-14
 
 ### Changed
