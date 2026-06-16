@@ -26,23 +26,46 @@ import type { NmddBoard } from '../media/nmdd.js';
  *   pnpm --filter @gmsim/truth-arbiter run class-talent [seed,seed,...]
  */
 
-const GROUPS = ['QB', 'SKILL', 'OL', 'DL', 'LB', 'DB', 'ST'] as const;
+// Granular positions (v0.161 — the lumped SKILL/OL/DL/LB/DB groups masked
+// per-position over/under-supply, and each has its OWN CLASS_TOP_GRADE_MULT).
+// Taxonomy note: real draft "OLB" is overwhelmingly an edge rusher, so (matching
+// the Goatinator) real OLB → EDGE; GMSim's OLB is the off-ball backer → LB. So
+// EDGE compares gmsim EDGE vs real EDGE+DE+OLB, and off-ball LB compares gmsim
+// ILB+OLB vs real ILB+MLB (a gmsim ILB-vs-OLB diagnostic prints separately).
+const GROUPS = ['QB', 'WR', 'RB', 'TE', 'OT', 'IOL', 'EDGE', 'IDL', 'LB', 'CB', 'S', 'ST'] as const;
 type Group = (typeof GROUPS)[number];
 const TIERS = [10, 32, 100] as const;
 
-/** NMDD position label → engine position group. */
+/** NMDD (real) position label → granular group. */
 const NMDD_GROUP: Record<string, Group> = {
   QB: 'QB',
-  RB: 'SKILL', WR: 'SKILL', TE: 'SKILL', FB: 'SKILL',
-  OT: 'OL', IOL: 'OL', OG: 'OL', C: 'OL', OL: 'OL', G: 'OL', T: 'OL',
-  EDGE: 'DL', DL: 'DL', DT: 'DL', DE: 'DL', IDL: 'DL',
-  LB: 'LB', ILB: 'LB', OLB: 'LB',
-  CB: 'DB', S: 'DB', FS: 'DB', SS: 'DB', DB: 'DB',
+  WR: 'WR', RB: 'RB', FB: 'RB', TE: 'TE',
+  OT: 'OT', T: 'OT',
+  IOL: 'IOL', OG: 'IOL', G: 'IOL', C: 'IOL', OL: 'IOL',
+  EDGE: 'EDGE', DE: 'EDGE', OLB: 'EDGE',
+  DT: 'IDL', NT: 'IDL', DL: 'IDL', IDL: 'IDL',
+  LB: 'LB', ILB: 'LB', MLB: 'LB',
+  CB: 'CB', DB: 'CB',
+  S: 'S', FS: 'S', SS: 'S',
+  K: 'ST', P: 'ST', LS: 'ST',
+};
+
+/** GMSim engine position → granular group (EDGE is its own position; OLB is
+ *  off-ball; NICKEL is a slot corner). */
+const GMSIM_GROUP: Record<string, Group> = {
+  QB: 'QB',
+  WR: 'WR', RB: 'RB', FB: 'RB', TE: 'TE',
+  LT: 'OT', RT: 'OT',
+  LG: 'IOL', RG: 'IOL', C: 'IOL',
+  EDGE: 'EDGE',
+  DT: 'IDL', NT: 'IDL',
+  ILB: 'LB', OLB: 'LB',
+  CB: 'CB', NICKEL: 'CB', S: 'S',
   K: 'ST', P: 'ST', LS: 'ST',
 };
 
 function emptyMix(): Record<Group, number> {
-  return { QB: 0, SKILL: 0, OL: 0, DL: 0, LB: 0, DB: 0, ST: 0 };
+  return { QB: 0, WR: 0, RB: 0, TE: 0, OT: 0, IOL: 0, EDGE: 0, IDL: 0, LB: 0, CB: 0, S: 0, ST: 0 };
 }
 
 /** Position-group counts within the top-`n` of one ranked list. */
@@ -86,7 +109,7 @@ async function main(): Promise<void> {
   for (const n of TIERS) {
     const acc = emptyMix();
     for (const cls of gmClasses) {
-      const grouped = cls.map((p) => ({ group: p.positionGroup as Group }));
+      const grouped = cls.map((p) => ({ group: GMSIM_GROUP[p.position] ?? 'ST' }));
       const m = mixOf(grouped, n);
       for (const g of GROUPS) acc[g] += m[g];
     }
@@ -109,6 +132,22 @@ async function main(): Promise<void> {
       const flag = Math.abs(d) >= Math.max(2, real[g] * 0.5) ? '  <-- OFF' : '';
       console.log(`    ${g.padEnd(6)} ${real[g].toFixed(1).padStart(6)} ${gm[g].toFixed(1).padStart(6)} ${(d >= 0 ? '+' : '') + d.toFixed(1).padStart(5)}${flag}`);
     }
+  }
+
+  // Off-ball LB diagnostic: the LB group is off-ball (gmsim ILB+OLB; real
+  // ILB+MLB). Real draft "OLB" is an edge rusher → counted in EDGE, so there's
+  // no clean real off-ball-OLB bar; this just shows which GMSim off-ball backer
+  // drives the LB count.
+  console.log('\n  off-ball LB split (gmsim only — real off-ball OLB folds into the LB bar):');
+  for (const n of [32, 100] as const) {
+    let ilb = 0;
+    let olb = 0;
+    for (const cls of gmClasses)
+      for (const p of cls.slice(0, n)) {
+        if (p.position === 'ILB') ilb += 1;
+        else if (p.position === 'OLB') olb += 1;
+      }
+    console.log(`    top-${n}: ILB ${(ilb / gmClasses.length).toFixed(1)} / OLB ${(olb / gmClasses.length).toFixed(1)} per class`);
   }
 
   // ── Talent steepness (gmsim ground truth) ───────────────────────────────

@@ -16,6 +16,35 @@ _Nothing yet._
 
 ---
 
+## [0.161.0] — 2026-06-16
+
+### Changed
+
+- **Draft-class talent supply recalibrated per position (`CLASS_TOP_GRADE_MULT`).**
+  The Arbiter (`class-talent`) was split from lumped position GROUPS
+  (DL / SKILL / OL / DB) to granular positions — EDGE vs interior DL, WR / RB /
+  TE, CB vs S, OT vs interior OL — and run at 100 seeds, which exposed mis-set
+  multipliers the lumped bars had hidden. Each value is now
+  `real_top32_share / poolShare` (the original design intent, re-derived
+  granularly; mass-neutral by construction since the real shares sum to 1, so
+  the Adjudicator's tier guards hold). Genuine supply errors fixed: **tackles
+  (LT 1.4→2.02, RT 1.05→1.52) and CB (1.15→1.50) were badly UNDER-supplied;
+  interior OL (LG/RG/C 0.9/0.85→~0.45) and safety (0.95→0.64) OVER.** Top-32
+  position-mix deviation vs the real NMDD bar dropped ~20% (14.7→11.7).
+- **The Arbiter now reports granular positions + an ILB/OLB diagnostic**
+  (real draft "OLB" → EDGE, matching the Goatinator's taxonomy).
+- QB/EDGE are left at their formula values (QB 2.15, EDGE 1.5): their
+  *consensus* over-ranking is a board-PERCEPTION effect (QB perceived-skill is
+  structurally high and grade-independent — top-100 QB held ~13 across grade
+  mults 2.15→0.51), not a supply problem, so suppressing their grade only makes
+  elite QBs/edges scarce. The residual top-32 over-representation of QB/EDGE/LB
+  (which crowds the fixed 32 slots and caps CB/WR) is that board-perception
+  layer plus the draft-time slot premium — separate levers (the top-of-draft
+  feel / #1-QB-share / EDGE-over-draft slice + the flat talent pyramid), not
+  this grade-supply knob.
+
+---
+
 ## [0.160.1] — 2026-06-16
 
 ### Changed

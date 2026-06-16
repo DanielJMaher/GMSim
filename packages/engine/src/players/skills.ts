@@ -93,25 +93,38 @@ export function gradeToTier(grade: TalentGrade): TalentTier {
  * Adjudicator-validated supply; the league's shape then evolves through
  * drafts + realization (watch elite-QB supply in future `run adjudicate`).
  */
+// v0.161: re-derived granularly. The Arbiter (class-talent) was split to
+// per-position groups (EDGE/IDL, WR/RB/TE, CB/S, OT/IOL) and run at 100 seeds;
+// the lumped DL/SKILL/DB/OL bars had hidden that several positions were mis-set
+// vs the original design intent. Each value = real_top32_share / poolShare (so
+// Σ poolShare×mult ≈ 1 by construction, since the real top-32 shares sum to 1 —
+// the Adjudicator's tier-distribution guards hold). The genuine SUPPLY errors
+// the lumping masked: CB and tackles (LT/RT) were badly UNDER, interior OL
+// (LG/RG/C) and safety OVER. QB/EDGE sit at their formula value: their CONSENSUS
+// over-ranking is a board-PERCEPTION effect (QB perceived-skill is structurally
+// high, grade-independent — proven: top-100 QB ~13 across mults 2.15→0.51), NOT
+// a supply problem, so suppressing their grade only makes elite QBs/edges scarce.
+// The top-of-draft FEEL (EDGE over-DRAFT, #1-QB share) is the separate
+// slot-premium / pyramid lever, not this grade-supply knob.
 export const CLASS_TOP_GRADE_MULT: Readonly<Record<Position, number>> = {
   QB: 2.15,
   RB: 0.5,
   FB: 0.2,
-  WR: 0.95,
-  TE: 0.45,
-  LT: 1.4,
-  LG: 0.9,
-  C: 0.85,
-  RG: 0.9,
-  RT: 1.05,
-  EDGE: 1.65,
-  DT: 1.2,
-  NT: 0.75,
-  ILB: 0.7,
-  OLB: 0.6,
-  CB: 1.15,
-  S: 0.95,
-  NICKEL: 0.9,
+  WR: 0.94,
+  TE: 0.54,
+  LT: 2.02,
+  LG: 0.47,
+  C: 0.44,
+  RG: 0.47,
+  RT: 1.52,
+  EDGE: 1.5,
+  DT: 1.43,
+  NT: 0.85,
+  ILB: 0.85,
+  OLB: 0.45,
+  CB: 1.5,
+  S: 0.64,
+  NICKEL: 0.7,
   K: 0.3,
   P: 0.3,
   LS: 0.1,
