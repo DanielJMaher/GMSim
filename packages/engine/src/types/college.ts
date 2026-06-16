@@ -939,9 +939,9 @@ export interface DraftPickRecord {
  * Asymmetric semantics: `onClockTeamId` was originally on the
  * clock at `overallPick` and DROPPED DOWN; `tradingUpTeamId` MOVED
  * UP and acquired the slot. The on-clock team receives
- * `swapAssetId` (the trading-up team's same-round pick) plus all
- * `futurePickIds` as compensation; the trading-up team receives
- * `onClockAssetId` (the slot that just fired).
+ * `swapAssetId` (the trading-up team's same-round pick) plus the
+ * `currentDraftPickIds` + `futurePickIds` sweeteners as compensation;
+ * the trading-up team receives `onClockAssetId` (the slot that just fired).
  */
 export interface TradeUpRecord {
   seasonNumber: number;
@@ -952,6 +952,10 @@ export interface TradeUpRecord {
   onClockAssetId: DraftPickId;
   tradingUpTeamId: TeamId;
   swapAssetId: DraftPickId;
+  /** Sweetener picks from THIS draft (later rounds) that flipped from the
+   *  trading-up team to the on-clock team. Real trade-ups are current-year
+   *  heavy; including these is the realistic mix (v0.160). */
+  currentDraftPickIds: readonly DraftPickId[];
   /** Future-year pick assets that flipped from trading-up team to on-clock team. */
   futurePickIds: readonly DraftPickId[];
   targetCollegePlayerId: PlayerId;

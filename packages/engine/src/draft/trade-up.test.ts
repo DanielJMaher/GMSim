@@ -519,6 +519,80 @@ describe('evaluateTradeUpForPick — trading-up perspective (v0.49)', () => {
   });
 });
 
+describe('evaluateTradeUpForPick — current-draft sweeteners (v0.160)', () => {
+  // Slot 1 on the clock (TEAM_A); TEAM_B at slot 2 wants X. The 1-vs-2 gap is
+  // small, so a single current-draft later-round pick covers it.
+  function build(opts: {
+    fullDraftPicks: DraftPickAsset[];
+    committedSweetenerIds?: ReadonlySet<DraftPickId>;
+  }) {
+    return evaluateTradeUpForPick({
+      onClockIndex: 0,
+      overallPick: 1,
+      round: 1,
+      seasonNumber: SEASON,
+      workingRoundAssets: [
+        asset({ id: 'p1', originalTeam: TEAM_A, round: 1 }),
+        asset({ id: 'p2', originalTeam: TEAM_B, round: 1 }),
+      ],
+      draftBoards: {
+        [TEAM_A]: [entry({ id: PROSPECT_X, priority: 100 })],
+        [TEAM_B]: [entry({ id: PROSPECT_X, priority: 200 })],
+      },
+      availableById: availableMap([PROSPECT_X]),
+      fullDraftPicks: opts.fullDraftPicks,
+      tradeUpsFiredSoFar: 0,
+      ...(opts.committedSweetenerIds ? { committedSweetenerIds: opts.committedSweetenerIds } : {}),
+    });
+  }
+
+  it('prefers a current-draft pick over a future pick when it can close the gap', () => {
+    const curR2 = asset({ id: 'curR2', originalTeam: TEAM_B, round: 2 }); // this draft
+    const futR1 = asset({ id: 'futR1', originalTeam: TEAM_B, seasonNumber: SEASON + 1, round: 1 });
+    const proposal = build({ fullDraftPicks: [curR2, futR1] });
+    expect(proposal).not.toBeNull();
+    // Current-year capital is used; the future pick is left untouched.
+    expect(proposal!.currentDraftPickIds).toContain(curR2.id);
+    expect(proposal!.futurePickIds).toHaveLength(0);
+  });
+
+  it('falls back to a future pick when the current pick is already committed', () => {
+    const curR2 = asset({ id: 'curR2', originalTeam: TEAM_B, round: 2 });
+    const futR1 = asset({ id: 'futR1', originalTeam: TEAM_B, seasonNumber: SEASON + 1, round: 1 });
+    // The current pick was spent in an earlier same-round trade-up.
+    const proposal = build({
+      fullDraftPicks: [curR2, futR1],
+      committedSweetenerIds: new Set([curR2.id]),
+    });
+    expect(proposal).not.toBeNull();
+    expect(proposal!.currentDraftPickIds).toHaveLength(0);
+    expect(proposal!.futurePickIds).toContain(futR1.id);
+  });
+
+  it('does not let a team trade up to its OWN pick (no self-trade)', () => {
+    // TEAM_A owns BOTH the on-clock slot and the later slot, and wants X. The
+    // only candidate would be itself — which is a no-op self-trade.
+    const proposal = evaluateTradeUpForPick({
+      onClockIndex: 0,
+      overallPick: 1,
+      round: 1,
+      seasonNumber: SEASON,
+      workingRoundAssets: [
+        asset({ id: 'p1', originalTeam: TEAM_A, round: 1 }),
+        asset({ id: 'p2', originalTeam: TEAM_B, currentTeam: TEAM_A, round: 1 }),
+      ],
+      draftBoards: {
+        [TEAM_A]: [entry({ id: PROSPECT_X, priority: 100 })],
+      },
+      availableById: availableMap([PROSPECT_X]),
+      // TEAM_A owns a future pick, so an offer COULD be built but for the skip.
+      fullDraftPicks: [asset({ id: 'futA', originalTeam: TEAM_A, seasonNumber: SEASON + 1, round: 1 })],
+      tradeUpsFiredSoFar: 0,
+    });
+    expect(proposal).toBeNull();
+  });
+});
+
 describe('applyTradeUpToWorkingAssets', () => {
   it('flips currentTeamId on both the on-clock and swap assets', () => {
     const onClockAsset = asset({ id: 'p1', originalTeam: TEAM_A, round: 1 });
@@ -530,6 +604,7 @@ describe('applyTradeUpToWorkingAssets', () => {
       onClockAssetId: onClockAsset.id,
       tradingUpTeamId: TEAM_B,
       swapAssetId: swapAsset.id,
+      currentDraftPickIds: [],
       futurePickIds: [],
       targetCollegePlayerId: PROSPECT_X,
       ratio: 1.05,

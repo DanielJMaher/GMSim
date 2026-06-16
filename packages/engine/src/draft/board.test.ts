@@ -175,8 +175,12 @@ describe('draft trade-up volume (v0.52 broadened logic)', () => {
     // Target (Daniel): ~140 trade-ups per draft, R1 in the 6-18
     // band, late rounds heavier. v0.52 calibration lands closer
     // to 180 with R1 slightly above the upper band — accept a
-    // wider envelope here while we iterate.
-    expect(tradeUps.length).toBeGreaterThanOrEqual(100);
+    // wider envelope here while we iterate. v0.160 dropped the total
+    // floor 100 → 90: the self-trade fix removed phantom "trade up to
+    // your own pick" deals that had been padding the count (this seed
+    // lands at 99 now); 90 keeps the "mechanic is meaningful" intent
+    // with margin for the documented high seed variance.
+    expect(tradeUps.length).toBeGreaterThanOrEqual(90);
     expect(r1Trades.length).toBeGreaterThanOrEqual(3);
     expect(lateRoundTrades.length).toBeGreaterThanOrEqual(40);
   });

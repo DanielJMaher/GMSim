@@ -235,6 +235,12 @@ export function runDraft(
     }
   }
 
+  // Pick ids already committed (swap + sweeteners) in trade-ups THIS round.
+  // `fullDraftPicks` (league.draftPicks) is a snapshot that isn't updated
+  // until applyDraftResult after the round, so without this a team trading
+  // up twice in one round could re-offer the same sweetener (double-spend).
+  const committedSweetenerIds = new Set<DraftPickId>();
+
   for (let i = 0; i < options.draftOrder.length; i++) {
     // Trade-up check fires BEFORE the pick so the picking team
     // reflects any same-round ownership flip. Only runs when the
@@ -255,6 +261,7 @@ export function runDraft(
         tradeUpsByTeamSoFar: tradeUpsByTeam,
         teamContexts: teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
         qbSettledTeams,
+        committedSweetenerIds,
       });
       if (proposal) {
         applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
@@ -262,6 +269,11 @@ export function runDraft(
           proposal.tradingUpTeamId,
           (tradeUpsByTeam.get(proposal.tradingUpTeamId) ?? 0) + 1,
         );
+        // Lock this deal's assets so a later same-round trade-up can't
+        // re-offer them off the stale snapshot.
+        committedSweetenerIds.add(proposal.swapAssetId);
+        for (const id of proposal.currentDraftPickIds) committedSweetenerIds.add(id);
+        for (const id of proposal.futurePickIds) committedSweetenerIds.add(id);
         tradeUps.push({
           seasonNumber: options.seasonNumber,
           round,
@@ -270,6 +282,7 @@ export function runDraft(
           onClockAssetId: proposal.onClockAssetId,
           tradingUpTeamId: proposal.tradingUpTeamId,
           swapAssetId: proposal.swapAssetId,
+          currentDraftPickIds: proposal.currentDraftPickIds,
           futurePickIds: proposal.futurePickIds,
           targetCollegePlayerId: proposal.targetCollegePlayerId,
           ratio: proposal.ratio,
@@ -476,22 +489,23 @@ export function applyDraftResult(
     ? league.draftPicks.filter((p) => !result.consumedPickIds.has(p.id))
     : league.draftPicks;
 
-  // Trade-ups: future-year picks that flipped ownership during the
-  // round need their currentTeamId updated in the league asset list
-  // so the next year's draft sees the new owner. Same-round swaps
-  // are already reflected in the consumed picks (the new owner used
-  // their swap asset to make a pick this round), so they don't need
-  // additional handling here.
+  // Trade-ups: sweetener picks that flipped ownership during the round
+  // need their currentTeamId updated in the league asset list. Future-year
+  // picks so next year's draft sees the new owner; current-draft later-round
+  // picks (v0.160) so a LATER round THIS draft sees it — the per-round draft
+  // loop re-sources each round's assets from `draftPicks`, so the flip lands
+  // before that round fires. Same-round swaps are already reflected in the
+  // consumed picks (the new owner used their swap asset this round), so they
+  // don't need handling here.
   if (result.tradeUps.length > 0) {
-    const futureFlips = new Map<DraftPickId, TeamId>();
+    const sweetenerFlips = new Map<DraftPickId, TeamId>();
     for (const tu of result.tradeUps) {
-      for (const fid of tu.futurePickIds) {
-        futureFlips.set(fid, tu.onClockTeamId);
-      }
+      for (const id of tu.currentDraftPickIds) sweetenerFlips.set(id, tu.onClockTeamId);
+      for (const id of tu.futurePickIds) sweetenerFlips.set(id, tu.onClockTeamId);
     }
-    if (futureFlips.size > 0) {
+    if (sweetenerFlips.size > 0) {
       draftPicks = draftPicks.map((p) =>
-        futureFlips.has(p.id) ? { ...p, currentTeamId: futureFlips.get(p.id)! } : p,
+        sweetenerFlips.has(p.id) ? { ...p, currentTeamId: sweetenerFlips.get(p.id)! } : p,
       );
     }
   }

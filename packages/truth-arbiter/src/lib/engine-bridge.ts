@@ -675,10 +675,30 @@ interface GoatLeague {
   }[];
   tradeUpHistory: readonly {
     seasonNumber: number;
+    round: number;
     overallPick: number;
     tradingUpTeamId: string;
+    currentDraftPickIds?: readonly string[];
+    futurePickIds?: readonly string[];
   }[];
   players: Record<string, { position: string } | undefined>;
+}
+
+/** Trade-up package composition (v0.160) — current-draft vs future sweeteners. */
+export interface TradeComposition {
+  /** Number of trade-ups (packages) seen. */
+  packages: number;
+  /** Total current-draft (this-year, later-round) sweetener picks given. */
+  currentSweeteners: number;
+  /** Total future-year sweetener picks given. */
+  futureSweeteners: number;
+  /** Packages that included at least one future-year pick. */
+  packagesWithFuture: number;
+}
+
+export interface TopOfDraftResult {
+  records: TopPickRecord[];
+  composition: TradeComposition;
 }
 
 /**
@@ -693,7 +713,7 @@ export async function simulateTopOfDraft(
   seed: string,
   years: number,
   maxPick = 10,
-): Promise<TopPickRecord[]> {
+): Promise<TopOfDraftResult> {
   const eng = await loadEngine();
   let league = eng.createLeague({ seed }) as unknown as GoatLeague;
   const out: TopPickRecord[] = [];
@@ -722,7 +742,23 @@ export async function simulateTopOfDraft(
       });
     }
   }
-  return out;
+  // Trade-up package composition over every trade-up in the sim (v0.160 — the
+  // current-vs-future sweetener mix the engine fix made realistic).
+  const composition: TradeComposition = {
+    packages: 0,
+    currentSweeteners: 0,
+    futureSweeteners: 0,
+    packagesWithFuture: 0,
+  };
+  for (const tu of league.tradeUpHistory) {
+    const cur = tu.currentDraftPickIds?.length ?? 0;
+    const fut = tu.futurePickIds?.length ?? 0;
+    composition.packages += 1;
+    composition.currentSweeteners += cur;
+    composition.futureSweeteners += fut;
+    if (fut > 0) composition.packagesWithFuture += 1;
+  }
+  return { records: out, composition };
 }
 
 // ── The Barterer: trade-value primitives (Doc 5 chart + neutral player value) ─

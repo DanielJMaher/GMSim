@@ -5,7 +5,11 @@ import { cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { DATA_DIR } from '../lib/config.js';
 import { csvNum, csvRows } from '../lib/csv.js';
-import { simulateTopOfDraft, type TopPickRecord } from '../lib/engine-bridge.js';
+import {
+  simulateTopOfDraft,
+  type TopPickRecord,
+  type TradeComposition,
+} from '../lib/engine-bridge.js';
 
 /**
  * The Goatinator — the TOP-OF-DRAFT realism authority (2026-06-11,
@@ -132,6 +136,83 @@ async function loadRealTopPicks(maxPick: number): Promise<RealTopPick[]> {
   return out;
 }
 
+// ── Real trade-up composition (current-year vs future sweeteners) ─────────────
+
+/**
+ * Real bar for trade-up PACKAGE composition (the v0.160 engine fix). From the
+ * nfldata trade ledger: for each draft-window trade, the team that received the
+ * highest pick is the one that moved UP; of the picks it GAVE, drop the single
+ * highest current-year pick (the slot it moved FROM — the "swap", analogous to
+ * GMSim's `swapAssetId`), and the rest are the sweeteners. Classify each
+ * sweetener current-year (`pick_season === season`) vs future. This is exactly
+ * comparable to GMSim's `currentDraftPickIds` / `futurePickIds`. Confirms real
+ * draft-day trade-ups are current-year heavy (GMSim was future-only pre-v0.160).
+ */
+async function loadRealTradeComposition(): Promise<TradeComposition> {
+  const tradesCsv = await readFile(TRADES_PATH, 'utf8');
+  interface Row { gave: string; received: string; pickSeason: number; pickNumber: number; }
+  const byTrade = new Map<string, { season: number; month: number; rows: Row[] }>();
+  for (const row of csvRows(tradesCsv)) {
+    const pickNumber = csvNum(row.get('pick_number'));
+    const pickSeason = csvNum(row.get('pick_season'));
+    if (pickNumber === null || pickSeason === null) continue; // skip player-for-pick rows
+    const id = row.get('trade_id') ?? '';
+    const season = csvNum(row.get('season')) ?? 0;
+    const month = Number((row.get('trade_date') ?? '').slice(5, 7)) || 0;
+    let t = byTrade.get(id);
+    if (!t) {
+      t = { season, month, rows: [] };
+      byTrade.set(id, t);
+    }
+    t.rows.push({
+      gave: row.get('gave') ?? '',
+      received: row.get('received') ?? '',
+      pickSeason,
+      pickNumber,
+    });
+  }
+
+  const comp: TradeComposition = {
+    packages: 0,
+    currentSweeteners: 0,
+    futureSweeteners: 0,
+    packagesWithFuture: 0,
+  };
+  for (const t of byTrade.values()) {
+    if (t.month !== 4 && t.month !== 5) continue; // draft-window only (in-draft analog)
+    // Trading-up team = received the highest (lowest-numbered) current-year pick.
+    let head: Row | null = null;
+    for (const r of t.rows) {
+      if (r.pickSeason === t.season && (!head || r.pickNumber < head.pickNumber)) head = r;
+    }
+    if (!head) continue;
+    const tradingUp = head.received;
+    const given = t.rows.filter((r) => r.gave === tradingUp);
+    // The swap = the highest current-year pick they gave (the slot moved from).
+    let swap: Row | null = null;
+    for (const r of given) {
+      if (r.pickSeason === t.season && (!swap || r.pickNumber < swap.pickNumber)) swap = r;
+    }
+    const sweeteners = given.filter((r) => r !== swap);
+    if (sweeteners.length === 0) continue; // swap-only move (no sweeteners to classify)
+    comp.packages += 1;
+    let hasFuture = false;
+    for (const s of sweeteners) {
+      if (s.pickSeason > t.season) {
+        comp.futureSweeteners += 1;
+        hasFuture = true;
+      } else comp.currentSweeteners += 1;
+    }
+    if (hasFuture) comp.packagesWithFuture += 1;
+  }
+  return comp;
+}
+
+function currentShare(c: TradeComposition): number {
+  const tot = c.currentSweeteners + c.futureSweeteners;
+  return tot > 0 ? (100 * c.currentSweeteners) / tot : 0;
+}
+
 // ── Shared report helpers ────────────────────────────────────────────────────
 
 function shares(groups: string[]): Map<string, number> {
@@ -152,9 +233,15 @@ function shareStr(groups: string[], order: readonly string[] = GROUP_ORDER): str
 
 const pctOf = (n: number, d: number): string => (d ? `${((100 * n) / d).toFixed(0)}%` : '—');
 
-function reportReal(picks: RealTopPick[]): void {
+function reportReal(picks: RealTopPick[], comp: TradeComposition): void {
   console.log('\n=== THE GOATINATOR — real top-of-draft (nflverse, drafts 1980-2026) ===');
   console.log(`top-10 records: ${picks.length} · trade joins live 2002+ (nfldata)`);
+
+  console.log('\n— trade-up package composition (draft-window trades, sweeteners beyond the swap) —');
+  console.log(
+    `  ${comp.packages} packages · current ${comp.currentSweeteners} / future ${comp.futureSweeteners} sweetener picks` +
+      ` → current ${currentShare(comp).toFixed(0)}% · ${pctOf(comp.packagesWithFuture, comp.packages)} include a future pick`,
+  );
 
   console.log('\n— top-10 position mix by era —');
   for (const [lo, hi] of [
@@ -219,6 +306,8 @@ interface SeedResult {
   seed: string;
   years: number;
   records: TopPickRecord[];
+  /** Optional for back-compat with caches written before v0.160. */
+  composition?: TradeComposition;
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -281,10 +370,10 @@ async function runWorkers(years: number, numSeeds: number): Promise<SeedResult[]
 }
 
 async function workerMain(seed: string, years: number): Promise<void> {
-  const records = await simulateTopOfDraft(seed, years, 10);
+  const { records, composition } = await simulateTopOfDraft(seed, years, 10);
   await mkdir(GOAT_DIR, { recursive: true });
   const file = resolve(GOAT_DIR, `${seed}-${years}.json`);
-  await writeFile(file, JSON.stringify({ seed, years, records } satisfies SeedResult));
+  await writeFile(file, JSON.stringify({ seed, years, records, composition } satisfies SeedResult));
 }
 
 // ── Compare ──────────────────────────────────────────────────────────────────
@@ -293,7 +382,11 @@ function drift(simPct: number, lo: number, hi: number): string {
   return simPct < lo || simPct > hi ? '  <-- DRIFT' : '';
 }
 
-function reportCompare(real: RealTopPick[], results: SeedResult[]): void {
+function reportCompare(
+  real: RealTopPick[],
+  realComp: TradeComposition,
+  results: SeedResult[],
+): void {
   const sim = results.flatMap((r) =>
     r.records.map((rec) => ({ ...rec, seed: r.seed, group: SIM_GROUP[rec.position] ?? rec.position })),
   );
@@ -364,6 +457,36 @@ function reportCompare(real: RealTopPick[], results: SeedResult[]): void {
     console.log(`  gmsim traded-into positions: ${shareStr(simTraded.map((p) => p.group))}`);
   }
 
+  // Trade-up PACKAGE composition (v0.160). Real draft-day trade-ups lean on
+  // current-year picks; GMSim packaged FUTURE picks only before the
+  // current-draft-pick fix (every top-of-draft trade read as a future-pick
+  // dump). Gate the current-year sweetener share within ±15pp of the real bar.
+  const simComp: TradeComposition = {
+    packages: 0,
+    currentSweeteners: 0,
+    futureSweeteners: 0,
+    packagesWithFuture: 0,
+  };
+  for (const r of results) {
+    if (!r.composition) continue;
+    simComp.packages += r.composition.packages;
+    simComp.currentSweeteners += r.composition.currentSweeteners;
+    simComp.futureSweeteners += r.composition.futureSweeteners;
+    simComp.packagesWithFuture += r.composition.packagesWithFuture;
+  }
+  const rShare = currentShare(realComp);
+  const sShare = currentShare(simComp);
+  console.log('\n— trade-up package composition (sweeteners beyond the swap) —');
+  console.log(
+    `  current-year sweetener share: real ${rShare.toFixed(0)}% · gmsim ${sShare.toFixed(0)}%${drift(sShare, rShare - 15, rShare + 15)}`,
+  );
+  console.log(
+    `  packages with a future pick:  real ${pctOf(realComp.packagesWithFuture, realComp.packages)} · gmsim ${pctOf(simComp.packagesWithFuture, simComp.packages)}`,
+  );
+  console.log(
+    `  (gmsim ${simComp.packages} packages · ${simComp.currentSweeteners} current / ${simComp.futureSweeteners} future sweetener picks)`,
+  );
+
   // Seed variance on the headline (top-10 QB share) — is the bar stable?
   const perSeedQb = results
     .map((r) => {
@@ -393,12 +516,13 @@ async function main(): Promise<void> {
     return;
   }
   const real = await loadRealTopPicks(10);
-  reportReal(real);
+  const realComp = await loadRealTradeComposition();
+  reportReal(real, realComp);
   if (mode === 'sim') {
     const years = Number(process.argv[3]) || 20;
     const numSeeds = Number(process.argv[4]) || 50;
     const results = await runWorkers(years, numSeeds);
-    reportCompare(real, results);
+    reportCompare(real, realComp, results);
   }
 }
 

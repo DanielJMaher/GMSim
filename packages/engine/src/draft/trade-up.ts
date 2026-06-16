@@ -12,11 +12,17 @@
  *     trade-up zone.
  *   - At most 3 trade-ups per draft — real NFL R1 typically sees
  *     2-4; cap prevents pathological chains.
- *   - Compensation is future-year picks only, not cross-round picks
- *     within the same draft. Keeps the asset-state mutation tight:
- *     same-round swaps stay inside `runDraft`'s working list, future
- *     swaps propagate to `LeagueState.draftPicks` via the result.
- *   - At most 2 future picks per offer.
+ *   - Compensation = the trading-up team's same-round swap pick plus
+ *     sweetener picks. CURRENT-draft later-round picks are preferred
+ *     (real draft-day trade-ups are current-year heavy); future-year
+ *     picks fill in only when this year's capital can't close the gap
+ *     (v0.160 — was future-only, which made every top-of-draft package
+ *     read as a future-pick dump). Same-round swaps mutate `runDraft`'s
+ *     working list in place; both current-draft-later-round and
+ *     future-year sweeteners flip ownership in `LeagueState.draftPicks`
+ *     via the result (`applyDraftResult`) — the next round / next year's
+ *     draft sees the new owner.
+ *   - At most 3 current + 2 future sweetener picks per offer.
  *   - Static base chart only. Doc 5's dynamic situational modifiers
  *     (coaching hot-seat, GM desperation, owner pressure, QB premium)
  *     are a separate follow-on slice that will tune both desire AND
@@ -122,6 +128,14 @@ export const GOAT_MIN_POSITION_VALUE = 1.12;
  * Targets Daniel's observed NFL shape: R1 ~12 fires, late rounds
  * cluster. v0.45 used K=1 globally; the widened late-round bands
  * unlock the dense late-round trade activity.
+ *
+ * NOTE (v0.160): the in-draft trade-up rate INTO the top 10 is low (~4% vs
+ * real 16%) because R1's K=1 only fires when two teams covet the exact same
+ * #1. Widening K lifts the rate but, on the current EDGE-heavy board,
+ * disproportionately adds EDGE trade-ups (frequency amplifies whatever the
+ * board over-values) — so the rate is effectively gated by the class-mix
+ * residual. The frequency tune belongs WITH that upstream slice (fix EDGE
+ * board value first, then widen K with no EDGE cost); not a standalone knob.
  */
 const TRADE_UP_AT_RISK_DEPTH_BY_ROUND: Record<number, number> = {
   1: 1,
@@ -154,6 +168,14 @@ export const MAX_TRADE_UPS_PER_TEAM = 4;
  * a 2-pick cap keeps that scenario rare and authentic.
  */
 export const MAX_FUTURE_PICKS_PER_OFFER = 2;
+
+/**
+ * Max CURRENT-draft later-round picks a trading-up team will bundle as
+ * sweetener (v0.160). Real draft-day trade-ups lean on this-year picks
+ * (e.g. "my R1 + my R3"); 3 covers the typical multi-pick package while
+ * keeping the swap + sweetener count plausible.
+ */
+export const MAX_CURRENT_SWEETENERS = 3;
 
 /**
  * Trade-up acceptance band from the on-clock team's perspective.
@@ -196,6 +218,8 @@ export interface TradeUpProposal {
   tradingUpTeamId: TeamId;
   /** Trading-up team's pick that moves to the on-clock team (same round, this draft). */
   swapAssetId: DraftPickId;
+  /** THIS-draft later-round sweetener picks that flip ownership to on-clock team. */
+  currentDraftPickIds: readonly DraftPickId[];
   /** Future-year picks (different `seasonNumber`) that flip ownership to on-clock team. */
   futurePickIds: readonly DraftPickId[];
   /** Prospect that triggered the trade-up — top of both boards. */
@@ -270,6 +294,15 @@ export interface EvaluateTradeUpArgs {
    * gate stays purely positional (v0.143 behavior).
    */
   qbSettledTeams?: ReadonlySet<TeamId>;
+  /**
+   * Pick asset ids already committed as swap/sweetener in EARLIER
+   * trade-ups this same round (v0.160). `fullDraftPicks` is a snapshot
+   * that isn't updated mid-round, so without this an aggressive team
+   * trading up twice could offer the same pick as a sweetener in both
+   * deals (a double-spend). The offer builder excludes these ids.
+   * Optional for back-compat; defaults to none.
+   */
+  committedSweetenerIds?: ReadonlySet<DraftPickId>;
 }
 
 /**
@@ -350,6 +383,12 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
   for (let j = args.onClockIndex + 1; j < args.workingRoundAssets.length; j++) {
     const asset = args.workingRoundAssets[j]!;
     const candidateTeamId = asset.currentTeamId;
+    // A team can't trade up to its OWN pick. This happens when a team already
+    // owns the on-clock slot (via an earlier flip) AND holds a later slot —
+    // the "self-trade" swaps a pick from itself to itself (a no-op flip), so
+    // the swapped/sweetener picks never actually move and can be re-offered
+    // (a phantom double-spend). Skip self as a candidate.
+    if (candidateTeamId === onClockTeamId) continue;
     if (
       args.tradeUpsByTeamSoFar &&
       (args.tradeUpsByTeamSoFar.get(candidateTeamId) ?? 0) >= MAX_TRADE_UPS_PER_TEAM
@@ -420,6 +459,7 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     tradingUpContext,
     isQbTarget,
     round: args.round,
+    committedSweetenerIds: args.committedSweetenerIds,
   });
   if (!offer) return null;
 
@@ -428,6 +468,7 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     onClockAssetId: onClockAsset.id,
     tradingUpTeamId: bestCandidate.teamId,
     swapAssetId: bestCandidate.asset.id,
+    currentDraftPickIds: offer.currentDraftPickIds,
     futurePickIds: offer.futurePickIds,
     targetCollegePlayerId: bestCandidate.candidateTargetId,
     ratio: offer.ratio,
@@ -482,11 +523,14 @@ interface BuildOfferArgs {
   isQbTarget: boolean;
   /** Round (1..7). Picks the per-round trading-up acceptance floor. */
   round: number;
+  /** Pick ids already committed in earlier same-round trade-ups (excluded).
+   *  Required-but-nullable: the sole caller always forwards its (optional) arg. */
+  committedSweetenerIds: ReadonlySet<DraftPickId> | undefined;
 }
 
 function buildOffer(
   args: BuildOfferArgs,
-): { futurePickIds: DraftPickId[]; ratio: number } | null {
+): { currentDraftPickIds: DraftPickId[]; futurePickIds: DraftPickId[]; ratio: number } | null {
   // All offer-construction values computed on the ON-CLOCK team's
   // chart. A rebuilder values incoming future picks at a premium
   // (futureMultiplier > 1) and a tiny sweetener can close the gap;
@@ -516,57 +560,71 @@ function buildOffer(
     return null;
   }
 
-  // Trading-up team's owned future picks valued from the on-clock
-  // chart. v0.52 offer construction is a two-stage heuristic:
-  //
-  //   Stage 1: find the SMALLEST single pick that alone clears the
-  //   gap. If found, use it. This is the "least over-pay" outcome
-  //   in late rounds (small gaps) — a single R3 future covers a
-  //   R5 swap without burning a R1 future.
-  //
-  //   Stage 2: if no single pick covers the gap, accumulate in
-  //   ASCENDING order until cap or gap-closure. This is the only
-  //   case where multiple picks bundle.
-  //
-  // v0.45 ascending-only failed R1 (4 small picks couldn't reach
-  // the 4000-pt gap); pure descending starved late rounds (burned
-  // big sweeteners on small gaps). The hybrid finds the right
-  // single pick for each round.
-  const futurePool = args.fullDraftPicks
-    .filter(
-      (p) =>
-        p.currentTeamId === args.tradingUpTeamId &&
-        p.seasonNumber > args.seasonNumber,
-    )
-    .map((p) => ({
-      pick: p,
-      value: futurePickHeuristicValue(p, args.seasonNumber, args.onClockContext.modifiers),
-    }))
-    .filter((x) => x.value > 0)
-    .sort((a, b) => a.value - b.value); // ascending
+  // Sweetener selection (v0.160). The trading-up team's tradeable picks,
+  // valued from the ON-CLOCK chart, split into THIS-draft later-round picks
+  // (current-year) and FUTURE-year picks. Real draft-day trade-ups lean on
+  // current-year capital — so current picks are PREFERRED, and future picks
+  // only fill in when this year's picks can't close the gap. Picks already
+  // committed in an earlier trade-up this round are excluded (no
+  // double-spend; `fullDraftPicks` is a snapshot not updated mid-round).
+  const committed = args.committedSweetenerIds;
+  const currentPool: { pick: DraftPickAsset; value: number }[] = [];
+  const futurePool: { pick: DraftPickAsset; value: number }[] = [];
+  for (const p of args.fullDraftPicks) {
+    if (p.currentTeamId !== args.tradingUpTeamId) continue;
+    if (committed?.has(p.id)) continue;
+    const value = sweetenerPickValue(p, args.seasonNumber, args.onClockContext.modifiers);
+    if (value <= 0) continue;
+    if (p.seasonNumber === args.seasonNumber) {
+      // This draft: only LATER rounds are still tradeable (this round's
+      // pick is the swap; earlier rounds already fired).
+      if (p.round > args.round) currentPool.push({ pick: p, value });
+    } else if (p.seasonNumber > args.seasonNumber) {
+      futurePool.push({ pick: p, value });
+    }
+  }
+  currentPool.sort((a, b) => a.value - b.value); // ascending
+  futurePool.sort((a, b) => a.value - b.value);
 
-  const chosenIds: DraftPickId[] = [];
-  const chosenPicks: DraftPickAsset[] = [];
+  const chosenCurrent: DraftPickAsset[] = [];
+  const chosenFuture: DraftPickAsset[] = [];
   let totalSweetener = 0;
 
-  // Stage 1 — smallest single pick that alone clears the gap.
-  // (futurePool is ascending; the first one ≥ gap is the answer.)
-  const singleCover = futurePool.find((f) => f.value >= gap);
-  if (singleCover) {
-    chosenIds.push(singleCover.pick.id);
-    chosenPicks.push(singleCover.pick);
-    totalSweetener = singleCover.value;
+  // Prefer current-year. The smallest single current pick that alone clears
+  // the gap is the common "my R1 + my R3" package; else bundle current
+  // ascending up to the cap.
+  const singleCurrent = currentPool.find((f) => f.value >= gap);
+  if (singleCurrent) {
+    chosenCurrent.push(singleCurrent.pick);
+    totalSweetener = singleCurrent.value;
   } else {
-    // Stage 2 — no single pick suffices; bundle ascending until
-    // cap or gap-closure.
-    for (const f of futurePool) {
-      if (chosenIds.length >= MAX_FUTURE_PICKS_PER_OFFER) break;
-      chosenIds.push(f.pick.id);
-      chosenPicks.push(f.pick);
+    for (const f of currentPool) {
+      if (chosenCurrent.length >= MAX_CURRENT_SWEETENERS) break;
+      chosenCurrent.push(f.pick);
       totalSweetener += f.value;
       if (totalSweetener >= gap) break;
     }
+    // Still short — reach for future years to top it off.
+    if (totalSweetener < gap) {
+      // Pure-future fast path (no current capital at all): smallest single
+      // future pick that clears the gap — the pre-v0.160 behavior.
+      const singleFuture =
+        chosenCurrent.length === 0 ? futurePool.find((f) => f.value >= gap) : undefined;
+      if (singleFuture) {
+        chosenFuture.push(singleFuture.pick);
+        totalSweetener += singleFuture.value;
+      } else {
+        for (const f of futurePool) {
+          if (chosenFuture.length >= MAX_FUTURE_PICKS_PER_OFFER) break;
+          chosenFuture.push(f.pick);
+          totalSweetener += f.value;
+          if (totalSweetener >= gap) break;
+        }
+      }
+    }
   }
+
+  const chosenPicks = [...chosenCurrent, ...chosenFuture];
 
   const totalReceived = swapValue + totalSweetener;
   const ratio = totalReceived / onClockValue;
@@ -591,7 +649,7 @@ function buildOffer(
     );
     let tuSweetener = 0;
     for (const pick of chosenPicks) {
-      tuSweetener += futurePickHeuristicValue(
+      tuSweetener += sweetenerPickValue(
         pick,
         args.seasonNumber,
         args.tradingUpContext.modifiers,
@@ -605,18 +663,23 @@ function buildOffer(
     if (tuRatio < floor) return null;
   }
 
-  return { futurePickIds: chosenIds, ratio };
+  return {
+    currentDraftPickIds: chosenCurrent.map((p) => p.id),
+    futurePickIds: chosenFuture.map((p) => p.id),
+    ratio,
+  };
 }
 
 /**
- * Chart value of a future pick from a specified team's perspective.
- * Uses the round-midpoint slot heuristic (next-year standings aren't
- * known, so both sides converge on midpoint) and then applies the
- * supplied modifiers — rebuilders inflate, championship teams
- * deflate. Picks beyond round 7 fall through to 0; only rounds 1-7
- * are tradeable.
+ * Chart value of a sweetener pick (current-draft later-round OR future-year)
+ * from a specified team's perspective. Uses the round-midpoint slot heuristic
+ * (exact slots aren't carried here, so both sides converge on the round
+ * midpoint) and applies the supplied modifiers — rebuilders inflate, champ
+ * teams deflate. `yearsOut` is 0 for a current-draft pick (no future discount)
+ * and >0 for future years. Picks beyond round 7 fall through to 0; only rounds
+ * 1-7 are tradeable.
  */
-function futurePickHeuristicValue(
+function sweetenerPickValue(
   pick: DraftPickAsset,
   currentDraftSeason: number,
   modifiers: ChartModifiers,

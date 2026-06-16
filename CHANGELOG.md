@@ -16,6 +16,51 @@ _Nothing yet._
 
 ---
 
+## [0.160.0] — 2026-06-16
+
+### Added
+
+- **Trade-up packages now use current-draft picks (the realistic mix).**
+  Top-of-draft trade-ups compensated with the same-round swap + FUTURE-year
+  picks only, so every package read as a future-pick dump (visible in the
+  inspector). `buildOffer` (`draft/trade-up.ts`) now also packages the
+  trading-up team's CURRENT-draft later-round picks, preferring current-year
+  capital and reaching for future picks only when this year's can't close the
+  gap — like real NFL. Current-draft sweeteners flip ownership via
+  `applyDraftResult` (the per-round draft loop re-sources from `draftPicks`, so
+  a later round sees the new owner). Verified against a bar derived from 650
+  real draft-window trade-ups: current-year sweetener share **real 82% / GMSim
+  79%**; packages-with-a-future-pick **real 22% / GMSim 22%** (was 0% current
+  pre-fix). A `committedSweetenerIds` guard excludes picks already committed in
+  earlier same-round trade-ups (no double-spend). The inspector's trade panel
+  renders current-draft picks alongside future ones.
+- **Goatinator trade-up composition gate.** `run goatinator sim` now checks the
+  current-vs-future sweetener mix against the real bar
+  (`loadRealTradeComposition` ledger analysis), flagging `<-- DRIFT` if the
+  current share strays >15pp. Polices the new behavior (the Goatinator is too
+  heavy for the quick `run gates` sweep, so it lives there on demand).
+
+### Fixed
+
+- **Self-trade bug in draft trade-ups (latent; surfaced by the above).** A team
+  that owned the on-clock slot (via an earlier flip) AND a later slot could
+  "trade up" to its OWN pick — a no-op swap that left the picks in place and let
+  them be re-offered (a phantom double-spend). The candidate loop now skips the
+  on-clock team. 66 phantom double-spends → 0 over a 6-season sim; draft
+  integrity intact (every slot drafted exactly once). NB: these self-trades had
+  been inflating the in-draft top-10 trade-up rate to a false ~15%; the true
+  rate (~4% vs real 16%) is now honestly surfaced and is coupled to the EDGE
+  class-mix residual — a frequency tune belongs with that upstream slice (more
+  trade-ups on today's EDGE-heavy board just add EDGE trade-ups).
+
+### Changed
+
+- `board.test.ts` trade-up volume floor 100 → 90: the self-trade fix removed
+  phantom trades that padded the count (the seed lands at 99); 90 keeps the
+  "mechanic is meaningful" intent with margin for the test's high seed variance.
+
+---
+
 ## [0.159.1] — 2026-06-15
 
 ### Fixed

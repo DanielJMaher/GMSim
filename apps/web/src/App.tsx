@@ -2929,6 +2929,28 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
                         )}{' '}
                         <span className="text-[10px] text-zinc-500">(this draft)</span>
                       </li>
+                      {(tu.currentDraftPickIds ?? []).map((cid) => {
+                        const info = pickInfoById.get(cid);
+                        return (
+                          <li key={cid}>
+                            <span className="font-mono text-[10px] text-zinc-500">·</span>{' '}
+                            {acquiringTeam?.identity.abbreviation ?? '?'}'s{' '}
+                            {info ? (
+                              <>
+                                R{info.round}
+                                {info.overallPick !== undefined && (
+                                  <span className="ml-1 font-mono text-amber-200">
+                                    #{info.overallPick}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              cid
+                            )}{' '}
+                            <span className="text-[10px] text-zinc-500">(this draft)</span>
+                          </li>
+                        );
+                      })}
                       {tu.futurePickIds.map((fid) => {
                         const info = pickInfoById.get(fid);
                         return (
@@ -2955,9 +2977,12 @@ function DraftTradesPanel({ league }: { league: LeagueState }) {
                           </li>
                         );
                       })}
-                      {tu.futurePickIds.length === 0 && (
-                        <li className="text-[10px] text-zinc-600">(no future-pick sweeteners)</li>
-                      )}
+                      {(tu.currentDraftPickIds ?? []).length === 0 &&
+                        tu.futurePickIds.length === 0 && (
+                          <li className="text-[10px] text-zinc-600">
+                            (no extra sweeteners — swap only)
+                          </li>
+                        )}
                     </ul>
                   </div>
                 </div>
