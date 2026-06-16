@@ -16,6 +16,24 @@ _Nothing yet._
 
 ---
 
+## [0.160.1] — 2026-06-16
+
+### Changed
+
+- **Inspector: Scouting Reports + Draft Audit now show the class year.** Both
+  panels read only the live `collegePool` (advanced + pruned each offseason), so
+  they are current-class-only — there's no historical data to put behind a year
+  picker (only the Draft tab retains per-season board snapshots, and it already
+  has one). Added a **"Season {N} class"** chip + tooltip so the scope is
+  obvious rather than reading as a missing feature. (Eyeball finding #3.)
+  Finding #5 — a "Clear Scouting Report Cache" deload for unbounded growth —
+  was a non-issue on measurement: a 15-year sim shows `players` plateaus ~2935
+  (retirement reaches equilibrium) and `mediaCollegeObservations` is pruned each
+  offseason; the only linear growth (`draftBoardSnapshots` / `draftHistory`)
+  powers the Draft tab's history, so there's nothing to deload. No control added.
+
+---
+
 ## [0.160.0] — 2026-06-16
 
 ### Added

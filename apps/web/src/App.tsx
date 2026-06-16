@@ -9539,8 +9539,11 @@ function DraftAuditPanel({ league }: { league: LeagueState }) {
         <h2 className="text-sm font-semibold uppercase tracking-wider text-teal-300">
           Draft Audit — who's grading prospects right?
         </h2>
-        <span className="text-xs text-zinc-500">
-          {rows.length} draft-eligible · showing {sorted.length}
+        <span
+          className="text-xs text-zinc-500"
+          title="The live draft class only — past classes aren't retained (the pool advances each offseason), so there's no year picker here."
+        >
+          Season {league.seasonNumber} class · {rows.length} draft-eligible · showing {sorted.length}
         </span>
       </div>
       <p className="mb-3 text-xs text-zinc-500">
@@ -10386,6 +10389,12 @@ function ScoutReportsPanel({ league }: { league: LeagueState }) {
     <section className="space-y-3 text-xs">
       {/* Source + prospect selectors */}
       <div className="flex flex-wrap items-center gap-2 rounded border border-zinc-800 bg-zinc-950/40 p-2">
+        <span
+          className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] uppercase tracking-wide text-zinc-400"
+          title="The live draft class. Reports cover the CURRENT class only — past classes aren't retained (the college pool advances + prunes each offseason), so there's no year picker here."
+        >
+          Season {league.seasonNumber} class
+        </span>
         <div className="flex overflow-hidden rounded border border-zinc-700">
           {(['team', 'outlet'] as const).map((k) => (
             <button
