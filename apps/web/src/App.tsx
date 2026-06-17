@@ -23,6 +23,7 @@ import {
   moodBucket,
   teamChemistry,
   deriveNewsFeed,
+  buildDraftBlurbs,
 } from '@gmsim/engine';
 import type {
   TeamRecord,
@@ -31,6 +32,7 @@ import type {
   ChemistryBucket,
   NewsItem,
   NewsSource,
+  DraftBlurbs,
 } from '@gmsim/engine';
 import type { MoodArchetype, LockerRoomIncidentFlavor } from '@gmsim/engine/types';
 import type {
@@ -60,6 +62,7 @@ import type {
   CollegeScout,
   ScoutRegion,
   DraftPickRecord,
+  DraftProspectProfile,
   MediaOutletId,
 } from '@gmsim/engine/types';
 import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/types';
@@ -1696,7 +1699,13 @@ const POSITION_FILTER_OPTIONS: ReadonlyArray<{ value: PositionFilter; label: str
 ];
 
 function DraftBoardsPanel({ league }: { league: LeagueState }) {
-  const teamsList = useMemo(() => Object.values(league.teams), [league.teams]);
+  const teamsList = useMemo(
+    () =>
+      Object.values(league.teams).sort((a, b) =>
+        a.identity.location.localeCompare(b.identity.location),
+      ),
+    [league.teams],
+  );
   const [selectedTeamId, setSelectedTeamId] = useState(teamsList[0]?.identity.id ?? null);
   const [topN, setTopN] = useState(20);
   const [positionFilter, setPositionFilter] = useState<PositionFilter>('ALL');
@@ -2208,10 +2217,31 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
   const team = league.teams[currentPick.teamId];
   const teamNeeds = team ? computeTeamNeeds(team, league) : [];
   const prospect = league.collegePool.find((cp) => cp.id === currentPick.collegePlayerId);
+  // Drafted prospects are pruned from `collegePool` the moment the draft
+  // completes (draft/event.ts), so a live lookup is empty in the replay. Prefer
+  // the profile snapshotted onto the pick record at draft time (v0.162); fall
+  // back to the live pool for pre-v0.162 saves / an in-progress draft.
+  const profile: DraftProspectProfile | null =
+    currentPick.prospectProfile ?? prospect ?? null;
   // Promotion preserves PlayerId, so the rookie record is reachable
   // through players[promotedPlayerId] even after the prospect's left
   // the college pool.
   const rookie = league.players[currentPick.promotedPlayerId];
+  // Consensus perceived overall at draft time (mean observed-skill across the
+  // snapshot's boards) — paired with the rookie's real grade on the draft card.
+  const perceivedOverall = (() => {
+    let s = 0;
+    let n = 0;
+    for (const board of Object.values(snapshot)) {
+      for (const e of board) {
+        if (e.collegePlayerId === currentPick.collegePlayerId) {
+          s += e.observedSkillScore;
+          n += 1;
+        }
+      }
+    }
+    return n > 0 ? s / n : null;
+  })();
   const teamBoard = snapshot[currentPick.teamId] ?? [];
   const teamRank = currentPick.boardRankAtPick;
   const consRank = consensusRank.get(currentPick.collegePlayerId) ?? null;
@@ -2220,6 +2250,32 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
   // negative = steal at this slot per consensus.
   const reachVsConsensusSlot =
     consRank !== null ? consRank - currentPick.overallPick : null;
+
+  // GM & HC draft-day blurbs (v0.162) — the regime's own words on the pick,
+  // generated off the voice seed from the prospect-profile snapshot + pick
+  // context. consRank drives the steal angle / length bump.
+  const draftGm = team ? league.gms[team.gmId] : undefined;
+  const draftHc = team ? league.coaches[team.headCoachId] : undefined;
+  const blurbs: DraftBlurbs | null =
+    profile && draftGm && draftHc && rookie
+      ? buildDraftBlurbs({
+          gm: draftGm,
+          hc: draftHc,
+          profile,
+          playerName: `${rookie.firstName} ${rookie.lastName}`,
+          round: currentPick.round,
+          overallPick: currentPick.overallPick,
+          boardReason: currentPick.boardReasonAtPick,
+          needs: currentPick.needsAtPick ?? [],
+          ...(currentPick.convertedFromPosition
+            ? { convertedFromPosition: currentPick.convertedFromPosition }
+            : {}),
+          qbDesperate: currentPick.qbDesperateAtPick ?? false,
+          consensusRank: consRank,
+          seasonNumber: currentPick.seasonNumber,
+          voiceSeed: league.voiceSeed,
+        })
+      : null;
 
   // Render the boards as a centered window around the picked player
   // (or top of board if the picked player isn't on this view's board).
@@ -2423,7 +2479,15 @@ function DraftReplayPanel({ league }: { league: LeagueState }) {
 
       {/* 3-column body: player card | team board | consensus board */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-        <DraftReplayPlayerCard prospect={prospect ?? null} rookie={rookie ?? null} />
+        <DraftReplayPlayerCard
+          profile={profile}
+          rookie={rookie ?? null}
+          team={team ?? null}
+          perceivedOverall={perceivedOverall}
+          blurbs={blurbs}
+          gmName={draftGm?.name ?? null}
+          hcName={draftHc?.name ?? null}
+        />
         <div>
           <div className="mb-1 flex justify-end">
             <button
@@ -2538,52 +2602,156 @@ function ReachBadge({ reach }: { reach: number | null }) {
 }
 
 function DraftReplayPlayerCard({
-  prospect,
+  profile,
   rookie,
+  team,
+  perceivedOverall,
+  blurbs,
+  gmName,
+  hcName,
 }: {
-  prospect: CollegePlayer | null;
+  profile: DraftProspectProfile | null;
   rookie: Player | null;
+  team: TeamState | null;
+  perceivedOverall: number | null;
+  blurbs: DraftBlurbs | null;
+  gmName: string | null;
+  hcName: string | null;
 }) {
-  const school = prospect ? getSchoolById(prospect.schoolId) : null;
+  const school = profile ? getSchoolById(profile.schoolId) : null;
+  const m = profile?.measurables;
+  // Real grade comes from the promoted player's ratings; the profile snapshot
+  // (a Pick of CollegePlayer) carries no skill state, so there's no fallback.
+  const realOverall = rookie ? prospectProjectedOverall(rookie) : null;
   return (
     <div className="rounded border border-zinc-800 bg-zinc-950/50 p-3 text-xs">
-      <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">Player</div>
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-[10px] uppercase tracking-wider text-zinc-500">Draft card</span>
+        {team && (
+          <span
+            className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 font-mono text-[10px] text-amber-300"
+            title={team.identity.fullName}
+          >
+            {team.identity.abbreviation}
+          </span>
+        )}
+      </div>
       {rookie && (
         <div className="mb-1 font-mono text-sm text-zinc-100">
           {rookie.firstName} {rookie.lastName}
         </div>
       )}
       <div className="space-y-1 text-[11px] text-zinc-400">
-        {prospect && (
+        {profile && (
           <>
             <div>
               <span className="text-zinc-500">Position</span>{' '}
-              <span className="font-mono text-zinc-200">{prospect.nflProjectedPosition}</span>
-              {prospect.isConversionCandidate && (
+              <span className="font-mono text-zinc-200">{profile.nflProjectedPosition}</span>
+              {profile.isConversionCandidate && (
                 <span className="ml-1 rounded bg-cyan-500/20 px-1 text-[9px] uppercase text-cyan-200">
-                  conv from {prospect.collegePosition}
+                  conv from {profile.collegePosition}
                 </span>
               )}
             </div>
             <div>
               <span className="text-zinc-500">School</span>{' '}
-              <span className="text-zinc-300">{school?.name ?? prospect.schoolId}</span>
-              <span className="text-zinc-600"> · {prospect.classYear}</span>
+              <span className="text-zinc-300">{school?.name ?? profile.schoolId}</span>
+              <span className="text-zinc-600"> · {CLASS_YEAR_LABELS[profile.classYear]}</span>
             </div>
             <div>
               <span className="text-zinc-500">Tier</span>{' '}
-              <TierBadge tier={prospect.tier} />
+              <TierBadge tier={profile.tier} />
               <span className="ml-2 text-zinc-500">Arch</span>{' '}
-              <span className="font-mono text-zinc-300">{prospect.archetype}</span>
+              <span className="font-mono text-zinc-300">{profile.archetype}</span>
             </div>
-            {prospect.assumedArchetype !== prospect.archetype && (
+            {profile.assumedArchetype !== profile.archetype && (
               <div className="text-amber-400">
-                Assumed archetype: {prospect.assumedArchetype}{' '}
+                Assumed archetype: {profile.assumedArchetype}{' '}
                 <span className="text-amber-600">(misread)</span>
               </div>
             )}
           </>
         )}
+        {!profile && (
+          <div className="rounded border border-zinc-800 bg-zinc-900/40 px-2 py-1 text-[10px] text-zinc-500">
+            Prospect profile not recorded for this pick — re-sim a draft (v0.162+)
+            to populate position, combine, and college production.
+          </div>
+        )}
+
+        {/* Draft grade — consensus PERCEIVED at draft time / REAL ground truth */}
+        <div className="flex items-baseline gap-2">
+          <span className="text-zinc-500">Draft grade</span>
+          <DraftGradeCell perceivedOverall={perceivedOverall} realOverall={realOverall} />
+          <span className="text-[10px] text-zinc-600">perceived / real</span>
+        </div>
+
+        {/* Combine / pro-day measurables */}
+        {m && (
+          <div className="mt-2 border-t border-zinc-800 pt-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
+              Combine / Pro-Day
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[10px] text-zinc-300">
+              <div className="flex justify-between"><span className="text-zinc-500">Ht/Wt</span><span>{formatHeight(m.heightInches)}, {Math.round(m.weightLbs)}</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500">40-yd</span><span>{m.fortyYardSeconds.toFixed(2)}s</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500">Bench</span><span>{m.benchPress225Reps}</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500">Vert</span><span>{formatInches(m.verticalInches)}</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500">Broad</span><span>{formatInches(m.broadJumpInches)}</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500">3-cone</span><span>{m.threeConeSeconds.toFixed(2)}s</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500">Shuttle</span><span>{m.shuttleSeconds.toFixed(2)}s</span></div>
+              <div className="flex justify-between"><span className="text-zinc-500">Arm/Hand</span><span>{formatInches(m.armLengthInches)}/{formatInches(m.handSizeInches)}</span></div>
+            </div>
+          </div>
+        )}
+
+        {/* College production */}
+        {profile && profile.collegeStats.length > 0 && (
+          <div className="mt-2 border-t border-zinc-800 pt-2">
+            <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">College production</div>
+            <table className="w-full font-mono text-[10px]">
+              <thead className="text-zinc-500">
+                <tr>
+                  <th className="text-left font-normal">Yr</th>
+                  <th className="text-right font-normal">G</th>
+                  <th className="text-right font-normal">GS</th>
+                  <th className="pl-2 text-left font-normal">stats</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profile.collegeStats.map((cs, idx) => (
+                  <tr key={idx} className="text-zinc-300">
+                    <td>{CLASS_YEAR_LABELS[cs.classYear]}</td>
+                    <td className="text-right">{cs.games}</td>
+                    <td className="text-right">{cs.starts}</td>
+                    <td className="pl-2 text-left text-zinc-400">{collegeStatHeadline(profile.collegePosition, cs)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* War room — GM & HC blurbs on the pick (v0.162) */}
+        {blurbs && (
+          <div className="mt-2 space-y-2 border-t border-zinc-800 pt-2">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500">War room</div>
+            <div>
+              <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400/80">
+                GM{gmName ? ` · ${gmName}` : ''}
+              </div>
+              <p className="text-[11px] leading-snug text-zinc-300">{blurbs.gm}</p>
+            </div>
+            <div>
+              <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wider text-sky-400/80">
+                Head Coach{hcName ? ` · ${hcName}` : ''}
+              </div>
+              <p className="text-[11px] leading-snug text-zinc-300">{blurbs.hc}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Ground-truth skills (dev view) */}
         {rookie && (
           <div className="mt-2 border-t border-zinc-800 pt-2">
             <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">
@@ -5353,7 +5521,7 @@ function TradeBuilderPanel({
     () =>
       Object.values(league.teams)
         .filter((t) => t.identity.id !== team.identity.id)
-        .sort((a, b) => a.identity.fullName.localeCompare(b.identity.fullName)),
+        .sort((a, b) => a.identity.location.localeCompare(b.identity.location)),
     [league.teams, team.identity.id],
   );
 
@@ -9745,7 +9913,7 @@ function GmMediaTrustPanel({ league }: { league: LeagueState }) {
   const teams = useMemo(
     () =>
       Object.values(league.teams).sort((a, b) =>
-        a.identity.abbreviation.localeCompare(b.identity.abbreviation),
+        a.identity.location.localeCompare(b.identity.location),
       ),
     [league.teams],
   );

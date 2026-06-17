@@ -433,6 +433,21 @@ export function runDraft(
       boardReasonAtPick: boardEntry?.reason ?? null,
       needsAtPick,
       qbDesperateAtPick,
+      // Snapshot the prospect's public profile (v0.162) — `chosen` is filtered
+      // out of `collegePool` once the draft completes, so the replay card reads
+      // this. Pure reads of already-computed fields; consumes no PRNG.
+      prospectProfile: {
+        nflProjectedPosition: chosen.nflProjectedPosition,
+        collegePosition: chosen.collegePosition,
+        schoolId: chosen.schoolId,
+        classYear: chosen.classYear,
+        tier: chosen.tier,
+        archetype: chosen.archetype,
+        assumedArchetype: chosen.assumedArchetype,
+        isConversionCandidate: chosen.isConversionCandidate,
+        measurables: chosen.measurables,
+        collegeStats: chosen.collegeStats,
+      },
       ...(convertedFromPosition ? { convertedFromPosition } : {}),
       ...(pickAsset
         ? { pickAssetId: pickAsset.id, originalTeamId: pickAsset.originalTeamId }

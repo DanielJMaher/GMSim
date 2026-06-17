@@ -865,6 +865,28 @@ export interface DraftPickAsset {
  * names so consumers reading just the record don't have to know that
  * detail.
  */
+/**
+ * Public profile of a drafted prospect, frozen onto the pick record at draft
+ * time (v0.162). Drafted prospects are filtered OUT of `collegePool` the moment
+ * the draft completes (`draft/event.ts`), so the inspector's draft replay cannot
+ * look them up live — this snapshot preserves position / school / class year /
+ * tier / archetype / combine measurables / college production for the draft card.
+ * A `Pick` of `CollegePlayer` so the field types never drift from the source.
+ */
+export type DraftProspectProfile = Pick<
+  CollegePlayer,
+  | 'nflProjectedPosition'
+  | 'collegePosition'
+  | 'schoolId'
+  | 'classYear'
+  | 'tier'
+  | 'archetype'
+  | 'assumedArchetype'
+  | 'isConversionCandidate'
+  | 'measurables'
+  | 'collegeStats'
+>;
+
 export interface DraftPickRecord {
   /** Sim season this draft kicked off the season for. */
   seasonNumber: number;
@@ -926,6 +948,15 @@ export interface DraftPickRecord {
    * this flag is what the engine actually acted on. Optional for back-compat.
    */
   qbDesperateAtPick?: boolean;
+  /**
+   * Public profile of the drafted prospect, snapshotted at pick time (v0.162).
+   * The prospect is removed from `collegePool` when the draft finishes, so the
+   * inspector replay reads this to render the draft card (position, school,
+   * class year, tier/archetype, combine measurables, college production).
+   * Optional for pre-v0.162 saves (those fall back to a live pool lookup, which
+   * is empty for drafted prospects — re-sim a draft to populate it).
+   */
+  prospectProfile?: DraftProspectProfile;
 }
 
 // ─── Trade-up history (Doc 3 — draft trades, v0.45 firing + v0.52 persistence) ─

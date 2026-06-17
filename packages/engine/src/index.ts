@@ -184,6 +184,9 @@ export { buildProspectSleeperTake } from './media/prospect-takes.js';
 export { buildScoutReport } from './media/scout-report.js';
 export { buildNflPlayerTake, generateNflPlayerTakes } from './media/nfl-takes.js';
 export { generateCollegeWeeklyTakes } from './media/college-takes.js';
+// Draft-day GM & HC blurbs (v0.162) — the regime's own words on a pick.
+export { buildDraftBlurbs } from './media/draft-blurbs.js';
+export type { DraftBlurbArgs, DraftBlurbs } from './media/draft-blurbs.js';
 // Living Voice (v0.124) — the world/voice seed split.
 export { deriveVoiceSeed, voicePrng } from './media/voice.js';
 export { scoutTraitFor, scoutTraitsFor, scoutConcernFor, bucketFor } from './media/scout-vocabulary.js';
