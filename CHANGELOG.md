@@ -16,6 +16,40 @@ _Nothing yet._
 
 ---
 
+## [0.163.0] — 2026-06-17
+
+### Changed
+
+- **Draft top-of-board realism: the EDGE top-10 flood is fixed.** The Goatinator's
+  50×20 baseline showed GMSim drafting edges at **23% of the top 10 vs a real 14%**
+  (the lone position-mix DRIFT), plus a too-flat draft-class talent pyramid. A
+  multi-lever investigation (slot-premium, need, and talent-pyramid levers were each
+  measured and ruled out) traced it to two roots, both now fixed:
+  - **`POSITION_DRAFT_VALUE` recalibrated from veteran APY to DRAFT CAPITAL.** The
+    table was pure open-market APY; it's re-derived to blend APY (within-tier order)
+    with the real top-10 draft position-mix and **compress the spread**, because the
+    rookie wage scale makes an elite player at *any* position a premium-pick target
+    (real teams spend top-10 picks on RBs and off-ball LBs). EDGE — APY ~$50M but
+    *plentiful* — drops from the runaway #2 (1.4) to ≈ WR (1.18), below the blindside
+    tackle; RB/LB/interior-OL are raised off the old near-floor. (EDGE no longer
+    out-ranks LT — the value table is now a draft-capital scale, not an APY one.)
+  - **Grade-dependent rookie realization (`ROOKIE_GRADE_REALIZATION_LIFT`).** Boards
+    rank college prospects on *current* skills, but rookie football realization was a
+    flat ~0.62 for every grade, hiding blue-chips behind the realization wall and
+    flattening the draft-class pyramid (Truth-Arbiter class-talent steepness drop
+    5.9 → 13.4 after the fix). Top grades now show more of their football ceiling out
+    of college (ELITE +0.14 … HIGH_STARTER +0.05, replacement grades unchanged), so
+    genuine blue-chips separate on the board. Ceilings are untouched (the Skill
+    Adjudicator's 99-scarcity/tier guards hold); veterans are untouched, so current
+    game-sim rosters are unaffected.
+- **Result (Goatinator 50×20):** EDGE top-10 **+9.7 → +0.5**, LB −4.1 → −1.3, and
+  **zero** position-mix DRIFT flags (every group within ±8pp of real). Remaining
+  top-of-draft drifts are separate, named levers: the **#1-overall QB share** (51% vs
+  75% — the `qbRevealedSlotBoost` top-slot mechanism, not board value) and the
+  **in-draft trade-up rate** (5% vs 16% — the deferred residual, now unblocked).
+
+---
+
 ## [0.162.0] — 2026-06-17
 
 ### Added

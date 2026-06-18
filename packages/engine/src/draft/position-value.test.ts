@@ -27,23 +27,26 @@ describe('positional draft value', () => {
 
   it('ranks the premium positions above the replaceable ones', () => {
     const v = POSITION_DRAFT_VALUE;
-    // Cornerstones on top.
-    expect(v.QB).toBeGreaterThan(v.EDGE);
-    expect(v.EDGE).toBeGreaterThan(v.LT);
-    expect(v.LT).toBeGreaterThan(v.WR);
-    // LT (blindside) carries a premium over the other tackle/guards.
+    // QB is the lone cornerstone, clearly atop the field.
+    expect(v.QB).toBeGreaterThan(v.LT);
+    // Draft-capital order (v0.163): blindside tackle leads the rest — OL is the
+    // 2nd-most-drafted group and edges are plentiful, so EDGE no longer outranks
+    // LT (it sits with WR as the premium non-OL spot).
+    expect(v.LT).toBeGreaterThanOrEqual(v.EDGE);
+    expect(v.EDGE).toBeGreaterThanOrEqual(v.WR);
     expect(v.LT).toBeGreaterThan(v.RT);
-    expect(v.RT).toBeGreaterThanOrEqual(v.LG);
-    // Interior DL (pass rush) tracks the market into the moderate tier,
-    // above the light spots and above the cheap run-stuffing nose tackle.
-    expect(v.DT).toBeGreaterThan(v.S);
+    expect(v.RT).toBeGreaterThan(v.LG);
+    // EDGE (pass rush) outranks interior DL, which tracks the market above the
+    // cheap run-stuffing nose tackle and the neutral interior guards.
+    expect(v.EDGE).toBeGreaterThan(v.DT);
     expect(v.DT).toBeGreaterThan(v.NT);
     expect(v.DT).toBeGreaterThanOrEqual(v.RG);
-    // Replaceable spots sit below the moderate tier.
+    // Premium skills sit above the replaceable spots; CB above the nickel.
     expect(v.WR).toBeGreaterThan(v.S);
     expect(v.CB).toBeGreaterThan(v.NICKEL);
-    expect(v.S).toBeGreaterThan(v.RB);
-    // Specialists at the floor.
+    // Compressed bottom (v0.163): the draftable-but-replaceable spots (RB/LB/TE)
+    // sit near each other, well above the specialist floor.
+    expect(v.RB).toBeGreaterThan(v.NT);
     expect(v.RB).toBeGreaterThan(v.K);
     expect(v.K).toBeGreaterThanOrEqual(v.LS);
   });

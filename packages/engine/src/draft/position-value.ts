@@ -50,38 +50,65 @@
 
 import type { Position } from '../types/enums.js';
 
+// ─── Recalibration to DRAFT CAPITAL (v0.163, 2026-06-17) ─────────────────────
+//
+// The table below was re-derived from BOTH the original APY/surplus study AND
+// the Goatinator's real top-of-draft data, after a multi-lever investigation
+// (slot-premium, talent-pyramid, and need levers were each measured and ruled
+// out). The old table was pure VETERAN APY; the recalibration blends APY (which
+// still sets the within-tier ORDER) with the real DRAFT position-mix (top-10
+// 2011-2026: QB 22% · OL 19% · EDGE 14% · WR 14% · DB 11% · LB 8% · RB 6% ·
+// iDL 4% · TE 3%) and COMPRESSES the spread, because:
+//
+//   • The rookie wage scale makes draft capital far more position-agnostic than
+//     veteran APY — an elite player at ANY position is huge surplus on a rookie
+//     deal, so real teams DO spend top-10 picks on RBs (Bijan #8, Saquon #2) and
+//     off-ball LBs. The old 0.78/0.82 values buried them; raised toward ~0.9.
+//   • EDGE APY (~$50M) is second only to QB, but edges are PLENTIFUL — the
+//     Goatinator showed GMSim drafting them at ~25% of the top 10 vs a real 14%
+//     (the lone position DRIFT), because the high value vaulted the deep elite-
+//     edge supply up the board's top-10 grade×value ranking, which picks track.
+//     The marginal edge commands less DRAFT capital than its APY implies →
+//     EDGE drops from the runaway #2 (1.4) to ≈ WR, below the blindside tackle.
+//   • OL is the 2nd-most-drafted GROUP (19%) yet ran UNDER; tackles stay premium
+//     (LT blindside) and RT/C come up.
+//
+// LG/RG are pinned at the 1.0 neutral anchor (the board factor's identity
+// point). Verified against the Goatinator top-10 mix + #1-QB share + the Truth
+// Arbiter class-talent board; this is the top-of-draft FEEL knob the prior
+// APY-only comment flagged as a separate lever.
 export const POSITION_DRAFT_VALUE: Readonly<Record<Position, number>> = {
-  // Heaviest — franchise cornerstones; the surplus on a rookie deal is
-  // enormous (QB) or protects/creates the biggest swings (EDGE, blindside).
-  QB: 1.6,
-  EDGE: 1.4,
+  // Cornerstone — the one position whose surplus dwarfs all others.
+  QB: 1.55,
+  // Premium — blindside tackle leads the field (OL is drafted heavily and the
+  // LT premium is real); EDGE/WR are the premium non-OL spots. EDGE is no
+  // longer the runaway #2: by DRAFT capital it sits with WR (both ~14% of the
+  // top 10), above interior DL/OL but below the blindside tackle.
   LT: 1.3,
-  // Moderate — valuable and worth high picks, but deeper talent pools /
-  // more replaceable than the cornerstones. DT sits here (not in the
-  // light tier) because the open market pays interior pass-rushers like
-  // premium players — top-5 iDL APY ~$27.5M, right alongside CB (~$28M)
-  // and tackle (~$29M), and far above guards/safeties/LBs. (Run-stuffing
-  // nose tackles are a separate, cheap position — see NT below.)
-  WR: 1.12,
-  CB: 1.1,
+  EDGE: 1.18,
+  WR: 1.18,
+  RT: 1.12,
+  // Moderate — worth high picks, deeper pools / more replaceable. iDL tracks
+  // the market (top-5 iDL APY ~$27.5M) alongside CB; interior guards anchor the
+  // 1.0 neutral.
+  CB: 1.05,
   DT: 1.05,
-  RT: 1.05,
-  RG: 1.0,
   LG: 1.0,
-  // Lightest — real contributors, but the most replaceable, scheme-
-  // dependent, or cheapest on the open market. Not devalued to zero;
-  // an elite one still has clear value.
-  S: 0.88,
-  TE: 0.88,
-  C: 0.88,
-  ILB: 0.82,
-  OLB: 0.82,
-  NICKEL: 0.82,
+  RG: 1.0,
+  // Draftable-but-replaceable — compressed UP toward neutral vs the old table,
+  // because rookie-scale economics make an elite one a real top-pick target
+  // (the Bijan/Roquan reality), not the near-floor the veteran market implies.
+  C: 0.95,
+  ILB: 0.95,
+  OLB: 0.92,
+  RB: 0.9,
+  S: 0.9,
+  TE: 0.9,
+  NICKEL: 0.85,
   NT: 0.8,
-  RB: 0.78,
   // Specialists — rarely worth meaningful draft capital.
-  FB: 0.55,
   K: 0.6,
+  FB: 0.55,
   P: 0.55,
   LS: 0.5,
 };

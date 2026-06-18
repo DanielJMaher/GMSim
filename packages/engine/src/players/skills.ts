@@ -187,6 +187,37 @@ const REALIZATION_BY_STAGE: Record<AgeStage, { physical: number; technical: numb
   AGING:      { physical: 0.78, technical: 1.00, mental: 1.00, stable: 1.00 },
 };
 
+/**
+ * Grade-dependent ROOKIE realization lift on the football (technical + mental)
+ * skills (post-v0.162 draft board-value slice, 2026-06-17). The board ranks
+ * college prospects on their CURRENT skills, but rookie football realization is
+ * a flat ~0.62 for every grade — so a blue-chip's ceiling edge is hidden behind
+ * the realization wall, and the *current*-talent pyramid reads TOO FLAT
+ * (Truth-Arbiter class-talent: rank 1-5 overall 58.1 vs rank-33-100 52.3, drop
+ * only 5.9). A flat board top is the root cause behind the EDGE top-10 flood
+ * (a large EDGE supply with no blue-chip to out-rank it) and the soft #1-QB
+ * share. This lifts the TOP grades' rookie polish so genuine blue-chips show
+ * more of their football ceiling out of college and separate on the board;
+ * mid/replacement grades are untouched (lift 0), so the long tail and league-
+ * wide talent are unmoved. The ceiling is unchanged — only how much of it a
+ * blue-chip has REALIZED by draft time — so the dev runway shrinks modestly
+ * (an ELITE arrives more pro-ready), not the upside. Applies at ROOKIE stage
+ * only (college prospects + NFL rookies); veterans are untouched, so current
+ * game-sim rosters are unaffected. Tuning knob — verified against the
+ * class-talent steepness bar + the Goatinator top-10 mix + #1-QB share, with
+ * the Skill Adjudicator's tier/99-scarcity guards (ceiling-based) held.
+ */
+const ROOKIE_GRADE_REALIZATION_LIFT: Record<TalentGrade, number> = {
+  ELITE: 0.14,
+  STAR: 0.1,
+  HIGH_STARTER: 0.05,
+  STARTER: 0,
+  WEAK_STARTER: 0,
+  ROTATIONAL: 0,
+  BACKUP: 0,
+  FRINGE: 0,
+};
+
 /** Legacy 4-tier roll — now derived from the fine grade so the distribution
  *  is identical and the two stay consistent. */
 export function rollTalentTier(prng: Prng): TalentTier {
@@ -378,7 +409,14 @@ export function rollSkills(
     ceiling[key] = ceilVal;
 
     const cat = categoryFor(key);
-    const ratio = realization[cat];
+    // Football skills (technical/mental) get a grade-dependent ROOKIE polish
+    // lift so blue-chips separate on the (current-skill) draft board; capped at
+    // 1.0 (current never exceeds ceiling). Physical/stable + all other stages
+    // are unchanged.
+    let ratio = realization[cat];
+    if (ageStage === 'ROOKIE' && (cat === 'technical' || cat === 'mental')) {
+      ratio = Math.min(1, ratio + ROOKIE_GRADE_REALIZATION_LIFT[talentGrade]);
+    }
     // Small noise so two players with identical archetype+tier+age aren't
     // numerically identical on every skill.
     const noisyCurrent = Math.round(ceilVal * ratio + prng.normal(0, 2));
