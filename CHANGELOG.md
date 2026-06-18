@@ -12,7 +12,45 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-_Nothing yet._
+### Known issues
+
+- **League scoring runs ~1 ppg over the realism ceiling over a multi-season sim**
+  (Scorekeeper 30×10: points/game 25.8 vs real 22.8, band ≤24.8). This is a
+  **pre-existing competitive-model residual**, not introduced by v0.163/v0.164: a
+  *fresh* league passes the Magistrate's per-drive bar (points/drive 1.79, even
+  conservative), but a *matured* (10-season) league's offenses slightly outpace
+  its defenses. Isolation confirmed scoring is identical with v0.163's realization
+  lift on or off. The drive-sim pace/efficiency constants are the wrong lever (they
+  would break the green fresh-league Magistrate); the fix is the deferred
+  competitive-model slice (defense keeping pace with offense across seasons — the
+  clock-model spike was already tried and reverted). Tracked as its own slice.
+
+---
+
+## [0.164.0] — 2026-06-18
+
+### Changed
+
+- **Team record is now coupled harder to QB quality (`driveCtx` `passEdge`).** The
+  #1-overall QB share sat at ~50% vs a real 75%. A diagnostic probe traced it to the
+  *worst* teams (who pick #1) holding a STAR/STARTER QB 82% of the time — so they
+  read "settled" and passed on a QB, which then fell to the next needy team at
+  #2/#3. Real bad teams are bad *because* of QB. QB reaches the live (bottom-up)
+  game sim only through the `qbPlay` matchup facet inside `passEdge`
+  (completions/yards/INTs → scoring → wins), where it was weighted just 0.5 of pass
+  offense — diluting its effect on records. Raised **`passEdge` = `qbPlay·0.65 +
+  receivingCorps·0.35`** (was 0.5/0.5) so a poor QB drags a team's passing — and
+  record — down, landing it at #1 QB-needy. Result (Goatinator/probe): **#1-QB share
+  47%→53%**, worst-team STAR-QB share 25%→17%.
+- **Validated scoring-neutral.** The `qbPlay` facet grades slightly *cooler* than
+  `receivingCorps` (73.5 vs 75.2 league mean), so the up-weight does not inflate
+  scoring; the Magistrate (drive realism) and the Scorekeeper's W-L parity bars
+  (pass delta in band) both held, and the full suite stayed green (1114 pass).
+  (`teamStrength`'s QB weight was *not* the lever — it only feeds the legacy
+  top-down `simulateGame`, not the live bottom-up season path.)
+- Remaining #1-QB gap (53% vs 75%) is the **franchise-dev trap** (a #1 team with a
+  recent R1 QB reads "settled" via the dev-QB carve-out, which coupling can't reach)
+  — a separate Rosen-rule slice.
 
 ---
 

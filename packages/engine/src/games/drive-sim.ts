@@ -216,9 +216,18 @@ interface DriveCtx {
   runEdge: number;
 }
 
+// QB share of pass offense raised 0.5→0.65 (2026-06-18, team-quality↔QB
+// coupling). `passEdge` drives completions/yards/INTs → scoring → wins, but QB
+// touches the game ONLY here, so its share of the outcome was diluted: the
+// #1-overall QB probe showed the worst teams (picking #1) held a STAR/STARTER QB
+// 82% of the time and read "settled", dropping #1-QB share to ~50% (real 75%).
+// Real bad teams are bad BECAUSE of QB; weighting qbPlay over receivingCorps
+// makes a poor QB drag a team's passing (and record) down so it lands at #1
+// QB-needy. Roughly scoring-neutral on average (the two facets share a scale);
+// it widens the by-QB spread. Verified vs the Scorekeeper/Magistrate bars.
 function driveCtx(off: MatchupFacets, def: MatchupFacets): DriveCtx {
   return {
-    passEdge: (off.qbPlay * 0.5 + off.receivingCorps * 0.5) - def.coverage,
+    passEdge: (off.qbPlay * 0.65 + off.receivingCorps * 0.35) - def.coverage,
     protEdge: off.passProtection - def.passRush,
     runEdge: (off.runBlocking * 0.5 + off.rushingCorps * 0.5) - def.runDefense,
   };
