@@ -216,6 +216,77 @@ interface DriveCtx {
   runEdge: number;
 }
 
+// ── League-mean edge re-centering (2026-06-23) ───────────────────────────
+// The drive sim's scoring is anchored to the FRESH-league edge balance (the
+// Magistrate's calibration). But the league talent SCALE legitimately drifts
+// as rosters mature: short-window positions (CB/WR/RB) peak early and decline
+// (Actuary-validated aging), so over ~10 seasons league-mean coverage erodes
+// while QB survivorship lifts qbPlay — the QB-weighted league-mean `passEdge`
+// climbs from ~0 to ~+12, inflating scoring +3.3 pts/game. This drift is a
+// season-VARYING quantity (proven: it can't be removed by a static generation
+// or constant fix — the developed equilibrium moves and QB survivorship is
+// irreducible). So scoring is made INVARIANT to the absolute talent scale: each
+// edge is re-centered on the league's CURRENT season mean, restoring the
+// fresh-league effective balance. The team-to-team SPREAD is untouched (a
+// uniform shift), so standings spread / W-L parity / Pythagorean hold; the
+// offset is ~0 at a fresh league (Magistrate green by construction) and cancels
+// exactly the mature-league drift. Computed once per league-season (memoized),
+// so no per-game cost.
+//
+// Fresh-league baseline league-mean edges (createLeague, the calibration
+// anchor — `_fresh_facet_probe`): passEdge +0.1, runEdge 0.0, protEdge −3.9.
+const BASE_PASS_EDGE = 0.1;
+const BASE_RUN_EDGE = 0.0;
+const BASE_PROT_EDGE = -3.9;
+
+interface EdgeRecenter {
+  pass: number;
+  run: number;
+  prot: number;
+}
+const ZERO_RECENTER: EdgeRecenter = { pass: 0, run: 0, prot: 0 };
+
+// Memoized per (seed, seasonNumber) — a season-level constant. matchupFacets
+// over 32 rosters is far too costly to recompute per game (the live season
+// reassigns `league.players` on every injury, so an object-identity cache would
+// miss nearly every game → ~16× the facet work → minutes-long season ticks).
+// seed+seasonNumber is the only league-stable identity across a season's games;
+// the offset is computed once from the first game's rosters and reused (it
+// barely moves within a season). Deterministic — a pure function of league
+// state. Bounded in practice by distinct (seed × season).
+const recenterCache = new Map<string, EdgeRecenter>();
+
+function leagueRecenter(league: LeagueState): EdgeRecenter {
+  const key = `${league.seed}:${league.seasonNumber}`;
+  const cached = recenterCache.get(key);
+  if (cached) return cached;
+  let passOff = 0;
+  let cover = 0;
+  let runOff = 0;
+  let runDef = 0;
+  let prot = 0;
+  let rush = 0;
+  let n = 0;
+  for (const team of Object.values(league.teams)) {
+    const f = matchupFacets(team, league);
+    passOff += f.qbPlay * 0.65 + f.receivingCorps * 0.35;
+    cover += f.coverage;
+    runOff += f.runBlocking * 0.5 + f.rushingCorps * 0.5;
+    runDef += f.runDefense;
+    prot += f.passProtection;
+    rush += f.passRush;
+    n++;
+  }
+  if (n === 0) return ZERO_RECENTER;
+  const offset: EdgeRecenter = {
+    pass: passOff / n - cover / n - BASE_PASS_EDGE,
+    run: runOff / n - runDef / n - BASE_RUN_EDGE,
+    prot: prot / n - rush / n - BASE_PROT_EDGE,
+  };
+  recenterCache.set(key, offset);
+  return offset;
+}
+
 // QB share of pass offense raised 0.5→0.65 (2026-06-18, team-quality↔QB
 // coupling). `passEdge` drives completions/yards/INTs → scoring → wins, but QB
 // touches the game ONLY here, so its share of the outcome was diluted: the
@@ -225,11 +296,14 @@ interface DriveCtx {
 // makes a poor QB drag a team's passing (and record) down so it lands at #1
 // QB-needy. Roughly scoring-neutral on average (the two facets share a scale);
 // it widens the by-QB spread. Verified vs the Scorekeeper/Magistrate bars.
-function driveCtx(off: MatchupFacets, def: MatchupFacets): DriveCtx {
+//
+// `rc` re-centers each edge on the league's current season mean (see above) —
+// ZERO for the facet-only path, the live league's offset on the live path.
+function driveCtx(off: MatchupFacets, def: MatchupFacets, rc: EdgeRecenter = ZERO_RECENTER): DriveCtx {
   return {
-    passEdge: (off.qbPlay * 0.65 + off.receivingCorps * 0.35) - def.coverage,
-    protEdge: off.passProtection - def.passRush,
-    runEdge: (off.runBlocking * 0.5 + off.rushingCorps * 0.5) - def.runDefense,
+    passEdge: (off.qbPlay * 0.65 + off.receivingCorps * 0.35) - def.coverage - rc.pass,
+    protEdge: off.passProtection - def.passRush - rc.prot,
+    runEdge: (off.runBlocking * 0.5 + off.rushingCorps * 0.5) - def.runDefense - rc.run,
   };
 }
 
@@ -744,8 +818,11 @@ export function simulateGameWithDrives(
     t.rosterIds.map((id) => league.players[id]).filter((p): p is Player => Boolean(p));
   const hf = matchupFacets(homeTeam, league);
   const af = matchupFacets(awayTeam, league);
-  const homeCtx = driveCtx(hf, af);
-  const awayCtx = driveCtx(af, hf);
+  // Re-center each edge on this league-season's mean (invariant to the talent
+  // scale's over-seasons drift; ~0 at a fresh league).
+  const rc = leagueRecenter(league);
+  const homeCtx = driveCtx(hf, af, rc);
+  const awayCtx = driveCtx(af, hf, rc);
   if (!opts.neutralSite) {
     // Zero-sum: home offense plays up, away offense plays down by the same
     // amount (home defense plays up at home). League scoring mean is

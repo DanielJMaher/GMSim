@@ -12,18 +12,40 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-### Known issues
+---
 
-- **League scoring runs ~1 ppg over the realism ceiling over a multi-season sim**
-  (Scorekeeper 30×10: points/game 25.8 vs real 22.8, band ≤24.8). This is a
-  **pre-existing competitive-model residual**, not introduced by v0.163/v0.164: a
-  *fresh* league passes the Magistrate's per-drive bar (points/drive 1.79, even
-  conservative), but a *matured* (10-season) league's offenses slightly outpace
-  its defenses. Isolation confirmed scoring is identical with v0.163's realization
-  lift on or off. The drive-sim pace/efficiency constants are the wrong lever (they
-  would break the green fresh-league Magistrate); the fix is the deferred
-  competitive-model slice (defense keeping pace with offense across seasons — the
-  clock-model spike was already tried and reverted). Tracked as its own slice.
+## [0.165.0] — 2026-06-23
+
+### Fixed
+
+- **Over-seasons scoring drift eliminated** (the standing "league scores ~1 ppg
+  over the realism ceiling over a multi-season sim" — Scorekeeper 30×10 was 25.8
+  vs real 22.8). A matured 10-season league's points/team-game climbed 24.2 → 27.5
+  because the league's talent **scale** legitimately drifts as rosters mature:
+  short-window positions (CB/S/WR/RB) peak early and decline per the
+  Actuary-validated aging curves, so league-mean coverage erodes while QB
+  survivorship lifts `qbPlay` — the QB-weighted `passEdge` climbs from ~0 to ~+12,
+  inflating scoring. The drift is **season-varying**: a fresh-league generation
+  re-balance plus a constant drive-sim re-baseline was implemented and *proven*
+  unable to null it (lowering generation just exposes the true plateau the
+  surviving veterans were masking, and the QB-survivorship rise can't be reproduced
+  at generation). Fixed by **re-centering** each game's pass/run/protection edge on
+  the league's *current-season* mean (`games/drive-sim.ts` `leagueRecenter`,
+  memoized per league-season) — scoring is now invariant to the absolute talent
+  scale: ~0 offset at a fresh league (the Magistrate's per-drive bar is unchanged
+  by construction), exactly cancelling the mature-league drift. It is a uniform
+  shift, so every team's edge *relative to the league* — and thus game margins,
+  records, standings, draft order, and the winner/loser parity — is preserved.
+  Result: points/team-game is flat ~24 across seasons 1-11 (was 24.2 → 27.5);
+  Scorekeeper points 24.0 (in band), Magistrate drive mix green.
+
+### Added
+
+- **Talent-stationarity gate** in the Scorekeeper (`pts season-drift`): mean
+  points/team-game in the last third of a multi-season sim minus the first third
+  (band ±1.6). Every prior Scorekeeper check pooled all seasons, so the
+  over-seasons scoring drift above accumulated unseen — this institutionalises the
+  guard for that class of regression.
 
 ---
 

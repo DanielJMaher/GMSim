@@ -70,6 +70,19 @@ function dist(values: number[]): DistStat {
   return { n: s.length, mean, sd, p5: q(0.05), p50: q(0.5), p95: q(0.95) };
 }
 
+/** Over-seasons points drift: mean points/team-game in the LAST third of the
+ *  simulated seasons minus the FIRST third (the talent-stationarity gate). */
+function seasonPointsDrift(perSeasonPoints: Map<number, number[]>): number {
+  const seasons = [...perSeasonPoints.keys()].sort((a, b) => a - b);
+  if (seasons.length < 3) return 0;
+  const third = Math.max(1, Math.floor(seasons.length / 3));
+  const meanOf = (segment: number[]): number => {
+    const all = segment.flatMap((s) => perSeasonPoints.get(s) ?? []);
+    return all.length ? all.reduce((a, b) => a + b, 0) / all.length : 0;
+  };
+  return meanOf(seasons.slice(-third)) - meanOf(seasons.slice(0, third));
+}
+
 /** Everything the Scorekeeper holds a side to. Same shape for real + sim. */
 interface Bar {
   teamGames: number;
@@ -91,6 +104,15 @@ interface Bar {
   pythRmse: number;
   coupling: { passDelta: number; rushDelta: number; giveawayDelta: number };
   doubleEntryViolations: number;
+  /** TALENT-STATIONARITY GATE (sim-only; 2026-06-23). Mean points/team-game in
+   *  the LAST third of the simulated seasons minus the FIRST third — the
+   *  over-seasons scoring DRIFT. A maturing franchise's league should NOT score
+   *  more year over year; the absent guard let mature-league talent-scale drift
+   *  inflate scoring +3.3 over a decade (the QB-weighted passEdge erosion),
+   *  unseen because every other check pools all seasons. ~0 once scoring is
+   *  re-centered on the league mean. Real side = 0 (15 yrs of distinct teams,
+   *  no single-franchise aging). */
+  pointsDrift: number;
 }
 
 // ── Real side ────────────────────────────────────────────────────────────────
@@ -263,6 +285,7 @@ async function computeRealBar(): Promise<Bar> {
       giveawayDelta: winSide.giv[0]! / Math.max(1, winSide.wn) - winSide.giv[1]! / Math.max(1, winSide.ln),
     },
     doubleEntryViolations: deViolations,
+    pointsDrift: 0, // sim-only gate (real = 15 yrs of distinct teams, no franchise aging)
   };
 }
 
@@ -334,6 +357,12 @@ function computeSimBar(results: SeedResult[]): Bar {
   const seasons = results.flatMap((r) => r.result.seasons);
 
   const points = games.map((g) => g.points);
+  const perSeasonPoints = new Map<number, number[]>();
+  for (const g of games) {
+    const arr = perSeasonPoints.get(g.season) ?? [];
+    arr.push(g.points);
+    perSeasonPoints.set(g.season, arr);
+  }
   let homeWins = 0;
   let decided = 0;
   let compSum = 0;
@@ -393,6 +422,7 @@ function computeSimBar(results: SeedResult[]): Bar {
       giveawayDelta: winSide.giv[0]! / Math.max(1, winSide.wn) - winSide.giv[1]! / Math.max(1, winSide.ln),
     },
     doubleEntryViolations: results.reduce((a, r) => a + r.result.doubleEntryViolations, 0),
+    pointsDrift: seasonPointsDrift(perSeasonPoints),
   };
 }
 
@@ -449,6 +479,9 @@ function reportCompare(real: Bar, sim: Bar): void {
     { label: 'W-L rush delta', real: real.coupling.rushDelta, sim: sim.coupling.rushDelta, lo: 15, hi: 55 },
     { label: 'W-L giveaway delta', real: real.coupling.giveawayDelta, sim: sim.coupling.giveawayDelta, lo: -1.6, hi: -0.3 },
     { label: 'double-entry violations', real: 0, sim: sim.doubleEntryViolations, lo: 0, hi: 0 },
+    // Talent-stationarity gate: points/team-game must not climb as the league
+    // matures (the over-seasons drift this slice fixed: was +3.3, target ~0).
+    { label: 'pts season-drift', real: 0, sim: sim.pointsDrift, lo: -1.6, hi: 1.6 },
   ];
   console.log(`  ${'check'.padEnd(24)} ${'real'.padStart(8)} ${'gmsim'.padStart(8)}   band`);
   for (const c of checks) {
