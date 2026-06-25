@@ -14,6 +14,40 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.166.0] — 2026-06-25
+
+### Changed
+
+- **The #1-overall QB franchise-dev trap is fixed — a slot-graded Rosen rule.**
+  The worst team picks #1 because it has no answer at quarterback, so it takes a
+  QB ~75% of the time in reality; GMSim sat at ~48-53% because a perennial loser
+  holding a recent first-round dev QB read "settled" forever (`qbUpgradeDesire`
+  returned 0 for any premier-slot team with a dev QB inside its rookie window).
+  A diagnostic probe traced **86% of the settled blockers to dev QBs younger than
+  two seasons** — the exact players you realistically *can't* yet judge, so a flat
+  abandon window either over-drafts QBs at #2/#3 (a top-3 window pushed #3 QB to
+  49% vs real 25%) or kills the real #2 re-draft case (a #1-only window dropped #2
+  to 27% vs 44%). The fix **slot-grades** the abandon decision so it follows the
+  real 75/44/25 curve: the worst team re-drafts over a merely-OK kid (Murray over
+  Rosen, Williams over Fields), the 2nd-worst sometimes (Wilson), the 3rd keeps
+  his. Two mechanics make it work: `qbUpgradeDesire` now takes the team's **actual
+  pick** (computed at pick time from the live draft order) and the abandon floor
+  **decays by slot**; and it gates on the **unclamped QB-room rank**, not the
+  graded desire (which saturates at 1.0 for every bottom-feeder, so a desire-floor
+  can't tell #1 from #3). Result on the Goatinator (1,920 top-10 picks): #1 QB
+  **71%**, #2 **39%**, #3 **26%** (real 75/44/25), top-3 QB+EDGE+WR on the bar, no
+  position-mix drift.
+
+### Known issues
+
+- **Top-10 QB volume runs ~27% vs real ~22%.** This is *not* the #1-QB trap above
+  (every Rosen configuration left it at ~25-27%, since that lever only touches the
+  top-3, which is now correct) — the over-draft is at **picks 4-10** (~0.19 QB/slot
+  vs real ~0.11), i.e. the broader top-of-draft positional premium (WR also over,
+  OL/RB under). Tracked as its own top-of-draft-shape slice.
+
+---
+
 ## [0.165.0] — 2026-06-23
 
 ### Fixed

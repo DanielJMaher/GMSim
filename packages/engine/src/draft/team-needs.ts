@@ -181,18 +181,20 @@ export function qbUpgradeDesire(
   league: LeagueState,
   opts?: {
     /**
-     * THE ROSEN RULE (v0.154): evaluating at a premier slot (top-8 pick).
-     * The 4-year franchise-dev commitment is what stops teams drafting QBs
-     * every year — but it must not survive contact with a top-3 pick and a
-     * bust: bad teams that drafted a QB high stay bad, keep picking top-5,
-     * and the unconditional window made them read "settled" forever (the
-     * equilibrium #1 team was "perennial loser with an R1 kid" → EDGE).
-     * Real war rooms abandon failed R1 QBs exactly here: Rosen→Murray
-     * after ONE season, Darnold→Wilson, Fields→Williams. At a premier
-     * slot, a dev QB with a season played only settles the room if he
-     * isn't grading out as a bust (bottom-half QB-room rank).
+     * THE ROSEN RULE (v0.154; slot-graded v0.166): the actual overall draft
+     * pick when the team is in the premier window (top-3), else undefined. The
+     * 4-year franchise-dev commitment is what stops teams drafting QBs every
+     * year — but it must not survive contact with the very top of the draft: a
+     * perennial-loser #1 team with a recent R1 kid read "settled" forever,
+     * capping the #1-overall QB share at ~48% (real 75%). Real war rooms abandon
+     * failed R1 QBs at the top, and the willingness DECAYS by slot — the worst
+     * team re-drafts over the kid (Murray #1, Williams #1), the 2nd re-drafts
+     * sometimes (Wilson #2), the 3rd almost always keeps his. Passing the actual
+     * pick lets the abandon floor decay across #1→#3 to match the real 75/44/25
+     * QB-share curve instead of a flat top-3 window (which over-drafted #3 to
+     * 49% vs real 25%).
      */
-    premierSlot?: boolean;
+    premierPick?: number;
   },
 ): number {
   if (hasDesperateQbNeed(team, league.players)) return 1.0;
@@ -213,13 +215,6 @@ export function qbUpgradeDesire(
   };
 
   const mine = bestQbScore(team);
-  // Two seasons before the abandon window opens: Rosen-after-one-year is
-  // the 15-year outlier; Darnold→Wilson and Fields→Williams (2-3 seasons)
-  // are the pattern. A 1-year window produced ANNUAL serial re-drafts
-  // (top-10 QB volume overshot to 32% vs real 22%).
-  const rosenWindowOpen =
-    opts?.premierSlot === true && mine.devExp !== null && mine.devExp >= 2;
-  if (mine.devExp !== null && !rosenWindowOpen) return 0; // committed to the kid
 
   let better = 0;
   let others = 0;
@@ -234,10 +229,32 @@ export function qbUpgradeDesire(
   // franchise QB at the top — Pittsburgh/Pickett wouldn't pass on Caleb);
   // second quartile graded.
   const desire = Math.max(0, Math.min(1, (worseFraction - 0.25) / 0.25));
-  if (rosenWindowOpen) {
-    // Abandoning the R1 kid takes a BUST grade, not a mid one: only a
-    // bottom-half-grading dev QB re-opens the hunt; otherwise still his.
-    return desire >= 0.9 ? desire : 0;
+
+  // Franchise-dev QB carve-out — THE ROSEN RULE (slot-graded v0.166). A
+  // first-round kid inside his rookie window normally settles the room: you
+  // don't draft over a developing QB. EXCEPT near the very top of the draft,
+  // where holding the pick is itself evidence the plan isn't working — the
+  // #1-overall probe showed the worst teams hoard recent R1 passers and read
+  // "settled" forever, capping the #1-QB share at ~48% (real ~75%). The abandon
+  // FLOOR decays by SLOT (the worst team re-drafts aggressively, the 2nd/3rd
+  // progressively keep theirs — the real 75/44/25 QB-share curve) and is raised
+  // for a YOUNGER kid (devExp<2 is the Rosen-after-one-year outlier; an
+  // established ≥2-season pick is the Darnold/Fields norm). A flat top-3 window
+  // over-drafted #3 to 49% (vs real 25%); the slot decay keeps each slot on its
+  // bar (validated on the Goatinator). Outside the top-3 the kid always settles.
+  if (mine.devExp !== null) {
+    const pick = opts?.premierPick;
+    if (pick === undefined || pick > 3) return 0; // not a premier pick: his job
+    // Gate on the UNCLAMPED worseFraction, not `desire`: desire saturates at
+    // worseFraction ≥ 0.5, so the worst-3 teams (the ones drafting here) all map
+    // to desire 1.0 — a desire-floor can't tell #1 from #3. The raw league-rank
+    // of the QB room still separates them, so the abandon floor decays across
+    // it by slot (the worst team re-drafts over the kid, #3 keeps his) plus a
+    // young-kid penalty (devExp<2 is the Rosen-after-one-year outlier). Returns
+    // the (clamped) desire for the slot-premium boost when it does fire.
+    const wfFloor = pick === 1 ? 0.45 : pick === 2 ? 0.87 : 0.99;
+    const abandonFloor = mine.devExp >= 2 ? wfFloor : wfFloor + 0.12;
+    return worseFraction >= abandonFloor ? desire : 0;
   }
   return desire;
 }

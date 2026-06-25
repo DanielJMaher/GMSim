@@ -49,10 +49,14 @@ const QB_REACH_MAX_BOARD_RANK = 12;
 const QB_HUNT_DESIRE_MIN = 0.3;
 
 /**
- * The Rosen rule's reach (v0.154): a bust-grading franchise-dev QB only
- * stops settling his team for picks 1-3 — the real re-draft-over-the-kid
- * slots (Murray #1, Wilson #2, Williams #1). At 4-8 teams give the kid
- * the extra year.
+ * The Rosen rule's reach (v0.154; narrowed to #1 in v0.166): a bust-grading
+ * franchise-dev QB stops settling his team only at the VERY top. The v0.166
+ * dev-age-tiered loosening (team-needs.ts) lifted the #1-overall QB share onto
+ * the real ~75% bar, but applied across picks 1-3 it over-drafted QBs at #2/#3
+ * The premier window is the top-3 picks; WITHIN it the abandon floor now decays
+ * by slot (see `qbUpgradeDesire`'s `premierPick`), so #1 re-drafts aggressively
+ * and #3 almost always keeps the kid — a flat window over- or under-drafted the
+ * lower slots (top-3 → #3 QB 49% vs real 25%; top-1 → #2 QB 27% vs 44%).
  */
 const QB_ROSEN_MAX_PICK = 3;
 
@@ -192,16 +196,13 @@ export function runDraft(
   // Updated in-draft: once a team takes a QB this round its desire is 0
   // (a team holding two top picks must not double-draft passers).
   const qbDesire = new Map<TeamId, number>();
-  // Rosen-aware desire for premier slots (v0.154): the 4-year franchise-dev
-  // commitment doesn't survive a top-8 pick + a bust-grading kid.
-  const qbPremierDesire = new Map<TeamId, number>();
   for (const team of Object.values(league.teams)) {
     qbDesire.set(team.identity.id, qbUpgradeDesire(team, league));
-    qbPremierDesire.set(
-      team.identity.id,
-      qbUpgradeDesire(team, league, { premierSlot: true }),
-    );
   }
+  // The Rosen-aware premier desire (v0.154; slot-graded v0.166) is computed at
+  // the PICK from the team's actual slot, so the franchise-dev abandon floor
+  // decays #1→#3 — see `qbUpgradeDesire`'s `premierPick`. (The league is frozen
+  // for the round, so a per-pick call equals the old precompute, with the slot.)
   // Teams settled enough that they won't trade UP into the GOAT window for
   // a QB. Rebuilt when a QB pick zeroes a team's desire (32 entries; cheap).
   const buildQbSettledSet = (): Set<TeamId> => {
@@ -212,6 +213,8 @@ export function runDraft(
     return s;
   };
   let qbSettledTeams = buildQbSettledSet();
+  // Teams that already drafted a QB this round (no double-dipping at a 2nd pick).
+  const qbTakenTeams = new Set<TeamId>();
 
   // Pick-time needs snapshot (v0.147): each record stores the top of the
   // picking team's need list over the SAME league state the pick logic
@@ -304,8 +307,8 @@ export function runDraft(
     // no longer settles the room).
     const rawQbDesire = qbDesire.get(teamId) ?? 0;
     const teamQbDesire =
-      overallPick <= QB_ROSEN_MAX_PICK
-        ? Math.max(rawQbDesire, qbPremierDesire.get(teamId) ?? 0)
+      overallPick <= QB_ROSEN_MAX_PICK && !qbTakenTeams.has(teamId)
+        ? Math.max(rawQbDesire, qbUpgradeDesire(team, league, { premierPick: overallPick }))
         : rawQbDesire;
     const qbDesperateAtPick = rawQbDesire >= 1;
     let needsAtPick = needsMemo.get(teamId);
@@ -410,10 +413,13 @@ export function runDraft(
     newPlayers.push(promoted.player);
     newContracts.push(promoted.contract);
     appendRosterAddition(rosterAdditions, teamId, promoted.player.id);
-    // A team that just took its QB is settled for the rest of this round.
+    // A team that just took its QB is settled for the rest of this round (a
+    // team holding two top picks must not double-draft passers). The drafted QB
+    // isn't on the frozen-for-the-round roster yet, so the per-pick premier
+    // desire can't see him — track it explicitly.
     if (promoted.player.position === 'QB') {
       qbDesire.set(teamId, 0);
-      qbPremierDesire.set(teamId, 0);
+      qbTakenTeams.add(teamId);
       qbSettledTeams = buildQbSettledSet();
     }
     availableById.delete(chosen.id);

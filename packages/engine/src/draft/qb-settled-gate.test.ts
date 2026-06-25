@@ -68,7 +68,7 @@ function settledTeamId(league: LeagueState): TeamId {
   const team = Object.values(league.teams).find(
     (t) =>
       qbUpgradeDesire(t, league) === 0 &&
-      qbUpgradeDesire(t, league, { premierSlot: true }) === 0,
+      qbUpgradeDesire(t, league, { premierPick: 1 }) === 0,
   );
   if (!team) throw new Error('no zero-desire team in fixture league');
   return team.identity.id;
