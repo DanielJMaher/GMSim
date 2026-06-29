@@ -81,12 +81,15 @@ export const POSITION_DRAFT_VALUE: Readonly<Record<Position, number>> = {
   // Cornerstone — the one position whose surplus dwarfs all others.
   QB: 1.55,
   // Premium — blindside tackle leads the field (OL is drafted heavily and the
-  // LT premium is real); EDGE/WR are the premium non-OL spots. EDGE is no
-  // longer the runaway #2: by DRAFT capital it sits with WR (both ~14% of the
-  // top 10), above interior DL/OL but below the blindside tackle.
+  // LT premium is real); EDGE is the premium non-OL spot, above interior DL/OL
+  // but below the blindside tackle.
   LT: 1.3,
   EDGE: 1.18,
-  WR: 1.18,
+  // WR trimmed below EDGE (v0.167): at 1.18 (= EDGE) the DRAFT over-reached WR
+  // to ~17-19% of the top-10 (real 14%) on skill-position need pressure, while
+  // the board only ranks ~11% WR there — the gap is a need-driven reach the
+  // value scale should not amplify, so WR drops toward the receiving-market APY.
+  WR: 1.12,
   RT: 1.12,
   // Moderate — worth high picks, deeper pools / more replaceable. iDL tracks
   // the market (top-5 iDL APY ~$27.5M) alongside CB; interior guards anchor the
@@ -98,6 +101,10 @@ export const POSITION_DRAFT_VALUE: Readonly<Record<Position, number>> = {
   // Draftable-but-replaceable — compressed UP toward neutral vs the old table,
   // because rookie-scale economics make an elite one a real top-pick target
   // (the Bijan/Roquan reality), not the near-floor the veteran market implies.
+  // NB: RB/TE stay BELOW neutral by design (replaceable) — the test pins their
+  // board factor < 1. Their top-10 under-ranking (board ~1%/0% vs real 6%/3%)
+  // is a perceived-skill cap on elite ball-carriers/move-TEs, not a value gap;
+  // the value scale can't lift it without making RB a premium position.
   C: 0.95,
   ILB: 0.95,
   OLB: 0.92,
@@ -243,9 +250,22 @@ export function qbSettledPickFactor(overallPick: number): number {
 // weighs QBs at this value instead; graded/settled teams are untouched.
 export const QB_REVEALED_SLOT_VALUE = 2.0;
 
+/** Pick past which the revealed QB boost fades to board-neutral (v0.167). The
+ *  #1-3 QB slot decay (75/44/25) is set by the Rosen rule; beyond the premier
+ *  window the revealed boost over-pushed QBs at picks 4-10, lifting top-10 QB
+ *  volume to ~27% vs real ~22%. */
+const QB_REVEALED_FADE_END_PICK = 7;
+
 /** Slot boost for a full-desire team's QB candidates — same decay as the
- *  regular premium, stronger value. ~1.85 at #1, board-neutral by ~40. */
+ *  regular premium, stronger value (~1.85 at #1). Held full through the premier
+ *  window (picks 1-3, where the #1-QB share is calibrated) then FADED to
+ *  board-neutral by pick 7, so a QB-needy mid-first-round team is selective —
+ *  it takes a passer only if he's clearly its best board value, matching the
+ *  real picks-4-10 QB rate (~0.11/slot) instead of over-drafting (~0.19). */
 export function qbRevealedSlotBoost(overallPick: number): number {
   const extra = Math.max(0, slotPremiumStrength(overallPick) - BOARD_PREMIUM_STRENGTH);
-  return 1 + (QB_REVEALED_SLOT_VALUE - 1) * extra;
+  const boost = 1 + (QB_REVEALED_SLOT_VALUE - 1) * extra;
+  if (overallPick <= 3) return boost;
+  const fade = Math.max(0, 1 - (overallPick - 3) / (QB_REVEALED_FADE_END_PICK - 3));
+  return 1 + (boost - 1) * fade;
 }

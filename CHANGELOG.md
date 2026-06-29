@@ -14,6 +14,45 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.167.0] — 2026-06-29
+
+### Changed
+
+- **Top-of-draft shape: WR need-reach trimmed + the revealed-QB boost faded past
+  the premier window.** Two contained draft-board fixes, validated on the
+  Goatinator (16 seeds × 12 drafts, 1,920 top-10 picks):
+  - **WR draft value 1.18 → 1.12.** At 1.18 (tied with EDGE) the draft over-reached
+    WR to ~17-19% of the top 10 (real 14%) on skill-position need pressure, while
+    the consensus board only ranks ~11% WR there — a need-driven reach the value
+    scale shouldn't amplify. WR drops toward the receiving-market APY and now lands
+    **15%** of the top 10.
+  - **`qbRevealedSlotBoost` fades after pick 3.** This is the v0.166 "Known issues"
+    item: top-10 QB volume ran ~27% vs real ~22% because the revealed-QB boost
+    over-pushed QB-needy teams at **picks 4-10** (~0.19 QB/slot vs real ~0.11). The
+    boost is now held full through the premier window (picks 1-3, where the #1-QB
+    share is calibrated) then decays linearly to board-neutral by pick 7, so a
+    mid-first-round QB-needy team is selective — it takes a passer only if he's
+    clearly its best board value. Top-10 QB drops to **24%** (per-seed p50 26%).
+    Because the fade leaves picks 1-3 untouched, the GOAT slots hold: **#1 QB 76%**
+    (real 75), **#3 28%** (real 25).
+
+### Known issues
+
+- **#2-overall QB share 34% vs real 44%.** Unaffected by the fade above (picks 1-3
+  keep full boost); a pre-existing gap in the #2-slot re-draft case, tracked as its
+  own slice.
+- **Mature-league talent-feel drifts hard (newly instrumented).** Over a forward
+  sim, the league's ELITE/STAR pool tilts dramatically by season 8: QB share 6% →
+  **25%** and K/P 5% → **18%**, while OL (18% → 7%) and LB (12% → 3%) collapse — a
+  separate problem from the draft-board shape above. Root: `talentGrade` is
+  recomputed each season from current skills against fixed thresholds, and the
+  aging model lets long-window football/mental skills ratchet up to ceiling while
+  short-window physical skills decline, so long-career positions accumulate as
+  stars. Its own development/aging slice (the generation distribution at S0 is
+  realistic; the equilibrium it evolves to is not).
+
+---
+
 ## [0.166.0] — 2026-06-25
 
 ### Changed
