@@ -37,6 +37,7 @@ import type { Transaction } from '../types/transaction.js';
 import { Prng as PrngClass } from '../prng/index.js';
 import { computeRecords, divisionStandings } from './standings.js';
 import { advancePlayerDevelopment, computePerformanceMultipliers } from './development.js';
+import { regradeLeagueTalent } from './talent-score.js';
 import { applyInjuryScar } from '../players/aging-curves.js';
 import { processRetirements } from './retirement.js';
 import { seasonStatsForLeague } from './stats.js';
@@ -885,6 +886,13 @@ function applyPostSeasonFinalize(
     playersAfterDev[player.id] = advanced.injury ? { ...advanced, injury: null } : advanced;
   }
 
+  // Sustained-talent re-grade (PFF model): one league-wide pass over the
+  // post-development population sets every player's talentScore/talentGrade/tier
+  // from his WITHIN-POSITION standing, EWMA-smoothed. Replaces the old per-player
+  // current-skills snapshot, which piled aging-resistant QB/K talent into the
+  // standing star pool. See `season/talent-score.ts`.
+  const playersRegraded = regradeLeagueTalent(playersAfterDev);
+
   const coachesNext: Record<string, HeadCoach> = { ...league.coaches };
   if (awards.coy) {
     const coach = coachesNext[awards.coy.coachId];
@@ -901,7 +909,7 @@ function applyPostSeasonFinalize(
 
   const contractsAfterAdvance: Record<string, Contract> = {};
   for (const contract of Object.values(league.contracts)) {
-    const player = playersAfterDev[contract.playerId];
+    const player = playersRegraded[contract.playerId];
     if (!player) continue;
     contractsAfterAdvance[contract.id] = {
       ...contract,
@@ -918,7 +926,7 @@ function applyPostSeasonFinalize(
 
   const playersNext: Record<string, Player> = {};
   const retiredSet = new Set<PlayerId>(retirement.retiredPlayerIds);
-  for (const [id, player] of Object.entries(playersAfterDev)) {
+  for (const [id, player] of Object.entries(playersRegraded)) {
     if (retiredSet.has(id as PlayerId)) continue;
     playersNext[id] = player;
   }

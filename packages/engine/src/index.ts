@@ -45,6 +45,7 @@ export {
   PLAYER_ARCHETYPES,
   getArchetypeById,
   getArchetypesForPosition,
+  keySkillAverage,
 } from './archetypes/index.js';
 export type { PlayerArchetype, ArchetypeId } from './archetypes/index.js';
 

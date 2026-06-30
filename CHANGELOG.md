@@ -14,6 +14,64 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.168.0] — 2026-07-01
+
+### Added
+
+- **Sustained-talent score (`Player.talentScore`) — a PFF-style track record.**
+  Each player carries a sticky 0..1 score that every offseason EWMA-smooths
+  (α = 0.35, ~3-year memory) his WITHIN-POSITION key-skill percentile, and the
+  talent grade is mapped from it by a fixed absolute cut. So the *count* of
+  elites per position floats with the era (no quota), one down year barely dents
+  a sustained star, and a washed-up veteran slides out of "star" over ~2-3
+  seasons rather than on a one-year cliff. New `season/talent-score.ts`
+  (`regradeLeagueTalent`), seeded at generation/promotion and backfilled by a
+  save migration. `keySkillAverage` is now exported from the engine.
+
+### Changed
+
+- **Talent re-grade is now position-relative, not an absolute cross-position
+  line.** The old offseason re-grade mapped each player's current key-skill
+  average to a grade against ONE absolute threshold. But every technique skill
+  ages as category `technical` (declines late and gently), so positions whose
+  key skills are all technical/mental — QB and K/P — held their ability near
+  ceiling for a whole career and PILED UP in the standing star pool, while
+  physical positions cycled out. Over 8 simulated seasons the ELITE/STAR pool
+  drifted to **25% QB** and **18% K/P** while **OL collapsed 18%→7%** and
+  **LB 12%→3%**. Ranking each player within his own position (then EWMA-smoothing
+  and mapping by a fixed cut) keeps the pool **balanced and stationary** —
+  QB 7%, K/P 4%, OL 19%, LB 12%, all within ±3pp of the realistic S0 generation
+  mix — without flattening the Actuary-calibrated aging curves. The league-wide
+  grade distribution still tracks the Skill Adjudicator's `DESIGN_TARGET`.
+
+### Fixed
+
+- **Free-agent washout now uses an absolute current-ability grade.** Washout
+  ("is this player still NFL-caliber?") is an absolute judgment, but it had been
+  reading the talent grade — which is now relative and sticky, so a just-cut
+  player kept a high grade for years, dodged washout, and the unsigned pool grew
+  unbounded (slowing every long simulation). It now keys off a dedicated
+  absolute `currentAbilityGrade` derived from current key skills.
+
+- **Team cap usage held in band after the star-pool correction.** Contracts
+  price off the coarse tier, so removing the (unrealistic) QB/K star inflation
+  legitimately lowered league-wide spending below the cap-usage floor — the old
+  number leaned on the inflated star count. The talent cuts were recalibrated to
+  the realistic star rate so cap usage stays in its plausible band.
+
+### Known issues
+
+- **Contract/cap spending leans on the star count.** Because contract value is
+  tier-driven, a realistic (smaller) star pool spends less; the cap-usage band
+  was implicitly tuned against the old inflated stars. Genuinely realistic team
+  spending is a separate contract-system slice.
+- **Media follow-up (not yet built):** when a player is still graded ELITE but
+  producing mid-tier, outlets should split — some calling him washed/coasting on
+  his name, others defending him as still impactful. Enabled by the sticky score
+  (grade lags production by ~2-3 years).
+
+---
+
 ## [0.167.0] — 2026-06-29
 
 ### Changed

@@ -10,7 +10,7 @@ import { positionGroupFor } from '../players/position-group.js';
 import { provenanceFromOverallPick, type DraftProvenance } from '../players/draft-provenance.js';
 import { backstoryFromProspect } from '../players/backstory.js';
 import { assignAbilities } from '../players/abilities.js';
-import { gradeFromOverall } from '../players/skills.js';
+import { gradeFromOverall, seedTalentScoreFromGrade } from '../players/skills.js';
 import type { PlayerSkills } from '../types/player.js';
 
 function meanOfSkills(skills: PlayerSkills): number {
@@ -140,6 +140,10 @@ function buildBaseRookiePlayer(
   const position = assignedPosition ?? prospect.nflProjectedPosition;
   const positionGroup = positionGroupFor(position);
   const moodProfile = rollMoodProfile(prng.fork('mood'));
+  // College prospects carry only the coarse tier; derive the fine grade from
+  // their ceiling (the Skill Adjudicator resolution) at promotion, and seed the
+  // sustained-talent score from it (the offseason re-grade pass takes over).
+  const talentGrade = gradeFromOverall(meanOfSkills(prospect.ceiling));
   return {
     id: prospect.id,
     firstName: prospect.firstName,
@@ -154,9 +158,8 @@ function buildBaseRookiePlayer(
     ceiling: prospect.ceiling,
     developmentArchetype: prospect.developmentArchetype,
     tier: prospect.tier,
-    // College prospects carry only the coarse tier; derive the fine grade
-    // from their ceiling (the Skill Adjudicator resolution) at promotion.
-    talentGrade: gradeFromOverall(meanOfSkills(prospect.ceiling)),
+    talentGrade,
+    talentScore: seedTalentScoreFromGrade(talentGrade),
     archetype: prospect.archetype,
     injury: null,
     conditioning: 100,

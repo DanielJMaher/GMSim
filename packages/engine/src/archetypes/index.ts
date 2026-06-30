@@ -4,6 +4,7 @@ import { PLAYER_ARCHETYPES } from './catalog.js';
 
 export type { PlayerArchetype, ArchetypeId } from './types.js';
 export { PLAYER_ARCHETYPES } from './catalog.js';
+export { keySkillAverage } from './key-skill.js';
 
 const BY_ID = new Map<ArchetypeId, PlayerArchetype>(
   PLAYER_ARCHETYPES.map((a) => [a.id, a]),

@@ -171,6 +171,29 @@ export function gradeFromOverall(overall: number): TalentGrade {
 }
 
 /**
+ * Seed value for a freshly-generated player's sustained-talent score
+ * (`Player.talentScore`, 0..1) — the mid-percentile of the grade's band under
+ * the league `DESIGN_TARGET` (ELITE 1% / STAR 4% / HIGH_STARTER 13% / …). A
+ * player enters at the typical within-position standing for his rolled grade;
+ * the offseason re-grade pass (`season/talent-score.ts`) then EWMA-tracks his
+ * actual standing from there. Kept consistent with the `GRADE_CUTS` in that
+ * module so re-grading a fresh league reproduces the generated grade mix. */
+const GRADE_SEED_SCORE: Record<TalentGrade, number> = {
+  ELITE: 0.995,
+  STAR: 0.975,
+  HIGH_STARTER: 0.92,
+  STARTER: 0.81,
+  WEAK_STARTER: 0.69,
+  ROTATIONAL: 0.57,
+  BACKUP: 0.41,
+  FRINGE: 0.2,
+};
+
+export function seedTalentScoreFromGrade(grade: TalentGrade): number {
+  return GRADE_SEED_SCORE[grade];
+}
+
+/**
  * How fully a player has reached their ceiling, by life-stage and skill
  * category. Per the Player Development design doc:
  *   - Physical attributes barely grow after entering NFL.
@@ -229,6 +252,8 @@ export interface RolledSkills {
   ceiling: PlayerSkills;
   tier: TalentTier;
   talentGrade: TalentGrade;
+  /** Sustained-talent score seed (0..1) for {@link Player.talentScore}. */
+  talentScore: number;
 }
 
 /**
@@ -423,7 +448,7 @@ export function rollSkills(
     current[key] = Math.min(ceilVal, Math.max(1, noisyCurrent));
   }
 
-  return { current, ceiling, tier, talentGrade };
+  return { current, ceiling, tier, talentGrade, talentScore: seedTalentScoreFromGrade(talentGrade) };
 }
 
 /**

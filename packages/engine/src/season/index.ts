@@ -31,6 +31,11 @@ export {
 } from './calendar.js';
 export { advancePlayerDevelopment, ageOfPlayer } from './development.js';
 export {
+  regradeLeagueTalent,
+  gradeFromTalentScore,
+  TALENT_SCORE_ALPHA,
+} from './talent-score.js';
+export {
   rollRetirement,
   retirementProbabilityForAge,
   processRetirements,

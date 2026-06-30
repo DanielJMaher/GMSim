@@ -122,9 +122,23 @@ export interface Player {
 
   /**
    * Fine 8-tier talent grade (Skill Adjudicator). Source of truth; `tier` is
-   * derived from this via `gradeToTier`. Evolves over a career like `tier`.
+   * derived from this via `gradeToTier`. Evolves over a career: each offseason
+   * the league-wide re-grade pass (`season/talent-score.ts`) maps it from
+   * {@link talentScore}.
    */
   talentGrade: TalentGrade;
+
+  /**
+   * Sustained-talent score (0..1) — the PFF-style track record the grade is
+   * mapped from. Each offseason it EWMA-smooths the player's WITHIN-POSITION
+   * key-skill percentile (1 = best at his position that year), so a single down
+   * year barely dents it and a washed veteran slides out of "star" over ~2-3
+   * seasons rather than on a one-year cliff. Mapping to {@link talentGrade} uses
+   * a fixed absolute cut, so the *count* of elites per position floats with the
+   * era instead of being a fixed quota. Seeded at generation from the rolled
+   * grade. See `season/talent-score.ts`.
+   */
+  talentScore: number;
 
   /** Position-specific archetype tag. Drives scheme fit. See ArchetypeId enum. */
   archetype: ArchetypeId;

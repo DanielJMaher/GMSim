@@ -1,6 +1,5 @@
 import type { Prng } from '../prng/index.js';
-import type { Player, PlayerSkills, PlayerDevelopmentArchetype, TalentGrade } from '../types/player.js';
-import { gradeToTier } from '../players/skills.js';
+import type { Player, PlayerSkills, PlayerDevelopmentArchetype } from '../types/player.js';
 import type { LeagueState } from '../types/league.js';
 import type { PlayerSeasonStats } from '../types/stats.js';
 import type { PlayerId } from '../types/ids.js';
@@ -86,18 +85,16 @@ export function advancePlayerDevelopment(
     declineMult,
     performanceMultiplier,
   );
-  // Tier shifts as skills change. We don't store an "original" tier;
-  // re-derive from new current ratings using the same skill-key logic
-  // contracts use. The fine grade is the source of truth; tier derives from it.
-  const newGrade = deriveGradeFromSkills(newCurrent, player);
-
+  // talentGrade / tier are NOT set here. They are re-derived once per offseason
+  // by the league-wide sustained-talent pass (`season/talent-score.ts`), which
+  // ranks each player WITHIN his position and EWMA-smooths the result — a
+  // position-fair, sticky grade that a per-player current-skills snapshot can't
+  // produce (the snapshot piled aging-resistant QB/K talent into the star pool).
   return {
     ...player,
     experienceYears: player.experienceYears + 1,
     current: newCurrent,
     ceiling: newCeiling,
-    talentGrade: newGrade,
-    tier: gradeToTier(newGrade),
   };
 }
 
@@ -280,62 +277,6 @@ function growthRate(
   }
 
   return base;
-}
-
-/**
- * Derive talent tier from current skills using the same key-skill
- * average the inspector uses. Mirrors the contracts module's
- * `deriveTier` but lives here so the development module doesn't need
- * to import contracts (avoids a circular dep risk if contracts ever
- * needs to advance via development data).
- */
-/**
- * Derive the fine 8-grade from current key-skill average. Thresholds split
- * the legacy 4-tier cuts (80/70/60) in two, so `gradeToTier` of the result
- * reproduces the old tier exactly — tier behavior is unchanged, grade adds
- * resolution.
- */
-function deriveGradeFromSkills(skills: PlayerSkills, player: Player): TalentGrade {
-  const keys = keySkillsForArchetype(player.archetype);
-  if (keys.length === 0) return 'ROTATIONAL';
-  const avg = keys.reduce((s, k) => s + skills[k], 0) / keys.length;
-  if (avg >= 86) return 'ELITE';
-  if (avg >= 80) return 'STAR';
-  if (avg >= 75) return 'HIGH_STARTER';
-  if (avg >= 70) return 'STARTER';
-  if (avg >= 65) return 'WEAK_STARTER';
-  if (avg >= 60) return 'ROTATIONAL';
-  if (avg >= 54) return 'BACKUP';
-  return 'FRINGE';
-}
-
-function keySkillsForArchetype(archetypeId: string): readonly (keyof PlayerSkills)[] {
-  // Avoid an import-cycle through `archetypes/index.ts` by inlining a
-  // minimal lookup. The full archetype catalog is the source of truth;
-  // this is just key-set extraction for tier derivation.
-  // For Phase 2 we approximate via position-group conventions.
-  if (archetypeId.startsWith('QB_')) {
-    return ['technicalSkill', 'footballIq', 'decisionMaking', 'composure'];
-  }
-  if (archetypeId.startsWith('WR_') || archetypeId.startsWith('TE_')) {
-    return ['technicalSkill', 'handsBallSkills', 'speed', 'agility'];
-  }
-  if (archetypeId.startsWith('RB_') || archetypeId.startsWith('FB_')) {
-    return ['speed', 'agility', 'strength', 'technicalSkill'];
-  }
-  if (archetypeId.startsWith('OL_')) {
-    return ['blockingTechnique', 'strength', 'agility', 'technicalSkill'];
-  }
-  if (archetypeId.startsWith('DL_')) {
-    return ['passRushTechnique', 'strength', 'speed', 'technicalSkill'];
-  }
-  if (archetypeId.startsWith('LB_')) {
-    return ['speed', 'tacklingTechnique', 'coverageTechnique', 'footballIq'];
-  }
-  if (archetypeId.startsWith('DB_')) {
-    return ['coverageTechnique', 'speed', 'agility', 'footballIq'];
-  }
-  return ['technicalSkill', 'composure'];
 }
 
 // ─── Performance-driven growth multipliers ────────────────────────────

@@ -1,8 +1,9 @@
 import type { Prng } from '../prng/index.js';
 import type { LeagueState } from '../types/league.js';
-import type { Player } from '../types/player.js';
+import type { Player, TalentGrade } from '../types/player.js';
 import type { PlayerId, ContractId } from '../types/ids.js';
 import { ageOfPlayer } from './development.js';
+import { keySkillAverage } from '../archetypes/key-skill.js';
 
 /**
  * Age-based retirement + low-skill free-agent washout. As of v0.37.0
@@ -110,6 +111,28 @@ function unsignedVetWashoutFloor(age: number): number {
   return 0;
 }
 
+/**
+ * ABSOLUTE current-ability grade from the player's key-skill average — "can he
+ * still play at NFL level?" Washout (and the broken-down-vet retirement hazard)
+ * are absolute replacement-level judgments, NOT the relative/sticky
+ * `talentGrade` (PFF model): a player can rank well at his position and still be
+ * below NFL-roster caliber if the whole position is thin, and a just-cut star
+ * keeps a high sticky grade for years. Without an absolute signal here, weak
+ * free agents dodge washout and the FA pool grows unbounded. Thresholds are the
+ * legacy key-skill-average cuts the washout rates were calibrated against.
+ */
+export function currentAbilityGrade(player: Player): TalentGrade {
+  const ksa = keySkillAverage(player.current, player.archetype);
+  if (ksa >= 86) return 'ELITE';
+  if (ksa >= 80) return 'STAR';
+  if (ksa >= 75) return 'HIGH_STARTER';
+  if (ksa >= 70) return 'STARTER';
+  if (ksa >= 65) return 'WEAK_STARTER';
+  if (ksa >= 60) return 'ROTATIONAL';
+  if (ksa >= 54) return 'BACKUP';
+  return 'FRINGE';
+}
+
 export function rollWashout(
   prng: Prng,
   grade: string,
@@ -196,9 +219,11 @@ export function processRetirements(
       rollRetirementFor(offRosterPrng.fork(`retire:${player.id}`), ageNext, player) ||
       rollWashout(
         offRosterPrng.fork(`washout:${player.id}`),
-        // The fine-grained 8-tier grade — the coarse `tier` hid sub-starter
-        // FAs inside "STARTER" and let them linger forever (see table doc).
-        player.talentGrade,
+        // ABSOLUTE current-ability grade, not the relative/sticky `talentGrade`
+        // (PFF model): washout is a "below NFL caliber" judgment, and a sticky
+        // grade would let a just-cut player dodge washout for years (FA pool
+        // then grows unbounded). See `currentAbilityGrade`.
+        currentAbilityGrade(player),
         ageNext,
         isFreeAgent,
       );

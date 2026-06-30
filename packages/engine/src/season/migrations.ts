@@ -11,7 +11,7 @@ import { synthesizeBackstory, rollNotableOtherSport } from '../players/backstory
 import { deriveVoiceSeed } from '../media/voice.js';
 import { generatePhysicalProfile } from '../players/physical.js';
 import { assignAbilities } from '../players/abilities.js';
-import { gradeFromOverall } from '../players/skills.js';
+import { gradeFromOverall, seedTalentScoreFromGrade } from '../players/skills.js';
 import { GRANULAR_PARENT } from '../players/skill-keys.js';
 import type { PlayerSkills } from '../types/player.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
@@ -474,6 +474,21 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
         const vals = Object.values(p.ceiling);
         const overall = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
         backfilled[id] = { ...p, talentGrade: gradeFromOverall(overall) };
+      }
+      next = { ...next, players: backfilled } as LeagueState;
+    }
+  }
+
+  // Sustained-talent score (PFF model). Pre-feature players have no
+  // `talentScore` — seed it from their current `talentGrade` (present after the
+  // backfill above); the offseason re-grade pass EWMA-tracks it from there.
+  {
+    const players = next.players as Record<string, Player>;
+    const sample = Object.values(players)[0];
+    if (sample && (sample as { talentScore?: unknown }).talentScore === undefined) {
+      const backfilled: Record<string, Player> = {};
+      for (const [id, p] of Object.entries(players)) {
+        backfilled[id] = { ...p, talentScore: seedTalentScoreFromGrade(p.talentGrade) };
       }
       next = { ...next, players: backfilled } as LeagueState;
     }
