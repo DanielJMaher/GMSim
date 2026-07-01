@@ -82,7 +82,7 @@ export function gradeFromTalentScore(score: number): TalentGrade {
  * ranked against the rostered reference (so they land low, as they should).
  * Ties share the average rank.
  */
-function withinPositionPercentiles(players: readonly Player[]): Map<string, number> {
+export function withinPositionPercentiles(players: readonly Player[]): Map<string, number> {
   const ksaOf = new Map<string, number>();
   const bucketOf = new Map<string, AgingBucket>();
   const refByBucket = new Map<AgingBucket, number[]>();

@@ -14,6 +14,26 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.169.0] — 2026-07-01
+
+### Added
+
+- **Washed-star media divergence — the beat argues about a fading name.** The
+  sticky talent grade (v0.168) lags a declining player's current level by ~2-3
+  seasons, which is exactly the "still called elite, producing mid-tier" window.
+  Once mid-season the media now splits on the biggest reputation-vs-reality gaps:
+  a loud national outlet files that he's **washed** — coasting on the name, not
+  the current tape (CRITICAL) — while his **local beat defends** him as still
+  impactful, the box score missing what he does (POSITIVE). The disagreement is
+  the read-to-learn signal: which outlet is right resolves over the next seasons.
+  Selection (who's fading, which outlets) is deterministic world-state — a
+  rostered veteran still graded a star whose current within-position standing has
+  slipped well below his sticky reputation; only the words ride `voiceSeed`. Per
+  North Star, no rating, grade, or tier number is ever spoken. New
+  `media/washed-star.ts`.
+
+---
+
 ## [0.168.0] — 2026-07-01
 
 ### Added

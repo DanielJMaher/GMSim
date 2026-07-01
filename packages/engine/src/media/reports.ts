@@ -63,6 +63,7 @@ import {
 } from './headliners.js';
 import { deriveGamePlayerStats } from '../games/stats.js';
 import { generateNflPlayerTakes } from './nfl-takes.js';
+import { generateWashedStarTakes, WASHED_STAR_TAKE_WEEK } from './washed-star.js';
 
 const BLOWOUT_MARGIN = 17;
 const CLOSE_MARGIN = 3;
@@ -123,7 +124,14 @@ export function generateWeeklyMediaReports(
     weekIdx + 1,
     filedOnTick,
   );
-  return [...reports, ...takes];
+
+  // Washed-star divergence — once mid-season, the media splits over a fading
+  // name (national skeptic vs local defender). See media/washed-star.ts.
+  const washed =
+    weekIdx + 1 === WASHED_STAR_TAKE_WEEK
+      ? generateWashedStarTakes(league, 'REGULAR_SEASON_WEEK', weekIdx + 1, filedOnTick)
+      : [];
+  return [...reports, ...takes, ...washed];
 }
 
 /**
