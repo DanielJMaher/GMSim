@@ -20,12 +20,12 @@ describe('gradeFromTalentScore', () => {
 
   it('maps representative scores within each band to the intended grade', () => {
     expect(gradeFromTalentScore(0.995)).toBe('ELITE');
-    expect(gradeFromTalentScore(0.97)).toBe('STAR');
-    expect(gradeFromTalentScore(0.92)).toBe('HIGH_STARTER');
-    expect(gradeFromTalentScore(0.8)).toBe('STARTER');
-    expect(gradeFromTalentScore(0.69)).toBe('WEAK_STARTER');
-    expect(gradeFromTalentScore(0.57)).toBe('ROTATIONAL');
-    expect(gradeFromTalentScore(0.41)).toBe('BACKUP');
+    expect(gradeFromTalentScore(0.975)).toBe('STAR');
+    expect(gradeFromTalentScore(0.925)).toBe('HIGH_STARTER');
+    expect(gradeFromTalentScore(0.83)).toBe('STARTER');
+    expect(gradeFromTalentScore(0.73)).toBe('WEAK_STARTER');
+    expect(gradeFromTalentScore(0.61)).toBe('ROTATIONAL');
+    expect(gradeFromTalentScore(0.49)).toBe('BACKUP');
     expect(gradeFromTalentScore(0.2)).toBe('FRINGE');
   });
 });

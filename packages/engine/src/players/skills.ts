@@ -183,14 +183,17 @@ export function gradeFromOverall(overall: number): TalentGrade {
  * actual standing from there. Kept consistent with the `GRADE_CUTS` in that
  * module so re-grading a fresh league reproduces the generated grade mix. */
 const GRADE_SEED_SCORE: Record<TalentGrade, number> = {
+  // Band midpoints of the v0.171 clean-quantile GRADE_CUTS
+  // (season/talent-score.ts): ELITE ≥0.989, STAR ≥0.962, HS ≥0.889,
+  // STARTER ≥0.776, WEAK ≥0.679, ROT ≥0.55, BACKUP ≥0.439.
   ELITE: 0.995,
   STAR: 0.975,
-  HIGH_STARTER: 0.92,
-  STARTER: 0.81,
-  WEAK_STARTER: 0.69,
-  ROTATIONAL: 0.57,
-  BACKUP: 0.41,
-  FRINGE: 0.2,
+  HIGH_STARTER: 0.925,
+  STARTER: 0.83,
+  WEAK_STARTER: 0.73,
+  ROTATIONAL: 0.61,
+  BACKUP: 0.49,
+  FRINGE: 0.22,
 };
 
 export function seedTalentScoreFromGrade(grade: TalentGrade): number {

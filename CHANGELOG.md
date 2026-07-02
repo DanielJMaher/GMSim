@@ -14,6 +14,36 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.171.0] — 2026-07-02
+
+### Changed
+
+- **`GRADE_CUTS` re-derived from clean quantiles — the v0.168 cap-nudge is
+  gone.** The talent-score → grade cuts had been deliberately nudged below the
+  pure quantiles at v0.168 to prop league cap spend (contracts price off the
+  coarse tier, so star-share propped spend after the star pile-up fix). With
+  the v0.170 cap-floor extensions holding spend up independently, the cuts are
+  now the un-nudged empirical quantiles of the v0.170 developed-league rostered
+  talentScore distribution (8y × 4 seeds, n=6784): ELITE ≥0.989, STAR ≥0.962,
+  HIGH_STARTER ≥0.889, STARTER ≥0.776, WEAK_STARTER ≥0.679, ROTATIONAL ≥0.55,
+  BACKUP ≥0.439. On that pool the old nudged cuts graded 7.0% ELITE+STAR
+  (design target 5%) and left almost no rostered FRINGE (1.2% vs ~8%) — the
+  extensions keeping good vets rostered longer had made the nudge even richer
+  than at v0.168. `GRADE_SEED_SCORE` (players/skills.ts) updated to the new
+  band midpoints; every seed still round-trips to its own grade. Validated:
+  star-pool composition stationary over 8 seasons × 4 seeds (QB 6%→6%, all
+  position groups within ±3pp of S0, total 84→92); advance.test 16/16 green
+  (cap band included); talent-score / contracts / washed-star gates green.
+- **Known interim regression, accepted and owned by the next slices:** honest
+  grades shrink the STAR tier, and the contract market prices off tier with no
+  scarcity response, so the league's pre-FA cap-usage equilibrium dips from
+  ~74% to ~67-68% (post-extension, `_cap_decay` 8y). The grades are right; the
+  economy's tier-count coupling is the defect. Cap-realism Slice 2
+  (restructures) and Slice 3 (cash-vs-cap + the CBA ~89% cash floor — spend
+  regardless of tier mix) are the durable decoupling and land next.
+
+---
+
 ## [0.170.0] — 2026-07-01
 
 ### Added

@@ -52,27 +52,29 @@ export const TALENT_SCORE_ALPHA = 0.35;
  * talentScore distribution at each DESIGN_TARGET top-share boundary
  * (`data/_talent_score_quantiles.mjs`, 8y × 4 seeds), NOT a raw uniform
  * percentile — the EWMA compresses scores toward the middle, so the middle cuts
- * sit well above their nominal percentile (STARTER at 0.74, not 0.60). Kept
+ * sit well above their nominal percentile (STARTER at 0.78, not 0.60). Kept
  * consistent with `GRADE_SEED_SCORE` in players/skills.ts (band midpoints) so a
  * fresh league's generated grades survive the first re-grade.
  *
- * PROVENANCE CAVEAT (v0.168): these values sit slightly BELOW the pure
- * quantiles — a deliberate nudge (STAR tier lands ~5.9% of rostered vs the ~5%
- * ELITE+STAR design mix) made when removing the old QB/K star pile-up dropped
- * league cap spend under the $150M advance band: contracts price off the
- * coarse tier, so star-share props spend. Cap-realism Slice 1
- * (`transactions/extensions.ts`, v0.170) now holds spend up independently,
- * which makes the nudge redundant — re-derive these cuts (and the matching
- * `GRADE_SEED_SCORE` seeds) from the clean quantiles as a follow-up slice.
+ * RE-DERIVED CLEAN (v0.171). The v0.168 values were nudged BELOW the pure
+ * quantiles to prop league cap spend (contracts price off the coarse tier, so
+ * star-share propped spend after the star pile-up fix). The cap-floor
+ * extensions (`transactions/extensions.ts`, v0.170) now hold spend up
+ * regardless of star-share, so these are the un-nudged empirical quantiles of
+ * the v0.170 developed-league ROSTERED talentScore distribution
+ * (`data/_talent_score_quantiles.mjs` method, 8y × 4 seeds, n=6784). On that
+ * pool the old nudged cuts graded 7.0% ELITE+STAR (target 5%) and 98.8%
+ * ≥BACKUP (target 92%, i.e. almost no rostered FRINGE) — extensions keeping
+ * good vets rostered longer had made the nudge even richer than at v0.168.
  */
 const GRADE_CUTS: ReadonlyArray<readonly [number, TalentGrade]> = [
-  [0.98, 'ELITE'],
-  [0.948, 'STAR'],
-  [0.88, 'HIGH_STARTER'],
-  [0.736, 'STARTER'],
-  [0.642, 'WEAK_STARTER'],
-  [0.495, 'ROTATIONAL'],
-  [0.305, 'BACKUP'],
+  [0.989, 'ELITE'],
+  [0.962, 'STAR'],
+  [0.889, 'HIGH_STARTER'],
+  [0.776, 'STARTER'],
+  [0.679, 'WEAK_STARTER'],
+  [0.55, 'ROTATIONAL'],
+  [0.439, 'BACKUP'],
 ];
 
 export function gradeFromTalentScore(score: number): TalentGrade {
