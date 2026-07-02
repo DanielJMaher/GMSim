@@ -3671,6 +3671,7 @@ const TRANSACTION_KINDS = [
   ['release', 'releases'],
   ['fa-sign', 'FA signings'],
   ['re-sign', 're-signs'],
+  ['restructure', 'restructures'],
   ['trade', 'trades'],
   ['ir-move', 'IR moves'],
   ['ps-promotion', 'PS promos'],
@@ -3687,6 +3688,7 @@ type TransactionKind = Transaction['kind'];
 const PRICE_KINDS: ReadonlySet<TransactionKind> = new Set([
   'fa-sign',
   're-sign',
+  'restructure',
   'trade',
   'release',
   'cap-cut',
@@ -3703,6 +3705,7 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'release':
     case 'fa-sign':
     case 're-sign':
+    case 'restructure':
     case 'ir-move':
     case 'contract-expiration':
     case 'cap-cut':
@@ -3729,6 +3732,7 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'release':
     case 'fa-sign':
     case 're-sign':
+    case 'restructure':
     case 'ir-move':
     case 'ps-promotion':
     case 'contract-expiration':
@@ -3759,6 +3763,8 @@ function transactionPrice(entry: Transaction): number | null {
       return entry.deadMoney;
     case 'cap-cut':
       return Math.max(entry.deadMoney, entry.capSaving);
+    case 'restructure':
+      return entry.convertedAmount;
     default:
       return null;
   }
@@ -4135,6 +4141,8 @@ function kindColor(kind: Transaction['kind']): string {
       return 'text-emerald-400';
     case 're-sign':
       return 'text-cyan-400';
+    case 'restructure':
+      return 'text-teal-400';
     case 'trade':
       return 'text-amber-400';
     case 'ir-move':
@@ -4171,6 +4179,8 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${teamLabel(entry.teamId)} signed ${playerLabel(entry.playerId)} · cap $${(entry.yearOneCapHit / 1e6).toFixed(1)}M${entry.marketContract ? ' (FA market)' : ' (vet-min)'}`;
     case 're-sign':
       return `${teamLabel(entry.teamId)} re-signed ${playerLabel(entry.playerId)} · cap $${(entry.yearOneCapHit / 1e6).toFixed(1)}M × ${entry.years}yr (kept off the market)`;
+    case 'restructure':
+      return `${teamLabel(entry.teamId)} restructured ${playerLabel(entry.playerId)} · converted $${(entry.convertedAmount / 1e6).toFixed(1)}M base → bonus, freed $${(entry.capRelief / 1e6).toFixed(1)}M over ${entry.years}yr`;
     case 'trade':
       return `${teamLabel(entry.teamAId)} ↔ ${teamLabel(entry.teamBId)} · ${entry.playersAToB.length}+${entry.playersBToA.length} players`;
     case 'ir-move':
@@ -8247,6 +8257,14 @@ function transactionToEvent(tx: Transaction, league: LeagueState): TickEvent | n
         section: 'Cap moves',
         icon: '💰',
         text: `${team?.identity.abbreviation ?? tx.teamId} cuts ${playerLabel(tx.playerId, league)} — cap saving $${formatMillions(tx.capSaving)}M`,
+      };
+    }
+    case 'restructure': {
+      const team = league.teams[tx.teamId];
+      return {
+        section: 'Cap moves',
+        icon: '💰',
+        text: `${team?.identity.abbreviation ?? tx.teamId} restructures ${playerLabel(tx.playerId, league)} — $${formatMillions(tx.convertedAmount)}M base → bonus, frees $${formatMillions(tx.capRelief)}M`,
       };
     }
     case 'contract-expiration': {

@@ -52,6 +52,7 @@ import {
 } from '../transactions/offseason.js';
 import { applyResigningWindow } from '../transactions/re-sign.js';
 import { applyCapFloorExtensions } from '../transactions/extensions.js';
+import { applyCapRestructures } from '../transactions/restructures.js';
 import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
@@ -981,7 +982,16 @@ function applyOffseasonTransactions(
   // Teams keep their own expiring players BEFORE the market opens
   // (v0.148): tier/age/mood-driven desire + cap gate, franchise QBs
   // floored — only what they don't (or can't) keep reaches the auction.
-  let offseason = applyResigningWindow(prng.fork('re-sign-window'), league, league.tick);
+  // Cap-realism Slice 2: win-now teams near/over the cap convert base salary
+  // into prorated bonus FIRST — real March order is restructure → re-sign your
+  // own → cuts → market. Room opened here lets a pinned contender keep its own
+  // expiring starters (the re-sign window is cap-gated) instead of cutting or
+  // losing them, and survives into the FA phase as a war chest the bid
+  // throttle can spend. In the current underspent equilibrium most teams sit
+  // far below the trigger; the pass becomes load-bearing when the Slice 3
+  // cash floor holds league spend near the cap.
+  let offseason = applyCapRestructures(league, league.tick);
+  offseason = applyResigningWindow(prng.fork('re-sign-window'), offseason, offseason.tick);
   offseason = applyContractExpirations(offseason);
   offseason = applyCapCuts(offseason);
   offseason = runProactiveTrades(

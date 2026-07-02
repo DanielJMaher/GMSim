@@ -25,6 +25,7 @@
  *   Trades         — weekly NPC trades, deadline fire-sales/proactive moves
  *   Free agency    — the offseason auction, weekly street signings, poaching
  *   Extensions     — cap-floor veteran extensions (own-roster spend)
+ *   Restructures   — base→bonus conversions (compliance + FA war chest)
  *   Roster         — UDFA promotion (post-draft scramble)
  *
  * Hire/fire — the front-office lifecycle (v0.138): owner evaluations,
@@ -78,6 +79,16 @@ export {
   CAP_FLOOR_TARGET,
   CAP_EXTENSION_CEIL,
 } from '../transactions/extensions.js';
+
+// Restructures (v0.172, cap-realism Slice 2) — win-now teams near/over the
+// cap convert current-year base into prorated bonus: compliance without
+// shedding talent, and a pre-FA war chest. Rebuilders never restructure.
+export {
+  applyCapRestructures,
+  restructureContract,
+  RESTRUCTURE_ROOM_TARGET,
+  MAX_RESTRUCTURES_PER_SEASON,
+} from '../transactions/restructures.js';
 
 // Free agency — the offseason auction (bids shaped by GM personality, cap
 // room, rookie-pool reserve), weekly mid-season gap-fills, and poaching

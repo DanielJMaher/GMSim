@@ -14,6 +14,40 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.172.0] — 2026-07-02
+
+### Added
+
+- **Contract restructures — the classic base→bonus cap move (cap-realism deep
+  model, Slice 2; Salary Cap doc "Contract Restructuring Mechanisms").** New
+  `transactions/restructures.ts`: `restructureContract` converts a player's
+  current-year base salary above the vet minimum into signing bonus by
+  REPLACING the deal with a rebased equivalent covering the remaining years —
+  the old bonus's unaccounted proration and the converted base fold into the
+  new deal's bonus, so every future cap dollar is conserved exactly and all
+  downstream accounting (cap hits, dead money on release, trade acceleration)
+  works unchanged. Current-year relief = converted × (r−1)/r; the dead-money
+  bomb grows accordingly (the room is not free). `applyCapRestructures` is the
+  NPC pass, first in the offseason transaction phase (real March order:
+  restructure → re-sign your own → cuts → market): CHAMPIONSHIP/CONTENDER
+  teams pinned above 92% of cap convert their biggest veteran deals (max
+  3/season, biggest convertible base first) until they've opened an 8%-of-cap
+  war chest; EMERGING teams only as far as compliance; rebuild-window teams
+  never restructure (kicking charges into the rebuild years is how real
+  rebuilds die — they take the cuts instead). Deterministic, no PRNG;
+  re-exported through `npc-ai` (invariant #6). New `restructure` transaction
+  kind + news beat (STAR conversions are a national-insider item) + inspector
+  log/filter/tick-event rendering.
+- **Dormant in the current economy by design — activated by Slice 3.**
+  Instrumented over forward sims: zero restructures fire pre-floor, because
+  the underspent league (~66-79% usage at the March-equivalent point) never
+  produces a pinned team — a front office with $87M of room has no reason to
+  convert money forward, and firing anyway would be fake behavior. The Slice 3
+  cash floor (next) lifts league spend to where win-now teams ARE pinned;
+  restructure volume is verified as part of that slice's acceptance.
+
+---
+
 ## [0.171.0] — 2026-07-02
 
 ### Changed

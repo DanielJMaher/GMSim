@@ -59,6 +59,7 @@ export type Transaction =
   | TransactionRelease
   | TransactionFreeAgentSign
   | TransactionResign
+  | TransactionRestructure
   | TransactionTrade
   | TransactionIrMove
   | TransactionPsPromotion
@@ -155,6 +156,27 @@ export interface TransactionResign extends TransactionBase {
   /** Year-1 cap hit on the new deal. */
   yearOneCapHit: number;
   /** Real years on the new deal. */
+  years: number;
+}
+
+/**
+ * A team converted a player's current-year base salary into signing bonus
+ * for immediate cap relief (v0.172 — cap-realism Slice 2). The classic
+ * NFL restructure: the converted money prorates across the remaining
+ * contract years, so current-year room is bought with larger future cap
+ * hits and a bigger dead-money bomb if the player is later cut or traded.
+ */
+export interface TransactionRestructure extends TransactionBase {
+  kind: 'restructure';
+  teamId: TeamId;
+  playerId: PlayerId;
+  /** The rebased contract that replaced the pre-restructure deal. */
+  contractId: ContractId;
+  /** Current-year base salary converted into prorated signing bonus. */
+  convertedAmount: number;
+  /** Current-year cap relief the conversion produced. */
+  capRelief: number;
+  /** Remaining contract years the converted money prorates across. */
   years: number;
 }
 

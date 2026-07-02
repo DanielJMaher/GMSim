@@ -8,6 +8,7 @@ import type {
   TransactionRelease,
   TransactionFreeAgentSign,
   TransactionResign,
+  TransactionRestructure,
   TransactionCapCut,
   TransactionHcFired,
   TransactionGmFired,
@@ -117,6 +118,8 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       return newsFromFreeAgentSign(txn, league);
     case 're-sign':
       return newsFromResign(txn, league);
+    case 'restructure':
+      return newsFromRestructure(txn, league);
     case 'hc-fired':
       return newsFromHcFired(txn, league);
     case 'gm-fired':
@@ -502,6 +505,35 @@ function newsFromResign(txn: TransactionResign, league: LeagueState): NewsItem |
     body:
       `${nameOf(player)} stays with ${abbrOf(team)} on a ${txn.years}-year deal ` +
       `($${(txn.yearOneCapHit / 1e6).toFixed(1)}M Y1 cap hit) without reaching the market.`,
+    teamIds: [txn.teamId],
+    playerIds: [txn.playerId],
+  };
+}
+
+function newsFromRestructure(
+  txn: TransactionRestructure,
+  league: LeagueState,
+): NewsItem | null {
+  const player = league.players[txn.playerId];
+  if (!player) return null;
+  // Only the big-name conversions move the needle — a mid-roster
+  // restructure is cap bookkeeping, not a beat.
+  if (player.tier !== 'STAR' && player.tier !== 'STARTER') return null;
+  const team = league.teams[txn.teamId];
+  const severity: NewsItem['severity'] = player.tier === 'STAR' ? 2 : 1;
+  const source: NewsSource = player.tier === 'STAR' ? 'national_insider' : 'beat_writer';
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity,
+    source,
+    sourceKind: 'restructure',
+    headline: `${abbrOf(team)} restructures ${nameOf(player)} to create cap room`,
+    body:
+      `${abbrOf(team)} converted $${(txn.convertedAmount / 1e6).toFixed(1)}M of ` +
+      `${nameOf(player)}'s base salary into signing bonus, clearing ` +
+      `$${(txn.capRelief / 1e6).toFixed(1)}M in current-year space — at the cost of ` +
+      `larger hits across the remaining ${txn.years} years.`,
     teamIds: [txn.teamId],
     playerIds: [txn.playerId],
   };

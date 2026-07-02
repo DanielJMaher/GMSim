@@ -118,6 +118,41 @@ describe('deriveNewsFeed', () => {
     expect(feed[0]!.source).toBe('anonymous_source');
   });
 
+  it('surfaces STAR restructures as a cap-room beat and skips depth players', () => {
+    const base = createLeague({ seed: 'news-restructure' });
+    const team = Object.values(base.teams)[0]!;
+    const starId = team.rosterIds[0]!;
+    const depthId = team.rosterIds[1]!;
+    const playersNext = {
+      ...base.players,
+      [starId]: { ...base.players[starId]!, tier: 'STAR' as const },
+      [depthId]: { ...base.players[depthId]!, tier: 'FRINGE' as const },
+    };
+    const mk = (playerId: PlayerId): Transaction => ({
+      kind: 'restructure',
+      tick: base.tick,
+      seasonNumber: base.seasonNumber,
+      teamId: team.identity.id,
+      playerId,
+      contractId: base.players[playerId]!.contractId!,
+      convertedAmount: 11_100_000,
+      capRelief: 7_400_000,
+      years: 3,
+    });
+    const league: LeagueState = {
+      ...base,
+      players: playersNext,
+      transactionLog: [...base.transactionLog, mk(starId), mk(depthId)],
+    };
+    const feed = deriveNewsFeed(league);
+    expect(feed).toHaveLength(1); // FRINGE restructure is bookkeeping, not news
+    expect(feed[0]!.sourceKind).toBe('restructure');
+    expect(feed[0]!.source).toBe('national_insider');
+    expect(feed[0]!.headline).toContain('restructures');
+    expect(feed[0]!.body).toContain('$11.1M');
+    expect(feed[0]!.body).toContain('$7.4M');
+  });
+
   it('surfaces trades with severity matching the highest-tier player involved', () => {
     const base = createLeague({ seed: 'news-trade' });
     const teams = Object.values(base.teams);
