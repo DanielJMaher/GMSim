@@ -14,6 +14,59 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.170.0] — 2026-07-01
+
+### Added
+
+- **Cap-floor veteran extensions — teams spend like real front offices
+  (cap-realism deep model, Slice 1).** The cap is $255M and real teams spend
+  ~90%+ of it, but GMSim decayed from a healthy generated S0 (~89%) to a ~62%
+  equilibrium by season 3: as generation's vet deals expired and cheap
+  rookie-scale contracts replaced retirees, teams never redeployed the freed
+  room (~$95M/team idle; the FA bid throttle stops bidding long before the
+  cap). New `transactions/extensions.ts` (`applyCapFloorExtensions`): each
+  offseason, once the 53-man roster is final (post-UDFA), a team below the
+  spend floor (88% of cap) extends its own **underpaid prime starters/stars** —
+  tier STARTER/STAR, age ≤29 (QB ≤33), fresh market deal ≥ $1M over the current
+  hit — biggest gap first, re-pricing to a market deal with the incumbent
+  premium, never past a 95% ceiling (room for in-season moves), recomputing
+  exact top-51 usage after every extension. Deterministic (no PRNG);
+  re-exported through `npc-ai` (invariant #6). Measured over 8 forward seasons:
+  league cap usage 62% → **~74% pre-FA trough / ~88% post-draft / ~90%
+  in-season** — a realistic annual cap cycle instead of a flat underspend.
+- Named simplifications, deliberately deferred to the next cap-realism slices:
+  extensions log as `re-sign` transactions (no dedicated txn kind yet);
+  replacing a mid-stream deal carries no dead money (cash-vs-cap accounting is
+  Slice 3); teams below the floor with no qualifying candidates stay low (some
+  trough ~55% — floor headroom exists). Slice 2 = restructures, Slice 3 =
+  cash-vs-cap + the CBA ~89%-over-4-years cash floor.
+
+### Fixed
+
+- **CI had been silently dead since 2026-06-11.** Engine-test shard 2 of 4
+  outgrew the 45-minute job timeout, and every push's CI run from v0.138
+  through v0.169 concluded "cancelled" — rendered as ignorable grey, so the
+  heavy forward-sim quarter of the suite (advance/mood/retirement) had no CI
+  coverage for three weeks and the league-tick benchmark "CI gate" wasn't
+  gating. Now 8 shards × 90-minute cap (vitest shards contiguously by path, so
+  the season heavies — mood alone is ~37 min — can still cluster), plus a
+  `ci-green` summary job that turns any timeout, failure, or cancellation into
+  a red X.
+
+### Documentation
+
+- `players/skills.ts`: the `CLASS_TOP_GRADE_MULT` comment no longer points at
+  the falsified slot-premium/pyramid levers for the EDGE over-draft — the
+  v0.163 lever-hunt disproved both; the actual fix was the draft-capital
+  `POSITION_DRAFT_VALUE` scale (`draft/position-value.ts`).
+- `season/talent-score.ts`: `GRADE_CUTS` now carries its v0.168 provenance
+  caveat — the cuts sit slightly below the pure DESIGN_TARGET quantiles to
+  prop league cap spend (contracts price off the coarse tier, so star-share
+  props spend). With extensions now holding spend up independently, re-deriving
+  the cuts (and `GRADE_SEED_SCORE`) from clean quantiles is a queued follow-up.
+
+---
+
 ## [0.169.0] — 2026-07-01
 
 ### Added

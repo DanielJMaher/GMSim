@@ -24,6 +24,7 @@
  *   Draft day      — board construction + the pick itself
  *   Trades         — weekly NPC trades, deadline fire-sales/proactive moves
  *   Free agency    — the offseason auction, weekly street signings, poaching
+ *   Extensions     — cap-floor veteran extensions (own-roster spend)
  *   Roster         — UDFA promotion (post-draft scramble)
  *
  * Hire/fire — the front-office lifecycle (v0.138): owner evaluations,
@@ -68,6 +69,15 @@ export {
   RESIGN_QB_FLOOR,
   RESIGN_INCUMBENT_PREMIUM,
 } from '../transactions/re-sign.js';
+
+// Extensions (v0.170, cap-realism Slice 1) — teams below the spend floor
+// extend their own underpaid prime starters/stars up toward it (real front
+// offices redeploy freed cap on their own core, not just the FA market).
+export {
+  applyCapFloorExtensions,
+  CAP_FLOOR_TARGET,
+  CAP_EXTENSION_CEIL,
+} from '../transactions/extensions.js';
 
 // Free agency — the offseason auction (bids shaped by GM personality, cap
 // room, rookie-pool reserve), weekly mid-season gap-fills, and poaching

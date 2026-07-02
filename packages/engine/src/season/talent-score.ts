@@ -55,6 +55,15 @@ export const TALENT_SCORE_ALPHA = 0.35;
  * sit well above their nominal percentile (STARTER at 0.74, not 0.60). Kept
  * consistent with `GRADE_SEED_SCORE` in players/skills.ts (band midpoints) so a
  * fresh league's generated grades survive the first re-grade.
+ *
+ * PROVENANCE CAVEAT (v0.168): these values sit slightly BELOW the pure
+ * quantiles — a deliberate nudge (STAR tier lands ~5.9% of rostered vs the ~5%
+ * ELITE+STAR design mix) made when removing the old QB/K star pile-up dropped
+ * league cap spend under the $150M advance band: contracts price off the
+ * coarse tier, so star-share props spend. Cap-realism Slice 1
+ * (`transactions/extensions.ts`, v0.170) now holds spend up independently,
+ * which makes the nudge redundant — re-derive these cuts (and the matching
+ * `GRADE_SEED_SCORE` seeds) from the clean quantiles as a follow-up slice.
  */
 const GRADE_CUTS: ReadonlyArray<readonly [number, TalentGrade]> = [
   [0.98, 'ELITE'],

@@ -104,8 +104,12 @@ export function gradeToTier(grade: TalentGrade): TalentTier {
 // over-ranking is a board-PERCEPTION effect (QB perceived-skill is structurally
 // high, grade-independent — proven: top-100 QB ~13 across mults 2.15→0.51), NOT
 // a supply problem, so suppressing their grade only makes elite QBs/edges scarce.
-// The top-of-draft FEEL (EDGE over-DRAFT, #1-QB share) is the separate
-// slot-premium / pyramid lever, not this grade-supply knob.
+// The top-of-draft FEEL is owned elsewhere — but NOT where this comment once
+// pointed: the v0.163 lever-hunt FALSIFIED both the slot-premium and pyramid
+// levers for the EDGE over-draft (each moved nothing); the fix was the
+// POSITION_DRAFT_VALUE draft-capital scale (draft/position-value.ts, v0.163),
+// and the #1-QB share is the slot-graded Rosen rule (draft/team-needs.ts,
+// v0.166). Either way: still not this grade-supply knob.
 export const CLASS_TOP_GRADE_MULT: Readonly<Record<Position, number>> = {
   QB: 2.15,
   RB: 0.5,

@@ -51,6 +51,7 @@ import {
   refillRosters,
 } from '../transactions/offseason.js';
 import { applyResigningWindow } from '../transactions/re-sign.js';
+import { applyCapFloorExtensions } from '../transactions/extensions.js';
 import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
@@ -1146,6 +1147,10 @@ function applyPostDraftRoster(
     draftedIds: justDraftedRookieIds,
   });
   offseason = applyUdfaResult(offseason, udfaResult);
+  // Cap-realism (deep model, Slice 1): with the 53-man roster final, teams that
+  // are underspending extend their own underpaid prime starters/stars up toward
+  // the spend floor — real teams pay their core rather than sit on cap room.
+  offseason = applyCapFloorExtensions(offseason, offseason.tick);
   return { ...offseason, lifecyclePhase: 'POST_DRAFT_ROSTER' };
 }
 
