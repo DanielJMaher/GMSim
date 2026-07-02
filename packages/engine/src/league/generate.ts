@@ -179,6 +179,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
       injuredReserveIds: [],
       practiceSquadIds: [],
       deadMoneyByYear: [],
+      cashSpentBySeason: {},
       franchiseHistory,
       fanBase: bundle.fanBase,
       competitiveWindow: pickStartingWindow(franchiseHistory),

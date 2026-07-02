@@ -5,6 +5,7 @@ import type { PlayerId, TeamId, ContractId as ContractIdType } from '../types/id
 import type { Transaction } from '../types/transaction.js';
 import { makeFreeAgentContract } from './free-agency.js';
 import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
+import { teamCashFloorStatus } from '../contracts/cash.js';
 import { ageOfPlayer } from '../season/development.js';
 import { RESIGN_INCUMBENT_PREMIUM } from './re-sign.js';
 
@@ -32,6 +33,20 @@ import { RESIGN_INCUMBENT_PREMIUM } from './re-sign.js';
 
 /** Teams below this fraction of the cap extend their own vets up toward it. */
 export const CAP_FLOOR_TARGET = 0.88;
+/**
+ * Raised floor for teams behind the CBA-style cash-floor pace (cap-realism
+ * Slice 3): a club that has underspent its trailing window must push money
+ * out, and extending its own core with fresh bonus cash is the primary
+ * lever — mirroring how real floor-squeezed teams (the CBA forces ~89% of
+ * caps in cash over 4-year periods) hand out early extensions.
+ */
+export const CASH_LAG_FLOOR_TARGET = 0.93;
+/**
+ * Extra premium on a floor-lagging team's extensions (multiplies
+ * RESIGN_INCUMBENT_PREMIUM). Floor-squeezed front offices overpay their own
+ * core the same way they overpay the FA market — the money has to move.
+ */
+export const CASH_LAG_EXTENSION_PREMIUM = 1.15;
 /** Never extend a team past this — leaves room for the rookie class + in-season. */
 export const CAP_EXTENSION_CEIL = 0.95;
 /** Skip marginal extensions — the market deal must add at least this much cap. */
@@ -39,18 +54,38 @@ const MIN_EXTENSION_GAIN = 1_000_000;
 /** Prime-age cutoff: you lock up cornerstones, not fading veterans. */
 const EXTEND_MAX_AGE_QB = 33;
 const EXTEND_MAX_AGE_OTHER = 29;
+/**
+ * Floor-lagging teams extend OLDER vets too (cap-realism Slice 3) — a team
+ * that must move money pays the 30/31-year-old starter real front offices
+ * would let walk. Candidate scarcity, not the floor target, was the binding
+ * constraint on lagging-team spend (measured: the whole prime STAR/STARTER
+ * pool re-priced to market tops out near ~53% of cap).
+ */
+const CASH_LAG_EXTEND_AGE_BONUS = 2;
 
 const EXTENDABLE_TIERS: ReadonlySet<Player['tier']> = new Set(['STAR', 'STARTER']);
+/**
+ * Floor-lagging teams also pay their DEPTH (BACKUP tier) — the overpaid
+ * rotational vet is a signature floor-team contract. Prime STAR/STARTER
+ * candidates alone top out near ~53% of cap when fully re-priced.
+ */
+const EXTENDABLE_TIERS_LAGGING: ReadonlySet<Player['tier']> = new Set([
+  'STAR',
+  'STARTER',
+  'BACKUP',
+]);
 
-function isExtendable(player: Player, seasonNumber: number): boolean {
-  if (!EXTENDABLE_TIERS.has(player.tier)) return false;
+function isExtendable(player: Player, seasonNumber: number, lagging: boolean): boolean {
+  const tiers = lagging ? EXTENDABLE_TIERS_LAGGING : EXTENDABLE_TIERS;
+  if (!tiers.has(player.tier)) return false;
   const age = ageOfPlayer(player, seasonNumber);
-  const maxAge = player.position === 'QB' ? EXTEND_MAX_AGE_QB : EXTEND_MAX_AGE_OTHER;
+  const maxAge =
+    (player.position === 'QB' ? EXTEND_MAX_AGE_QB : EXTEND_MAX_AGE_OTHER) +
+    (lagging ? CASH_LAG_EXTEND_AGE_BONUS : 0);
   return age <= maxAge;
 }
 
 export function applyCapFloorExtensions(league: LeagueState, signedOnTick: number): LeagueState {
-  const floor = CAP_FLOOR_TARGET * league.salaryCap;
   const ceil = CAP_EXTENSION_CEIL * league.salaryCap;
 
   let players: Record<string, Player> = league.players;
@@ -65,6 +100,14 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
 
   for (const teamId of (Object.keys(league.teams) as TeamId[]).sort()) {
     const team = league.teams[teamId]!;
+    // Cash-floor pressure (Slice 3): a team behind its trailing-window cash
+    // pace extends up to a HIGHER usage target, at a premium — the floor
+    // forces the money out.
+    const lagging = teamCashFloorStatus(team, league).lagging;
+    const floor = (lagging ? CASH_LAG_FLOOR_TARGET : CAP_FLOOR_TARGET) * league.salaryCap;
+    const premium = lagging
+      ? RESIGN_INCUMBENT_PREMIUM * CASH_LAG_EXTENSION_PREMIUM
+      : RESIGN_INCUMBENT_PREMIUM;
     let usage = teamCapUsage(team, view());
     if (usage >= floor) continue;
 
@@ -75,10 +118,10 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
     for (const pid of team.rosterIds) {
       const player = players[pid];
       if (!player || !player.contractId) continue;
-      if (!isExtendable(player, league.seasonNumber)) continue;
+      if (!isExtendable(player, league.seasonNumber, lagging)) continue;
       const current = contracts[player.contractId];
       if (!current) continue;
-      const market = makeFreeAgentContract(player, teamId, 'probe', signedOnTick, RESIGN_INCUMBENT_PREMIUM);
+      const market = makeFreeAgentContract(player, teamId, 'probe', signedOnTick, premium);
       const gain = currentCapHit(market) - currentCapHit(current);
       if (gain < MIN_EXTENSION_GAIN) continue;
       candidates.push({ playerId: player.id, gain });
@@ -91,13 +134,7 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
       const player = players[cand.playerId]!;
       const oldContractId = player.contractId!;
       const idSuffix = `${team.identity.abbreviation}_EXT${league.seasonNumber}_${counter++}`;
-      const newContract = makeFreeAgentContract(
-        player,
-        teamId,
-        idSuffix,
-        signedOnTick,
-        RESIGN_INCUMBENT_PREMIUM,
-      );
+      const newContract = makeFreeAgentContract(player, teamId, idSuffix, signedOnTick, premium);
 
       contracts = { ...contracts };
       delete contracts[oldContractId];

@@ -572,6 +572,22 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, voiceSeed: deriveVoiceSeed(next.seed) } as LeagueState;
   }
 
+  // v0.173.0 cash ledger (cap-realism Slice 3). Pre-feature saves have no
+  // `TeamState.cashSpentBySeason` — backfill empty; the ledger accumulates
+  // from the next POST_SEASON_FINALIZE and the cash floor stays dormant
+  // until real seasons are booked.
+  {
+    const teams = next.teams as Record<string, TeamState>;
+    const sample = Object.values(teams)[0];
+    if (sample && (sample as { cashSpentBySeason?: unknown }).cashSpentBySeason === undefined) {
+      const teamsNext: Record<string, TeamState> = {};
+      for (const [id, team] of Object.entries(teams)) {
+        teamsNext[id] = { ...team, cashSpentBySeason: {} };
+      }
+      next = { ...next, teams: teamsNext } as LeagueState;
+    }
+  }
+
   // v0.138.0 front-office lifecycle. Pre-v0.138 saves have no
   // `TeamState.frontOffice` and no `status`/`careerStints` on GMs and
   // coaches. Backfill: everyone employed, hired at season 1 (founding

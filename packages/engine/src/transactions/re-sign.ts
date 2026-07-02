@@ -6,6 +6,7 @@ import type { PlayerId, TeamId, ContractId as ContractIdType } from '../types/id
 import type { Transaction } from '../types/transaction.js';
 import { makeFreeAgentContract } from './free-agency.js';
 import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
+import { teamCashFloorStatus } from '../contracts/cash.js';
 import { moodBucket } from '../season/mood.js';
 import { ageOfPlayer } from '../season/development.js';
 
@@ -85,6 +86,16 @@ export const RESIGN_QB_MEDIOCRE_TEAM_FACTOR = 0.75;
 
 /** Incumbent premium on the re-sign deal vs the open-market tier shape. */
 export const RESIGN_INCUMBENT_PREMIUM = 1.05;
+
+/**
+ * Extra multiplier on the incumbent premium for a team behind the CBA-style
+ * cash-floor pace (cap-realism Slice 3). The re-sign window is the biggest
+ * annual veteran-dollar flow (a quarter of the roster re-prices each year),
+ * so this is where floor pressure moves the most money: floor-squeezed
+ * teams overpay to keep their own — the FA-market overpay alone measured
+ * only +2-3pp of league spend because market deals are the smaller flow.
+ */
+export const CASH_LAG_RESIGN_PREMIUM = 1.35;
 
 /**
  * Re-signs may only commit up to this fraction of the cap — the rest is
@@ -173,6 +184,11 @@ export function applyResigningWindow(
   for (const teamId of teamIds) {
     const team = league.teams[teamId]!;
     let committed = teamCapUsage(team, leagueSansExpiring);
+    // Cash-floor pressure (Slice 3): floor-lagging teams overpay to keep
+    // their own veterans — the biggest annual flow of veteran dollars.
+    const premium = teamCashFloorStatus(team, league).lagging
+      ? RESIGN_INCUMBENT_PREMIUM * CASH_LAG_RESIGN_PREMIUM
+      : RESIGN_INCUMBENT_PREMIUM;
 
     const candidates = team.rosterIds
       .map((id) => league.players[id])
@@ -196,13 +212,7 @@ export function applyResigningWindow(
       if (prng.next() >= p) continue; // team (or player) opts for the market
 
       const idSuffix = `${team.identity.abbreviation}_RS${league.seasonNumber}_${counter++}`;
-      const contract = makeFreeAgentContract(
-        player,
-        teamId,
-        idSuffix,
-        signedOnTick,
-        RESIGN_INCUMBENT_PREMIUM,
-      );
+      const contract = makeFreeAgentContract(player, teamId, idSuffix, signedOnTick, premium);
       const y1 = currentCapHit(contract);
       // Cap casualty — he walks. Headroom keeps FA budget for the refill.
       if (committed + y1 > league.salaryCap * RESIGN_CAP_HEADROOM) continue;

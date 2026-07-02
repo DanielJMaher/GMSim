@@ -53,6 +53,7 @@ import {
 import { applyResigningWindow } from '../transactions/re-sign.js';
 import { applyCapFloorExtensions } from '../transactions/extensions.js';
 import { applyCapRestructures } from '../transactions/restructures.js';
+import { teamSeasonCash } from '../contracts/cash.js';
 import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
@@ -842,6 +843,13 @@ function applyPostSeasonFinalize(
       seasonHistory: [...team.seasonHistory, seasonRecord],
       competitiveWindow: newWindow,
       deadMoneyByYear: team.deadMoneyByYear.slice(1),
+      // Cash ledger (cap-realism Slice 3): book the just-played season's
+      // player cash BEFORE the contract-year decrement below — first-year
+      // bonus detection reads `yearsRemaining === realYears`.
+      cashSpentBySeason: {
+        ...team.cashSpentBySeason,
+        [league.seasonNumber]: teamSeasonCash(team, league),
+      },
     };
   }
 

@@ -113,6 +113,9 @@ export function restructureContract(
       yearsRemaining: yearsLeft,
       baseSalaries,
       signingBonus: oldBonusRemaining + converted,
+      // Only the converted base is new CASH — the folded-in old proration
+      // was paid out when the original deal was signed (Slice 3 ledger).
+      signingBonusCashPaid: converted,
       rosterBonuses: sliceYear(contract.rosterBonuses),
       workoutBonuses: sliceYear(contract.workoutBonuses),
       guarantees,

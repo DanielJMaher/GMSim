@@ -32,6 +32,16 @@ export interface Contract {
   /** Guarantee structure for each year. Length = realYears. */
   guarantees: readonly ContractGuarantee[];
 
+  /**
+   * CASH actually paid out when this contract was signed, when that differs
+   * from `signingBonus` (cap-realism Slice 3 — cash-vs-cap accounting). A
+   * restructure folds the OLD deal's remaining bonus proration into the new
+   * deal's `signingBonus` for cap purposes, but that money was cash years
+   * ago — only the converted base is new cash. Absent = the whole signing
+   * bonus was cash at signing (every non-restructure contract).
+   */
+  signingBonusCashPaid?: number;
+
   /** Performance incentives. Likely-to-be-earned counts against current cap; unlikely doesn't. */
   incentives: readonly ContractIncentive[];
 

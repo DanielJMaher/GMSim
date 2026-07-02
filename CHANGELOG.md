@@ -14,6 +14,51 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.173.0] — 2026-07-02
+
+### Added
+
+- **Cash-vs-cap accounting + the CBA cash floor (cap-realism deep model,
+  Slice 3; Salary Cap doc "Salary Cap Hits vs Cash Flow" + "Minimum Spending
+  Requirements").** New `TeamState.cashSpentBySeason` ledger, booked once per
+  season at POST_SEASON_FINALIZE (before the contract-year decrement): every
+  rostered/IR contract's current-year base + roster/workout bonus, plus
+  signing-bonus CASH for deals in their first league year. Restructures set
+  the new `Contract.signingBonusCashPaid` so the folded-in old proration isn't
+  double-booked — a conversion is cash-neutral by construction (unit-proven).
+  New `contracts/cash.ts` owns the per-contract cash math and
+  `teamCashFloorStatus`: the CBA-style floor (89% of the caps over a rolling
+  4-season window). Migration backfills an empty ledger on older saves.
+- **Floor enforcement is behavioral, through the existing NPC spending
+  passes** (all re-exported through `npc-ai`): a floor-lagging team (a) has
+  its extension floor raised 0.88 → 0.93 of cap, extends two years older, at
+  a 15% premium, and pays its BACKUP-tier depth too; (b) bids in free agency
+  with the room throttle floored at 0.9 AND at up to 1.6× tier-standard,
+  proportional to its lag — the real CBA floor is why cash-poor-pace teams
+  hand out the league's worst contracts; (c) re-signs its own expiring
+  players at a 35% premium over the incumbent rate (the re-sign window is
+  the biggest annual veteran-dollar flow). All self-limiting: as the ledger
+  catches up, every premium decays to the base rate.
+- **Measured (8-season forward sims, `_cap_cycle` probe):** the honest-grades
+  economy recovers from the v0.171 dip — in-season league cap usage 66% →
+  **85% ($216M)** and still rising at S7, offseason trough 84%, booked cash
+  pace 85% of the caps vs the 89% target. Teams ≥90% in-season: 0 → 11/32.
+- **Named residual + follow-up slice (instrumented, not speculative):** the
+  last ~5pp is a PRICE-LEVEL structure, not a pressure problem — three
+  successive enforcement turns produced +2/+1/+2pp (saturating), and
+  re-pricing every prime STAR/STARTER to market tops out near ~53% of cap.
+  GMSim contracts are short (1-4yr) and flat against a constant cap, so
+  team books shed ~15pp at every rollover; the equilibrium March-point
+  maximum is 81% (best win-now team 77%), which is also why **restructure
+  volume remains zero** — no honest trigger fires when nobody is pinned
+  (v0.172's machinery stays correctly dormant rather than firing fake).
+  The follow-up is the CONTRACT-SHAPE / market price-level slice:
+  escalating multi-year deals, void-year structures, cap growth, and
+  endogenous top-of-market pricing — it closes the spend gap and creates
+  the pinned-March states that activate restructures.
+
+---
+
 ## [0.172.0] — 2026-07-02
 
 ### Added

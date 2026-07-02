@@ -148,6 +148,17 @@ export interface TeamState {
    * always the current year.
    */
   deadMoneyByYear: readonly number[];
+  /**
+   * CASH paid to players, by season number (cap-realism Slice 3 —
+   * cash-vs-cap accounting). Booked once per season at POST_SEASON_FINALIZE
+   * from every rostered/IR contract: current-year base + roster/workout
+   * bonus, plus signing-bonus cash for deals in their first league year.
+   * The CBA-style minimum-spend floor reads trailing windows of this
+   * ledger (`contracts/cash.ts`). Named simplifications: practice-squad
+   * pay, in-season partial years for mid-year cuts, and guarantee payouts
+   * to released players are not booked.
+   */
+  cashSpentBySeason: Readonly<Record<number, number>>;
   /** Procedurally generated franchise history archetype. Affects fan baseline. */
   franchiseHistory: FranchiseHistory;
   /** Per-team fan-base profile. Evolves slowly with results. Feeds Team Personality. */

@@ -7,6 +7,7 @@ import { MarketSize } from '../types/enums.js';
 import type { WatchListReason } from '../types/scout.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
+import { teamCashFloorStatus } from '../contracts/cash.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { positionSalaryFactor, FA_PREMIUM_DAMPEN } from '../contracts/tiers.js';
@@ -156,6 +157,21 @@ const TIER_STANDARD_Y1: Record<Player['tier'], number> = {
  */
 const BID_MULTIPLIER_FLOOR = 0.7;
 const BID_MULTIPLIER_CEIL = 1.2;
+/**
+ * Minimum cap factor for a team behind the cash-floor pace (cap-realism
+ * Slice 3) — floor-squeezed teams bid near tier-standard instead of
+ * throttling with their (large) idle room.
+ */
+export const CASH_LAG_BID_FLOOR = 0.9;
+/** Max bid multiple over tier-standard for a badly floor-lagging team. */
+export const CASH_LAG_OVERPAY_MAX = 1.6;
+/**
+ * How fast overpay ramps with lag fraction (lag ÷ floor target). Steep on
+ * purpose: a team even ~8pp behind pace (the measured pre-tune equilibrium)
+ * already bids ~1.25× standard — the floor has to bite near the floor, not
+ * only in catastrophic-lag states, or the league equilibrates below it.
+ */
+export const CASH_LAG_OVERPAY_SLOPE = 3.0;
 
 /**
  * Position-scaled tier anchor — the dollar reference for THIS player's
@@ -432,7 +448,18 @@ export function computeTeamCashBid(
   // preference alone and produced post-auction rosters in the low 40s.
   const capRoom = league.salaryCap - teamCapUsage(team, league);
   const capRoomFrac = clamp(capRoom / league.salaryCap, 0, 1);
-  const capFactor = clamp(capRoomFrac * 1.2, 0, 1.2);
+  let capFactor = clamp(capRoomFrac * 1.2, 0, 1.2);
+
+  // Cash-floor pressure (cap-realism Slice 3): the linear throttle is what
+  // let cap-rich teams sit out the market forever — a team at 62% usage bid
+  // at under half standard and the league equilibrated ~$95M/team idle. A
+  // team behind the CBA-style ~89%-of-caps cash pace doesn't get to keep
+  // hoarding: its bids stay near tier-standard regardless of how much room
+  // it's sitting on (the separate cap-room gate still bounds what it can pay).
+  const floorStatus = teamCashFloorStatus(team, league);
+  if (capFactor < CASH_LAG_BID_FLOOR && floorStatus.lagging) {
+    capFactor = CASH_LAG_BID_FLOOR;
+  }
 
   // Bound the combined multiplier so individual bids can't run away
   // above the tier anchor. See the BID_MULTIPLIER_* docs above.
@@ -441,7 +468,19 @@ export function computeTeamCashBid(
     BID_MULTIPLIER_FLOOR,
     BID_MULTIPLIER_CEIL,
   );
-  return standard * combined;
+
+  // Floor-squeezed teams pay ABOVE the tier standard, proportional to how
+  // far behind pace they are — the real CBA floor is why cash-poor-pace
+  // teams hand out the league's worst contracts. Rosters are finite, so
+  // simply bidding at standard can't close a big lag: the money has to
+  // show up in the PRICE. Self-limiting: as the ledger catches up, the
+  // overpay decays to 1.
+  let overpay = 1;
+  if (floorStatus.lagging && floorStatus.floorTarget > 0) {
+    const lagFrac = floorStatus.lag / floorStatus.floorTarget;
+    overpay = 1 + Math.min(CASH_LAG_OVERPAY_MAX - 1, lagFrac * CASH_LAG_OVERPAY_SLOPE);
+  }
+  return standard * combined * overpay;
 }
 
 /**

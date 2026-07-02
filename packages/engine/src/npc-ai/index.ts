@@ -77,8 +77,15 @@ export {
 export {
   applyCapFloorExtensions,
   CAP_FLOOR_TARGET,
+  CASH_LAG_FLOOR_TARGET,
   CAP_EXTENSION_CEIL,
 } from '../transactions/extensions.js';
+
+// Cash floor (v0.173, cap-realism Slice 3) — the CBA-style ~89%-of-caps
+// minimum-spend pace. Teams behind it extend to a higher target and bid
+// near tier-standard in FA regardless of idle room.
+export { CASH_FLOOR_PCT, CASH_FLOOR_WINDOW, teamCashFloorStatus } from '../contracts/cash.js';
+export { CASH_LAG_BID_FLOOR } from '../transactions/fa-bidding.js';
 
 // Restructures (v0.172, cap-realism Slice 2) — win-now teams near/over the
 // cap convert current-year base into prorated bonus: compliance without
