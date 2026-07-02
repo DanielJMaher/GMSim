@@ -61,11 +61,18 @@ jobs:
 
   engine-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Shard 2 of the old 4-way split outgrew the 45-minute cap on 2026-06-11,
+    # and every CI run from then to v0.169 concluded "cancelled" — silently,
+    # because a timeout renders as neutral grey, not a red X. Eight shards
+    # spread the load, but vitest shards contiguously by path, so the season/
+    # heavies (mood ~37min alone locally, advance, retirement) can still
+    # cluster in one shard — hence the 90-minute cap. `ci-green` below turns
+    # any timeout red; tighten the cap once a green run shows real timings.
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -84,7 +91,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run engine suite (shard ${{ matrix.shard }}/4)
+      - name: Run engine suite (shard ${{ matrix.shard }}/8)
         # `pnpm test --shard=…` would be eaten by pnpm's own option parser;
         # `pnpm exec` forwards flags to vitest verbatim.
-        run: pnpm --filter @gmsim/engine exec vitest run --shard=${{ matrix.shard }}/4
+        run: pnpm --filter @gmsim/engine exec vitest run --shard=${{ matrix.shard }}/8
+
+  # Single required signal. A job that hits `timeout-minutes` concludes
+  # "cancelled", which GitHub renders as ignorable grey — 15 straight runs
+  # (2026-06-11 → 2026-07-01) went unnoticed that way. This job goes RED
+  # unless every job above actually succeeded.
+  ci-green:
+    runs-on: ubuntu-latest
+    needs: [typecheck, build-web, engine-tests]
+    if: always()
+    steps:
+      - name: All jobs succeeded
+        run: |
+          test "${{ needs.typecheck.result }}" = "success"
+          test "${{ needs.build-web.result }}" = "success"
+          test "${{ needs.engine-tests.result }}" = "success"
