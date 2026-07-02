@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from './generate.js';
+import { teamCapUsage } from '../contracts/cap.js';
 import type { TeamPersonality } from '../types/personnel.js';
 
 describe('createLeague', () => {
@@ -22,6 +23,21 @@ describe('createLeague', () => {
     const a = createLeague({ seed: 'alpha' });
     const b = createLeague({ seed: 'beta' });
     expect(a).not.toEqual(b);
+  });
+
+  it('no team is born over the salary cap — the hard cap holds under all-53 accounting', () => {
+    // The inspector caught CLE +$4.4M on 'phase-2-season': generation prices
+    // contracts with no team-total constraint, and pre-fix the first
+    // compliance pass didn't run until the first advanceSeason. createLeague
+    // now ends with restructures + minimal cuts under REGULAR_SEASON
+    // accounting, so the strictest count is clean from day one.
+    for (const seed of ['phase-2-season', 'cap-birth-a', 'cap-birth-b']) {
+      const league = createLeague({ seed });
+      const inSeason = { ...league, phase: 'REGULAR_SEASON' as const };
+      for (const team of Object.values(league.teams)) {
+        expect(teamCapUsage(team, inSeason)).toBeLessThanOrEqual(league.salaryCap);
+      }
+    }
   });
 
   it('every team has a valid owner/GM/HC reference resolvable in the entity stores', () => {

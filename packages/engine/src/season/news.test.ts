@@ -8,8 +8,13 @@ import type { Transaction } from '../types/transaction.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
 
 describe('deriveNewsFeed', () => {
-  it('returns an empty feed for a fresh league with no transactions', () => {
-    const league = createLeague({ seed: 'news-empty' });
+  it('returns an empty feed when there are no transactions', () => {
+    // A fresh league may legitimately carry day-one compliance transactions
+    // (birth restructures/cap-cuts) — strip them to test the no-txn case.
+    const league: LeagueState = {
+      ...createLeague({ seed: 'news-empty' }),
+      transactionLog: [],
+    };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(0);
   });
@@ -40,7 +45,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, leaked, quiet],
+      transactionLog: [leaked, quiet],
     };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(1);
@@ -64,7 +69,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, txn],
+      transactionLog: [txn],
     };
     const feed = deriveNewsFeed(league);
     expect(feed[0]!.source).toBe('social_media');
@@ -86,7 +91,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, txn],
+      transactionLog: [txn],
     };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(1);
@@ -111,7 +116,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, txn],
+      transactionLog: [txn],
     };
     const feed = deriveNewsFeed(league);
     expect(feed[0]!.severity).toBe(3);
@@ -142,7 +147,7 @@ describe('deriveNewsFeed', () => {
     const league: LeagueState = {
       ...base,
       players: playersNext,
-      transactionLog: [...base.transactionLog, mk(starId), mk(depthId)],
+      transactionLog: [mk(starId), mk(depthId)],
     };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(1); // FRINGE restructure is bookkeeping, not news
@@ -180,7 +185,7 @@ describe('deriveNewsFeed', () => {
     const league: LeagueState = {
       ...base,
       players: playersNext,
-      transactionLog: [...base.transactionLog, txn],
+      transactionLog: [txn],
     };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(1);
@@ -220,7 +225,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, backupRelease, starRelease],
+      transactionLog: [backupRelease, starRelease],
     };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(1);
@@ -257,7 +262,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, vetMin, market],
+      transactionLog: [vetMin, market],
     };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(1);
@@ -311,7 +316,7 @@ describe('deriveNewsFeed', () => {
     ];
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, ...noise],
+      transactionLog: [...noise],
     };
     const feed = deriveNewsFeed(league);
     expect(feed).toHaveLength(0);
@@ -346,7 +351,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, early, late],
+      transactionLog: [early, late],
     };
     const feed = deriveNewsFeed(league);
     expect(feed[0]!.tick).toBe(25);
@@ -393,7 +398,7 @@ describe('deriveNewsFeed', () => {
     };
     const league: LeagueState = {
       ...base,
-      transactionLog: [...base.transactionLog, early, mid, late],
+      transactionLog: [early, mid, late],
     };
 
     expect(deriveNewsFeed(league, { sinceTick: 10 }).map((n) => n.tick)).toEqual([20, 15]);

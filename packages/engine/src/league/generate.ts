@@ -31,6 +31,8 @@ import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
+import { applyCapRestructures } from '../transactions/restructures.js';
+import { applyMinimalCapCasualties } from '../transactions/offseason.js';
 import { generateTeamScouts, generateInitialObservations, regenerateWatchLists } from '../scouting/index.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
@@ -365,7 +367,24 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   });
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.
-  return refillPracticeSquad(rootPrng.fork('ps-bootstrap'), baseLeague, initialTick, 1);
+  const stocked = refillPracticeSquad(rootPrng.fork('ps-bootstrap'), baseLeague, initialTick, 1);
+
+  // Hard-cap compliance at birth (Salary Cap doc: "active roster must remain
+  // under cap limit at all times"). Contract generation prices tier-by-tier
+  // with no team-total constraint (see tiers.ts — dampening only bounds the
+  // worst case to "a compliable overage"), so a few teams roll over the cap.
+  // Resolve it the way a March front office does — restructures first
+  // (win-now rooms convert base to bonus and keep the roster), minimal cuts
+  // for the remainder — under REGULAR_SEASON (all-53) accounting, so opening
+  // day's stricter count can't tip a born-compliant team back over. Both
+  // passes are deterministic (no PRNG): the fork tree, and therefore every
+  // other roll in existing seeds, is untouched. The compliance moves land in
+  // the transaction log as day-one restructures/cap-cuts — real history that
+  // explains any dead money a team starts with.
+  const allFiftyThree: LeagueState = { ...stocked, phase: 'REGULAR_SEASON' };
+  let compliant = applyCapRestructures(allFiftyThree, initialTick);
+  compliant = applyMinimalCapCasualties(compliant);
+  return { ...compliant, phase: stocked.phase };
 }
 
 /**

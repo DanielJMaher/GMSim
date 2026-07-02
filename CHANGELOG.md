@@ -14,6 +14,39 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.174.0] — 2026-07-02
+
+### Fixed
+
+- **Leagues could be born over the hard cap (inspector eyeball find: Browns
+  +$4.4M on the default seed).** Contract generation prices tier-by-tier with
+  no team-total constraint — deliberately, per the `tiers.ts` calibration
+  ("a few teams over … a compliable overage") — but the first compliance pass
+  didn't run until the first `advanceSeason`, so an over-cap team played its
+  ENTIRE first season over the cap (4/32 teams on the default seed, up to
+  NO +$29.4M; worse under the all-53 in-season count). The Salary Cap doc is
+  unambiguous that the active roster must remain under the cap at all times.
+  `createLeague` now ends with day-one March compliance: `applyCapRestructures`
+  (win-now rooms convert base→bonus and keep the roster) then
+  `applyMinimalCapCasualties` (cheapest sufficient cuts) — run under
+  REGULAR_SEASON all-53 accounting so opening day's stricter count can't tip
+  a born-compliant team back over. Both passes are deterministic (no PRNG):
+  every other roll in existing seeds is untouched. The moves land in the
+  transaction log as day-one restructures/cap-cuts — real history that
+  explains any dead money a team starts with (and the v0.172 restructure
+  machinery gets its first live job). Audited: 0/32 over-cap at every point
+  across 3 forward seasons (was 4/32 through all of season 1); default seed
+  resolves with 6 restructures + 9 cuts across 5 teams; the deepest-over team
+  starts at 48 players and heals to 53 via in-season signings + the first
+  offseason refill. New permanent gate in `league/generate.test.ts` asserts
+  the hard cap holds at birth under all-53 accounting across seeds.
+- News tests now build their transaction logs from scratch — a fresh league
+  legitimately carries day-one compliance transactions (which correctly
+  surface as birth news: a star restructure or a cap casualty on cutdown day
+  IS a story).
+
+---
+
 ## [0.173.0] — 2026-07-02
 
 ### Added
