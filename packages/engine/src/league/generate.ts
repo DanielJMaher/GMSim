@@ -31,8 +31,8 @@ import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
-import { applyCapRestructures } from '../transactions/restructures.js';
-import { applyMinimalCapCasualties } from '../transactions/offseason.js';
+import { teamCapUsage } from '../contracts/cap.js';
+import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { generateTeamScouts, generateInitialObservations, regenerateWatchLists } from '../scouting/index.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
@@ -309,6 +309,23 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     heismanHistory: [],
   };
 
+  // Hard-cap compliance at birth (Salary Cap doc: "active roster must remain
+  // under cap limit at all times"). Contract generation prices tier-by-tier
+  // with no team-total constraint (see tiers.ts — dampening only bounds the
+  // worst case to "a compliable overage"), so a few teams roll over the cap
+  // and, pre-fix, played their ENTIRE first season over it. A born-over
+  // book is a GENERATOR pricing error, not simulated history — so correct
+  // it at the generator: proportionally trim the over-cap team's
+  // non-guaranteed year-0 bases (floored at the vet minimum and at the
+  // guaranteed portion) until the team fits under REGULAR_SEASON all-53
+  // accounting, the strictest count it will face. No cuts, no roster holes,
+  // no dead money, no fake day-one transactions — every birth invariant
+  // (53-man rosters, contracts = players, empty FA pool, empty log) holds.
+  // Deterministic, no PRNG. (Simulated compliance via restructures/cuts +
+  // waiver scramble was tried first and rejected: market gates strand teams
+  // short-rostered and prune unsigned casualties from the league.)
+  Object.assign(baseLeague, { contracts: trimContractsToCapAtBirth(baseLeague) });
+
   // Seed each GM's *perceived* media-outlet reliability now that both GMs
   // and outlets exist (Slice 2 — GMs consume the media). Boards blend a
   // media read by this belief, not by the outlet's ground-truth accuracy.
@@ -367,24 +384,57 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   });
 
   // Bootstrap practice squads — 16 rookies per team on PS-minimum 1-year deals.
-  const stocked = refillPracticeSquad(rootPrng.fork('ps-bootstrap'), baseLeague, initialTick, 1);
+  return refillPracticeSquad(rootPrng.fork('ps-bootstrap'), baseLeague, initialTick, 1);
+}
 
-  // Hard-cap compliance at birth (Salary Cap doc: "active roster must remain
-  // under cap limit at all times"). Contract generation prices tier-by-tier
-  // with no team-total constraint (see tiers.ts — dampening only bounds the
-  // worst case to "a compliable overage"), so a few teams roll over the cap.
-  // Resolve it the way a March front office does — restructures first
-  // (win-now rooms convert base to bonus and keep the roster), minimal cuts
-  // for the remainder — under REGULAR_SEASON (all-53) accounting, so opening
-  // day's stricter count can't tip a born-compliant team back over. Both
-  // passes are deterministic (no PRNG): the fork tree, and therefore every
-  // other roll in existing seeds, is untouched. The compliance moves land in
-  // the transaction log as day-one restructures/cap-cuts — real history that
-  // explains any dead money a team starts with.
-  const allFiftyThree: LeagueState = { ...stocked, phase: 'REGULAR_SEASON' };
-  let compliant = applyCapRestructures(allFiftyThree, initialTick);
-  compliant = applyMinimalCapCasualties(compliant);
-  return { ...compliant, phase: stocked.phase };
+/**
+ * Generator-level hard-cap correction (see call site). For each team whose
+ * all-53 usage exceeds the cap, shave the overage proportionally off its
+ * contracts' year-0 base salaries. Per-contract floor = max(vet minimum,
+ * year-0 guaranteed base), so guarantees stay honest. Later contract years
+ * are untouched — any resulting future overage flows through the normal
+ * offseason compliance machinery like every other cap crunch.
+ */
+function trimContractsToCapAtBirth(league: LeagueState): LeagueState['contracts'] {
+  const allFiftyThree: LeagueState = { ...league, phase: 'REGULAR_SEASON' };
+  const contracts: Record<string, Contract> = { ...league.contracts };
+  for (const team of Object.values(league.teams)) {
+    const usage = teamCapUsage(team, {
+      ...allFiftyThree,
+      contracts: contracts as LeagueState['contracts'],
+    });
+    const overage = usage - league.salaryCap;
+    if (overage <= 0) continue;
+
+    const trimmable: { contract: Contract; slack: number }[] = [];
+    for (const pid of team.rosterIds) {
+      const player = league.players[pid];
+      if (!player?.contractId) continue;
+      const contract = contracts[player.contractId];
+      if (!contract) continue;
+      // Trim the CURRENT contract year — seed deals are mid-stream (a 4-year
+      // deal in year 2 charges baseSalaries[2]), so index 0 is often not
+      // what the cap reads. Floor is the vet minimum only: guarantees are
+      // generator fiction like the base itself — they're a PERCENTAGE of
+      // base, so a trimmed base keeps the guarantee structure (and
+      // dead-money math) consistent while the guaranteed dollars re-price
+      // with it.
+      const yearOfDeal = contract.realYears - contract.yearsRemaining;
+      const slack = (contract.baseSalaries[yearOfDeal] ?? 0) - LEAGUE_MINIMUM_SALARY;
+      if (slack > 0) trimmable.push({ contract, slack });
+    }
+    const totalSlack = trimmable.reduce((s, t) => s + t.slack, 0);
+    if (totalSlack <= 0) continue; // nothing legally trimmable — leave for offseason machinery
+    const ratio = Math.min(1, overage / totalSlack);
+    for (const { contract, slack } of trimmable) {
+      const cut = Math.ceil(slack * ratio); // ceil per contract → clears the overage
+      const yearOfDeal = contract.realYears - contract.yearsRemaining;
+      const baseSalaries = [...contract.baseSalaries];
+      baseSalaries[yearOfDeal] = (baseSalaries[yearOfDeal] ?? 0) - cut;
+      contracts[contract.id] = { ...contract, baseSalaries };
+    }
+  }
+  return contracts as LeagueState['contracts'];
 }
 
 /**

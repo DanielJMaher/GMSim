@@ -14,6 +14,8 @@ function freshLeague(seed: string): LeagueState {
 
 describe('transactionLog', () => {
   it('createLeague initializes an empty log', () => {
+    // Birth-cap compliance is a generator-level salary trim (v0.174.1), not
+    // simulated transactions — a fresh league has no history.
     const league = createLeague({ seed: 'log-init' });
     expect(league.transactionLog).toEqual([]);
   });

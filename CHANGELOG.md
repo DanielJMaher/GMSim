@@ -14,6 +14,32 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.174.1] — 2026-07-02
+
+### Fixed
+
+- **Birth-cap compliance reworked: generator-level salary trim replaces
+  v0.174.0's simulated restructures + cuts.** The full gate caught what the
+  targeted gates hadn't: day-one cuts leave birth leagues violating a stack
+  of other invariants — sub-53 rosters (48 in the worst case), contract-less
+  players in the FA pool, holes in derived depth charts, and a non-empty
+  transaction log that broke every exact-count premise (8 test files, 20
+  tests). Completing the simulation with the waiver scramble
+  (`refillRosters`) made it worse — market gates strand teams short and the
+  offseason machine prunes unsigned casualties from the league entirely.
+  The root insight: a born-over-the-cap book is a GENERATOR pricing error,
+  not history to simulate. `createLeague` now proportionally trims the
+  over-cap team's CURRENT-year base salaries (mid-stream deals trim the year
+  the cap actually reads, floored at the vet minimum; guarantees are
+  percentages of base, so they re-price consistently) until the team fits
+  under all-53 accounting. No cuts, no dead money, no day-one transactions:
+  every birth invariant holds — 32×53 rosters, contracts = players, empty
+  FA pool, empty log — and the hard cap audits 0/32 over at creation,
+  in-season, and post-advance. v0.174.0's permanent birth-cap gate in
+  `generate.test.ts` unchanged and green.
+
+---
+
 ## [0.174.0] — 2026-07-02
 
 ### Fixed
