@@ -340,6 +340,12 @@ export interface TransactionContractExpiration extends TransactionBase {
   contractId: ContractId;
   /** True if the player was on the active roster (vs. practice squad). */
   fromActiveRoster: boolean;
+  /**
+   * Unamortized void-year bonus proration that accelerated onto the team's
+   * current-year cap when the real years ran out (v0.176). Absent for
+   * contracts without void years.
+   */
+  voidDeadMoney?: number;
 }
 
 export interface TransactionCapCut extends TransactionBase {

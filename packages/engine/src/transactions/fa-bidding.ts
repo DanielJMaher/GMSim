@@ -9,7 +9,7 @@ import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { teamCashFloorStatus } from '../contracts/cash.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
-import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { ANCHOR_CAP, leagueMinimumSalary } from '../contracts/constants.js';
 import { positionSalaryFactor, FA_PREMIUM_DAMPEN } from '../contracts/tiers.js';
 import { estimatedRookieYear1CapHit } from '../contracts/rookie-scale.js';
 import { RESIGN_QB_BAD_TEAM_WINS, lastSeasonWins } from './re-sign.js';
@@ -139,10 +139,12 @@ export interface PreferenceFactors {
  * / `BID_MULTIPLIER_CEIL`) rather than letting fit × need × cap
  * composition push individual bids unbounded above the anchor.
  */
+// v0.176: lifted +10% in lockstep with `FA_DEAL_BY_TIER` (see the anchor-lift
+// note there) — the divisor and the deal shape must share an anchor.
 const TIER_STANDARD_Y1: Record<Player['tier'], number> = {
-  STAR: 15_000_000,
-  STARTER: 3_200_000,
-  BACKUP: 1_000_000,
+  STAR: 16_500_000,
+  STARTER: 3_520_000,
+  BACKUP: 1_100_000,
   FRINGE: 900_000,
 };
 
@@ -190,9 +192,13 @@ export const CASH_LAG_OVERPAY_SLOPE = 3.0;
  * flow through into the contract that `makeFreeAgentContract` scales from
  * the tier shape, rather than cancelling out.
  */
-function positionScaledStandardY1(player: Player): number {
+function positionScaledStandardY1(player: Player, league: LeagueState): number {
+  // Anchored dollars × current-cap ratio (v0.176): the auction's dollar
+  // reference tracks the growing ceiling, so the veteran market re-prices
+  // endogenously instead of decaying as a share of cap.
   return (
     TIER_STANDARD_Y1[player.tier] *
+    (league.salaryCap / ANCHOR_CAP) *
     positionSalaryFactor(player.position, player.tier, FA_PREMIUM_DAMPEN)
   );
 }
@@ -227,7 +233,7 @@ function rookiePoolReserve(league: LeagueState, teamId: TeamId): number {
   for (const pick of league.draftPicks) {
     if (pick.currentTeamId !== teamId) continue;
     if (pick.seasonNumber !== league.seasonNumber) continue;
-    gross += estimatedRookieYear1CapHit(pick.round);
+    gross += estimatedRookieYear1CapHit(pick.round, league.salaryCap);
   }
   return gross * ROOKIE_RESERVE_FACTOR;
 }
@@ -264,12 +270,14 @@ export function auctionFreeAgent(
 
   const winner = bids[0]!;
   const runnerUp = bids[1];
-  // UNSCALED tier anchor on purpose: `finalPrice` is already position-scaled
-  // (cash bids use `positionScaledStandardY1`), so dividing by the unscaled
-  // standard yields a multiplier that carries the position premium into the
-  // contract `makeFreeAgentContract` scales from the tier shape. Scaling the
-  // divisor too would cancel the premium out (multiplier → ~1.0).
-  const standardY1 = TIER_STANDARD_Y1[player.tier];
+  // Position-UNSCALED tier anchor on purpose: `finalPrice` is already
+  // position-scaled (cash bids use `positionScaledStandardY1`), so dividing
+  // by the position-unscaled standard yields a multiplier that carries the
+  // position premium into the contract `makeFreeAgentContract` scales from
+  // the tier shape. It IS cap-scaled (v0.176): makeFreeAgentContract applies
+  // the cap ratio to the tier shape itself, so the divisor must match or the
+  // growth would compound twice.
+  const standardY1 = TIER_STANDARD_Y1[player.tier] * (league.salaryCap / ANCHOR_CAP);
 
   // Second-price with a 2% nudge above the runner-up's cash valuation,
   // capped at the winner's own cash so they never pay more than they
@@ -344,7 +352,7 @@ function collectBids(
   player: Player,
   blueprintByPos: Map<Position, number>,
 ): Bid[] {
-  const standardY1 = positionScaledStandardY1(player);
+  const standardY1 = positionScaledStandardY1(player, league);
   const bids: Bid[] = [];
   for (const team of Object.values(league.teams)) {
     if (team.rosterIds.length >= 53) continue;
@@ -361,14 +369,14 @@ function collectBids(
     // slots at league minimum. Without the fill-up reserve, a favored
     // team (good HC + favorable preference) can win 4-6 auctions in
     // sequence, each individually passing this gate, and end the
-    // offseason with $0.4M cap room — below `LEAGUE_MINIMUM_SALARY`
+    // offseason with $0.4M cap room — below the vet minimum
     // so the fill-up backstop can't reach them, leaving the team at
     // 45-50/53 instead of 53/53. The reservation forces teams to
     // stop bidding earlier and lets fill-up complete the roster.
     // Resolves the v0.20.0 long-horizon roster-shortfall residual.
     const capRoom = league.salaryCap - teamCapUsage(team, league);
     const remainingSlotsAfterSigning = Math.max(0, 53 - team.rosterIds.length - 1);
-    const fillUpReserve = remainingSlotsAfterSigning * LEAGUE_MINIMUM_SALARY;
+    const fillUpReserve = remainingSlotsAfterSigning * leagueMinimumSalary(league.salaryCap);
     // Hold back the incoming draft class's first-year cap: the draft
     // fires after FA this same offseason, so spending all the way to the
     // cap here tips the team over once rookies sign. Reserving the rookie
@@ -420,7 +428,7 @@ export function computeTeamCashBid(
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
 ): number {
-  const standard = positionScaledStandardY1(player);
+  const standard = positionScaledStandardY1(player, league);
 
   const hc = league.coaches[team.headCoachId];
   if (!hc) return 0;

@@ -14,6 +14,66 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.176.0] — 2026-07-03
+
+### Added
+
+- **Contract shape / market price level (cap-realism finisher) — the cap
+  GROWS, deals ESCALATE, and the top of the market re-prices itself.** Three
+  parts, shipped together per Daniel's call:
+  - **Cap growth + cap-relative pricing.** `league.salaryCap` grows 6%/yr at
+    `POST_SEASON_FINALIZE` (`SALARY_CAP_ANNUAL_GROWTH` — the real 20-year
+    CAGR: 2005 $85.5M→2025 $279.2M = 6.10%, 2006 $102M→2026 $301.2M = 5.56%),
+    recorded per season in `LeagueState.salaryCapBySeason` (migration
+    backfills constant-cap saves exactly). Every pricing anchor is now
+    dollars-at-`ANCHOR_CAP` ($255M) scaled by the current cap at signing:
+    FA tier shapes, the auction's `TIER_STANDARD_Y1` (and its multiplier
+    divisor, which must move in lockstep), the vet minimum
+    (`leagueMinimumSalary`), extension gain floors, restructure floors, and
+    the rookie scale (real CBA slots are cap-proportional). The veteran
+    market re-prices endogenously — no separate market model.
+  - **Escalating (back-loaded) deal shapes.** Per-tier `baseShape`
+    escalators (STAR ×[0.70…1.28] over 4 years) through the existing
+    `buildGuaranteedSplit`: Year-1 cap hit measures 0.88× APY every season
+    (real deals: ~0.8–0.9), the big cap years land late, and every cap gate
+    that priced Y1 == APY is now conservative by construction.
+  - **Void years.** STAR deals carry 1 void year: bonus prorates over 5,
+    the early hits drop further, and the unamortized share accelerates when
+    the deal lapses — a new expiry-time void charge in
+    `applyContractExpirations` (booked to `deadMoneyByYear[0]`, surfaced as
+    `voidDeadMoney` on the expiration transaction). New
+    `unamortizedSigningBonus` powers release dead money, trade proration,
+    and the restructure fold (which now also CARRIES void years through the
+    rebase) — all void-aware and rounding-robust.
+
+### Changed
+
+- **The cash floor counts the season in progress.** With a growing cap, the
+  trailing-only 4-season window targeted 89% of older, smaller caps (~81%
+  of today's) and quietly unwound the floor. `teamCashFloorStatus` now
+  prices 3 booked seasons + the season underway (committed roster cash vs
+  the current cap), each against its own cap — matching how real CBA
+  minimum-spend periods count the season being played.
+- **Veteran-market anchors lifted +10%.** With escalators, the same anchor
+  realized ~12% less current-year spend (Y1 < APY, and back-loaded years
+  often die with early releases) — league usage sagged 85→81%. Headline APY
+  above realized cap cost is the real market's signature; the lift restores
+  calibrated realized spend.
+
+  Measured (2 seeds × 8 seasons): in-season usage equilibrates at 84–86.5%
+  of a cap that grows 6%/yr, with NO decay trend (season 8 reads highest);
+  cash pace ~90% vs the 89% CBA floor (was 85% at v0.173 against a flat
+  cap); Y1/APY 0.877–0.882 every season; live-deal cap share rises
+  1.2%→4.6% across deal years; ~120 live void-year deals with expiry void
+  charges flowing; top-QB APY reads 22–26% of cap whenever a fresh
+  STAR-tier QB deal exists (real: stable 21–24%; episodic under STAR-tier
+  scarcity — named residual). Restructures now fire in-sim (0–2 per 8
+  seasons) but March pinning stays thin — win-now teams rarely cross the
+  92% trigger; honest activation depth is a named residual (longer star
+  deals or deliberate war-chest behavior, not a lower trigger).
+
+---
+
 ## [0.175.0] — 2026-07-02
 
 ### Fixed

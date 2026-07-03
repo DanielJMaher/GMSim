@@ -73,10 +73,15 @@ export interface CashFloorStatus {
 }
 
 /**
- * Where a team stands against the cash floor over its trailing window.
- * Uses the last `CASH_FLOOR_WINDOW` booked seasons (fewer early in a
- * league's life; a team with no booked history yet is trivially compliant —
- * enforcement starts once real seasons are on the ledger).
+ * Where a team stands against the cash floor over its rolling window: the
+ * last `CASH_FLOOR_WINDOW - 1` booked seasons PLUS the season in progress
+ * (its committed roster cash against the current cap). Real CBA
+ * minimum-spend periods count the season underway — and with the cap
+ * growing ~6%/yr (v0.176) a trailing-only window would target 89% of
+ * OLDER, SMALLER caps (~81% of today's), quietly unwinding the floor.
+ * Each season prices against ITS OWN cap via `salaryCapBySeason`.
+ * A team with no booked history yet is trivially compliant — enforcement
+ * starts once real seasons are on the ledger.
  */
 export function teamCashFloorStatus(team: TeamState, league: LeagueState): CashFloorStatus {
   // Runtime-defensive `?? {}`: pre-migration saves and hand-built test
@@ -85,13 +90,21 @@ export function teamCashFloorStatus(team: TeamState, league: LeagueState): CashF
   const booked = Object.keys(ledger)
     .map(Number)
     .sort((a, b) => a - b)
-    .slice(-CASH_FLOOR_WINDOW);
+    .slice(-(CASH_FLOOR_WINDOW - 1));
   if (booked.length === 0) {
     return { seasons: 0, cashSpent: 0, floorTarget: 0, lag: 0, lagging: false };
   }
   let cashSpent = 0;
-  for (const season of booked) cashSpent += ledger[season] ?? 0;
-  const floorTarget = CASH_FLOOR_PCT * league.salaryCap * booked.length;
+  let capSum = 0;
+  for (const season of booked) {
+    cashSpent += ledger[season] ?? 0;
+    capSum += league.salaryCapBySeason?.[season] ?? league.salaryCap;
+  }
+  // The season in progress: committed roster cash vs the current cap.
+  cashSpent += teamSeasonCash(team, league);
+  capSum += league.salaryCap;
+  const seasons = booked.length + 1;
+  const floorTarget = CASH_FLOOR_PCT * capSum;
   const lag = Math.max(0, floorTarget - cashSpent);
-  return { seasons: booked.length, cashSpent, floorTarget, lag, lagging: lag > 0 };
+  return { seasons, cashSpent, floorTarget, lag, lagging: lag > 0 };
 }

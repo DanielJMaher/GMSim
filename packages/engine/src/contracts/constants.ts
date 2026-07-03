@@ -3,8 +3,34 @@
  * contract module reads cleanly.
  */
 
-/** League-minimum salary (rough 2024 figure for vested veterans). */
+/** League-minimum salary (rough 2024 figure for vested veterans), priced at
+ *  `ANCHOR_CAP`. Prefer `leagueMinimumSalary(salaryCap)` anywhere the current
+ *  cap is available — the real vet minimum grows with the cap. */
 export const LEAGUE_MINIMUM_SALARY = 900_000;
+
+/**
+ * The salary cap every historical dollar constant in the engine was tuned
+ * against (the 2024-ish $255M default birth cap). Cap-relative pricing
+ * divides a tuned dollar figure by this anchor to get its %-of-cap, then
+ * multiplies by the CURRENT `league.salaryCap` — so a league whose cap has
+ * grown re-prices deals against today's ceiling instead of 2024's.
+ */
+export const ANCHOR_CAP = 255_000_000;
+
+/**
+ * Annual salary-cap growth applied at POST_SEASON_FINALIZE (v0.176).
+ * Daniel's calibration (2026-07-03): "the most realistic growth over the
+ * last 20 years." Real cap CAGR: 2005 $85.5M → 2025 $279.2M = 6.10%/yr;
+ * 2006 $102M → 2026 $301.2M = 5.56%/yr (Spotrac CBA history / RealGM).
+ * 6% flat splits the two 20-year windows. Deterministic — no jitter — so
+ * a save's cap schedule reproduces from the seed alone.
+ */
+export const SALARY_CAP_ANNUAL_GROWTH = 1.06;
+
+/** Vet minimum scaled to the current cap (rounded to $10k). */
+export function leagueMinimumSalary(salaryCap: number): number {
+  return Math.round(((LEAGUE_MINIMUM_SALARY / ANCHOR_CAP) * salaryCap) / 10_000) * 10_000;
+}
 
 /** Maximum number of years a signing bonus can prorate across. */
 export const MAX_PRORATION_YEARS = 5;

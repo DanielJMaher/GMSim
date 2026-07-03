@@ -132,7 +132,8 @@ describe('runWeeklyPoaching', () => {
     const used = teamCapUsage(scenario.teams[teamId]!, scenario);
     const tightLeague: LeagueState = {
       ...scenario,
-      salaryCap: used + LEAGUE_MINIMUM_SALARY - 1, // < min-salary headroom
+      // $1 of room — below the (cap-scaled, v0.176) vet minimum at any cap.
+      salaryCap: used + 1,
     };
 
     const next = runWeeklyPoaching(new Prng('p5'), tightLeague, 100);

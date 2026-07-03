@@ -11,7 +11,7 @@ import type {
 } from '../types/ids.js';
 import { ContractId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
-import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { LEAGUE_MINIMUM_SALARY, ANCHOR_CAP } from '../contracts/constants.js';
 import { buildGuaranteedSplit, positionGuaranteeTargetFa } from '../contracts/tiers.js';
 
 /**
@@ -68,7 +68,14 @@ export function signFreeAgent(
   const team = league.teams[teamId];
   if (!team) throw new Error(`signFreeAgent: team ${teamId} not found`);
 
-  const contract = makeFreeAgentContract(player, teamId, options.idSuffix, options.signedOnTick);
+  const contract = makeFreeAgentContract(
+    player,
+    teamId,
+    options.idSuffix,
+    options.signedOnTick,
+    1.0,
+    league.salaryCap,
+  );
 
   const updatedPlayer: Player = {
     ...player,
@@ -120,33 +127,70 @@ interface FreeAgentDealShape {
   realYears: number;
   baseSalary: number;
   signingBonus: number;
+  /**
+   * Relative per-year base weights (length === realYears, mean 1.0) —
+   * v0.176 back-loads veteran deals the way real contracts escalate, so
+   * the Year-1 cap hit runs ~80-90% of APY and the big cap years land
+   * LATE in the deal (which is what eventually pins win-now teams and
+   * gives restructures an honest trigger). Sum must equal realYears so
+   * the total value is preserved.
+   */
+  baseShape: readonly number[];
+  /**
+   * Void years appended for bonus proration (v0.176) — the signature
+   * top-of-market structure: a 4-real + 1-void STAR deal prorates its
+   * bonus over 5 years, dropping the early cap hits further, and eats
+   * the unamortized fifth when the deal lapses (`voidDeadMoney` on the
+   * expiration transaction).
+   */
+  voidYears: number;
 }
 
 // NOTE: `baseSalary` + `signingBonus` here only set the deal's TOTAL value (and
-// thus its APY / Y1 cap hit, which the auction is gated on). The actual
+// thus its APY; the Y1 cap hit runs BELOW the APY the auction gates on — the
+// conservative direction, see `makeFreeAgentContract`). The actual
 // bonus/base split + guarantee depth are derived position-by-position from the
 // total via `buildGuaranteedSplit` (Liquidator Slice 3b) — so these per-tier
 // numbers no longer fix the guaranteed structure, only the headline value.
+// Dollars are tuned at ANCHOR_CAP ($255M) and scale by the current cap at
+// signing time (v0.176) — see `makeFreeAgentContract`.
+//
+// v0.176 anchor lift (+10% over the flat-deal era): with escalators the Y1
+// hit is ~0.88 of APY and back-loaded years often die with early releases,
+// so the SAME anchor realized ~12% less current-year spend — league usage
+// sagged 85→81. Headline APY above realized cap cost is the real pattern
+// (stated APYs league-wide exceed realized charges for exactly these
+// reasons); lifting the headline restores the calibrated realized spend.
+// TIER_STANDARD_Y1 (fa-bidding.ts) moves in lockstep — the auction divisor
+// and the deal shape must share an anchor or the multiplier double-counts.
 const FA_DEAL_BY_TIER: Record<TalentTier, FreeAgentDealShape> = {
   STAR: {
     realYears: 4,
-    baseSalary: 9_000_000,
-    signingBonus: 24_000_000,
+    baseSalary: 9_900_000,
+    signingBonus: 26_400_000,
+    baseShape: [0.7, 0.9, 1.12, 1.28],
+    voidYears: 1,
   },
   STARTER: {
     realYears: 3,
-    baseSalary: 2_400_000,
-    signingBonus: 2_400_000,
+    baseSalary: 2_640_000,
+    signingBonus: 2_640_000,
+    baseShape: [0.8, 1.0, 1.2],
+    voidYears: 0,
   },
   BACKUP: {
     realYears: 2,
-    baseSalary: 900_000,
-    signingBonus: 200_000,
+    baseSalary: 990_000,
+    signingBonus: 220_000,
+    baseShape: [0.88, 1.12],
+    voidYears: 0,
   },
   FRINGE: {
     realYears: 1,
     baseSalary: LEAGUE_MINIMUM_SALARY,
     signingBonus: 0,
+    baseShape: [1],
+    voidYears: 0,
   },
 };
 
@@ -155,11 +199,17 @@ const FA_DEAL_BY_TIER: Record<TalentTier, FreeAgentDealShape> = {
  * STAR/STARTER/BACKUP, 1-year league-minimum for FRINGE.
  *
  * `valuationMultiplier` scales both the per-year base salary and the
- * signing bonus around the tier's standard shape. Default 1.0 reproduces
+ * signing bonus around the tier's standard shape. 1.0 reproduces
  * the v0.13.0–v0.19.0 flat tier deals (used by mid-season vet-min
  * signings and explicit caller-driven signings). The offseason auction
  * in `fa-bidding.ts` supplies a multiplier in roughly [0.55, 1.80] based
  * on competitive bidding outcomes.
+ *
+ * `salaryCap` is the CURRENT league cap (v0.176 — the cap grows ~6%/yr):
+ * the tier tables are dollar-tuned at `ANCHOR_CAP`, and every new deal
+ * scales by `salaryCap / ANCHOR_CAP` so the veteran market re-prices
+ * against today's ceiling. This is the endogenous top-of-market — no
+ * separate market model, just cap-relative pricing.
  *
  * Deterministic given the inputs — no PRNG.
  */
@@ -168,22 +218,24 @@ export function makeFreeAgentContract(
   teamId: TeamId,
   idSuffix: string,
   signedOnTick: number,
-  valuationMultiplier: number = 1.0,
+  valuationMultiplier: number,
+  salaryCap: number,
 ): Contract {
   const shape = FA_DEAL_BY_TIER[player.tier];
-  const scaledBase = Math.round(shape.baseSalary * valuationMultiplier);
-  const scaledBonus = Math.round(shape.signingBonus * valuationMultiplier);
-  // Total deal value the auction priced — its APY / Y1 cap hit. We hold this
-  // fixed and let `buildGuaranteedSplit` re-divide it into a position-aware
-  // bonus/base split + guarantee depth (Liquidator Slice 3b). Because the base
-  // is split evenly, Y1 cap hit stays = totalValue / realYears regardless of the
-  // bonus share, so the auction's cap gate (which assumes Y1 == the priced
-  // valuation) is unaffected — only guaranteed money / dead-money moves.
+  const capRatio = salaryCap / ANCHOR_CAP;
+  const scaledBase = Math.round(shape.baseSalary * capRatio * valuationMultiplier);
+  const scaledBonus = Math.round(shape.signingBonus * capRatio * valuationMultiplier);
+  // Total deal value the auction priced — its APY. `buildGuaranteedSplit`
+  // re-divides it into a position-aware bonus/base split + guarantee depth
+  // (Liquidator Slice 3b) over the tier's ESCALATING base shape (v0.176):
+  // the Year-1 cap hit lands ~80-90% of the APY the auction gated on — the
+  // conservative direction for every cap gate — and the deal's biggest cap
+  // years come late, like real back-loaded veteran contracts.
   const totalValue = scaledBase * shape.realYears + scaledBonus;
   const { signingBonus, baseSalaries, guarantees } = buildGuaranteedSplit({
     totalValue,
     realYears: shape.realYears,
-    baseShape: new Array<number>(shape.realYears).fill(1),
+    baseShape: shape.baseShape,
     guaranteedFraction: positionGuaranteeTargetFa(player.position, player.tier),
   });
   return {
@@ -192,7 +244,7 @@ export function makeFreeAgentContract(
     teamId,
     signedOnTick,
     realYears: shape.realYears,
-    voidYears: 0,
+    voidYears: shape.voidYears,
     yearsRemaining: shape.realYears,
     baseSalaries,
     signingBonus,

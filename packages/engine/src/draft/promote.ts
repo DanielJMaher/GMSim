@@ -5,6 +5,7 @@ import type { Position } from '../types/enums.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamId, ContractId } from '../types/ids.js';
 import { generateRookieContract } from '../contracts/rookie-scale.js';
+import { ANCHOR_CAP } from '../contracts/constants.js';
 import { rollMoodProfile } from '../players/mood-profile.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { provenanceFromOverallPick, type DraftProvenance } from '../players/draft-provenance.js';
@@ -30,6 +31,11 @@ export interface PromoteOptions {
    * don't have a real pick number (e.g. tests).
    */
   overallPick?: number;
+  /**
+   * Current league cap — rookie-scale slot values are cap-proportional
+   * (v0.176). Defaults to ANCHOR_CAP for fixture callers without a league.
+   */
+  salaryCap?: number;
   /**
    * The NFL position to play this rookie at — overrides the prospect's
    * `nflProjectedPosition` when a team drafts him to CONVERT to a needed spot
@@ -70,7 +76,7 @@ export function promoteProspectToPlayer(
   prng: Prng,
   options: PromoteOptions,
 ): PromoteResult {
-  const { prospect, teamId, signedOnTick, overallPick = 32 } = options;
+  const { prospect, teamId, signedOnTick, overallPick = 32, salaryCap = ANCHOR_CAP } = options;
   const player = buildBaseRookiePlayer(
     prng,
     prospect,
@@ -83,6 +89,7 @@ export function promoteProspectToPlayer(
     idSuffix: String(player.id),
     currentTick: signedOnTick,
     overallPick,
+    salaryCap,
   });
   const contractId: ContractId = contract.id;
   return {

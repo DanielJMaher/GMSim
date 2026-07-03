@@ -223,7 +223,14 @@ export function applyResigningWindow(
       if (prng.next() >= p) continue; // team (or player) opts for the market
 
       const idSuffix = `${team.identity.abbreviation}_RS${league.seasonNumber}_${counter++}`;
-      const contract = makeFreeAgentContract(player, teamId, idSuffix, signedOnTick, premium);
+      const contract = makeFreeAgentContract(
+        player,
+        teamId,
+        idSuffix,
+        signedOnTick,
+        premium,
+        league.salaryCap,
+      );
       const y1 = currentCapHit(contract);
       // Cap casualty — he walks. Headroom keeps FA budget for the refill.
       if (committed + y1 > league.salaryCap * RESIGN_CAP_HEADROOM) continue;

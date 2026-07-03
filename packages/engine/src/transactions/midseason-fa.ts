@@ -12,7 +12,7 @@ import type { Position } from '../types/enums.js';
 import type { Prng } from '../prng/index.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
-import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { leagueMinimumSalary } from '../contracts/constants.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import type { Transaction } from '../types/transaction.js';
 
@@ -54,7 +54,7 @@ export function runWeeklyFreeAgentSignings(
     if (team.rosterIds.length >= 53) continue;
 
     const capRoom = working.salaryCap - teamCapUsage(team, working);
-    if (capRoom < LEAGUE_MINIMUM_SALARY) continue;
+    if (capRoom < leagueMinimumSalary(working.salaryCap)) continue;
 
     const deficitPositions = positionsWithDeficit(team, working, blueprintByPos);
     if (deficitPositions.size === 0) continue;
@@ -151,7 +151,7 @@ function applySigning(
     realYears: 1,
     voidYears: 0,
     yearsRemaining: 1,
-    baseSalaries: [LEAGUE_MINIMUM_SALARY],
+    baseSalaries: [leagueMinimumSalary(league.salaryCap)],
     signingBonus: 0,
     rosterBonuses: [0],
     workoutBonuses: [0],

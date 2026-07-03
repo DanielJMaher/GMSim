@@ -572,6 +572,15 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, voiceSeed: deriveVoiceSeed(next.seed) } as LeagueState;
   }
 
+  // v0.176.0 cap-by-season record (contract-shape slice). Pre-growth saves
+  // ran a CONSTANT cap, so backfilling every past season with the current
+  // cap is exact, not approximate. Growth resumes at the next finalize.
+  if ((next as unknown as { salaryCapBySeason?: unknown }).salaryCapBySeason === undefined) {
+    const capBySeason: Record<number, number> = {};
+    for (let s = 1; s <= next.seasonNumber; s++) capBySeason[s] = next.salaryCap;
+    next = { ...next, salaryCapBySeason: capBySeason } as LeagueState;
+  }
+
   // v0.173.0 cash ledger (cap-realism Slice 3). Pre-feature saves have no
   // `TeamState.cashSpentBySeason` — backfill empty; the ledger accumulates
   // from the next POST_SEASON_FINALIZE and the cash floor stays dormant

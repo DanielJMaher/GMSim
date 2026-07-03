@@ -5,6 +5,7 @@ import type { PlayerId, TeamId, ContractId as ContractIdType } from '../types/id
 import type { Transaction } from '../types/transaction.js';
 import { makeFreeAgentContract } from './free-agency.js';
 import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
+import { ANCHOR_CAP } from '../contracts/constants.js';
 import { teamCashFloorStatus } from '../contracts/cash.js';
 import { ageOfPlayer } from '../season/development.js';
 import {
@@ -53,7 +54,8 @@ export const CASH_LAG_FLOOR_TARGET = 0.93;
 export const CASH_LAG_EXTENSION_PREMIUM = 1.15;
 /** Never extend a team past this — leaves room for the rookie class + in-season. */
 export const CAP_EXTENSION_CEIL = 0.95;
-/** Skip marginal extensions — the market deal must add at least this much cap. */
+/** Skip marginal extensions — the market deal must add at least this much cap
+ *  (dollars at ANCHOR_CAP; scaled by the current cap in the pass). */
 const MIN_EXTENSION_GAIN = 1_000_000;
 /** Prime-age cutoff: you lock up cornerstones, not fading veterans. */
 const EXTEND_MAX_AGE_QB = 33;
@@ -136,9 +138,16 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
       if (!isExtendable(player, league.seasonNumber, lagging)) continue;
       const current = contracts[player.contractId];
       if (!current) continue;
-      const market = makeFreeAgentContract(player, teamId, 'probe', signedOnTick, premium);
+      const market = makeFreeAgentContract(
+        player,
+        teamId,
+        'probe',
+        signedOnTick,
+        premium,
+        league.salaryCap,
+      );
       const gain = currentCapHit(market) - currentCapHit(current);
-      if (gain < MIN_EXTENSION_GAIN) continue;
+      if (gain < MIN_EXTENSION_GAIN * (league.salaryCap / ANCHOR_CAP)) continue;
       candidates.push({ playerId: player.id, gain });
     }
     candidates.sort((a, b) => b.gain - a.gain || (a.playerId < b.playerId ? -1 : 1));
@@ -149,7 +158,14 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
       const player = players[cand.playerId]!;
       const oldContractId = player.contractId!;
       const idSuffix = `${team.identity.abbreviation}_EXT${league.seasonNumber}_${counter++}`;
-      const newContract = makeFreeAgentContract(player, teamId, idSuffix, signedOnTick, premium);
+      const newContract = makeFreeAgentContract(
+        player,
+        teamId,
+        idSuffix,
+        signedOnTick,
+        premium,
+        league.salaryCap,
+      );
 
       contracts = { ...contracts };
       delete contracts[oldContractId];

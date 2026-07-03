@@ -144,9 +144,11 @@ describe('refillRosters', () => {
     const avg = total / Object.values(league.teams).length;
     // No team should be wildly over cap (a hard ceiling at 1.5× the cap).
     expect(perTeamMax).toBeLessThan(league.salaryCap * 1.5);
-    // Average should be in a plausible mid-offseason band.
-    expect(avg).toBeGreaterThan(120_000_000);
-    expect(avg).toBeLessThan(260_000_000);
+    // Average should be in a plausible mid-offseason band. Cap-RELATIVE
+    // (v0.176): the cap grows ~6%/yr, so a dollar band silently tightens
+    // as seasons accumulate.
+    expect(avg / league.salaryCap).toBeGreaterThan(0.5);
+    expect(avg / league.salaryCap).toBeLessThan(0.98);
   });
 
   it('FA market produces tier-appropriate multi-year contracts', () => {

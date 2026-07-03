@@ -1,7 +1,7 @@
 import { ContractId } from '../types/ids.js';
 import type { Contract, ContractGuarantee } from '../types/contract.js';
 import type { Player } from '../types/player.js';
-import { LEAGUE_MINIMUM_SALARY } from './constants.js';
+import { ANCHOR_CAP, leagueMinimumSalary } from './constants.js';
 
 /**
  * NFL rookie-scale contracts. Per the CBA, drafted players sign 4-year
@@ -32,14 +32,17 @@ const ROOKIE_YEARS = 4;
  * Floor at LEAGUE_MINIMUM_SALARY × 4 ($3.6M) so no rookie deal goes
  * below the league-minimum total.
  */
-function totalValueForPick(overallPick: number): number {
-  // Exponential decay shaped to hit the rough anchors above.
-  // value(pick) = 4_000_000 + 36_000_000 * exp(-(pick - 1) / 25)
-  const base = 4_000_000;
-  const top = 36_000_000;
+function totalValueForPick(overallPick: number, salaryCap: number): number {
+  // Exponential decay shaped to hit the rough anchors above (dollars tuned
+  // at ANCHOR_CAP). Real CBA slot values are cap-proportional, so the whole
+  // scale grows with the cap (v0.176) — otherwise rookies get relatively
+  // cheaper every season and the draft becomes ever-more-underpriced.
+  const capRatio = salaryCap / ANCHOR_CAP;
+  const base = 4_000_000 * capRatio;
+  const top = 36_000_000 * capRatio;
   const decay = Math.exp(-(overallPick - 1) / 25);
   const value = base + top * decay;
-  const floor = LEAGUE_MINIMUM_SALARY * ROOKIE_YEARS;
+  const floor = leagueMinimumSalary(salaryCap) * ROOKIE_YEARS;
   return Math.max(floor, Math.round(value / 1000) * 1000);
 }
 
@@ -69,6 +72,8 @@ export interface GenerateRookieContractOptions {
   currentTick: number;
   /** Overall draft pick (1..224). Drives the scale. */
   overallPick: number;
+  /** Current league cap — slot values are cap-proportional (v0.176). */
+  salaryCap: number;
 }
 
 /**
@@ -82,8 +87,8 @@ export interface GenerateRookieContractOptions {
  * for high picks, unguaranteed for late picks.
  */
 export function generateRookieContract(options: GenerateRookieContractOptions): Contract {
-  const { player, idSuffix, currentTick, overallPick } = options;
-  const total = totalValueForPick(overallPick);
+  const { player, idSuffix, currentTick, overallPick, salaryCap } = options;
+  const total = totalValueForPick(overallPick, salaryCap);
   const bonusShare = signingBonusShareForPick(overallPick);
   const signingBonus = roundMoney(total * bonusShare);
   const baseTotal = total - signingBonus;
@@ -92,8 +97,9 @@ export function generateRookieContract(options: GenerateRookieContractOptions): 
   // average. Total still sums to baseTotal.
   const avgBase = baseTotal / ROOKIE_YEARS;
   const ramp = [0.85, 0.95, 1.05, 1.15];
+  const minSalary = leagueMinimumSalary(salaryCap);
   for (let i = 0; i < ROOKIE_YEARS; i++) {
-    baseSalaries.push(Math.max(LEAGUE_MINIMUM_SALARY, roundMoney(avgBase * ramp[i]!)));
+    baseSalaries.push(Math.max(minSalary, roundMoney(avgBase * ramp[i]!)));
   }
 
   const guarantees: ContractGuarantee[] = [];
@@ -167,12 +173,12 @@ const ROUND_REPRESENTATIVE_PICK: Readonly<Record<number, number>> = {
  * post-draft roster stays cap-compliant. Rounds outside 1..7 fall back
  * to the round-7 (cheapest) estimate.
  */
-export function estimatedRookieYear1CapHit(round: number): number {
+export function estimatedRookieYear1CapHit(round: number, salaryCap: number): number {
   const pick = ROUND_REPRESENTATIVE_PICK[round] ?? ROUND_REPRESENTATIVE_PICK[7]!;
-  const total = totalValueForPick(pick);
+  const total = totalValueForPick(pick, salaryCap);
   const signingBonus = roundMoney(total * signingBonusShareForPick(pick));
   const avgBase = (total - signingBonus) / ROOKIE_YEARS;
   // Year-1 base uses the 0.85 ramp factor from generateRookieContract.
-  const baseYear1 = Math.max(LEAGUE_MINIMUM_SALARY, roundMoney(avgBase * 0.85));
+  const baseYear1 = Math.max(leagueMinimumSalary(salaryCap), roundMoney(avgBase * 0.85));
   return baseYear1 + Math.round(signingBonus / ROOKIE_YEARS);
 }

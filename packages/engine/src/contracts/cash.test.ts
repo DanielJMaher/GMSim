@@ -11,6 +11,7 @@ import {
   CASH_FLOOR_WINDOW,
   contractSeasonCash,
   teamCashFloorStatus,
+  teamSeasonCash,
 } from './cash.js';
 import { restructureContract } from '../transactions/restructures.js';
 
@@ -76,24 +77,42 @@ describe('teamCashFloorStatus', () => {
     expect(status.seasons).toBe(0);
   });
 
-  it('flags a team far under the floor pace and sizes the lag', () => {
+  it('flags a team far under the floor pace and sizes the lag (booked + season in progress)', () => {
     const low = 0.6 * league.salaryCap;
-    const status = teamCashFloorStatus(withLedger({ 1: low, 2: low }), league);
-    expect(status.seasons).toBe(2);
+    const fixture = withLedger({ 1: low, 2: low });
+    const status = teamCashFloorStatus(fixture, league);
+    // v0.176: the window counts the 2 booked seasons PLUS the season underway
+    // (its committed roster cash vs the current cap).
+    expect(status.seasons).toBe(3);
     expect(status.lagging).toBe(true);
-    expect(status.lag).toBeCloseTo(2 * (CASH_FLOOR_PCT - 0.6) * league.salaryCap, -5);
+    const current = teamSeasonCash(fixture, league);
+    expect(status.lag).toBeCloseTo(
+      3 * CASH_FLOOR_PCT * league.salaryCap - (2 * low + current),
+      -5,
+    );
   });
 
-  it('passes a team at 90%+ pace and uses only the trailing window', () => {
+  it('drops booked seasons beyond the window and counts the season in progress', () => {
     const high = 0.92 * league.salaryCap;
     const ledger: Record<number, number> = {};
     // Old bad seasons beyond the window must not count.
     for (let s = 1; s <= CASH_FLOOR_WINDOW + 2; s++) {
       ledger[s] = s <= 2 ? 0.3 * league.salaryCap : high;
     }
-    const status = teamCashFloorStatus(withLedger(ledger), league);
+    const fixture = withLedger(ledger);
+    const status = teamCashFloorStatus(fixture, league);
+    // WINDOW-1 most recent booked seasons + the season in progress.
     expect(status.seasons).toBe(CASH_FLOOR_WINDOW);
-    expect(status.lagging).toBe(false);
+    // The 0.3-cap seasons fell outside the window: booked contribution is
+    // exactly the three high seasons; the rest is the live roster's cash.
+    expect(status.cashSpent).toBeCloseTo(
+      (CASH_FLOOR_WINDOW - 1) * high + teamSeasonCash(fixture, league),
+      -5,
+    );
+    expect(status.floorTarget).toBeCloseTo(
+      CASH_FLOOR_PCT * CASH_FLOOR_WINDOW * league.salaryCap,
+      -5,
+    );
   });
 });
 

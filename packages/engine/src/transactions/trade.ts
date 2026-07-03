@@ -11,7 +11,7 @@ import type {
   ContractId as ContractIdType,
 } from '../types/ids.js';
 import { ContractId } from '../types/ids.js';
-import { signingBonusProrationPerYear } from '../contracts/cap.js';
+import { unamortizedSigningBonus } from '../contracts/cap.js';
 
 /**
  * A two-team trade: each side sends some players and/or draft picks
@@ -255,7 +255,9 @@ function sumRemainingProration(league: LeagueState, playerIds: readonly PlayerId
   for (const playerId of playerIds) {
     const player = league.players[playerId]!;
     const contract = league.contracts[player.contractId!]!;
-    total += signingBonusProrationPerYear(contract) * contract.yearsRemaining;
+    // Unamortized (real + void years) — a traded void-year deal's whole
+    // remaining proration accelerates onto the trading team (v0.176).
+    total += unamortizedSigningBonus(contract);
   }
   return total;
 }

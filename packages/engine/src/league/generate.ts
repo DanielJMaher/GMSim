@@ -32,7 +32,7 @@ import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { teamCapUsage } from '../contracts/cap.js';
-import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { leagueMinimumSalary } from '../contracts/constants.js';
 import { generateTeamScouts, generateInitialObservations, regenerateWatchLists } from '../scouting/index.js';
 import { generateInitialCollegePool } from '../draft/pool.js';
 import { generateTeamCollegeScouts } from '../draft/college-scout.js';
@@ -258,6 +258,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     seasonNumber: 1,
     phase: 'OFFSEASON_PRE_FA',
     salaryCap,
+    salaryCapBySeason: { 1: salaryCap },
     teams: teams as Readonly<Record<TeamId, TeamState>>,
     players: players as Readonly<Record<PlayerId, Player>>,
     owners: owners as Readonly<Record<OwnerId, Owner>>,
@@ -420,7 +421,7 @@ function trimContractsToCapAtBirth(league: LeagueState): LeagueState['contracts'
       // dead-money math) consistent while the guaranteed dollars re-price
       // with it.
       const yearOfDeal = contract.realYears - contract.yearsRemaining;
-      const slack = (contract.baseSalaries[yearOfDeal] ?? 0) - LEAGUE_MINIMUM_SALARY;
+      const slack = (contract.baseSalaries[yearOfDeal] ?? 0) - leagueMinimumSalary(league.salaryCap);
       if (slack > 0) trimmable.push({ contract, slack });
     }
     const totalSlack = trimmable.reduce((s, t) => s + t.slack, 0);

@@ -5,8 +5,8 @@ import type { PlayerId, TeamId, ContractId as ContractIdType } from '../types/id
 import { ContractId } from '../types/ids.js';
 import type { Transaction } from '../types/transaction.js';
 import { CompetitiveWindow } from '../types/enums.js';
-import { currentCapHit, signingBonusProrationPerYear, teamCapUsage } from '../contracts/cap.js';
-import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { currentCapHit, teamCapUsage, unamortizedSigningBonus } from '../contracts/cap.js';
+import { ANCHOR_CAP, leagueMinimumSalary } from '../contracts/constants.js';
 
 /**
  * Contract RESTRUCTURES (cap-realism deep model, Slice 2 — Salary Cap doc §
@@ -76,27 +76,29 @@ export interface RestructureResult {
  * (< 2 years left, or nothing above the minimum to convert).
  *
  * Conservation: the new deal's future cap total equals the old deal's — the
- * old bonus's remaining proration (`proration × yearsRemaining`, matching the
- * engine's dead-money accounting) plus the converted base both land in the new
- * signing bonus, prorated evenly over the remaining years.
+ * old bonus's UNAMORTIZED remainder (real + void years, matching the engine's
+ * dead-money accounting) plus the converted base both land in the new signing
+ * bonus, prorated evenly over the remaining (+ carried void) years.
  */
 export function restructureContract(
   contract: Contract,
   idSuffix: string,
   signedOnTick: number,
+  salaryCap: number = ANCHOR_CAP,
 ): RestructureResult | null {
   const yearsLeft = contract.yearsRemaining;
   if (yearsLeft < 2) return null; // converting into a 1-year proration frees nothing
   const yearOfDeal = contract.realYears - yearsLeft;
   const currentBase = contract.baseSalaries[yearOfDeal] ?? 0;
-  const converted = currentBase - LEAGUE_MINIMUM_SALARY;
+  const minSalary = leagueMinimumSalary(salaryCap);
+  const converted = currentBase - minSalary;
   if (converted < MIN_CONVERTIBLE) return null;
 
-  const oldBonusRemaining = signingBonusProrationPerYear(contract) * yearsLeft;
+  const oldBonusRemaining = unamortizedSigningBonus(contract);
   const sliceYear = <T>(arr: readonly T[]): T[] => arr.slice(yearOfDeal);
 
   const baseSalaries = sliceYear(contract.baseSalaries);
-  baseSalaries[0] = LEAGUE_MINIMUM_SALARY;
+  baseSalaries[0] = minSalary;
   const guarantees = sliceYear(contract.guarantees);
   // The remaining minimum base rides along with the (inherently guaranteed)
   // bonus cash the player just received — a March restructure locks the year.
@@ -109,7 +111,9 @@ export function restructureContract(
       teamId: contract.teamId,
       signedOnTick,
       realYears: yearsLeft,
-      voidYears: 0,
+      // Carried through the rebase (v0.176): the original deal's void-year
+      // proration window survives, so the eventual void hit isn't erased.
+      voidYears: contract.voidYears,
       yearsRemaining: yearsLeft,
       baseSalaries,
       signingBonus: oldBonusRemaining + converted,
@@ -168,7 +172,7 @@ export function applyCapRestructures(league: LeagueState, signedOnTick: number):
       const c = contracts[player.contractId];
       if (!c || c.yearsRemaining < 2) continue;
       const yearOfDeal = c.realYears - c.yearsRemaining;
-      const convertible = (c.baseSalaries[yearOfDeal] ?? 0) - LEAGUE_MINIMUM_SALARY;
+      const convertible = (c.baseSalaries[yearOfDeal] ?? 0) - leagueMinimumSalary(league.salaryCap);
       if (convertible < MIN_CONVERTIBLE) continue;
       candidates.push({ playerId: player.id, convertible });
     }
@@ -183,7 +187,7 @@ export function applyCapRestructures(league: LeagueState, signedOnTick: number):
       const oldContractId = player.contractId!;
       const oldContract = contracts[oldContractId]!;
       const idSuffix = `${team.identity.abbreviation}_RST${league.seasonNumber}_${counter++}`;
-      const result = restructureContract(oldContract, idSuffix, signedOnTick);
+      const result = restructureContract(oldContract, idSuffix, signedOnTick, league.salaryCap);
       if (!result) continue;
 
       const relief = currentCapHit(oldContract) - currentCapHit(result.contract);

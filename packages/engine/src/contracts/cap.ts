@@ -106,15 +106,26 @@ export function summarizeTeamCap(team: TeamState, league: LeagueState): TeamCapS
 }
 
 /**
- * Pre-June 1 release: all remaining proration accelerates to current
- * year cap. Returns the dead-money cap hit that would result.
- *
- * Stub for Phase 2 transactions — not exercised by generation, but
- * the API is present so transaction code can lean on it.
+ * Signing-bonus dollars not yet charged to the cap: the bonus minus the
+ * proration already booked in completed contract years. For a flat deal
+ * this equals `proration × yearsRemaining`; for a deal with VOID YEARS
+ * (v0.176) it also carries the void-year proration — which is exactly
+ * the charge that accelerates on release, trade, or natural expiry (the
+ * "void year hit" real teams eat when a voided deal lapses).
+ */
+export function unamortizedSigningBonus(contract: Contract): number {
+  const yearsCharged = contract.realYears - contract.yearsRemaining;
+  return Math.max(0, contract.signingBonus - signingBonusProrationPerYear(contract) * yearsCharged);
+}
+
+/**
+ * Pre-June 1 release: all remaining proration (real + void years)
+ * accelerates to current year cap. Returns the dead-money cap hit that
+ * would result.
  */
 export function deadMoneyOnPreJune1Release(contract: Contract): number {
   const yearOfDeal = contract.realYears - contract.yearsRemaining;
-  const remainingProration = signingBonusProrationPerYear(contract) * (contract.yearsRemaining);
+  const remainingProration = unamortizedSigningBonus(contract);
   // Plus any guaranteed remaining base salary.
   let guaranteedRemaining = 0;
   for (let y = yearOfDeal; y < contract.realYears; y++) {

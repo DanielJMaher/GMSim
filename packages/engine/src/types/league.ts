@@ -69,6 +69,13 @@ export interface LeagueState {
 
   /** Salary cap ceiling for the current league year. */
   salaryCap: number;
+  /**
+   * Cap ceiling by season number (v0.176 — the cap grows ~6%/yr at
+   * POST_SEASON_FINALIZE). The CBA-style cash floor prices each booked
+   * season against ITS OWN cap, not today's; migration backfills old
+   * saves with the current (historically constant) cap.
+   */
+  salaryCapBySeason: Readonly<Record<number, number>>;
 
   // Normalized entity stores.
   teams: Readonly<Record<TeamId, TeamState>>;

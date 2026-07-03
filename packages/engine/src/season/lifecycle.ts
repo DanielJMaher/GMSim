@@ -43,7 +43,7 @@ import { processRetirements } from './retirement.js';
 import { seasonStatsForLeague } from './stats.js';
 import { seasonAwards, selectAccolades } from './awards.js';
 import { CompetitiveWindow } from '../types/enums.js';
-import { WEEKS_PER_LEAGUE_YEAR } from '../contracts/constants.js';
+import { WEEKS_PER_LEAGUE_YEAR, SALARY_CAP_ANNUAL_GROWTH } from '../contracts/constants.js';
 import {
   applyContractExpirations,
   applyCapCuts,
@@ -964,6 +964,14 @@ function applyPostSeasonFinalize(
   // phase needs it to compute slot order from the just-played
   // season's records. The pre-v0.54 monolith cleared it here; the
   // refactor pushed the cleanup to the end of the cycle.
+  // The league year turns over here: the cap grows before any new-year
+  // pricing (re-sign window, FA, extensions all price against the NEW
+  // ceiling). ~6%/yr = the real 20-year CAGR; rounded to $100k. The
+  // by-season record is what lets the cash floor price each booked season
+  // against its own cap.
+  const nextSalaryCap =
+    Math.round((league.salaryCap * SALARY_CAP_ANNUAL_GROWTH) / 100_000) * 100_000;
+
   return {
     ...league,
     teams: teamsNext as Readonly<Record<TeamId, TeamState>>,
@@ -972,6 +980,8 @@ function applyPostSeasonFinalize(
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
     seasonNumber: nextSeasonNumber,
     tick: nextTick,
+    salaryCap: nextSalaryCap,
+    salaryCapBySeason: { ...league.salaryCapBySeason, [nextSeasonNumber]: nextSalaryCap },
     phase: 'OFFSEASON_PRE_FA',
     lifecyclePhase: 'POST_SEASON_FINALIZE',
   };

@@ -11,11 +11,12 @@ import {
   currentCapHit,
   deadMoneyOnPreJune1Release,
   teamCapUsage,
+  unamortizedSigningBonus,
 } from '../contracts/cap.js';
 import { makeFreeAgentContract } from './free-agency.js';
 import { auctionFreeAgent } from './fa-bidding.js';
 import type { FaBidderDetail } from './fa-bidding.js';
-import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
+import { leagueMinimumSalary } from '../contracts/constants.js';
 import { ContractId } from '../types/ids.js';
 import type { Transaction, FaSignBidder } from '../types/transaction.js';
 
@@ -37,11 +38,25 @@ export function applyContractExpirations(league: LeagueState): LeagueState {
   const playersNext: Record<string, Player> = { ...league.players };
   const contractsNext: Record<string, Contract> = { ...league.contracts };
   const removalsByTeam = new Map<TeamId, Set<PlayerId>>();
+  const voidChargesByTeam = new Map<TeamId, number>();
   const logEntries: Transaction[] = [];
 
   for (const contract of expired) {
     const player = playersNext[contract.playerId];
     delete contractsNext[contract.id];
+    // The VOID-YEAR hit (v0.176): a deal that prorated its bonus across
+    // void years still owes the unamortized share when the real years run
+    // out — it accelerates onto the signing team's CURRENT year (this runs
+    // post-finalize, so [0] is the new league year, matching the real
+    // March void-day charge). Charged to the obligated club whether or not
+    // the player object survived retirement pruning.
+    const voidCharge = contract.voidYears > 0 ? unamortizedSigningBonus(contract) : 0;
+    if (voidCharge > 0) {
+      voidChargesByTeam.set(
+        contract.teamId,
+        (voidChargesByTeam.get(contract.teamId) ?? 0) + voidCharge,
+      );
+    }
     if (!player) continue; // retired or otherwise gone
     if (player.teamId) {
       const team = league.teams[player.teamId];
@@ -54,6 +69,7 @@ export function applyContractExpirations(league: LeagueState): LeagueState {
         playerId: player.id,
         contractId: contract.id,
         fromActiveRoster: wasOnActive,
+        ...(voidCharge > 0 ? { voidDeadMoney: voidCharge } : {}),
       });
       const set = removalsByTeam.get(player.teamId) ?? new Set<PlayerId>();
       set.add(player.id);
@@ -78,6 +94,13 @@ export function applyContractExpirations(league: LeagueState): LeagueState {
       rosterIds: team.rosterIds.filter((id) => !removals.has(id)),
       practiceSquadIds: team.practiceSquadIds.filter((id) => !removals.has(id)),
     };
+  }
+  for (const [teamId, charge] of voidChargesByTeam) {
+    const team = teamsNext[teamId];
+    if (!team) continue;
+    const deadMoneyByYear = [...team.deadMoneyByYear];
+    deadMoneyByYear[0] = (deadMoneyByYear[0] ?? 0) + charge;
+    teamsNext[teamId] = { ...team, deadMoneyByYear };
   }
 
   return {
@@ -406,7 +429,7 @@ function pickFillUpTeam(league: LeagueState): TeamId | null {
   for (const team of Object.values(league.teams)) {
     if (team.rosterIds.length >= 53) continue;
     const capRoom = league.salaryCap - teamCapUsage(team, league);
-    if (capRoom < LEAGUE_MINIMUM_SALARY) continue;
+    if (capRoom < leagueMinimumSalary(league.salaryCap)) continue;
     const deficit = 53 - team.rosterIds.length;
     if (
       deficit > bestDeficit ||
@@ -444,6 +467,7 @@ function signAuctionWinner(
     idSuffix,
     signedOnTick,
     valuationMultiplier,
+    league.salaryCap,
   );
   // FaBidderDetail (auction module) and FaSignBidder (transaction
   // type) are structurally identical — copy across to keep the
@@ -486,7 +510,7 @@ function signMinimumTo(
     realYears: 1,
     voidYears: 0,
     yearsRemaining: 1,
-    baseSalaries: [LEAGUE_MINIMUM_SALARY],
+    baseSalaries: [leagueMinimumSalary(league.salaryCap)],
     signingBonus: 0,
     rosterBonuses: [0],
     workoutBonuses: [0],

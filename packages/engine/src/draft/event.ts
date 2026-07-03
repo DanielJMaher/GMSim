@@ -408,6 +408,7 @@ export function runDraft(
       teamId,
       signedOnTick: options.pickedOnTick,
       overallPick,
+      salaryCap: league.salaryCap,
       ...(assignedPosition ? { assignedPosition } : {}),
     });
     newPlayers.push(promoted.player);

@@ -225,11 +225,11 @@ describe('advanceSeason', () => {
         expect(summary.capUsed).toBeLessThan(league.salaryCap * 2);
       }
       const avg = totalUsage / Object.values(league.teams).length;
-      // Phase 2 auto-renew is a placeholder; a wide band keeps this from
-      // turning into a fragile golden-number test. The point is to catch
-      // catastrophic drift, not to pin the exact number.
-      expect(avg).toBeGreaterThan(150_000_000);
-      expect(avg).toBeLessThan(310_000_000);
+      // Wide band to catch catastrophic drift, not to pin the exact number.
+      // Cap-RELATIVE (v0.176): the cap grows ~6%/yr, so a dollar band would
+      // silently tighten (or lapse) as seasons accumulate.
+      expect(avg / league.salaryCap).toBeGreaterThan(0.55);
+      expect(avg / league.salaryCap).toBeLessThan(1.0);
     });
   });
 });
