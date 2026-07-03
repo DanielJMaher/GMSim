@@ -66,9 +66,12 @@ export { runProactiveTrades } from '../transactions/proactive-trades.js';
 export {
   applyResigningWindow,
   resignProbability,
+  lastSeasonWins,
   RESIGN_BASE_BY_TIER,
   RESIGN_QB_FLOOR,
   RESIGN_INCUMBENT_PREMIUM,
+  RESIGN_QB_BAD_TEAM_WINS,
+  RESIGN_QB_BAD_TEAM_FACTOR,
 } from '../transactions/re-sign.js';
 
 // Extensions (v0.170, cap-realism Slice 1) — teams below the spend floor

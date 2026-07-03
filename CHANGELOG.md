@@ -14,6 +14,49 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.175.0] — 2026-07-02
+
+### Fixed
+
+- **The v0.154 record-aware QB churn shipped dead — losing teams never cycled
+  their QBs in a real sim.** `applyResigningWindow` looked up last season's
+  wins with `lastRecord.seasonNumber === league.seasonNumber`, but every
+  offseason phase runs after `POST_SEASON_FINALIZE` has rolled `seasonNumber`
+  to the UPCOMING season while the history entry is dated to the just-played
+  one — the guard never matched, `lastSeasonWins` was always `undefined`, and
+  the bad-team damper (`RESIGN_QB_BAD_TEAM_FACTOR`) never fired. Unit tests
+  passed because they inject the wins directly. Extracted the corrected
+  lookup as `lastSeasonWins(team, league)` (compares against
+  `seasonNumber - 1`, exported through `npc-ai`) with an integration-shaped
+  regression test that walks a played league through finalize.
+
+### Changed
+
+- **Record-aware QB carve-out across every retention channel — the losing
+  team lets its middling QB walk and drafts the replacement (Goatinator
+  #1-overall QB share regression 76→67%, real bar 75).** The decomposition
+  probe (`_no1_qb_decomposition.mjs`) found non-QB #1 picks split evenly
+  across three channels that quietly settle the top team's QB room: the
+  dead-damper re-sign window (fixed above), cap-floor extensions, and the
+  Slice-3 cash-lag FA overpay. The v0.154 philosophy now applies to all
+  three: a team off a ≤6-win season (`RESIGN_QB_BAD_TEAM_WINS`) never
+  extends a non-STAR QB (`applyCapFloorExtensions` skips them; floor
+  pressure flows to every other position) and never receives the cash-lag
+  bid boosts (`CASH_LAG_BID_FLOOR` / overpay) when bidding on a non-STAR
+  veteran QB in FA — bridge passers still get bridge-price bids, the
+  franchise-QB (STAR) market is untouched, and winning teams behave exactly
+  as before. Measured (Goatinator 12×32, fresh cache): #1-overall QB share
+  67% → 77% (real 75), #3 exact at 25/25, #2 at 36 vs 44 (the standing
+  pre-existing residual), top-10 mix in its historical bands, in-draft
+  trade-up drift unchanged (the accepted v0.160 residual). Primary-passer
+  retention 77.5% vs the real 78.4% bar; bad-team (≤6 win) QB churn rose
+  49.7% → 56.8% (the damper working — the real bar is 43.3% but the sim
+  metric is inflated across all record buckets by benching/rookie
+  takeovers). Cap guardrails hold: equilibrium $216M/85% with 13–17 teams
+  ≥90%, matching the v0.173 record.
+
+---
+
 ## [0.174.1] — 2026-07-02
 
 ### Fixed

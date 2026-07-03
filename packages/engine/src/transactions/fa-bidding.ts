@@ -12,6 +12,7 @@ import { schemeFitForPlayer } from '../scheme/fit.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { positionSalaryFactor, FA_PREMIUM_DAMPEN } from '../contracts/tiers.js';
 import { estimatedRookieYear1CapHit } from '../contracts/rookie-scale.js';
+import { RESIGN_QB_BAD_TEAM_WINS, lastSeasonWins } from './re-sign.js';
 /**
  * Free-agent bidding auction — v0.20.0 Doc 7 follow-up.
  *
@@ -457,7 +458,20 @@ export function computeTeamCashBid(
   // hoarding: its bids stay near tier-standard regardless of how much room
   // it's sitting on (the separate cap-room gate still bounds what it can pay).
   const floorStatus = teamCashFloorStatus(team, league);
-  if (capFactor < CASH_LAG_BID_FLOOR && floorStatus.lagging) {
+  // Record-aware QB carve-out (v0.175, the v0.154 philosophy applied to the
+  // cash floor): a losing team's floor pressure never targets a non-STAR
+  // veteran QB — real bottom teams sign bridge passers at bridge prices and
+  // draft the franchise QB; they don't hand a market-topping March deal to a
+  // middling vet. Without this, the Slice-3 overpay made the worst (most
+  // cash-lagging) teams the strongest bidders on exactly the position they
+  // should stay desperate at, suppressing #1-overall QB drafting (76→67%).
+  // Normal fit × need × throttle bidding still applies — only the lag boosts
+  // are withheld.
+  const qbCarveOut =
+    player.position === 'QB' &&
+    player.tier !== 'STAR' &&
+    (lastSeasonWins(team, league) ?? Number.POSITIVE_INFINITY) <= RESIGN_QB_BAD_TEAM_WINS;
+  if (capFactor < CASH_LAG_BID_FLOOR && floorStatus.lagging && !qbCarveOut) {
     capFactor = CASH_LAG_BID_FLOOR;
   }
 
@@ -476,7 +490,7 @@ export function computeTeamCashBid(
   // show up in the PRICE. Self-limiting: as the ledger catches up, the
   // overpay decays to 1.
   let overpay = 1;
-  if (floorStatus.lagging && floorStatus.floorTarget > 0) {
+  if (floorStatus.lagging && floorStatus.floorTarget > 0 && !qbCarveOut) {
     const lagFrac = floorStatus.lag / floorStatus.floorTarget;
     overpay = 1 + Math.min(CASH_LAG_OVERPAY_MAX - 1, lagFrac * CASH_LAG_OVERPAY_SLOPE);
   }

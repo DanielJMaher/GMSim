@@ -7,7 +7,11 @@ import { makeFreeAgentContract } from './free-agency.js';
 import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
 import { teamCashFloorStatus } from '../contracts/cash.js';
 import { ageOfPlayer } from '../season/development.js';
-import { RESIGN_INCUMBENT_PREMIUM } from './re-sign.js';
+import {
+  RESIGN_INCUMBENT_PREMIUM,
+  RESIGN_QB_BAD_TEAM_WINS,
+  lastSeasonWins,
+} from './re-sign.js';
 
 /**
  * Cap-floor veteran EXTENSIONS (cap-realism deep model, Slice 1).
@@ -108,6 +112,16 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
     const premium = lagging
       ? RESIGN_INCUMBENT_PREMIUM * CASH_LAG_EXTENSION_PREMIUM
       : RESIGN_INCUMBENT_PREMIUM;
+    // Record-aware QB carve-out (v0.175, same philosophy as the v0.154
+    // re-sign damper): a bottom team doesn't hand its middling veteran QB
+    // a fresh multi-year deal — it lets the contract run out and drafts
+    // the replacement. Floor pressure goes to every other position; STAR
+    // QBs stay extendable (you don't cycle the franchise QB over one bad
+    // year). Without this gate the cash floor quietly settles the QB room
+    // of exactly the teams that should be QB-desperate at the top of the
+    // draft (#1-overall QB share regressed 76→67% when Slice 3 landed).
+    const wins = lastSeasonWins(team, league);
+    const cyclesQbs = wins !== undefined && wins <= RESIGN_QB_BAD_TEAM_WINS;
     let usage = teamCapUsage(team, view());
     if (usage >= floor) continue;
 
@@ -118,6 +132,7 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
     for (const pid of team.rosterIds) {
       const player = players[pid];
       if (!player || !player.contractId) continue;
+      if (cyclesQbs && player.position === 'QB' && player.tier !== 'STAR') continue;
       if (!isExtendable(player, league.seasonNumber, lagging)) continue;
       const current = contracts[player.contractId];
       if (!current) continue;

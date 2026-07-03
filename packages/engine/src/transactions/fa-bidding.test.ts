@@ -6,7 +6,10 @@ import {
   auctionFreeAgent,
   computePlayerPreference,
   computePlayerPreferenceBreakdown,
+  computeTeamCashBid,
 } from './fa-bidding.js';
+import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
+import { RESIGN_QB_BAD_TEAM_WINS } from './re-sign.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { MarketSize, Position } from '../types/enums.js';
 import type { LeagueState } from '../types/league.js';
@@ -251,6 +254,62 @@ describe('auctionFreeAgent', () => {
     }
     expect(withBidders).toBeGreaterThan(0);
     expect(withPhase).toBe(auctionSigns.length); // every signing should have a phase
+  });
+});
+
+describe('cash-lag QB carve-out (v0.175)', () => {
+  it('withholds the lag boosts from a losing team bidding on a non-STAR QB', () => {
+    const base = createLeague({ seed: 'fa-qbgate' });
+    const blueprintByPos = new Map<Position, number>();
+    for (const slot of ROSTER_BLUEPRINT_53) blueprintByPos.set(slot.position, slot.count);
+
+    // Post-finalize shape: seasonNumber rolled to the upcoming season, the
+    // just-played entry dated seasonNumber - 1, plus a badly lagging ledger
+    // so the Slice-3 boosts (bid floor + overpay) are armed.
+    const league: LeagueState = { ...base, seasonNumber: 2 };
+    const teamId = (Object.keys(league.teams) as TeamId[]).sort()[0]!;
+    const withRecord = (wins: number): TeamState => ({
+      ...league.teams[teamId]!,
+      cashSpentBySeason: { 1: 0.5 * league.salaryCap },
+      seasonHistory: [
+        { seasonNumber: 1, wins, losses: 17 - wins, ties: 0, divisionFinish: 4, madePlayoffs: false },
+      ],
+    });
+    const losing = withRecord(RESIGN_QB_BAD_TEAM_WINS);
+    const winning = withRecord(10);
+
+    let qbTemplate: Player | null = null;
+    for (const p of Object.values(league.players)) {
+      if (p.position === Position.QB && p.teamId) {
+        qbTemplate = p;
+        break;
+      }
+    }
+    const qb: Player = {
+      ...qbTemplate!,
+      id: 'FA_TEST_QB' as unknown as PlayerId,
+      teamId: null,
+      contractId: null,
+      tier: 'STARTER',
+    };
+    const wr = makeWrFreeAgent(league, 'STARTER');
+
+    // Same lagging ledger, different record: the losing team's QB bid loses
+    // the boosts (bridge-QB money only); the winning team's keeps them.
+    const losingQbBid = computeTeamCashBid(losing, qb, league, blueprintByPos);
+    const winningQbBid = computeTeamCashBid(winning, qb, league, blueprintByPos);
+    expect(losingQbBid).toBeLessThan(winningQbBid);
+
+    // QB-only: the same losing team still gets full floor pressure at WR.
+    expect(computeTeamCashBid(losing, wr, league, blueprintByPos)).toBe(
+      computeTeamCashBid(winning, wr, league, blueprintByPos),
+    );
+
+    // STAR QBs are exempt — a bad team still bids full for the franchise guy.
+    const starQb: Player = { ...qb, tier: 'STAR' };
+    expect(computeTeamCashBid(losing, starQb, league, blueprintByPos)).toBe(
+      computeTeamCashBid(winning, starQb, league, blueprintByPos),
+    );
   });
 });
 

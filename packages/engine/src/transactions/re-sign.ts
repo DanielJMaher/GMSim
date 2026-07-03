@@ -1,6 +1,7 @@
 import type { Prng } from '../prng/index.js';
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
+import type { TeamState } from '../types/team.js';
 import type { Contract } from '../types/contract.js';
 import type { PlayerId, TeamId, ContractId as ContractIdType } from '../types/ids.js';
 import type { Transaction } from '../types/transaction.js';
@@ -149,6 +150,20 @@ const TIER_RANK: Record<Player['tier'], number> = {
 };
 
 /**
+ * Wins from the team's just-played season, or undefined when none exists.
+ * Every offseason phase runs AFTER `POST_SEASON_FINALIZE` has rolled
+ * `league.seasonNumber` to the UPCOMING season, so the just-played season's
+ * history entry is dated `seasonNumber - 1`. (The v0.154 record-aware QB
+ * churn compared against `seasonNumber` itself, which never matches — the
+ * damper shipped dead and the losing-team QB cycle never fired in a real
+ * sim until this helper fixed the dating, 2026-07-02.)
+ */
+export function lastSeasonWins(team: TeamState, league: LeagueState): number | undefined {
+  const last = team.seasonHistory[team.seasonHistory.length - 1];
+  return last && last.seasonNumber === league.seasonNumber - 1 ? last.wins : undefined;
+}
+
+/**
  * Run the re-sign window over every team. Must run AFTER the season's
  * `yearsRemaining` decrement and BEFORE `applyContractExpirations` —
  * it consumes contracts at `yearsRemaining <= 0` that are about to drop.
@@ -201,11 +216,7 @@ export function applyResigningWindow(
           TIER_RANK[a.tier] - TIER_RANK[b.tier] || (a.id < b.id ? -1 : 1),
       );
 
-    const lastRecord = team.seasonHistory[team.seasonHistory.length - 1];
-    const lastWins =
-      lastRecord && lastRecord.seasonNumber === league.seasonNumber
-        ? lastRecord.wins
-        : undefined;
+    const lastWins = lastSeasonWins(team, league);
 
     for (const player of candidates) {
       const p = resignProbability(player, league.seasonNumber, lastWins);

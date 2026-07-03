@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/generate.js';
+import { simulateSeason } from '../season/runner.js';
+import { tickPhase } from '../season/lifecycle.js';
 import {
   applyResigningWindow,
   resignProbability,
+  lastSeasonWins,
   RESIGN_QB_FLOOR,
   RESIGN_BASE_BY_TIER,
   RESIGN_QB_BAD_TEAM_FACTOR,
@@ -101,6 +104,30 @@ describe('resignProbability', () => {
     expect(resignProbability(wantsOut, league.seasonNumber)).toBeLessThan(
       resignProbability(content, league.seasonNumber) * 0.3,
     );
+  });
+});
+
+describe('lastSeasonWins', () => {
+  it('resolves the just-played season at offseason time (regression: the v0.154 damper shipped dead)', () => {
+    // POST_SEASON_FINALIZE rolls seasonNumber to the UPCOMING season while
+    // the history entry is dated to the just-played one — the original
+    // lookup compared against the rolled number and never matched, so the
+    // record-aware QB churn never fired in an integrated sim.
+    let league: LeagueState = simulateSeason(createLeague({ seed: 'resign-lastwins' }));
+    league = tickPhase(league);
+    expect(league.lifecyclePhase).toBe('POST_SEASON_FINALIZE');
+    for (const team of Object.values(league.teams)) {
+      expect(
+        lastSeasonWins(team, league),
+        `${team.identity.abbreviation} must resolve just-played-season wins`,
+      ).toBeTypeOf('number');
+    }
+  });
+
+  it('returns undefined when no just-played record exists (fresh league)', () => {
+    const league = createLeague({ seed: 'resign-lastwins-none' });
+    const team = Object.values(league.teams)[0]!;
+    expect(lastSeasonWins(team, league)).toBeUndefined();
   });
 });
 

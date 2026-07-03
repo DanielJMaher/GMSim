@@ -6,6 +6,7 @@ import { teamCapUsage } from '../contracts/cap.js';
 import { LEAGUE_MINIMUM_SALARY } from '../contracts/constants.js';
 import { applyCapFloorExtensions, CAP_EXTENSION_CEIL, CAP_FLOOR_TARGET } from './extensions.js';
 import { ageOfPlayer } from '../season/development.js';
+import { RESIGN_QB_BAD_TEAM_WINS } from './re-sign.js';
 
 /** Replace every contract on every roster with a 1-year vet-minimum deal, so
  *  each team is far below the spend floor with underpaid prime players to extend. */
@@ -69,6 +70,44 @@ describe('applyCapFloorExtensions', () => {
     const b = applyCapFloorExtensions(cheapenAll(createLeague({ seed: 'ext-det' })), 1000);
     expect(a.contracts).toEqual(b.contracts);
     expect(a.players).toEqual(b.players);
+  });
+
+  it('losing teams never extend a non-STAR QB; winning teams do (v0.175 record-aware carve-out)', () => {
+    // Post-finalize shape: seasonNumber already rolled to the upcoming
+    // season, history entry dated to the just-played one (seasonNumber - 1).
+    const withRecords = (l: LeagueState, wins: number): LeagueState => {
+      const teams: Record<string, (typeof l.teams)[keyof typeof l.teams]> = {};
+      for (const [tid, team] of Object.entries(l.teams)) {
+        teams[tid] = {
+          ...team,
+          seasonHistory: [
+            { seasonNumber: 1, wins, losses: 17 - wins, ties: 0, divisionFinish: 4, madePlayoffs: false },
+          ],
+        };
+      }
+      return { ...l, seasonNumber: 2, teams: teams as LeagueState['teams'] };
+    };
+    const nonStarQbExtensions = (l: LeagueState) =>
+      l.transactionLog.filter((t) => {
+        if (t.kind !== 're-sign') return false;
+        const p = l.players[t.playerId];
+        return p?.position === 'QB' && p.tier !== 'STAR';
+      }).length;
+    const anyExtensions = (l: LeagueState) =>
+      l.transactionLog.filter((t) => t.kind === 're-sign').length;
+
+    const base = cheapenAll(createLeague({ seed: 'ext-qbgate' }));
+
+    // Every team coming off a losing season: floor pressure flows to every
+    // position EXCEPT the middling QB — he's left to expire and be replaced
+    // through the draft.
+    const losing = applyCapFloorExtensions(withRecords(base, RESIGN_QB_BAD_TEAM_WINS), 1000);
+    expect(nonStarQbExtensions(losing)).toBe(0);
+    expect(anyExtensions(losing)).toBeGreaterThan(20);
+
+    // Control: the same league off winning seasons extends its underpaid QBs.
+    const winning = applyCapFloorExtensions(withRecords(base, 10), 1000);
+    expect(nonStarQbExtensions(winning)).toBeGreaterThan(0);
   });
 
   it('the raised cash-lag floor pulls in a team the base floor would skip (Slice 3)', () => {
