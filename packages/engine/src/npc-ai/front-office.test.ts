@@ -240,7 +240,14 @@ describe('front-office lifecycle integration', () => {
 
   it('runs the carousel across seasons: every firing produces a hire, seats never stay vacant', () => {
     let lg: LeagueState = createLeague({ seed: 'carousel-3yr' });
-    for (let s = 0; s < 2; s++) {
+    // THREE cycles, matching the seed's name and the comment below — the
+    // test previously ran 2, and pressure ramps from zero at birth, so a
+    // single-seed ≥1 floor sat one lucky bounce from failing. The v0.176
+    // contract economy reshuffled this seed's first two seasons to exactly
+    // that quiet landing (top seat pressure 45 vs threshold ~50; league
+    // firing rate unchanged — probed 4 seeds vs v0.174.1). At 3 cycles the
+    // seed fires 5 HC + 1 GM with comfortable margin.
+    for (let s = 0; s < 3; s++) {
       lg = simulateSeason(lg);
       lg = advanceSeason(lg);
     }

@@ -1,6 +1,6 @@
 {
   "name": "gmsim",
-  "version": "0.176.0",
+  "version": "0.177.0",
   "private": true,
   "description": "Authentic NFL GM simulator — single-player, 32-team Living League",
   "scripts": {
@@ -9,6 +9,8 @@
     "lint": "turbo run lint",
     "test": "turbo run test",
     "test:monitor": "pnpm --filter @gmsim/engine test:monitor",
+    "test:timed": "pnpm --filter @gmsim/engine exec vitest run --reporter=default --reporter=json --outputFile=vitest-report.json && node scripts/test-timing-audit.mjs packages/engine/vitest-report.json",
+    "timing:audit": "node scripts/test-timing-audit.mjs packages/engine/vitest-report*.json",
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean && rimraf node_modules",
     "version:check": "node scripts/sync-versions.mjs",

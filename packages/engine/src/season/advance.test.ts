@@ -36,17 +36,63 @@ describe('advanceSeason', () => {
     expect(next.schedule).toBeNull();
   });
 
-  it('appends one TeamSeasonRecord per team per advance', () => {
-    let league = createLeague({ seed: 'adv-history' });
+  // Gate-optimization pass (2026-07-04): six multi-season tests each
+  // walked their OWN 5-6 season league (31 season-sims — advance was
+  // ~16 min of the CI wall) to assert independent invariants, most only
+  // at the END state. One shared 6-season trajectory asserts all of them
+  // EVERY season — strictly stronger at a fifth of the sim cost.
+  it('6-season trajectory: history appends, skills bounded, contracts renew, rosters hold 53, contracts resolve, cap band', () => {
+    let league = createLeague({ seed: 'adv-trajectory' });
     expect(Object.values(league.teams)[0]!.seasonHistory.length).toBe(0);
 
-    for (let i = 1; i <= 5; i++) {
-      league = simulateSeason(league);
-      league = advanceSeason(league);
+    for (let season = 1; season <= 6; season++) {
+      league = advanceSeason(simulateSeason(league));
+
+      // One TeamSeasonRecord per team per advance, dated to the season.
       for (const team of Object.values(league.teams)) {
-        expect(team.seasonHistory.length).toBe(i);
-        expect(team.seasonHistory[i - 1]!.seasonNumber).toBe(i);
+        expect(team.seasonHistory.length, `season ${season}: history`).toBe(season);
+        expect(team.seasonHistory[season - 1]!.seasonNumber).toBe(season);
       }
+
+      // Development keeps every skill in [1, 99].
+      for (const player of Object.values(league.players)) {
+        for (const value of Object.values(player.current)) {
+          expect(value).toBeGreaterThanOrEqual(1);
+          expect(value).toBeLessThanOrEqual(99);
+        }
+      }
+
+      // Contract advancement: nothing lingers at/below 0 years remaining.
+      for (const contract of Object.values(league.contracts)) {
+        expect(contract.yearsRemaining).toBeGreaterThan(0);
+        expect(contract.yearsRemaining).toBeLessThanOrEqual(contract.realYears);
+      }
+
+      // Every team at 53 with every rostered player on a resolvable,
+      // positive-cap-hit contract.
+      for (const team of Object.values(league.teams)) {
+        expect(team.rosterIds.length, `season ${season}: ${team.identity.id}`).toBe(53);
+        for (const playerId of team.rosterIds) {
+          const player = league.players[playerId]!;
+          expect(player.contractId).not.toBeNull();
+          const contract = league.contracts[player.contractId!]!;
+          expect(contract).toBeDefined();
+          expect(currentCapHit(contract)).toBeGreaterThan(0);
+        }
+      }
+
+      // Average cap usage in a plausible cap-relative band (the cap grows
+      // ~6%/yr — v0.176). Wide: catches catastrophic drift, not exact values.
+      let totalUsage = 0;
+      for (const team of Object.values(league.teams)) {
+        const summary = summarizeTeamCap(team, league);
+        totalUsage += summary.capUsed;
+        expect(summary.capUsed).toBeGreaterThan(20_000_000);
+        expect(summary.capUsed).toBeLessThan(league.salaryCap * 2);
+      }
+      const avg = totalUsage / Object.values(league.teams).length;
+      expect(avg / league.salaryCap, `season ${season}: cap usage`).toBeGreaterThan(0.55);
+      expect(avg / league.salaryCap, `season ${season}: cap usage`).toBeLessThan(1.0);
     }
   });
 
@@ -111,25 +157,11 @@ describe('advanceSeason', () => {
       }
     });
 
-    it('keeps every skill in [1, 99] across multiple seasons', () => {
-      const league = runSeasons('adv-bounds', 5);
-      for (const player of Object.values(league.players)) {
-        for (const value of Object.values(player.current)) {
-          expect(value).toBeGreaterThanOrEqual(1);
-          expect(value).toBeLessThanOrEqual(99);
-        }
-      }
-    });
+    // Skill bounds ride the shared 6-season trajectory above.
   });
 
   describe('contract advancement', () => {
-    it('no contract has yearsRemaining <= 0 after advance', () => {
-      const league = runSeasons('adv-contract-renew', 6);
-      for (const contract of Object.values(league.contracts)) {
-        expect(contract.yearsRemaining).toBeGreaterThan(0);
-        expect(contract.yearsRemaining).toBeLessThanOrEqual(contract.realYears);
-      }
-    });
+    // Contract-renewal boundedness rides the shared 6-season trajectory above.
 
     it('contract that had 1 year remaining expires — original contract is dropped', () => {
       const played = simulateSeason(createLeague({ seed: 'adv-renew-detect' }));
@@ -192,44 +224,7 @@ describe('advanceSeason', () => {
     });
   });
 
-  describe('roster + cap stability', () => {
-    it('every team keeps its 53-man roster across multiple seasons', () => {
-      const league = runSeasons('adv-roster', 5);
-      for (const team of Object.values(league.teams)) {
-        expect(team.rosterIds.length).toBe(53);
-      }
-    });
-
-    it('every roster player still has a resolvable contract after 5 seasons', () => {
-      const league = runSeasons('adv-contract-resolve', 5);
-      for (const team of Object.values(league.teams)) {
-        for (const playerId of team.rosterIds) {
-          const player = league.players[playerId]!;
-          expect(player.contractId).not.toBeNull();
-          const contract = league.contracts[player.contractId!]!;
-          expect(contract).toBeDefined();
-          expect(currentCapHit(contract)).toBeGreaterThan(0);
-        }
-      }
-    });
-
-    it('average cap usage stays in a plausible band across 5 seasons', () => {
-      const league = runSeasons('adv-cap', 5);
-      let totalUsage = 0;
-      for (const team of Object.values(league.teams)) {
-        const summary = summarizeTeamCap(team, league);
-        totalUsage += summary.capUsed;
-        // Per-team sanity: not impossibly high (more than 2× cap is broken)
-        // and not zero (fully renewed-to-nothing rosters are also wrong).
-        expect(summary.capUsed).toBeGreaterThan(20_000_000);
-        expect(summary.capUsed).toBeLessThan(league.salaryCap * 2);
-      }
-      const avg = totalUsage / Object.values(league.teams).length;
-      // Wide band to catch catastrophic drift, not to pin the exact number.
-      // Cap-RELATIVE (v0.176): the cap grows ~6%/yr, so a dollar band would
-      // silently tighten (or lapse) as seasons accumulate.
-      expect(avg / league.salaryCap).toBeGreaterThan(0.55);
-      expect(avg / league.salaryCap).toBeLessThan(1.0);
-    });
-  });
+  // roster + cap stability (53-man rosters, resolvable contracts, cap
+  // band) rides the shared 6-season trajectory above — asserted every
+  // season instead of once at season 5.
 });

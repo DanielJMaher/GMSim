@@ -24,6 +24,22 @@ Web-specific (inside `apps/web`):
 - `pnpm dev` — Vite dev server.
 - `pnpm build` — `tsc -p tsconfig.json && vite build`. CI builds via `pnpm --filter @gmsim/web... build` so the engine is built first; the trailing `...` is required.
 
+Test-timing audit (gate-growth alarm, 2026-07-04):
+
+- `pnpm test:timed` — full engine suite with a JSON timing report, then audits
+  per-file / per-module / total durations against
+  `scripts/test-timings.baseline.json`. **Warns when anything grew >25% over
+  baseline** (sub-5s files ignored as jitter). CI runs the same audit as an
+  advisory `timing-audit` job with `::warning::` annotations — it never blocks
+  `ci-green`.
+- The full gate was once silently bounded by a single 42-minute test file
+  (vitest runs a file's tests sequentially — one heavy file IS the wall
+  clock). Keep heavy multi-season walks consolidated (shared trajectories,
+  per-season assertions) or split into their own files; put log-only
+  instruments behind `it.skip` per the house convention.
+- After an ACCEPTED slowdown (new gates) refresh the baseline:
+  `node scripts/test-timing-audit.mjs --write-baseline packages/engine/vitest-report*.json`.
+
 Versioning:
 
 - `pnpm version:sync` — print current version of root and every workspace package.

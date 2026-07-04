@@ -14,3 +14,4 @@ coverage/
 # Test-suite monitor artifacts (machine-specific timings)
 .vitest-timings.json
 .vitest-progress.txt
+vitest-report*.json

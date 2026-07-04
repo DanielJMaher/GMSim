@@ -14,6 +14,58 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.177.0] — 2026-07-04
+
+### Fixed
+
+- **`front-office` carousel test ran 2 cycles under a name and comment that
+  promised 3** — and the single-seed ≥1-firing floor sat one lucky bounce
+  from failing. The v0.176 contract economy reshuffled that seed's first two
+  seasons to exactly that quiet landing (top seat pressure 45 vs threshold
+  ~50). Probed 4 seeds against a v0.174.1 worktree: the league-wide firing
+  rate is UNCHANGED (18 vs 21 firings across the set — seed noise); only
+  the one seed's trajectory moved. The test now runs its titular 3 cycles,
+  where the seed fires 5 HC + 1 GM with comfortable margin.
+
+### Changed
+
+- **Full test gate ~3× faster — the suite was hostage to single files.**
+  Vitest runs a file's tests sequentially, so one heavy file IS the wall
+  clock no matter how many shards or cores exist. From real CI timings:
+  `mood.test.ts` ran 42.2 minutes (the entire CI wall), `retirement` 16.8,
+  `advance` 16.4. Three treatments, no gate weakened — several strengthened:
+  - Three log-only mood **instruments** (70 season-sims, ~21 CI minutes,
+    `expect(true)` endings) now sit behind `it.skip` per the existing house
+    convention (`proactive-trades`, `*.diagnostic.test.ts`); unskip when
+    investigating drift.
+  - Mood's long-horizon block split into `mood-long-horizon.test.ts` and
+    `mood-equilibrium.test.ts` (the 4-seed × 8-season saturation gate) so
+    the strict gates parallelize instead of serializing.
+  - `retirement` and `advance` multi-season tests consolidated into shared
+    **trajectory tests with per-season assertions** — the invariants
+    (53+16 rosters, age cap, contract renewal/resolvability, skill bounds,
+    cap band, history growth) are now checked EVERY season instead of once
+    at the end of separate 5-10 season walks, at under half the sim cost.
+  - Measured: `mood.test.ts` 42.2 min → 4.4; the season heavies now top out
+    at ~11 min (`mood-equilibrium`). CI `timeout-minutes` tightened 90 → 45
+    per the workflow's own note.
+
+### Added
+
+- **Test-timing audit log + growth alarm (Daniel's spec: warn at +25%).**
+  Every CI shard uploads its vitest JSON timing report; an advisory
+  `timing-audit` job (never blocks `ci-green`) compares per-file,
+  per-module, and suite-total durations against the checked-in
+  `scripts/test-timings.baseline.json` and emits `::warning::` annotations
+  plus a step-summary table when anything grew >25% over baseline
+  (sub-5-second files ignored as jitter; baselines split `ci` vs `local` —
+  different hardware). Locally: `pnpm test:timed` runs the suite and the
+  audit in one step; refresh after accepted slowdowns with
+  `--write-baseline`. The gate was silently bounded by one 42-minute file —
+  this is the alarm that makes regrowth loud.
+
+---
+
 ## [0.176.0] — 2026-07-03
 
 ### Added

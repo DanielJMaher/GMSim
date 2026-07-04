@@ -120,75 +120,61 @@ describe('rollWashout (v0.93 low-skill FA washout)', () => {
     expect(out).toBeLessThan(trials * 0.7);
   });
 
-  it('keeps league.players bounded across 10 seasons (no unsigned pile-up)', () => {
-    const league = runSeasons('washout-bound', 10);
-    // Active 53 + PS 16 across 32 teams = 2208; the FA pool is the rolling
-    // unsigned cohort. Pre-washout this climbed past 8k by season 10 and kept
-    // growing; with the v0.130.1 unsigned-vet age floor it PLATEAUS — measured
-    // ~4,250 at season 10 (equilibrium ~4,300, growth ~+18/yr by season 12).
-    // 4,800 = ~13% seed-variance headroom over the measured equilibrium.
-    expect(Object.keys(league.players).length).toBeLessThan(4800);
-  });
+  // The players-store boundedness check rides the shared 10-season
+  // trajectory below (gate-optimization pass, 2026-07-04) — one walk,
+  // asserted EVERY season, instead of its own 10-season sim.
 });
 
 describe('advanceSeason — retirement integration', () => {
-  it('retires at least one player per offseason on a 32-team league', () => {
-    const played = simulateSeason(createLeague({ seed: 'retire-some' }));
-    const before = Object.keys(played.players).length;
-    const after = advanceSeason(played);
-    const survived = Object.keys(after.players).length;
-    // Net player count is constant (rookies replace retirees), so check
-    // by intersecting player IDs.
-    const beforeIds = new Set(Object.keys(played.players));
-    const carried = Object.keys(after.players).filter((id) => beforeIds.has(id));
-    const retired = before - carried.length;
-    expect(retired).toBeGreaterThan(0);
-  });
+  // Gate-optimization pass (2026-07-04): five multi-season tests each
+  // walked their OWN 5-10 season league (38 season-sims — retirement was
+  // ~15 min of the CI wall) to assert independent read-only invariants.
+  // One shared 10-season trajectory asserts all of them EVERY season —
+  // strictly stronger than the old single point-in-time checks (roster
+  // shape was only checked at season 5, the age cap only at season 8)
+  // at under half the sim cost.
+  it('10-season trajectory: retirements fire, rosters hold 53+16, ages cap at 40, players store bounded, age distribution plausible', () => {
+    let league = createLeague({ seed: 'retire-trajectory' });
+    for (let season = 1; season <= 10; season++) {
+      const played = simulateSeason(league);
+      const beforeIds = new Set(Object.keys(played.players));
+      const after = advanceSeason(played);
 
-  it('keeps active + practice-squad population stable across 5 seasons', () => {
-    const league = runSeasons('retire-pop', 5);
-    let activeTotal = 0;
-    let psTotal = 0;
-    for (const team of Object.values(league.teams)) {
-      activeTotal += team.rosterIds.length;
-      psTotal += team.practiceSquadIds.length;
+      // At least one player retires EVERY offseason on a 32-team league.
+      const carried = Object.keys(after.players).filter((id) => beforeIds.has(id));
+      expect(beforeIds.size - carried.length, `season ${season}: retirements`).toBeGreaterThan(0);
+
+      // Every team at exactly 53 active + 16 PS after every offseason,
+      // through retirement churn.
+      for (const team of Object.values(after.teams)) {
+        expect(team.rosterIds.length, `season ${season}: ${team.identity.id} active`).toBe(53);
+        expect(team.practiceSquadIds.length, `season ${season}: ${team.identity.id} PS`).toBe(16);
+      }
+
+      // Age cap: 40+ retires unconditionally, so the post-advance upper
+      // bound is exactly 40 (a surviving 39 moves to 40).
+      for (const player of Object.values(after.players)) {
+        expect(ageOfPlayer(player, after.seasonNumber)).toBeLessThanOrEqual(40);
+      }
+
+      // players store stays bounded (no unsigned pile-up): active 53 +
+      // PS 16 × 32 teams = 2208 rostered; the FA pool is the rolling
+      // unsigned cohort, which PLATEAUS with the v0.130.1 unsigned-vet
+      // age floor — measured ~4,250 at season 10 (equilibrium ~4,300);
+      // 4,800 = ~13% seed-variance headroom.
+      expect(
+        Object.keys(after.players).length,
+        `season ${season}: players store`,
+      ).toBeLessThan(4800);
+
+      league = after;
     }
-    // Every team always at 53 active + 16 PS post-offseason.
-    expect(activeTotal).toBe(32 * 53);
-    expect(psTotal).toBe(32 * 16);
-    // The full league.players store also holds unsigned free agents
-    // (post-expiration leftovers); it stays bounded but isn't fixed at
-    // a single number.
-    expect(Object.keys(league.players).length).toBeGreaterThanOrEqual(activeTotal + psTotal);
-  });
 
-  it('every team stays at 53 active + 16 PS across 5 seasons even with retirement churn', () => {
-    const league = runSeasons('retire-rosters', 5);
-    for (const team of Object.values(league.teams)) {
-      expect(team.rosterIds.length).toBe(53);
-      expect(team.practiceSquadIds.length).toBe(16);
-    }
-  });
-
-  it('caps player age — no one survives past 40 across 8 seasons', () => {
-    const league = runSeasons('retire-age-cap', 8);
-    for (const player of Object.values(league.players)) {
-      const age = ageOfPlayer(player, league.seasonNumber);
-      // 40+ retires unconditionally, so the upper bound after advance
-      // is exactly 40 (a 39 last year that survived the roll moves to 40).
-      expect(age).toBeLessThanOrEqual(40);
-    }
-  });
-
-  it('average roster age is plausible after 10 seasons (mid-20s to low-30s)', () => {
-    const league = runSeasons('retire-age-band', 10);
+    // End state: the population resets toward the generation distribution
+    // (avg ~26) instead of aging without bound (~37 pre-retirement).
     const players = Object.values(league.players);
     const avgAge =
-      players.reduce((s, p) => s + ageOfPlayer(p, league.seasonNumber), 0) /
-      players.length;
-    // Without retirement the validation harness saw avg ~37. With
-    // retirement the population should reset toward the original
-    // distribution (avg ~26). Allow a wide band.
+      players.reduce((s, p) => s + ageOfPlayer(p, league.seasonNumber), 0) / players.length;
     expect(avgAge).toBeGreaterThan(23);
     expect(avgAge).toBeLessThan(33);
   });
