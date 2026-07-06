@@ -164,7 +164,16 @@ export function applyMinimalCapCasualties(
       const team = working.teams[teamId]!;
       const over = teamCapUsage(team, working) - working.salaryCap;
       if (over <= 0) break;
-      const candidate = pickMinimalCasualty(team, working, over, protectedPlayerIds);
+      // Roster-aware target (v0.178.1, the adv-trajectory full-gate find):
+      // a compliance cut that leaves the team short of 53 must ALSO free
+      // room for the vet-minimum backfill(s), or the roster strands below
+      // 53 for the whole season (FA left one team cap-pinned at 49, the
+      // draft filled to 53 but over the cap, the old smallest-sufficient
+      // cut got compliant at 52 with $0.1M room — and nothing refills
+      // after the post-draft compliance pass without this).
+      const shortAfterCut = Math.max(0, 53 - (team.rosterIds.length - 1));
+      const target = over + shortAfterCut * leagueMinimumSalary(working.salaryCap);
+      const candidate = pickMinimalCasualty(team, working, target, protectedPlayerIds);
       if (!candidate) break;
       working = applyRelease(
         working,
@@ -174,6 +183,31 @@ export function applyMinimalCapCasualties(
         candidate.saving,
       );
     }
+  }
+  return working;
+}
+
+/**
+ * Vet-minimum fill-up to 53 as a standalone pass (v0.178.1) — the same
+ * backstop `refillRosters` runs after its auction, exported so
+ * POST_DRAFT_ROSTER can restore any team the compliance cuts left short
+ * (see `applyMinimalCapCasualties`' roster-aware target, which frees the
+ * room this pass spends). Deterministic: tier/skill-ordered pool,
+ * most-depleted team first.
+ */
+export function applyVetMinFillUp(league: LeagueState, signedOnTick: number): LeagueState {
+  let working = league;
+  let counter = 0;
+  for (const playerId of sortedFreeAgentPool(working)) {
+    const player = working.players[playerId];
+    if (!player || player.teamId !== null) continue;
+    const teamId = pickFillUpTeam(working);
+    if (!teamId) break; // no team has space + min-cap-room remaining
+    const team = working.teams[teamId]!;
+    // Distinct suffix from refillRosters' `_FAmin` — same season, same
+    // counter values would collide on ContractIds otherwise.
+    const idSuffix = `${team.identity.abbreviation}_FAminPD${working.seasonNumber}_${counter++}`;
+    working = signMinimumTo(working, teamId, playerId, idSuffix, signedOnTick);
   }
   return working;
 }

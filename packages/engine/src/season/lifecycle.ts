@@ -48,6 +48,7 @@ import {
   applyContractExpirations,
   applyCapCuts,
   applyMinimalCapCasualties,
+  applyVetMinFillUp,
   refillRosters,
 } from '../transactions/offseason.js';
 import { applyResigningWindow } from '../transactions/re-sign.js';
@@ -1179,6 +1180,11 @@ function applyPostDraftRoster(
   // are underspending extend their own underpaid prime starters/stars up toward
   // the spend floor — real teams pay their core rather than sit on cap room.
   offseason = applyCapFloorExtensions(offseason, offseason.tick);
+  // Final 53-man backstop (v0.178.1): the compliance cuts above are
+  // roster-aware (they free vet-min room when a cut leaves a team short),
+  // and this pass spends that room — without it a team the FA market left
+  // cap-pinned below 53 entered the season at 52 (adv-trajectory find).
+  offseason = applyVetMinFillUp(offseason, offseason.tick);
   return { ...offseason, lifecyclePhase: 'POST_DRAFT_ROSTER' };
 }
 

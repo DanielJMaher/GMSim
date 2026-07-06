@@ -12,6 +12,22 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Fixed
+
+- **A cap-pinned team could enter the season at 52 players (full-gate
+  find, `adv-trajectory` seed).** The chain: free agency left a team
+  cap-pinned below 53 (v0.176 economy makes that reachable), the draft
+  filled it to 53 but over the cap, and the post-draft compliance pass
+  took the smallest sufficient cut — compliant at 52 with $0.1M of room
+  and nothing downstream to refill. Two-part fix: compliance cuts are now
+  **roster-aware** (a cut that leaves a team short of 53 must also free
+  vet-minimum room for the backfill), and `POST_DRAFT_ROSTER` ends with a
+  vet-minimum **fill-up backstop** (`applyVetMinFillUp` — the same
+  deterministic pass `refillRosters` uses, distinct contract-id suffix).
+  Phase-walked on the failing seed: 49 post-FA → 53 over-cap at the draft
+  → now 53 AND compliant ($1.2M room) into the season. Game sim untouched
+  — the v0.178.0 behavior-gate results stand.
+
 ---
 
 ## [0.178.0] — 2026-07-06
