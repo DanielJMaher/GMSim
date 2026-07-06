@@ -12,6 +12,39 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+---
+
+## [0.178.0] — 2026-07-06
+
+### Changed
+
+- **The game runs on a CLOCK — and the standing W-L pass-delta drift is
+  cleared for the first time since the gate existed.** The campaign's
+  decomposition (three probes, no tuning): the sim's W-L passing-efficiency
+  coupling was already exactly real (eff-part +45.0 vs real +44.1); the
+  whole 23-yard excess was the VOLUME side, and the volume loss traced to
+  the half being a fixed 62-PLAY budget — every play cost 1, so snap share
+  followed drive quality (sim winners +4.2 snaps/game vs the real +0.8),
+  cancelling ~⅔ of the game script's real-calibrated pass-rate separation.
+  Now each play costs real SECONDS (nflverse pbp 2022–24, n=102,187: run
+  34.0s · completion 31.3s · incompletion 5.0s · sack 33.1s · turnover
+  7.3s; hurry-up ×0.85, kill-mode completions ×1.11), halves are budgeted
+  in clock (`HALF_CLOCK_SECONDS`), and script progress is game time. Plus
+  the **Q2 trail script** the v0.153 "H1 silent" lock missed (real: down
+  14+ passes 68% vs 60% tied in Q2; `SCRIPT_Q2_TRAIL = 0.4`).
+  Measured (Scorekeeper 10×12 fresh): **W-L pass delta 32.8 → 31.4 (band
+  ≤32) — zero drift rows anywhere**; points/game 24.0 → 23.3 (real 22.8);
+  pass yds mean 252.2 → 246.2 (real 245.4); plays/team-game 65.8 → 63.0
+  (real 62.7); stationarity clean. Magistrate drive bar holds (mix within
+  ~1pp). Prediction post-mortem, honestly: the clock did NOT equalize
+  per-side snaps (alternating possession makes snap share the
+  plays-per-drive ratio in any budget currency) — the remaining ~20 yards
+  of delta decompose into two named follow-up levers, derived and fenced
+  in the campaign skill: the efficiency-expression rebalance (sim quality
+  buys drive SUSTAINMENT where real quality buys explosiveness) and
+  per-team pass-rate identity (all teams share `PASS_RATE 0.57`; real
+  spread ~50–66% and pass-heavy identity correlates with losing).
+
 ### Added
 
 - **The skill library: 15 operational skills in `.claude/skills/`** — the

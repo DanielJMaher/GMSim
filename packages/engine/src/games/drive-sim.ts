@@ -37,6 +37,9 @@ export interface DriveOutcome {
   result: DriveResult;
   plays: number;
   yards: number;
+  /** Game-clock seconds this drive consumed (v0.178 — the clock IS the
+   *  half budget; see the CLOCK_* constants). 0 on END_HALF markers. */
+  clock: number;
 }
 
 /** Per-player accrued game stat line (subset of PlayerSeasonStats). */
@@ -67,7 +70,48 @@ export interface DriveGameResult {
 }
 
 // ── Calibration constants (Magistrate 2015-2024 bar; see git history). ──
-const HALF_PLAYS = 62;
+//
+// The game clock (v0.178 — the W-L pass-delta campaign's convicted fix).
+// The old budget was 62 PLAYS per half per game, every play costing 1 —
+// which handed snap share to the better team (drives sustain → eat the
+// budget): sim winners took +4.2 snaps/game vs the real +0.8, cancelling
+// ~⅔ of the game script's (real-calibrated) pass-rate separation and
+// pinning the Scorekeeper's W-L pass delta at ~33 vs the real 9.5. The
+// real clock EQUALIZES snaps: incompletions stop it, runs burn it.
+// Costs are SECONDS consumed until the next snap, derived from nflverse
+// pbp 2022-2024 (REG, n=102,187 scrimmage plays; `_clock_cost_bar.mjs`):
+// run 34.0s · completion 31.3s · incompletion 5.0s · sack 33.1s ·
+// INT/throwaway 7.3s. Trailing-big-late offenses compress non-stopped
+// plays (hurry-up: completions 25.0s, runs 30.3s → ×0.85); leading-big-
+// late completions stretch (34.7s → ×1.11). Punts/FGs approximate the
+// run cost. HALF_CLOCK_SECONDS is the calibration knob replacing the old
+// play cap — tuned so plays/team-game lands on the real 62.7.
+const HALF_CLOCK_SECONDS = 1620;
+const CLOCK_RUN = 34.0;
+const CLOCK_COMPLETE = 31.3;
+const CLOCK_INCOMPLETE = 5.0;
+const CLOCK_SACK = 33.1;
+const CLOCK_TURNOVER = 7.3;
+/** Script-state cost modifiers. The gates are |shift| at ~Q4 ±7 (the
+ *  pbp derivation's hurry/kill states: shift(−7, Q4) = +0.16,
+ *  shift(+7, Q4) = −0.20). */
+const HURRY_SHIFT_GATE = 0.15;
+const HURRY_COST_MULT = 0.85;
+const KILL_SHIFT_GATE = 0.15;
+const KILL_COMPLETE_MULT = 1.11;
+
+function playClock(kind: PlayResult['kind'], scriptShift: number): number {
+  const base =
+    kind === 'run' ? CLOCK_RUN
+    : kind === 'complete' ? CLOCK_COMPLETE
+    : kind === 'incomplete' ? CLOCK_INCOMPLETE
+    : kind === 'sack' ? CLOCK_SACK
+    : CLOCK_TURNOVER; // int | fumble — the clock stops at the change
+  if (scriptShift >= HURRY_SHIFT_GATE && kind !== 'incomplete') return base * HURRY_COST_MULT;
+  if (scriptShift <= -KILL_SHIFT_GATE && kind === 'complete') return base * KILL_COMPLETE_MULT;
+  return base;
+}
+
 const PASS_RATE = 0.57;
 const BASE_COMPLETION = 0.655;
 // v0.157: real yds/completion is 11.3 (Scorekeeper). The drive sim scores
@@ -184,18 +228,26 @@ export const SCRIPT_LEAD_BASE = 0.12;
 export const SCRIPT_LEAD_SLOPE = 0.17; // saturates ~14-point leads
 export const SCRIPT_Q3_TRAIL = 0.45; // Q3 strength as a fraction of Q4's
 export const SCRIPT_Q3_LEAD = 0.2;
+// Q2 script (v0.178 — the W-L pass-delta campaign's rate-channel finding):
+// the v0.153 lock zeroed the whole first half, but the real table has a
+// solid TRAIL-side Q2 script — down 14+ passes at 68% vs 60% tied (+8pp)
+// — while the lead side is flat (61% at +14). Zeroing Q2 was ~2pp of the
+// realized W-L pass-rate gap (sim 6.8pp vs real 10.3pp). Q1 is flat in
+// real data and stays scriptless.
+export const SCRIPT_Q2_TRAIL = 0.4; // fraction of Q4 trail strength (real: 8/20pp)
+export const SCRIPT_Q2_LEAD = 0.03; // real lead-side Q2 is ~flat
 
 /** Pass-rate shift for the OFFENSE: + when trailing, − when leading.
  *  `progress` is 0..1 of regulation. Zero through the first half, partial
  *  in Q3, full step in Q4. Exported for tests. */
 export function gameScriptShift(offenseScoreDiff: number, progress: number): number {
-  if (offenseScoreDiff === 0 || progress < 0.5) return 0;
+  if (offenseScoreDiff === 0 || progress < 0.25) return 0;
   if (offenseScoreDiff < 0) {
     const d = -offenseScoreDiff;
-    const late = progress >= 0.75 ? 1 : SCRIPT_Q3_TRAIL;
+    const late = progress >= 0.75 ? 1 : progress >= 0.5 ? SCRIPT_Q3_TRAIL : SCRIPT_Q2_TRAIL;
     return late * (SCRIPT_TRAIL_BASE + SCRIPT_TRAIL_SLOPE * clamp((d - 1) / 9, 0, 1));
   }
-  const late = progress >= 0.75 ? 1 : SCRIPT_Q3_LEAD;
+  const late = progress >= 0.75 ? 1 : progress >= 0.5 ? SCRIPT_Q3_LEAD : SCRIPT_Q2_LEAD;
   return (
     -late *
     (SCRIPT_LEAD_BASE + SCRIPT_LEAD_SLOPE * clamp((offenseScoreDiff - 1) / 13, 0, 1))
@@ -529,11 +581,12 @@ function simulateDrive(
   startYardline: number,
   attr: Attr | null,
   scriptShift = 0,
-): { result: DriveResult; plays: number; yards: number } {
+): { result: DriveResult; plays: number; yards: number; clock: number } {
   let ballOn = startYardline;
   let down = 1;
   let togo = 10;
   let plays = 0;
+  let clock = 0;
   let redZoneRolled = false; // red-zone TD conversion fires at most once/drive
 
   for (;;) {
@@ -562,15 +615,17 @@ function simulateDrive(
       else if (ballOn >= 48) go = prng.next() < 0.35;
       if (!go) {
         plays++;
+        clock += CLOCK_RUN; // punt/FG snap ≈ run-cost (clock runs to the kick)
         if (inFgRange) {
-          return { result: prng.next() < fgSuccess(fgDist) ? 'FG' : 'MISSED_FG', plays, yards: ballOn - startYardline };
+          return { result: prng.next() < fgSuccess(fgDist) ? 'FG' : 'MISSED_FG', plays, yards: ballOn - startYardline, clock };
         }
-        return { result: 'PUNT', plays, yards: ballOn - startYardline };
+        return { result: 'PUNT', plays, yards: ballOn - startYardline, clock };
       }
     }
 
     plays++;
     const pr = resolvePlay(prng, ctx, down, togo, scriptShift);
+    clock += playClock(pr.kind, scriptShift);
 
     // ── Attribute the play's outcome to specific players (stage 1b). ──
     let scorer: { id: string; kind: 'rec' | 'rush'; passer?: string } | null = null;
@@ -624,11 +679,11 @@ function simulateDrive(
     }
 
     if (pr.kind === 'int' || pr.kind === 'fumble') {
-      return { result: 'TURNOVER', plays, yards: ballOn - startYardline };
+      return { result: 'TURNOVER', plays, yards: ballOn - startYardline, clock };
     }
     ballOn += pr.gain;
     const advanced = pr.kind === 'complete' || pr.kind === 'run';
-    const scoreTd = (): { result: DriveResult; plays: number; yards: number } => {
+    const scoreTd = (): { result: DriveResult; plays: number; yards: number; clock: number } => {
       if (attr && scorer) {
         if (scorer.kind === 'rec') {
           line(attr.stats, scorer.id).receivingTds += 1;
@@ -637,7 +692,7 @@ function simulateDrive(
           line(attr.stats, scorer.id).rushingTds += 1;
         }
       }
-      return { result: 'TD', plays, yards: 100 - startYardline };
+      return { result: 'TD', plays, yards: 100 - startYardline, clock };
     };
     if (ballOn >= 100) return scoreTd();
     // Red-zone trip resolution (v0.157): the first positive play to reach the
@@ -655,23 +710,24 @@ function simulateDrive(
           result: prng.next() < fgSuccess(fgDist) ? 'FG' : 'MISSED_FG',
           plays,
           yards: ballOn - startYardline,
+          clock,
         };
       }
-      return { result: 'DOWNS', plays, yards: ballOn - startYardline };
+      return { result: 'DOWNS', plays, yards: ballOn - startYardline, clock };
     }
     // A run/completion that didn't score ends in a tackle by the defense.
     if (attr && tackleEligible) {
       const t = pick(prng, attr.def.tacklers);
       if (t) line(attr.stats, t).tackles += 1;
     }
-    if (ballOn <= 0) return { result: 'SAFETY', plays, yards: ballOn - startYardline };
+    if (ballOn <= 0) return { result: 'SAFETY', plays, yards: ballOn - startYardline, clock };
     togo -= pr.gain;
     if (togo <= 0) {
       down = 1;
       togo = Math.min(10, 100 - ballOn);
     } else {
       down++;
-      if (down > 4) return { result: 'DOWNS', plays, yards: ballOn - startYardline };
+      if (down > 4) return { result: 'DOWNS', plays, yards: ballOn - startYardline, clock };
     }
   }
 }
@@ -715,17 +771,19 @@ function runGame(
   let homeScore = 0;
   let awayScore = 0;
   let d = 0;
-  let totalPlays = 0;
+  let totalClock = 0;
   let offense: 'home' | 'away' = 'home';
 
-  const playDrive = (tag: string): { result: DriveResult; plays: number; yards: number } => {
+  const playDrive = (tag: string): { result: DriveResult; plays: number; yards: number; clock: number } => {
     const off = offense === 'home' ? home : away;
     const def = offense === 'home' ? away : home;
     const attr: Attr | null = stats && off.pers && def.pers ? { off: off.pers, def: def.pers, stats } : null;
     // Game script (v0.149): the offense calls plays knowing the score and
     // how late it is — trailing late tilts pass, leading late tilts run.
+    // Progress is CLOCK-based (v0.178): the script's "late" is game time,
+    // not play count — pass-heavy stretches no longer age the game faster.
     const diff = offense === 'home' ? homeScore - awayScore : awayScore - homeScore;
-    const progress = Math.min(1, totalPlays / (2 * HALF_PLAYS));
+    const progress = Math.min(1, totalClock / (2 * HALF_CLOCK_SECONDS));
     const drive = simulateDrive(
       prng.fork(tag),
       off.ctx,
@@ -744,17 +802,23 @@ function runGame(
     return drive;
   };
 
+  // Each half is a CLOCK budget (v0.178), not a play cap: incompletions
+  // stop the clock, runs burn it. Snap counts per side now emerge from
+  // play-calling — a trailing, pass-heavy offense fits more snaps into
+  // the same seconds — which is what lets the game script's pass-rate
+  // separation reach the box score (the old play cap gave the better
+  // team +4.2 snaps/game vs the real +0.8).
   for (let half = 0; half < 2; half++) {
-    let halfPlays = 0;
+    let halfClock = 0;
     for (;;) {
-      if (halfPlays >= HALF_PLAYS) {
-        driveLog.push({ offense, result: 'END_HALF', plays: prng.nextRange(1, 4), yards: 0 });
+      if (halfClock >= HALF_CLOCK_SECONDS) {
+        driveLog.push({ offense, result: 'END_HALF', plays: prng.nextRange(1, 4), yards: 0, clock: 0 });
         offense = offense === 'home' ? 'away' : 'home';
         break;
       }
       const drive = playDrive(`drive:${half}:${d++}`);
-      halfPlays += drive.plays;
-      totalPlays += drive.plays;
+      halfClock += drive.clock;
+      totalClock += drive.clock;
       offense = offense === 'home' ? 'away' : 'home';
     }
   }

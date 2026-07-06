@@ -18,12 +18,16 @@ import {
  */
 
 describe('gameScriptShift', () => {
-  it('matches the measured real table: Q4 step, lead-heavy, H1 silent', () => {
-    // First half: no script regardless of score (real H1 variation is the
-    // two-minute drill, uniform across score states).
+  it('matches the measured real table: Q4 step, lead-heavy, Q2 trail-only, Q1 silent', () => {
+    // Q1: no script regardless of score. Q2 (v0.178): the real table has a
+    // solid TRAIL-side script (down 14+ passes 68% vs 60% tied) that the
+    // v0.153 "H1 silent" lock missed — trail side active at 0.4× Q4
+    // strength, lead side ~flat (real up-14+ Q2 is 61% vs 60%).
     expect(gameScriptShift(-14, 0)).toBeCloseTo(0, 9);
-    expect(gameScriptShift(-14, 0.49)).toBeCloseTo(0, 9);
+    expect(gameScriptShift(-14, 0.24)).toBeCloseTo(0, 9);
     expect(gameScriptShift(0, 1)).toBeCloseTo(0, 9);
+    expect(gameScriptShift(-14, 0.3)).toBeCloseTo(0.4 * (SCRIPT_TRAIL_BASE + SCRIPT_TRAIL_SLOPE), 5);
+    expect(Math.abs(gameScriptShift(14, 0.3))).toBeLessThan(0.02); // lead-side Q2 ~flat
 
     // Q4 trail side: down 14+ → +0.20 (real 57→79); down ~3 → ~+0.11
     // (real 57→69 within tolerance).
