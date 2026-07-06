@@ -12,6 +12,20 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Added
+
+- **The skill library: 15 operational skills in `.claude/skills/`** — the
+  project's discipline, history, and method as loadable docs of record for
+  future sessions: change control (the four previously-unwritten laws, now
+  written), debugging playbook, failure archaeology (13 chronicled battles),
+  architecture contract, NFL domain reference, calibration-lever catalog,
+  build/env, run/operate, diagnostics fleet guide, validation & QA patterns,
+  docs house style, the executable W-L pass-delta campaign, proof &
+  analysis toolkit, research frontier, and research methodology. Authored
+  against ground truth (commands, constants, and citations spot-verified
+  in-repo); volatile facts date-stamped with per-skill re-verification
+  commands.
+
 ---
 
 ## [0.177.0] — 2026-07-04
