@@ -5,6 +5,16 @@ description: The executable, decision-gated campaign for GMSim's hardest live pr
 
 # Campaign: the W-L pass delta
 
+> **⚠ SUPERSEDED 2026-07-07 — the "endgame" below is retired.** Derivation (7 probes,
+> 2026-07-06/07) FALSIFIED both endgame levers: lever 1 (efficiency-expression — real
+> comp% delta is ~85% quality, sim already matches) and lever 2 (pass-rate identity —
+> neutral identity correlates with WINNING, wrong sign). Drive length is real-shaped; the
+> residual is a **possession-count asymmetry** (strict alternation), and an edge-win test
+> retired the "outcome-variance" hypothesis too. The delta is now **in band (31.4 ≤ 32)**.
+> This campaign folded into a **realism-first game-sim rebuild** — see
+> `docs/design-docs/GAME_SIM_REBUILD.md` and memory [[game-sim-rebuild]]. Use the
+> decomposition method and fenced-path history below; **do NOT pursue levers 1/2.**
+
 **The problem (as of 2026-07-04, v0.177.0):** in real football, winners out-gain losers through the air by only **+9.5 pass yds/game** (nflverse REG 2011–2025) because *trailing teams throw their way back* — losing inflates your passing volume, decoupling pass yards from winning. In GMSim the delta is **32.8** (band ≤32; stable 32.2–32.9 across three releases): passing production still predicts winning ~3.5× too strongly. Winning by air is the tell of a sim; real teams win on the ground and defense while losers rack up empty air yards.
 
 This is a CONTINUED siege, not a fresh fight. Four rounds already shipped: **96.5 → 70.4** (v0.149 game script v1) → **~57** → **36** (v0.153 script v2, shape locked to the real pass-rate table) → **~33** residual named and stable since. The cheap mechanisms are spent.

@@ -1,5 +1,14 @@
 # Game Sim: Real Clock Model + Winner/Loser Parity — Implementation TODO
 
+> **SUPERSEDED 2026-07-07 by `GAME_SIM_REBUILD.md`.** Kept for its findings.
+> Two updates the newer doc records: (1) an *abstract* clock shipped in v0.178
+> (`HALF_CLOCK_SECONDS`, `CLOCK_*`) but kept strict alternation, so it hit the
+> §1.2 wall as predicted. (2) The §1.3 root cause ("winner sustains longer
+> drives") is refined — in the current (v0.178) engine, plays/drive is
+> real-shaped; the live bug is drive **count** (possession) allocation. (3) The
+> §3 "Part B outcome-variance parity" is **retired**: a 2026-07-07 test showed
+> the sim's upset rates already match real, so the game is not over-determined.
+
 **Status:** design + findings only. The clock model below was built and
 measured in a v0.159 spike, found NOT to fix the W-L pass delta on its own
 (see Root Cause), and **reverted** to keep `main` clean. This doc preserves
