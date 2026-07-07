@@ -12,6 +12,48 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+---
+
+## [0.179.0] — 2026-07-07
+
+### Changed
+
+- **Field position is real now — not every drive starts at a kickoff, and
+  turnovers hand out the short fields that produce points.** First slice (P1)
+  of the realism-first game-sim rebuild
+  (`docs/design-docs/GAME_SIM_REBUILD.md`): possessions **chain** off how the
+  prior drive ended instead of every drive starting at own 27. A score kicks
+  off (own ~25), a punt nets real field position (own ~24), and a turnover /
+  downs / missed FG hands the opponent the ball **at the spot** — INTs and
+  fumbles now give the defense the short fields the flat-27 model threw away.
+  Drive starts land on the real bars (pbp 2015-24, 56,489 drives): kickoff
+  45% / own 25.5, punt / own 25.0, turnover / own 49.1, downs own 34.7.
+  Contained to `runGame` + field-position helpers
+  (`nextStart`/`puntReturn`/`kickoffReturn`); `simulateDrive` is untouched (the
+  drive's ending spot is just `startPos + yards`). `DriveOutcome` gains a
+  `start` field. Determinism preserved — every possession/handoff is a pure
+  `prng.fork` with a stable label; the OT coin-flip and opening-toss now fork
+  too.
+  - **Recalibration (the §2.5 trim the old clock doc predicted):** short-field
+    turnovers add real points, so `RED_ZONE_TD_BASE` 0.48→0.42 and the
+    half-clock 1620→1560 hold scoring. Scorekeeper (10×12, 65,280 team-games):
+    points **24.0** (real 22.8), pass 238, comp% 63.8, home 55.9%, giveaway
+    −0.5, pts-drift 0.0 (stationary) — **all bands green**. Magistrate:
+    scoring% 36.3 = 36.3, points/drive 1.90, TD 20.6 / FG 15.6.
+  - **Bonus — the W-L pass delta dropped 31.4 → 21.9** (band ≤32, real 9.5):
+    field position alone decouples pass volume from winning (losers throw →
+    INTs → winners get short fields → they win without airing it out), a real
+    mechanism the standing possession-asymmetry campaign never reached.
+  - **Named residuals (P5 sustain / joint recalibration):** plays/drive 5.03
+    vs 5.5 (short drives → pass att 31.1 vs 34.3, both near the band floor);
+    Missed-FG 4.0 / Safety 0.7 mix a touch high — one root (drives too short).
+    The literal quarter-clock + timeouts + two-minute/kneel (the possession
+    asymmetry, and the W-L delta's next leg) is P2.
+
+---
+
+## [0.178.1] — 2026-07-06
+
 ### Fixed
 
 - **A cap-pinned team could enter the season at 52 players (full-gate

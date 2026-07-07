@@ -40,6 +40,9 @@ export interface DriveOutcome {
   /** Game-clock seconds this drive consumed (v0.178 — the clock IS the
    *  half budget; see the CLOCK_* constants). 0 on END_HALF markers. */
   clock: number;
+  /** Field position the drive started at (own-yards 0-100), P1 v0.179 —
+   *  set by the possession-chain from the prior drive's transition. */
+  start: number;
 }
 
 /** Per-player accrued game stat line (subset of PlayerSeasonStats). */
@@ -86,7 +89,7 @@ export interface DriveGameResult {
 // late completions stretch (34.7s → ×1.11). Punts/FGs approximate the
 // run cost. HALF_CLOCK_SECONDS is the calibration knob replacing the old
 // play cap — tuned so plays/team-game lands on the real 62.7.
-const HALF_CLOCK_SECONDS = 1620;
+const HALF_CLOCK_SECONDS = 1560;
 const CLOCK_RUN = 34.0;
 const CLOCK_COMPLETE = 31.3;
 const CLOCK_INCOMPLETE = 5.0;
@@ -138,7 +141,7 @@ const SACK_YDS = 7;
 // INTs de-inflates the picks leaderboard without touching team turnovers.
 const INT_RATE = 0.027;
 const FUMBLE_LOST_RATE = 0.022;
-const KICKOFF_START = 27;
+const KICKOFF_TOUCHBACK = 25; // own-25 touchback line (real post-kickoff start ~25.4)
 
 // ── Drive-extending defensive penalties (v0.158) ─────────────────────────
 // The geometric pass/run model has no penalties, so it under-sustains: real
@@ -176,10 +179,14 @@ function penaltyYards(prng: Prng): number {
 // logic. Fires in BOTH the live and facet paths (keyed off field position +
 // edge, not player attribution) so the Magistrate and the live league agree.
 const RED_ZONE_LINE = 80; // the opponent's 20 — the real NFL red zone
-const RED_ZONE_TD_BASE = 0.48; // TD prob for a trip entering at the 20 (depth 0)
+const RED_ZONE_TD_BASE = 0.42; // TD prob for a trip entering at the 20 (depth 0)
+// v0.179 (P1): trimmed 0.48→0.42 — field-position chaining converts short-field
+// turnovers into points the old base double-counted. Centered on the LIVE path
+// (Scorekeeper points/game ~23); the facet Magistrate reads ~2 lower on drive
+// count until P5's sustain fix restores plays/drive. See GAME_SIM_REBUILD.md §2.5/P1.
 const RED_ZONE_TD_DEPTH = 0.48; // additional TD prob at the goal line (depth 1)
 const RED_ZONE_TD_EDGE = 0.004; // per-point passEdge adjustment
-const RED_ZONE_FG_CONDITIONAL = 0.82; // of NON-TD trips, the share that kick (else fail)
+const RED_ZONE_FG_CONDITIONAL = 0.82; // of NON-TD trips, the share that kick (else fail) — real FG 30 / fail 12
 
 function redZoneTdChance(passEdge: number, ballOn: number): number {
   const depth = (ballOn - RED_ZONE_LINE) / (100 - RED_ZONE_LINE); // 0..1
@@ -760,6 +767,48 @@ interface GameOpts {
   resolveTie?: boolean;
 }
 
+// ── Field position after each drive (P1 rebuild, 2026-07-07) ─────────────────
+// The next possession no longer always starts at own 27; it starts from where
+// the prior drive ENDED, by transition type. Real bars (pbp 2015-24,
+// `_drive_start_bars.mjs`, 56,489 drives): kickoff own 25.4 (45% of drives) ·
+// punt own 24.4 (38%) · INT own 47 · fumble own 53 · downs own 36 · missed-FG
+// own 36.5. Turnovers now hand out the short fields that produce points; punts
+// net real field position. Constants calibrated to those bars (`_fieldpos_probe`).
+const NET_PUNT = 44; // gross ~45 − return, tuned to receiving start own ~24.4
+const NET_PUNT_SD = 8;
+const FREE_KICK_START = 42; // safety free-kick receiving start (rare)
+const TURNOVER_SPOT_OFFSET = 8; // INT-downfield / fumble mix → receiving own ~49
+const MISSED_FG_SPOT_OFFSET = 3; // opponent takes over ~ the kick spot
+
+function kickoffReturn(prng: Prng): number {
+  if (prng.next() < 0.7) return KICKOFF_TOUCHBACK; // touchback
+  const ret = Math.round(20 + prng.normal(6, 7)); // returned, mean ~26
+  return clamp(ret + (prng.next() < 0.015 ? prng.nextRange(25, 60) : 0), 1, 99);
+}
+function puntReturn(fromPos: number, prng: Prng): number {
+  const landing = fromPos + prng.normal(NET_PUNT, NET_PUNT_SD);
+  if (landing >= 100) return 20; // punted into the end zone → touchback
+  return clamp(Math.round(100 - landing), 1, 99);
+}
+/** Where the OPPONENT starts (own-yards 0-100), given how this drive ended. */
+function nextStart(result: DriveResult, endBallOn: number, prng: Prng): number {
+  switch (result) {
+    case 'TD':
+    case 'FG':
+      return kickoffReturn(prng);
+    case 'SAFETY':
+      return clamp(Math.round(prng.normal(FREE_KICK_START, 8)), 20, 60);
+    case 'PUNT':
+      return puntReturn(endBallOn, prng);
+    case 'MISSED_FG':
+      return clamp(Math.round(100 - endBallOn + MISSED_FG_SPOT_OFFSET), 1, 99);
+    case 'TURNOVER':
+      return clamp(Math.round(100 - endBallOn - TURNOVER_SPOT_OFFSET), 1, 99);
+    default: // DOWNS
+      return clamp(Math.round(100 - endBallOn), 1, 99);
+  }
+}
+
 function runGame(
   prng: Prng,
   home: Side,
@@ -770,28 +819,30 @@ function runGame(
   const driveLog: DriveOutcome[] = [];
   let homeScore = 0;
   let awayScore = 0;
-  let d = 0;
+  let driveIdx = 0;
   let totalClock = 0;
   let offense: 'home' | 'away' = 'home';
 
-  const playDrive = (tag: string): { result: DriveResult; plays: number; yards: number; clock: number } => {
+  // Play one drive starting at `startPos` (own-yards). Returns the raw drive so
+  // the caller can chain field position off its ending spot.
+  const playDriveAt = (
+    startPos: number,
+  ): { result: DriveResult; plays: number; yards: number; clock: number } => {
     const off = offense === 'home' ? home : away;
     const def = offense === 'home' ? away : home;
     const attr: Attr | null = stats && off.pers && def.pers ? { off: off.pers, def: def.pers, stats } : null;
-    // Game script (v0.149): the offense calls plays knowing the score and
-    // how late it is — trailing late tilts pass, leading late tilts run.
-    // Progress is CLOCK-based (v0.178): the script's "late" is game time,
-    // not play count — pass-heavy stretches no longer age the game faster.
+    // Game script (v0.149): trailing late tilts pass, leading late tilts run.
+    // Progress is CLOCK-based (v0.178).
     const diff = offense === 'home' ? homeScore - awayScore : awayScore - homeScore;
     const progress = Math.min(1, totalClock / (2 * HALF_CLOCK_SECONDS));
     const drive = simulateDrive(
-      prng.fork(tag),
+      prng.fork(`drive:${driveIdx}`),
       off.ctx,
-      KICKOFF_START,
+      startPos,
       attr,
       gameScriptShift(diff, progress),
     );
-    driveLog.push({ offense, ...drive });
+    driveLog.push({ offense, start: startPos, ...drive });
     const pts = POINTS[drive.result] ?? 0;
     if (offense === 'home') homeScore += pts;
     else awayScore += pts;
@@ -802,43 +853,50 @@ function runGame(
     return drive;
   };
 
-  // Each half is a CLOCK budget (v0.178), not a play cap: incompletions
-  // stop the clock, runs burn it. Snap counts per side now emerge from
-  // play-calling — a trailing, pass-heavy offense fits more snaps into
-  // the same seconds — which is what lets the game script's pass-rate
-  // separation reach the box score (the old play cap gave the better
-  // team +4.2 snaps/game vs the real +0.8).
+  // Possessions CHAIN off real field position (P1, v0.179): a drive ends, the
+  // opponent takes over from where it ended (kickoff after a score, net punt,
+  // the turnover/downs spot), and the half runs on the v0.178 clock budget —
+  // still strict-alternation on that budget (the possession asymmetry from
+  // timeouts/two-minute/kneel lands in P2). Opening possession is a coin toss;
+  // whoever receives H1 kicks off H2.
+  const homeReceivesH1 = prng.fork('toss').next() < 0.5;
   for (let half = 0; half < 2; half++) {
+    offense = half === 0 ? (homeReceivesH1 ? 'home' : 'away') : homeReceivesH1 ? 'away' : 'home';
+    let startPos = kickoffReturn(prng.fork(`open:${half}`)); // opening kickoff
     let halfClock = 0;
     for (;;) {
       if (halfClock >= HALF_CLOCK_SECONDS) {
-        driveLog.push({ offense, result: 'END_HALF', plays: prng.nextRange(1, 4), yards: 0, clock: 0 });
-        offense = offense === 'home' ? 'away' : 'home';
+        driveLog.push({ offense, start: startPos, result: 'END_HALF', plays: prng.fork(`eh:${half}`).nextRange(1, 4), yards: 0, clock: 0 });
         break;
       }
-      const drive = playDrive(`drive:${half}:${d++}`);
+      const drive = playDriveAt(startPos);
       halfClock += drive.clock;
       totalClock += drive.clock;
+      const endBallOn = startPos + drive.yards; // where the drive ended (own-yards)
       offense = offense === 'home' ? 'away' : 'home';
+      startPos = nextStart(drive.result, endBallOn, prng.fork(`fp:${driveIdx}`));
+      driveIdx++;
     }
   }
 
   // Overtime — the live game must produce a winner. Each round both teams get
-  // one possession; a round that ends with a lead ends the game. Capped, then
-  // broken by total OT yardage (else a coin flip) so it always terminates.
+  // one kickoff possession; a round that ends with a lead ends the game.
+  // (OT possession coin-flip lands in P2; today home receives first.)
   if (opts.resolveTie && homeScore === awayScore) {
     let otYardsHome = 0;
     let otYardsAway = 0;
     for (let round = 0; round < 8 && homeScore === awayScore; round++) {
       offense = 'home';
-      otYardsHome += Math.max(0, playDrive(`ot:${round}:h`).yards);
+      otYardsHome += Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:h`))).yards);
+      driveIdx++;
       offense = 'away';
-      otYardsAway += Math.max(0, playDrive(`ot:${round}:a`).yards);
+      otYardsAway += Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:a`))).yards);
+      driveIdx++;
     }
     if (homeScore === awayScore) {
       if (otYardsHome > otYardsAway) homeScore += 3;
       else if (otYardsAway > otYardsHome) awayScore += 3;
-      else if (prng.next() < 0.5) homeScore += 3;
+      else if (prng.fork('ot-coin').next() < 0.5) homeScore += 3;
       else awayScore += 3;
     }
   }
