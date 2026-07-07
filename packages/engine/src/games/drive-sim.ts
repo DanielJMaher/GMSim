@@ -4,7 +4,9 @@ import { matchupFacets } from './strength.js';
 import type { Player, PlayerSkills } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
 import type { LeagueState } from '../types/league.js';
+import type { HeadCoach } from '../types/personnel.js';
 import { Position } from '../types/enums.js';
+import { teamChemistry } from '../season/chemistry.js';
 
 /**
  * Matchup-driven (bottom-up) game simulation — tier 2, drive-based (v0.105+).
@@ -291,6 +293,12 @@ interface DriveCtx {
   passEdge: number;
   protEdge: number;
   runEdge: number;
+  /** Chemistry mistakes channel (P3): >1 for a toxic room (more turnovers),
+   *  <1 for a cohesive one. 1 on the facet path. */
+  turnoverMult: number;
+  /** Coaching 4th-down aggression (P3): scales the go-for-it probabilities.
+   *  1 on the facet path. */
+  aggression: number;
 }
 
 // ── League-mean edge re-centering (2026-06-23) ───────────────────────────
@@ -381,6 +389,8 @@ function driveCtx(off: MatchupFacets, def: MatchupFacets, rc: EdgeRecenter = ZER
     passEdge: (off.qbPlay * 0.65 + off.receivingCorps * 0.35) - def.coverage - rc.pass,
     protEdge: off.passProtection - def.passRush - rc.prot,
     runEdge: (off.runBlocking * 0.5 + off.rushingCorps * 0.5) - def.runDefense - rc.run,
+    turnoverMult: 1, // set from team chemistry on the live path (P3)
+    aggression: 1, // set from the head coach on the live path (P3)
   };
 }
 
@@ -404,7 +414,7 @@ function resolvePlay(
     if (prng.next() < clamp(SACK_RATE - ctx.protEdge * 0.0018, 0.02, 0.14)) {
       return { isPass, gain: -SACK_YDS, kind: 'sack' };
     }
-    if (prng.next() < clamp(INT_RATE - ctx.passEdge * 0.0007, 0.004, 0.06)) {
+    if (prng.next() < clamp((INT_RATE - ctx.passEdge * 0.0007) * ctx.turnoverMult, 0.004, 0.08)) {
       return { isPass, gain: 0, kind: 'int' };
     }
     if (prng.next() < clamp(BASE_COMPLETION + ctx.passEdge * 0.004, 0.45, 0.82)) {
@@ -414,7 +424,7 @@ function resolvePlay(
     }
     return { isPass, gain: 0, kind: 'incomplete' };
   }
-  if (prng.next() < FUMBLE_LOST_RATE) return { isPass: false, gain: 0, kind: 'fumble' };
+  if (prng.next() < FUMBLE_LOST_RATE * ctx.turnoverMult) return { isPass: false, gain: 0, kind: 'fumble' };
   const gain = Math.round(prng.normal(RUN_YDS + ctx.runEdge * 0.06, RUN_YDS_SD));
   return { isPass: false, gain, kind: 'run' };
 }
@@ -631,13 +641,15 @@ function simulateDrive(
       const toGoal = 100 - ballOn;
       const fgDist = toGoal + 17;
       const inFgRange = fgDist <= 56;
+      // Coach 4th-down aggression (P3) scales every go-for-it probability.
+      const goP = (p: number): boolean => prng.next() < clamp(p * ctx.aggression, 0.02, 0.97);
       let go = false;
-      if (toGoal <= 2 && togo <= 1) go = prng.next() < 0.55;
+      if (toGoal <= 2 && togo <= 1) go = goP(0.55);
       else if (inFgRange) go = false;
-      else if (togo <= 1 && ballOn >= 30) go = prng.next() < 0.8;
-      else if (togo <= 2 && ballOn >= 42) go = prng.next() < 0.6;
-      else if (togo <= 5 && ballOn >= 45) go = prng.next() < 0.5;
-      else if (ballOn >= 48) go = prng.next() < 0.35;
+      else if (togo <= 1 && ballOn >= 30) go = goP(0.8);
+      else if (togo <= 2 && ballOn >= 42) go = goP(0.6);
+      else if (togo <= 5 && ballOn >= 45) go = goP(0.5);
+      else if (ballOn >= 48) go = goP(0.35);
       if (!go) {
         plays++;
         clock += CLOCK_RUN; // punt/FG snap ≈ run-cost (clock runs to the kick)
@@ -968,6 +980,40 @@ export interface DriveGameOptions {
   neutralSite?: boolean;
 }
 
+// ── Coaching & team chemistry into the game (P3, v0.181) ─────────────────────
+// The bottom-up sim builds its box score from player facets (ratings + mood +
+// scheme-fit) but never saw the HEAD COACH or the team's CHEMISTRY — both live
+// only in the (unused-by-this-path) top-down teamStrength. P3 wires them in:
+//   coaching → a competence edge (game-day spectrums) + 4th-down aggression;
+//     a great-vs-terrible HC swings ~2-3pp win% (Daniel-set, v0.181). Talent
+//     dominates, so it moves per-team win% but NOT the league standings spread
+//     (season-wins sd 2.6 vs real 3.3 is a separate talent-spread item).
+//   chemistry → the MISTAKES channel: a toxic room commits more turnovers, a
+//     locked-in room fewer — ASYMMETRIC (toxic bites harder), on top of the
+//     per-player mood already in the facets (a distinct channel, no double-count).
+const COACH_EDGE_K = 0.55; // edge per game-day-spectrum-avg point over the 5.5 midpoint (v0.181: a great-vs-terrible HC swings ~2-3pp win% — visible, still talent-secondary)
+const COACH_AGGR_K = 0.06; // 4th-down go scaling per playCallingAggression point over midpoint
+const COACH_GAMBLER_AGGR = 0.2; // FOURTH_DOWN_GAMBLER quirk bonus to aggression
+const CHEM_NEUTRAL = 55; // chemistry score (0-100) that is a turnover no-op
+const CHEM_TOXIC_TO_K = 0.005; // turnover-rate rise per point BELOW neutral (toxic)
+const CHEM_GOOD_TO_K = 0.003; // turnover-rate fall per point ABOVE neutral (cohesive) — gentler = asymmetric
+
+/** Head-coach competence edge from the game-day spectrums, centered on the
+ *  5.5 spectrum midpoint (≈0 league mean, so scoring holds; spread widens). */
+function headCoachEdge(hc: HeadCoach): number {
+  const s = hc.spectrums;
+  const avg = (s.gameManagement + s.playCallingAggression + s.adaptability + s.pressureResponse + s.experience) / 5;
+  return COACH_EDGE_K * (avg - 5.5);
+}
+function coachAggression(hc: HeadCoach): number {
+  return 1 + COACH_AGGR_K * (hc.spectrums.playCallingAggression - 5.5) + (hc.quirks.includes('FOURTH_DOWN_GAMBLER') ? COACH_GAMBLER_AGGR : 0);
+}
+/** Turnover multiplier from team chemistry (0-100), asymmetric about neutral. */
+function chemTurnoverMult(chemScore: number): number {
+  const d = chemScore - CHEM_NEUTRAL;
+  return 1 + (d < 0 ? -CHEM_TOXIC_TO_K * d : -CHEM_GOOD_TO_K * d);
+}
+
 /** Full bottom-up game: builds facets + personnel from the rosters and returns
  *  the drive log + emergent per-player stat lines. Applies home-field advantage
  *  and resolves ties (the live season needs a winner). */
@@ -996,6 +1042,26 @@ export function simulateGameWithDrives(
     awayCtx.passEdge -= HOME_FIELD_EDGE;
     awayCtx.runEdge -= HOME_FIELD_EDGE;
   }
+  // Coaching & chemistry (P3): the head coach's competence lifts the team's
+  // edges and sets its 4th-down aggression; team chemistry drives the turnover
+  // (mistakes) channel. Centered so the league scoring mean holds; the SPREAD
+  // widens (better coaches / rooms separate → standings spread toward real).
+  const homeHc = league.coaches[homeTeam.headCoachId];
+  const awayHc = league.coaches[awayTeam.headCoachId];
+  if (homeHc) {
+    const e = headCoachEdge(homeHc);
+    homeCtx.passEdge += e;
+    homeCtx.runEdge += e;
+    homeCtx.aggression = coachAggression(homeHc);
+  }
+  if (awayHc) {
+    const e = headCoachEdge(awayHc);
+    awayCtx.passEdge += e;
+    awayCtx.runEdge += e;
+    awayCtx.aggression = coachAggression(awayHc);
+  }
+  homeCtx.turnoverMult = chemTurnoverMult(teamChemistry(homeTeam, league).score);
+  awayCtx.turnoverMult = chemTurnoverMult(teamChemistry(awayTeam, league).score);
   return runGame(
     prng,
     { ctx: homeCtx, pers: buildTeamPersonnel(playersOf(homeTeam)) },

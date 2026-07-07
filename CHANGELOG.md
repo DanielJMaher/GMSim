@@ -14,6 +14,37 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.181.0] — 2026-07-07
+
+### Changed
+
+- **Coaching and team chemistry reach the game now.** Third slice (P3) of the
+  game-sim rebuild (`docs/design-docs/GAME_SIM_REBUILD.md`): the bottom-up sim
+  built its box score from player facets (ratings + mood + scheme-fit) but never
+  saw the HEAD COACH or the team's CHEMISTRY — both lived only in the top-down
+  `teamStrength` this path never reads (the documented "HCs don't influence the
+  game sim" thread). Now:
+  - **Coaching → a competence edge + 4th-down aggression.** The HC's game-day
+    spectrums (game management, play-calling aggression, adaptability, pressure
+    response, experience) lift the team's pass/run edges — centered on the
+    spectrum midpoint so league scoring holds — and play-calling aggression plus
+    the `FOURTH_DOWN_GAMBLER` quirk scale the 4th-down go-for-it probabilities. A
+    great-vs-terrible HC swings ~**2.3pp win%** (visible, still talent-secondary).
+  - **Chemistry → the mistakes channel, ASYMMETRIC.** `teamChemistry().score`
+    modulates INT/fumble rates — a toxic room bites harder than a cohesive one
+    lifts (+20% / −10% turnovers) — a distinct channel from the per-player mood
+    already in the facets (no double-count). Manifests as chemistry diverges over
+    seasons.
+  - **Measured (Scorekeeper 10×12, 65,280 team-games):** all bands green, INT 0.8
+    (chemistry-over-seasons held the band), points 23.7, W-L pass delta 14.9
+    (unchanged), pts-drift 0.0 (stationary). Facet path (Magistrate) unchanged by
+    construction. LEARNING: coaching is talent-secondary — it moves per-team win%
+    but not the standings spread (season-wins sd 2.6 vs real 3.3 is a separate
+    talent-spread item, a future slice).
+  - 26 games + 38 season tests green; engine build + web typecheck green.
+
+---
+
 ## [0.180.0] — 2026-07-07
 
 ### Changed

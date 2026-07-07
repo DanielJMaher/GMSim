@@ -243,8 +243,16 @@ double-counting:
   would re-open pace calibration. Commit as v0.180.0.
   Deliver the possession asymmetry → snap skew collapse → W-L delta drop. Gate on §2.5
   sizing + all Scorekeeper bands. Commit.
-- **P3 — Coaching & chemistry into plays** (§4.1/4.2), bounded & probe-calibrated;
-  chemistry ASYMMETRIC (toxic bites harder). Commit.
+- **P3 — Coaching & chemistry into plays** (§4.1/4.2). **DONE 2026-07-07 (v0.181.0):**
+  head-coach competence edge (game-day spectrums, centered on the midpoint) + 4th-down
+  aggression (`playCallingAggression` + `FOURTH_DOWN_GAMBLER`) on the live ctx; team
+  chemistry drives the turnover (mistakes) channel, ASYMMETRIC (toxic +20% / cohesive
+  −10%). Measured: coaching swings a great-vs-terrible HC ~**2.3pp win%** (`COACH_EDGE_K`
+  0.55, Daniel-set); all Scorekeeper bands green, INT band held (chemistry-over-seasons),
+  delta 14.9. LEARNING: coaching is talent-secondary — it moves per-team win% but NOT the
+  standings spread (wins sd 2.6 vs real 3.3 is a separate **talent-spread** item, a future
+  slice). Facet path (Magistrate) unchanged by construction (`turnoverMult`/`aggression`
+  default 1). Commit as v0.181.0.
 - **P4 — FULL special teams + complete stats** (§3.4/4.3) — kicker/punter/returner
   ratings & stat lines as a roster dimension. Commit.
 - **P5 — Joint recalibration** across Magistrate + Scorekeeper + full suite; release.
