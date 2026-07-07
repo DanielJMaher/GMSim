@@ -14,6 +14,35 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.180.0] — 2026-07-07
+
+### Changed
+
+- **The end of a half is played now — leaders kneel it out, trailers run the
+  two-minute drill — and the W-L pass delta drops to 15.3.** Second slice (P2)
+  of the game-sim rebuild (`docs/design-docs/GAME_SIM_REBUILD.md`): the real
+  end-of-half possession asymmetry, which is why losers out-pass winners on
+  volume. A LEADING offense victory-kneels once it can safely run the clock out
+  (sooner as the trailing defense burns its timeouts); a TRAILING offense runs
+  the two-minute drill (a pass-rate boost + the v0.178 hurry clock). So winners
+  bank non-offensive kneel possessions while the pass-heavy hurry-up drives fall
+  to the trailer. Plus a real OT coin-flip (was always home-first). Timeouts
+  (3/half/team) gate the kneel. Determinism preserved (all pure `prng.fork`).
+  - **Measured (Scorekeeper 10×12, 65,280 team-games):** snap skew W−L +2.89 →
+    **+0.97** (real +0.88), offensive drives W−L **−0.21** (real −0.28),
+    END_HALF flipped winner-ward, **W-L pass delta 21.9 → 15.3** (band ≤32, real
+    9.5). All bands green: points 23.5, rush 95.3, pass att 31.0, comp% 63.8,
+    home 55.8% (the coin-flip), pts-drift 0.0 (stationary). Magistrate drive mix
+    unchanged (points/drive 1.90, scoring% 36.1).
+  - **Scope:** built on the existing seconds-BUDGET clock (thresholds in
+    budget-seconds ≈ real minutes); the literal 1800s quarter clock with
+    explicit clock-stops is deferred (realism/feel, not needed for the
+    asymmetry). Residual (P5 sustain): rush yds 95.3 / pass att 31.0 sit near
+    their band floors — drives are still short (plays/drive 5.03).
+  - 26 games + 38 season tests green; engine build + web typecheck green.
+
+---
+
 ## [0.179.0] — 2026-07-07
 
 ### Changed

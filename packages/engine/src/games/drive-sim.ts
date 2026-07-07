@@ -103,6 +103,24 @@ const HURRY_COST_MULT = 0.85;
 const KILL_SHIFT_GATE = 0.15;
 const KILL_COMPLETE_MULT = 1.11;
 
+// ── End-of-half clock management (P2, v0.180) ────────────────────────────────
+// The real end-of-half possession asymmetry: a LEADING offense with the ball
+// runs the clock out (victory kneels) once it safely can, sooner when the
+// trailing defense is out of timeouts; the trailing defense burns timeouts to
+// stop the clock and get the ball back. So winners bank their (non-offensive)
+// kneel possessions while the pass-heavy hurry-up drives fall to the trailer —
+// the real reason losers out-pass winners on volume (real snap skew W−L +0.88,
+// offensive drives W 10.22 / L 10.50). Thresholds are in clock-BUDGET seconds
+// (HALF_CLOCK_SECONDS units), calibrated so the possession asymmetry lands on
+// the real offensive-drive split without starving rush volume (the two-minute
+// pass boost and the kneel both trade run plays away).
+const HALF_TIMEOUTS = 3;
+const TIMEOUT_WINDOW = 240; // remaining budget-sec inside which the trailing defense burns timeouts
+const KNEEL_CLOCK = 130; // remaining budget-sec a leader can kneel out with the trailer at 0 timeouts
+const TIMEOUT_KNEEL_SECS = 25; // each remaining trailer timeout the leader must additionally cover
+const TWO_MIN_WINDOW = 170; // remaining budget-sec inside which a TRAILING offense runs the two-minute drill
+const TWO_MIN_PASS_BOOST = 0.16; // extra pass-rate shift in the two-minute drill (throw to move + stop the clock)
+
 function playClock(kind: PlayResult['kind'], scriptShift: number): number {
   const base =
     kind === 'run' ? CLOCK_RUN
@@ -827,20 +845,23 @@ function runGame(
   // the caller can chain field position off its ending spot.
   const playDriveAt = (
     startPos: number,
+    hurry = false,
   ): { result: DriveResult; plays: number; yards: number; clock: number } => {
     const off = offense === 'home' ? home : away;
     const def = offense === 'home' ? away : home;
     const attr: Attr | null = stats && off.pers && def.pers ? { off: off.pers, def: def.pers, stats } : null;
     // Game script (v0.149): trailing late tilts pass, leading late tilts run.
-    // Progress is CLOCK-based (v0.178).
+    // Progress is CLOCK-based (v0.178). A TRAILING offense inside the two-minute
+    // window runs the drill (P2): throw to move fast + stop the clock.
     const diff = offense === 'home' ? homeScore - awayScore : awayScore - homeScore;
     const progress = Math.min(1, totalClock / (2 * HALF_CLOCK_SECONDS));
+    const scriptShift = gameScriptShift(diff, progress) + (hurry ? TWO_MIN_PASS_BOOST : 0);
     const drive = simulateDrive(
       prng.fork(`drive:${driveIdx}`),
       off.ctx,
       startPos,
       attr,
-      gameScriptShift(diff, progress),
+      scriptShift,
     );
     driveLog.push({ offense, start: startPos, ...drive });
     const pts = POINTS[drive.result] ?? 0;
@@ -864,12 +885,28 @@ function runGame(
     offense = half === 0 ? (homeReceivesH1 ? 'home' : 'away') : homeReceivesH1 ? 'away' : 'home';
     let startPos = kickoffReturn(prng.fork(`open:${half}`)); // opening kickoff
     let halfClock = 0;
+    const timeouts = { home: HALF_TIMEOUTS, away: HALF_TIMEOUTS };
     for (;;) {
-      if (halfClock >= HALF_CLOCK_SECONDS) {
+      const remaining = HALF_CLOCK_SECONDS - halfClock;
+      if (remaining <= 0) {
         driveLog.push({ offense, start: startPos, result: 'END_HALF', plays: prng.fork(`eh:${half}`).nextRange(1, 4), yards: 0, clock: 0 });
         break;
       }
-      const drive = playDriveAt(startPos);
+      // End-of-half clock management (P2): a leading offense runs the clock out;
+      // the trailing defense burns timeouts first to try to get the ball back.
+      const offScore = offense === 'home' ? homeScore : awayScore;
+      const defScore = offense === 'home' ? awayScore : homeScore;
+      const defense = offense === 'home' ? 'away' : 'home';
+      if (offScore > defScore && remaining < TIMEOUT_WINDOW && timeouts[defense] > 0) {
+        timeouts[defense] -= 1; // trailer stops the clock on the leader's possession
+      }
+      if (offScore > defScore && remaining <= KNEEL_CLOCK - TIMEOUT_KNEEL_SECS * timeouts[defense]) {
+        // Victory kneels: the leader ends the half; a non-offensive possession.
+        driveLog.push({ offense, start: startPos, result: 'END_HALF', plays: prng.fork(`kneel:${half}:${driveIdx}`).nextRange(2, 4), yards: 0, clock: 0 });
+        break;
+      }
+      const twoMin = offScore < defScore && remaining < TWO_MIN_WINDOW; // trailer runs the two-minute drill
+      const drive = playDriveAt(startPos, twoMin);
       halfClock += drive.clock;
       totalClock += drive.clock;
       const endBallOn = startPos + drive.yards; // where the drive ended (own-yards)
@@ -885,13 +922,18 @@ function runGame(
   if (opts.resolveTie && homeScore === awayScore) {
     let otYardsHome = 0;
     let otYardsAway = 0;
+    // Coin flip for first possession (P2, v0.180) — replaces the old always-home.
+    const otFirst: 'home' | 'away' = prng.fork('ot-toss').next() < 0.5 ? 'home' : 'away';
+    const otSecond: 'home' | 'away' = otFirst === 'home' ? 'away' : 'home';
     for (let round = 0; round < 8 && homeScore === awayScore; round++) {
-      offense = 'home';
-      otYardsHome += Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:h`))).yards);
+      offense = otFirst;
+      const yFirst = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:1`))).yards);
       driveIdx++;
-      offense = 'away';
-      otYardsAway += Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:a`))).yards);
+      offense = otSecond;
+      const ySecond = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:2`))).yards);
       driveIdx++;
+      if (otFirst === 'home') { otYardsHome += yFirst; otYardsAway += ySecond; }
+      else { otYardsAway += yFirst; otYardsHome += ySecond; }
     }
     if (homeScore === awayScore) {
       if (otYardsHome > otYardsAway) homeScore += 3;

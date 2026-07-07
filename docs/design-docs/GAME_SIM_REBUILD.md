@@ -231,9 +231,16 @@ double-counting:
   trim per the old doc §2.5). **DONE 2026-07-07** — drive starts on-bar (kickoff own
   25.5, punt 25.0, turnover 49.1), Magistrate points/drive 1.95=1.95, TD/FG on bar;
   residual: plays/drive 5.03 (P5). Commit as v0.179.
-- **P2 — Literal quarter-clock + timeouts + coach-driven end-of-half (two-minute /
-  kneel) + OT coin-flip.** This is where the possession asymmetry (and the W-L delta
-  drop) lands.
+- **P2 — Timeouts + end-of-half kneel / two-minute drill + OT coin-flip.** The
+  possession asymmetry. **DONE 2026-07-07 (v0.180.0):** a leading offense victory-kneels
+  once its threshold clears (sooner as the trailing defense burns timeouts); a trailing
+  offense runs the two-minute drill (pass boost + hurry clock). Result — snap skew
+  +2.89 → +0.97 (real +0.88), offensive drives W−L −0.21 (real −0.28), END_HALF flipped
+  winner-ward, **W-L pass delta 21.9 → 15.3** (real 9.5); rush yds 95.3 and pass att 31.0
+  held in band; home win% 55.8 (OT coin-flip). Like P1, built on the existing seconds-
+  BUDGET clock (thresholds in budget-seconds); the *literal* 1800s quarter clock with
+  explicit clock-stops is deferred — it's realism/feel, not needed for the asymmetry, and
+  would re-open pace calibration. Commit as v0.180.0.
   Deliver the possession asymmetry → snap skew collapse → W-L delta drop. Gate on §2.5
   sizing + all Scorekeeper bands. Commit.
 - **P3 — Coaching & chemistry into plays** (§4.1/4.2), bounded & probe-calibrated;
