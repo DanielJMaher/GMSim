@@ -253,8 +253,15 @@ double-counting:
   standings spread (wins sd 2.6 vs real 3.3 is a separate **talent-spread** item, a future
   slice). Facet path (Magistrate) unchanged by construction (`turnoverMult`/`aggression`
   default 1). Commit as v0.181.0.
-- **P4 — FULL special teams + complete stats** (§3.4/4.3) — kicker/punter/returner
-  ratings & stat lines as a roster dimension. Commit.
+- **P4a — special teams as a roster dimension (ratings).** **DONE 2026-07-07
+  (v0.182.0):** each team's kicker/punter/return man ratings drive FG make rate,
+  net punt, and return field position — centered on each unit's real league
+  average (kicker/punter ~65, returners ~87) so it's MEAN-NEUTRAL (bars hold,
+  spread moves). Determinism preserved (no new PRNG draws). Contained to
+  `drive-sim.ts`. Scorekeeper deferred to the push gate (mean-neutral).
+- **P4b — ST stat lines + complete stats** (§4.3): FGM/FGA/XP, punts, return
+  yards/TDs plumbed through the stats pipeline (types → drive-sim → outcome →
+  per-field aggregation) + fumble attribution + 3rd-down/red-zone unstub.
 - **P5 — Joint recalibration** across Magistrate + Scorekeeper + full suite; release.
 
 ---

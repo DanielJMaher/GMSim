@@ -14,6 +14,33 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.182.0] — 2026-07-07
+
+### Changed
+
+- **Special teams are a roster dimension now — kicker, punter, and return-man
+  ratings shape FG%, field position, and returns.** Slice P4a of the game-sim
+  rebuild (`docs/design-docs/GAME_SIM_REBUILD.md`): each team's best kicker
+  (`kickPower`/`kickAccuracy`), punter (`puntPower`/`puntAccuracy`), and return
+  man (fastest / most-elusive WR/RB/CB) drive the special-teams outcomes the
+  flat model ignored — **kicker → FG make rate** (most felt at range), **punter
+  → net punt** and **returner → return** (the punter lengthens the net, the
+  returner shaves it), **returner → kickoff-return start**. Ratings are centered
+  on each unit's real league average (kicker/punter ~65, return men ~87 — the
+  fastest players), so the modulation is MEAN-NEUTRAL: an average unit reproduces
+  the calibrated bars (drive starts, FG%, points), and only the SPREAD moves — a
+  great ST unit is a genuine field-position edge.
+  - Verified: drive-start bars hold (kickoff own 25.5, punt 25.3, turnover 49.2),
+    points 23.5, pace unchanged. Determinism preserved — no new PRNG draws (the
+    rating terms shift existing rolls). Facet path (Magistrate) unchanged
+    (neutral-rated by default). 26 games + 38 season tests green; web typecheck
+    green. (Scorekeeper deferred to the push gate — mean-neutral, so the box-score
+    means it measures are set by unchanged offense/defense play.)
+  - **P4b (next):** the ST stat lines (FGM/FGA, punts, return yds/TDs — a wider
+    stats-pipeline change) + fumble attribution + 3rd-down/red-zone unstub.
+
+---
+
 ## [0.181.0] — 2026-07-07
 
 ### Changed

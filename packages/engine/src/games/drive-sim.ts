@@ -221,13 +221,16 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
 }
 
-function fgSuccess(distance: number): number {
-  if (distance <= 30) return 0.97;
-  if (distance <= 40) return 0.9;
-  if (distance <= 47) return 0.8;
-  if (distance <= 53) return 0.62;
-  if (distance <= 57) return 0.45;
-  return 0.25;
+function fgSuccess(distance: number, kickerRating = KICKER_NEUTRAL): number {
+  const base =
+    distance <= 30 ? 0.97
+    : distance <= 40 ? 0.9
+    : distance <= 47 ? 0.8
+    : distance <= 53 ? 0.62
+    : distance <= 57 ? 0.45
+    : 0.25;
+  // Kicker skill (P4a): a strong leg lifts the make rate, most felt at range.
+  return clamp(base + (kickerRating - KICKER_NEUTRAL) * FG_KICKER_K, 0.02, 0.995);
 }
 
 // ── Game script (v0.149 — the Scorekeeper's W-L pass-delta finding) ──────
@@ -299,6 +302,9 @@ interface DriveCtx {
   /** Coaching 4th-down aggression (P3): scales the go-for-it probabilities.
    *  1 on the facet path. */
   aggression: number;
+  /** Offense's kicker rating (P4a): shifts FG make rate. ST_NEUTRAL on the
+   *  facet path. */
+  kickerRating: number;
 }
 
 // ── League-mean edge re-centering (2026-06-23) ───────────────────────────
@@ -391,6 +397,7 @@ function driveCtx(off: MatchupFacets, def: MatchupFacets, rc: EdgeRecenter = ZER
     runEdge: (off.runBlocking * 0.5 + off.rushingCorps * 0.5) - def.runDefense - rc.run,
     turnoverMult: 1, // set from team chemistry on the live path (P3)
     aggression: 1, // set from the head coach on the live path (P3)
+    kickerRating: KICKER_NEUTRAL, // set from the roster's kicker on the live path (P4a)
   };
 }
 
@@ -447,6 +454,11 @@ export interface TeamPersonnel {
   /** Tackle-eligible defenders, group-weighted (LB > DB > DL) so the
    *  tackle leaderboard is LB-dominated like the real NFL. */
   tacklers: PRef[];
+  /** Special-teams unit ratings (P4a, 0-100): the roster's kicker (FG), punter
+   *  (net punt), and top return man (KO/punt returns). ST_NEUTRAL when absent. */
+  kickerRating: number;
+  punterRating: number;
+  returnerRating: number;
 }
 
 const RECV_KEYS: (keyof PlayerSkills)[] = ['routeShort', 'routeMedium', 'routeDeep', 'releaseVsOff', 'catching', 'catchInTraffic'];
@@ -574,7 +586,44 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
   tacklers.sort((a, b) => b.weight - a.weight);
   tacklers.splice(14);
 
-  return { qb: qb?.id ?? null, qb2: qb2?.id ?? null, receivers, rushers, passRush, coverage, tacklers };
+  // Special teams (P4a): the roster's best kicker (FG), punter (net punt), and
+  // return man (KO/punt returns). ST_NEUTRAL when the roster has none.
+  const bestBy = (pos: Position, keys: (keyof PlayerSkills)[], neutral: number): number => {
+    let best = neutral;
+    let found = false;
+    for (const p of players) {
+      if (p.position !== pos) continue;
+      const r = meanKeys(p, keys);
+      if (!found || r > best) {
+        best = r;
+        found = true;
+      }
+    }
+    return best;
+  };
+  let returnerRating = RETURNER_NEUTRAL;
+  let foundRet = false;
+  for (const p of players) {
+    if (p.position !== Position.WR && p.position !== Position.RB && p.position !== Position.CB) continue;
+    const r = (p.current.speed + p.current.elusiveness) / 2;
+    if (!foundRet || r > returnerRating) {
+      returnerRating = r;
+      foundRet = true;
+    }
+  }
+
+  return {
+    qb: qb?.id ?? null,
+    qb2: qb2?.id ?? null,
+    receivers,
+    rushers,
+    passRush,
+    coverage,
+    tacklers,
+    kickerRating: bestBy(Position.K, ['kickPower', 'kickAccuracy'], KICKER_NEUTRAL),
+    punterRating: bestBy(Position.P, ['puntPower', 'puntAccuracy'], PUNTER_NEUTRAL),
+    returnerRating,
+  };
 }
 
 function pick(prng: Prng, refs: PRef[]): string | null {
@@ -654,7 +703,7 @@ function simulateDrive(
         plays++;
         clock += CLOCK_RUN; // punt/FG snap ≈ run-cost (clock runs to the kick)
         if (inFgRange) {
-          return { result: prng.next() < fgSuccess(fgDist) ? 'FG' : 'MISSED_FG', plays, yards: ballOn - startYardline, clock };
+          return { result: prng.next() < fgSuccess(fgDist, ctx.kickerRating) ? 'FG' : 'MISSED_FG', plays, yards: ballOn - startYardline, clock };
         }
         return { result: 'PUNT', plays, yards: ballOn - startYardline, clock };
       }
@@ -744,7 +793,7 @@ function simulateDrive(
       if (roll < pTd + (1 - pTd) * RED_ZONE_FG_CONDITIONAL) {
         const fgDist = 100 - ballOn + 17;
         return {
-          result: prng.next() < fgSuccess(fgDist) ? 'FG' : 'MISSED_FG',
+          result: prng.next() < fgSuccess(fgDist, ctx.kickerRating) ? 'FG' : 'MISSED_FG',
           plays,
           yards: ballOn - startYardline,
           clock,
@@ -810,26 +859,45 @@ const FREE_KICK_START = 42; // safety free-kick receiving start (rare)
 const TURNOVER_SPOT_OFFSET = 8; // INT-downfield / fumble mix → receiving own ~49
 const MISSED_FG_SPOT_OFFSET = 3; // opponent takes over ~ the kick spot
 
-function kickoffReturn(prng: Prng): number {
-  if (prng.next() < 0.7) return KICKOFF_TOUCHBACK; // touchback
-  const ret = Math.round(20 + prng.normal(6, 7)); // returned, mean ~26
+// ── Special teams as a roster dimension (P4a, v0.182) ────────────────────────
+// Kicker / punter / returner ratings (0-100, neutral ~74) shift the FG make
+// rate, net punt, and return field position around the calibrated means — a
+// great ST unit is a real edge. MEAN-NEUTRAL: a 74-rated unit reproduces the
+// bars, so league FG% / drive starts / scoring hold and only the SPREAD moves.
+// Per-unit neutral references = the league-average rating for each ST role
+// (kicker/punter ~65; return men are the FASTEST players ~87). Centering each
+// modulation on its own average keeps it MEAN-NEUTRAL — an average unit
+// reproduces the calibrated FG% / net-punt / drive-start bars.
+const KICKER_NEUTRAL = 65;
+const PUNTER_NEUTRAL = 65;
+const RETURNER_NEUTRAL = 87;
+const FG_KICKER_K = 0.004; // FG make-rate per kicker-point over neutral (most at range)
+const PUNT_NET_K = 0.15; // net-punt yards per punter-point over neutral
+const RETURN_NET_K = 0.13; // net-punt yards shaved per returner-point over neutral
+const KO_RETURN_K = 0.1; // kickoff-return start yards per returner-point over neutral
+
+function kickoffReturn(prng: Prng, returnerRating = RETURNER_NEUTRAL): number {
+  if (prng.next() < 0.7) return KICKOFF_TOUCHBACK; // touchback (returner irrelevant)
+  const ret = Math.round(20 + prng.normal(6, 7) + (returnerRating - RETURNER_NEUTRAL) * KO_RETURN_K);
   return clamp(ret + (prng.next() < 0.015 ? prng.nextRange(25, 60) : 0), 1, 99);
 }
-function puntReturn(fromPos: number, prng: Prng): number {
-  const landing = fromPos + prng.normal(NET_PUNT, NET_PUNT_SD);
+function puntReturn(fromPos: number, prng: Prng, punterRating = PUNTER_NEUTRAL, returnerRating = RETURNER_NEUTRAL): number {
+  const net = prng.normal(NET_PUNT, NET_PUNT_SD) + (punterRating - PUNTER_NEUTRAL) * PUNT_NET_K - (returnerRating - RETURNER_NEUTRAL) * RETURN_NET_K;
+  const landing = fromPos + net;
   if (landing >= 100) return 20; // punted into the end zone → touchback
   return clamp(Math.round(100 - landing), 1, 99);
 }
-/** Where the OPPONENT starts (own-yards 0-100), given how this drive ended. */
-function nextStart(result: DriveResult, endBallOn: number, prng: Prng): number {
+/** Where the OPPONENT starts (own-yards 0-100), given how this drive ended. The
+ *  kicking team's punter and the receiving team's returner shape the punt/KO. */
+function nextStart(result: DriveResult, endBallOn: number, prng: Prng, punterRating = PUNTER_NEUTRAL, returnerRating = RETURNER_NEUTRAL): number {
   switch (result) {
     case 'TD':
     case 'FG':
-      return kickoffReturn(prng);
+      return kickoffReturn(prng, returnerRating);
     case 'SAFETY':
       return clamp(Math.round(prng.normal(FREE_KICK_START, 8)), 20, 60);
     case 'PUNT':
-      return puntReturn(endBallOn, prng);
+      return puntReturn(endBallOn, prng, punterRating, returnerRating);
     case 'MISSED_FG':
       return clamp(Math.round(100 - endBallOn + MISSED_FG_SPOT_OFFSET), 1, 99);
     case 'TURNOVER':
@@ -852,6 +920,10 @@ function runGame(
   let driveIdx = 0;
   let totalClock = 0;
   let offense: 'home' | 'away' = 'home';
+  // Special-teams ratings by side (P4a) — the returner shapes KO/punt starts,
+  // the punter the net punt. ST_NEUTRAL on the facet path (no personnel).
+  const returnerOf = (side: 'home' | 'away'): number => (side === 'home' ? home : away).pers?.returnerRating ?? RETURNER_NEUTRAL;
+  const punterOf = (side: 'home' | 'away'): number => (side === 'home' ? home : away).pers?.punterRating ?? PUNTER_NEUTRAL;
 
   // Play one drive starting at `startPos` (own-yards). Returns the raw drive so
   // the caller can chain field position off its ending spot.
@@ -895,7 +967,7 @@ function runGame(
   const homeReceivesH1 = prng.fork('toss').next() < 0.5;
   for (let half = 0; half < 2; half++) {
     offense = half === 0 ? (homeReceivesH1 ? 'home' : 'away') : homeReceivesH1 ? 'away' : 'home';
-    let startPos = kickoffReturn(prng.fork(`open:${half}`)); // opening kickoff
+    let startPos = kickoffReturn(prng.fork(`open:${half}`), returnerOf(offense)); // opening kickoff
     let halfClock = 0;
     const timeouts = { home: HALF_TIMEOUTS, away: HALF_TIMEOUTS };
     for (;;) {
@@ -922,8 +994,9 @@ function runGame(
       halfClock += drive.clock;
       totalClock += drive.clock;
       const endBallOn = startPos + drive.yards; // where the drive ended (own-yards)
-      offense = offense === 'home' ? 'away' : 'home';
-      startPos = nextStart(drive.result, endBallOn, prng.fork(`fp:${driveIdx}`));
+      const kicking = offense; // team that just kicked / punted
+      offense = offense === 'home' ? 'away' : 'home'; // receiving team
+      startPos = nextStart(drive.result, endBallOn, prng.fork(`fp:${driveIdx}`), punterOf(kicking), returnerOf(offense));
       driveIdx++;
     }
   }
@@ -939,10 +1012,10 @@ function runGame(
     const otSecond: 'home' | 'away' = otFirst === 'home' ? 'away' : 'home';
     for (let round = 0; round < 8 && homeScore === awayScore; round++) {
       offense = otFirst;
-      const yFirst = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:1`))).yards);
+      const yFirst = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:1`), returnerOf(offense))).yards);
       driveIdx++;
       offense = otSecond;
-      const ySecond = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:2`))).yards);
+      const ySecond = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:2`), returnerOf(offense))).yards);
       driveIdx++;
       if (otFirst === 'home') { otYardsHome += yFirst; otYardsAway += ySecond; }
       else { otYardsAway += yFirst; otYardsHome += ySecond; }
@@ -1062,10 +1135,15 @@ export function simulateGameWithDrives(
   }
   homeCtx.turnoverMult = chemTurnoverMult(teamChemistry(homeTeam, league).score);
   awayCtx.turnoverMult = chemTurnoverMult(teamChemistry(awayTeam, league).score);
+  // Special teams (P4a): the offense's kicker shapes its FG make rate.
+  const homePers = buildTeamPersonnel(playersOf(homeTeam));
+  const awayPers = buildTeamPersonnel(playersOf(awayTeam));
+  homeCtx.kickerRating = homePers.kickerRating;
+  awayCtx.kickerRating = awayPers.kickerRating;
   return runGame(
     prng,
-    { ctx: homeCtx, pers: buildTeamPersonnel(playersOf(homeTeam)) },
-    { ctx: awayCtx, pers: buildTeamPersonnel(playersOf(awayTeam)) },
+    { ctx: homeCtx, pers: homePers },
+    { ctx: awayCtx, pers: awayPers },
     new Map<string, PlayerStatLine>(),
     { resolveTie: true },
   );
