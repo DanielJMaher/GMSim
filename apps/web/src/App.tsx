@@ -69,6 +69,7 @@ import { Division, PositionGroup, Position, Conference } from '@gmsim/engine/typ
 import { getSchoolById, positionGroupFor, computeConsensusBoard, consensusRankIndex, computeTeamNeeds, hasDesperateQbNeed, aggregateCollegeSeasonStats, collegeStatLeaders, computeMediaConsensusBoard, computeOutletMockBoard, computeOutletQualityByGroup, collegeTeamStrength, bucketProspectsBySchool, getAbility, describeAbilityHint, draftGradeFromOverall, draftGradeLabel, formatDraftGrade, prospectProjectedOverall, narrateBackstory, backstoryFromProspect, assembleProspectDossier, prospectSnapshot, careerShapeFor, declineMultiplierFor, curveForPosition } from '@gmsim/engine';
 import type { CareerShape } from '@gmsim/engine';
 import { GameViewReport } from './GameView';
+import { GameLabPanel } from './GameLab';
 import { DepthChartCard } from './DepthChart';
 import { RatingsDistributionPanel } from './RatingsDistribution';
 import { FrontOfficePanel } from './FrontOffice';
@@ -99,7 +100,7 @@ import type { CollegeGame, CollegeGameKind, CollegePlayerGameStats } from '@gmsi
  */
 const DEFAULT_SEED = 'phase-2-season';
 
-type InspectorTab = 'league' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'front-office' | 'histograms' | 'news' | 'lifecycle';
+type InspectorTab = 'league' | 'game-lab' | 'draft' | 'scout-reports' | 'draft-shift' | 'draft-audit' | 'college-games' | 'free-agency' | 'front-office' | 'histograms' | 'news' | 'lifecycle';
 
 interface TabDef {
   id: InspectorTab;
@@ -113,6 +114,11 @@ const TAB_DEFS: readonly TabDef[] = [
     id: 'league',
     label: 'League',
     activeClasses: 'border-emerald-400 bg-emerald-500/10 text-emerald-200',
+  },
+  {
+    id: 'game-lab',
+    label: 'Game Lab',
+    activeClasses: 'border-blue-400 bg-blue-500/10 text-blue-200',
   },
   {
     id: 'draft',
@@ -472,6 +478,8 @@ export function App() {
         </>
       )}
 
+      {activeTab === 'game-lab' && <GameLabPanel league={league} />}
+
       {activeTab === 'scout-reports' && <ScoutReportsPanel league={league} />}
 
       {activeTab === 'draft-audit' && <DraftAuditPanel league={league} />}
@@ -544,6 +552,8 @@ function TabNav({
       case 'news':
         return leagueCounts.recentTransactions;
       case 'league':
+        return null;
+      case 'game-lab':
         return null;
       case 'scout-reports':
         return null;

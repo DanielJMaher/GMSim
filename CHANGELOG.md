@@ -12,6 +12,20 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Added
+
+- **Inspector "Game Lab" — game box scores + play-by-play drive analysis.** A new
+  inspector tab that sims any matchup (deterministic — re-sim on demand, nothing stored)
+  and shows the full box score (team totals + per-player passing / rushing / receiving /
+  defense / special-teams lines, driven by the P4b stat fields) and a play-by-play **drive
+  chart** — every drive's start field position, result, plays, and yards, with a field-strip
+  visual colored by outcome. An **aggregate** mode sims N games league-wide and splits every
+  W/L bar (plays/drive, pass & rush yds, attempts, comp%, drive-outcome mix) **next to the
+  real-NFL bars** — the live calibration lens for the efficiency-expression slice, so the
+  winner drive-length skew reads right off it. Web-only; the engine already returned
+  everything via `simulateGameWithDrives`. Design: `docs/design-docs/EFFICIENCY_EXPRESSION.md`
+  §10 (checkpoint C2). Web typecheck green.
+
 ---
 
 ## [0.183.0] — 2026-07-07
