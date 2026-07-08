@@ -150,26 +150,58 @@ quantile) × (score diff bucket). The marginal of each isolates the two componen
 leading-checkdown yards split — to calibrate the game-state channel's yards term so the
 efficiency-by-state matches real, not just the aggregate.
 
+### C1 RESULT (2026-07-08) — `_wl_comppct_decomp.mjs`, pbp 2015–24
+
+```
+W-L comp%:  overall 63.5 − 56.7 = +6.8pp   (real bar +5.9)
+  QUALITY    (W−L at |lead| ≤ 4, even game):  +7.9pp
+  GAME-STATE (residual):                       −1.1pp
+comp%/yds-att/pass% by state: comp% ~flat (60.9 up-big → 58.4 down-big);
+  only pass-rate (46.7→69.9) and yds/att (6.58→5.89) move with score.
+```
+
+**The comp% delta is ENTIRELY QUALITY — game-state does not explain it.** This
+**falsifies the §3 comp%→yds-mean rotation**: `K_comp` cannot be cut without breaking a
+matching bar. There is no game-state comp% channel to move it to. The §4 gate did its job.
+
+**Redirect (now the primary mechanism, supersedes §5):** hold `K_comp` (comp% is real
+quality) AND hold the yds/comp *mean* edge (points-per-edge, wins, the #1-QB pipeline —
+all untouched). Attack the skew through **gain VARIANCE**: give higher-`passEdge`
+offenses a heavier explosive-completion tail (redistribute the yardage edge from "every
+completion a bit longer" to "an occasional chunk"). A drive that jumps toward the goal in
+bigger increments reaches 100 in fewer plays; higher variance at a fixed mean shortens
+scoring and stalling drives alike → winner drives shorten, comp% and points-per-edge
+preserved. Calibration knob: `K_yds` mean → (smaller mean bump + a passEdge-scaled
+big-play rate/tail), constrained to hold the yds/att delta at the real +1.5. This is the
+mechanism §5 should implement; the game-state channel (old §5 item 2) is dropped — the
+data says there isn't one to build.
+
 ---
 
-## 5. The mechanism (three coupled changes)
+## 5. The mechanism — explosiveness via variance (revised per C1)
 
-Assuming the derivation supports it:
+C1 falsified the comp% rotation. The mechanism is:
 
-1. **Reduce `K_comp`** (quality → completion%) — from 0.004 toward the value that leaves
-   only the *quality* share of the comp% delta (e.g. 0.002 if game-state is ~half).
-2. **Add a game-state efficiency channel**, driven by the existing `scriptShift`
-   (already the score-state signal): leading → +comp% / −yds (check-downs, clock-kill,
-   already run-tilted → shorter possessions); trailing → −comp% / +yds (deep shots) on
-   top of the existing volume tilt. Constants derived in §4, **mean-neutral** (centered
-   so the league comp%/YPA means hold; only the W-L spread and its *source* move).
-3. **Increase `K_yds`** (quality → yds/complete) along the constant-YPA line (§3) so
-   points-per-edge — and therefore the win distribution and the #1-QB pipeline — are
-   held fixed.
+1. **Hold `K_comp`.** The comp% delta is real, earned quality — do not touch it.
+2. **Redistribute the yds/comp edge from the MEAN to the TAIL.** Replace part of the
+   linear `passEdge · K_yds` mean bump with a **passEdge-scaled explosive-completion
+   rate**: a higher-edge offense draws a big-play (e.g. 25+ yд) completion more often — a
+   second, heavier tail on the gain draw — with the mean held so `∂YPA/∂edge`
+   (points-per-edge) is unchanged. Good teams reach the goal in bigger jumps → fewer plays
+   per scoring drive → shorter drives → the winner snap surplus shrinks.
+3. **Nothing else moves.** No game-state channel (C1: there isn't one), no comp% change,
+   no rate-table change. The lone new degree of freedom is the winner big-play tail.
 
-Calibration target is the **grind** build (skew 0.63), not the coin-flip build (0.18) —
-this lever must be stronger than the campaign's original 0.18→0.06 scope. That strength
-is the main risk (see §7).
+Calibration target is the **grind** build (skew 0.63).
+
+**C1 part 2 bar** (`_explosive_by_quality.mjs`, 320 team-seasons, 2015–24): explosiveness
+scales with quality — 20+ yd completions rise **6.86%/att (worst quartile) → 10.16% (best)**,
+i.e. **+3.30pp / ~48% more big plays** across the quality range (yds/att +1.87, comp% +6.9pp
+— consistent with C1 part 1). Even the 20+/completion share climbs (12.2% → 16.1%). So the
+lever scales `passEdge` → explosive-completion rate to reproduce ~48% top-vs-bottom spread.
+**Hold:** comp% delta (+6.8), yds/att delta (+1.5), points-per-edge (wins / #1-QB pipeline).
+**Watch:** higher gain-variance can nudge scoring (more drives cross the goal line) —
+re-center to hold points/game and the win distribution.
 
 ---
 
