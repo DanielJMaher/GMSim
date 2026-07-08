@@ -14,6 +14,30 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.183.0] — 2026-07-07
+
+### Added
+
+- **Special-teams and fumble stat lines — kickers, punters, and ball-carriers
+  post real numbers now.** Slice P4b of the game-sim rebuild: `PlayerGameStats`
+  gains ST + fumble fields (`fieldGoalsMade`/`fieldGoalsAttempted`,
+  `extraPointsMade`, `punts`, `puntYards`, `returnYards`, `returnTds`,
+  `fumblesLost`), plumbed through the pipeline (types → drive-sim attribution →
+  `outcome` mapping → per-field season aggregation). Attributed: the kicker gets
+  FGM/FGA and an extra point per TD, the punter gets punts + net yards, the
+  ball-carrier gets the fumble. **Pure stat-recording — no new PRNG draws, so
+  game outcomes are byte-identical to v0.182** (the Scorekeeper box score is
+  unchanged). Measured (fresh league, per team-game): XP 2.48 (≈ TDs), punts
+  4.28 / 42.3-yd net, fumbles-lost 0.43 (real ~0.4), FG 1.95 made / 2.44 att
+  (attempts run a touch high — the pre-existing drive-sim FG frequency, not the
+  attribution). 47 stat/game tests green; web typecheck green.
+  - **Deferred to P4c:** the return-man stat line (`returnYards`/`returnTds` are
+    plumbed but 0 — decomposing gross-punt vs return cleanly is awkward; the
+    returner *rating* already drives field position from P4a) and the
+    3rd-down%/red-zone% team-stat unstub.
+
+---
+
 ## [0.182.0] — 2026-07-07
 
 ### Changed

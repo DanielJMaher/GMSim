@@ -76,6 +76,14 @@ function aggregateSeasonStats(
       cur.tackles += line.tackles;
       cur.sacks += line.sacks;
       cur.interceptions += line.interceptions;
+      cur.fumblesLost += line.fumblesLost;
+      cur.fieldGoalsMade += line.fieldGoalsMade;
+      cur.fieldGoalsAttempted += line.fieldGoalsAttempted;
+      cur.extraPointsMade += line.extraPointsMade;
+      cur.punts += line.punts;
+      cur.puntYards += line.puntYards;
+      cur.returnYards += line.returnYards;
+      cur.returnTds += line.returnTds;
       cur.gamesPlayed += 1;
     }
   }

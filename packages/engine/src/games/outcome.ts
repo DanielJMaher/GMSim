@@ -140,6 +140,14 @@ function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): Schedul
     g.tackles = l.tackles;
     g.sacks = l.sacks;
     g.interceptions = l.interceptions;
+    g.fumblesLost = l.fumblesLost;
+    g.fieldGoalsMade = l.fieldGoalsMade;
+    g.fieldGoalsAttempted = l.fieldGoalsAttempted;
+    g.extraPointsMade = l.extraPointsMade;
+    g.punts = l.punts;
+    g.puntYards = l.puntYards;
+    g.returnYards = l.returnYards;
+    g.returnTds = l.returnTds;
     playerStats.push(g);
   }
 

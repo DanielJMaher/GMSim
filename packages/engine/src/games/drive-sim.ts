@@ -64,6 +64,14 @@ export interface PlayerStatLine {
   tackles: number;
   sacks: number;
   interceptions: number;
+  fumblesLost: number;
+  fieldGoalsMade: number;
+  fieldGoalsAttempted: number;
+  extraPointsMade: number;
+  punts: number;
+  puntYards: number;
+  returnYards: number;
+  returnTds: number;
 }
 
 export interface DriveGameResult {
@@ -454,8 +462,12 @@ export interface TeamPersonnel {
   /** Tackle-eligible defenders, group-weighted (LB > DB > DL) so the
    *  tackle leaderboard is LB-dominated like the real NFL. */
   tacklers: PRef[];
-  /** Special-teams unit ratings (P4a, 0-100): the roster's kicker (FG), punter
-   *  (net punt), and top return man (KO/punt returns). ST_NEUTRAL when absent. */
+  /** Special-teams unit players (P4b) for stat attribution, and their ratings
+   *  (P4a, 0-100) for outcomes: kicker (FG), punter (net punt), top return man
+   *  (KO/punt). ids null / rating neutral when the roster has none. */
+  kicker: string | null;
+  punter: string | null;
+  returner: string | null;
   kickerRating: number;
   punterRating: number;
   returnerRating: number;
@@ -586,29 +598,31 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
   tacklers.sort((a, b) => b.weight - a.weight);
   tacklers.splice(14);
 
-  // Special teams (P4a): the roster's best kicker (FG), punter (net punt), and
-  // return man (KO/punt returns). ST_NEUTRAL when the roster has none.
-  const bestBy = (pos: Position, keys: (keyof PlayerSkills)[], neutral: number): number => {
-    let best = neutral;
-    let found = false;
+  // Special teams (P4a/P4b): the roster's best kicker (FG), punter (net punt),
+  // and return man (KO/punt) — id for stat attribution + rating for outcomes.
+  const bestPlayerBy = (pos: Position, keys: (keyof PlayerSkills)[]): Player | null => {
+    let best: Player | null = null;
+    let bestR = -1;
     for (const p of players) {
       if (p.position !== pos) continue;
       const r = meanKeys(p, keys);
-      if (!found || r > best) {
-        best = r;
-        found = true;
+      if (r > bestR) {
+        bestR = r;
+        best = p;
       }
     }
     return best;
   };
-  let returnerRating = RETURNER_NEUTRAL;
-  let foundRet = false;
+  const kickerP = bestPlayerBy(Position.K, ['kickPower', 'kickAccuracy']);
+  const punterP = bestPlayerBy(Position.P, ['puntPower', 'puntAccuracy']);
+  let returnerP: Player | null = null;
+  let bestRet = -1;
   for (const p of players) {
     if (p.position !== Position.WR && p.position !== Position.RB && p.position !== Position.CB) continue;
     const r = (p.current.speed + p.current.elusiveness) / 2;
-    if (!foundRet || r > returnerRating) {
-      returnerRating = r;
-      foundRet = true;
+    if (r > bestRet) {
+      bestRet = r;
+      returnerP = p;
     }
   }
 
@@ -620,9 +634,12 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
     passRush,
     coverage,
     tacklers,
-    kickerRating: bestBy(Position.K, ['kickPower', 'kickAccuracy'], KICKER_NEUTRAL),
-    punterRating: bestBy(Position.P, ['puntPower', 'puntAccuracy'], PUNTER_NEUTRAL),
-    returnerRating,
+    kicker: kickerP?.id ?? null,
+    punter: punterP?.id ?? null,
+    returner: returnerP?.id ?? null,
+    kickerRating: kickerP ? meanKeys(kickerP, ['kickPower', 'kickAccuracy']) : KICKER_NEUTRAL,
+    punterRating: punterP ? meanKeys(punterP, ['puntPower', 'puntAccuracy']) : PUNTER_NEUTRAL,
+    returnerRating: returnerP ? (returnerP.current.speed + returnerP.current.elusiveness) / 2 : RETURNER_NEUTRAL,
   };
 }
 
@@ -643,6 +660,8 @@ function emptyLine(): PlayerStatLine {
     passAttempts: 0, passCompletions: 0, passingYards: 0, passingTds: 0, interceptionsThrown: 0,
     rushingAttempts: 0, rushingYards: 0, rushingTds: 0, targets: 0, receptions: 0,
     receivingYards: 0, receivingTds: 0, tackles: 0, sacks: 0, interceptions: 0,
+    fumblesLost: 0, fieldGoalsMade: 0, fieldGoalsAttempted: 0, extraPointsMade: 0,
+    punts: 0, puntYards: 0, returnYards: 0, returnTds: 0,
   };
 }
 function line(stats: Map<string, PlayerStatLine>, id: string): PlayerStatLine {
@@ -703,7 +722,13 @@ function simulateDrive(
         plays++;
         clock += CLOCK_RUN; // punt/FG snap ≈ run-cost (clock runs to the kick)
         if (inFgRange) {
-          return { result: prng.next() < fgSuccess(fgDist, ctx.kickerRating) ? 'FG' : 'MISSED_FG', plays, yards: ballOn - startYardline, clock };
+          const made = prng.next() < fgSuccess(fgDist, ctx.kickerRating);
+          if (attr?.off.kicker) {
+            const kl = line(attr.stats, attr.off.kicker);
+            kl.fieldGoalsAttempted += 1;
+            if (made) kl.fieldGoalsMade += 1;
+          }
+          return { result: made ? 'FG' : 'MISSED_FG', plays, yards: ballOn - startYardline, clock };
         }
         return { result: 'PUNT', plays, yards: ballOn - startYardline, clock };
       }
@@ -759,6 +784,8 @@ function simulateDrive(
             r.rushingYards += pr.gain;
             scorer = { id: rbId, kind: 'rush' };
             tackleEligible = true;
+          } else if (pr.kind === 'fumble') {
+            r.fumblesLost += 1; // ball-carrier fumble attribution (P4b)
           }
         }
       }
@@ -778,6 +805,8 @@ function simulateDrive(
           line(attr.stats, scorer.id).rushingTds += 1;
         }
       }
+      // The kicker's extra point (the sim scores a TD as 7 = 6 + the XP).
+      if (attr?.off.kicker) line(attr.stats, attr.off.kicker).extraPointsMade += 1;
       return { result: 'TD', plays, yards: 100 - startYardline, clock };
     };
     if (ballOn >= 100) return scoreTd();
@@ -792,8 +821,14 @@ function simulateDrive(
       if (roll < pTd) return scoreTd();
       if (roll < pTd + (1 - pTd) * RED_ZONE_FG_CONDITIONAL) {
         const fgDist = 100 - ballOn + 17;
+        const made = prng.next() < fgSuccess(fgDist, ctx.kickerRating);
+        if (attr?.off.kicker) {
+          const kl = line(attr.stats, attr.off.kicker);
+          kl.fieldGoalsAttempted += 1;
+          if (made) kl.fieldGoalsMade += 1;
+        }
         return {
-          result: prng.next() < fgSuccess(fgDist, ctx.kickerRating) ? 'FG' : 'MISSED_FG',
+          result: made ? 'FG' : 'MISSED_FG',
           plays,
           yards: ballOn - startYardline,
           clock,
@@ -997,6 +1032,17 @@ function runGame(
       const kicking = offense; // team that just kicked / punted
       offense = offense === 'home' ? 'away' : 'home'; // receiving team
       startPos = nextStart(drive.result, endBallOn, prng.fork(`fp:${driveIdx}`), punterOf(kicking), returnerOf(offense));
+      if (drive.result === 'PUNT' && stats) {
+        // Punter stat line (P4b): net punt = how far the ball moved to the
+        // receiving team's new start (receiving own `startPos` → kicking-frame
+        // (100 − startPos), minus the punter's spot `endBallOn`).
+        const punterId = (kicking === 'home' ? home : away).pers?.punter;
+        if (punterId) {
+          const pl = line(stats, punterId);
+          pl.punts += 1;
+          pl.puntYards += Math.max(0, Math.round(100 - startPos - endBallOn));
+        }
+      }
       driveIdx++;
     }
   }

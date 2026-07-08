@@ -48,6 +48,16 @@ export interface PlayerGameStats {
   tackles: number;
   sacks: number;
   interceptions: number;
+  fumblesLost: number;
+
+  // ── Special teams (P4b) ────────────────────────────────────────
+  fieldGoalsMade: number;
+  fieldGoalsAttempted: number;
+  extraPointsMade: number;
+  punts: number;
+  puntYards: number;
+  returnYards: number;
+  returnTds: number;
 }
 
 export interface PlayerSeasonStats extends PlayerGameStats {
@@ -91,5 +101,13 @@ export function emptyPlayerGameStats(playerId: PlayerId, teamId?: TeamId): Playe
     tackles: 0,
     sacks: 0,
     interceptions: 0,
+    fumblesLost: 0,
+    fieldGoalsMade: 0,
+    fieldGoalsAttempted: 0,
+    extraPointsMade: 0,
+    punts: 0,
+    puntYards: 0,
+    returnYards: 0,
+    returnTds: 0,
   };
 }

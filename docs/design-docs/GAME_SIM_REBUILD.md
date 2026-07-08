@@ -259,9 +259,14 @@ double-counting:
   average (kicker/punter ~65, returners ~87) so it's MEAN-NEUTRAL (bars hold,
   spread moves). Determinism preserved (no new PRNG draws). Contained to
   `drive-sim.ts`. Scorekeeper deferred to the push gate (mean-neutral).
-- **P4b — ST stat lines + complete stats** (§4.3): FGM/FGA/XP, punts, return
-  yards/TDs plumbed through the stats pipeline (types → drive-sim → outcome →
-  per-field aggregation) + fumble attribution + 3rd-down/red-zone unstub.
+- **P4b — ST + fumble stat lines** (§4.3). **DONE 2026-07-07 (v0.183.0):**
+  `PlayerGameStats` gains ST/fumble fields plumbed through the pipeline (types →
+  drive-sim attribution → outcome mapping → per-field aggregation); kicker gets
+  FGM/FGA + XP/TD, punter gets punts + net yards, ball-carrier gets the fumble.
+  Pure stat-recording — no new PRNG, outcomes byte-identical to v0.182. 47
+  stat/game tests green. **Deferred to P4c:** the return-man stat line
+  (`returnYards`/`returnTds` plumbed but 0 — the returner *rating* already drives
+  field position) + the 3rd-down%/red-zone% team-stat unstub.
 - **P5 — Joint recalibration** across Magistrate + Scorekeeper + full suite; release.
 
 ---
