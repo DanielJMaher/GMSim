@@ -1,19 +1,24 @@
 /**
- * Game Lab — the inspector's window into the game sim itself: single-game box
- * scores + play-by-play drive charts, and an aggregate W/L calibration view.
+ * Game Lab — the inspector's window into the game sim itself: the season's
+ * REAL schedule as a scoreboard (week → matchups → click a matchup to expand
+ * its box score + play-by-play drive chart in place), and an aggregate W/L
+ * calibration view.
  *
  * This is the calibration lens for the efficiency-expression slice
  * (docs/design-docs/EFFICIENCY_EXPRESSION.md §10): the drive-length skew, the
  * red-zone behavior, and the W-L box-score splits read right off it, next to the
  * real-NFL bars. It reads GROUND-TRUTH sim output (the engine's own
  * `DriveGameResult`) — the sanctioned inspector exception, not a player-facing
- * surface. Deterministic: a (matchup, seed) reproduces the game, so nothing is
- * stored — we just re-sim on demand.
+ * surface. Deterministic: (matchup id, lab seed) reproduces the expanded game,
+ * so nothing is stored — we re-sim on demand. The expanded game is a LAB re-sim
+ * of that matchup on the league's current rosters, not the season's played
+ * result (the season's per-game rng + week-by-week roster state aren't
+ * reproducible after the fact); a played game's actual final shows on its row.
  */
 
 import { useMemo, useState } from 'react';
 import { Prng, simulateGameWithDrives } from '@gmsim/engine';
-import type { LeagueState, TeamState, TeamId, PlayerId } from '@gmsim/engine/types';
+import type { LeagueState, TeamState, TeamId, PlayerId, ScheduledGame } from '@gmsim/engine/types';
 import type { DriveGameResult, DriveResult, PlayerStatLine } from '@gmsim/engine';
 
 // ── Real-NFL bars (nflverse REG; the campaign / Scorekeeper) ─────────────────
@@ -196,15 +201,15 @@ function DriveChart({ league, result, homeId, awayId }: { league: LeagueState; r
   );
 }
 
-function SingleGame({ league, homeId, awayId, seed }: { league: LeagueState; homeId: string; awayId: string; seed: string }) {
+function SingleGame({ league, homeId, awayId, prngKey }: { league: LeagueState; homeId: string; awayId: string; prngKey: string }) {
   const result = useMemo<DriveGameResult | null>(() => {
     const home = league.teams[homeId as TeamId];
     const away = league.teams[awayId as TeamId];
     if (!home || !away) return null;
-    return simulateGameWithDrives(new Prng(`gamelab:${seed}:${homeId}:${awayId}`), home, away, league, {});
-  }, [league, homeId, awayId, seed]);
+    return simulateGameWithDrives(new Prng(prngKey), home, away, league, {});
+  }, [league, homeId, awayId, prngKey]);
 
-  if (!result) return <div className="text-zinc-500">Pick two teams.</div>;
+  if (!result) return null;
   const home = league.teams[homeId as TeamId]!;
   const away = league.teams[awayId as TeamId]!;
   const stats = result.playerStats ?? new Map<string, PlayerStatLine>();
@@ -427,56 +432,163 @@ function AggregateView({ league }: { league: LeagueState }) {
   );
 }
 
+// ── Schedule / scoreboard view ───────────────────────────────────────────────
+
+interface WeekEntry {
+  label: string;
+  games: readonly ScheduledGame[];
+}
+
+function scheduleWeeks(league: LeagueState): WeekEntry[] {
+  const sched = league.schedule;
+  if (!sched) return [];
+  const weeks: WeekEntry[] = sched.regularSeason.map((games, i) => ({ label: `Week ${i + 1}`, games }));
+  const p = sched.playoffs;
+  if (p) {
+    const rounds: readonly (readonly [string, readonly ScheduledGame[]])[] = [
+      ['Wild card', p.wildCard],
+      ['Divisional', p.divisional],
+      ['Conference', p.conference],
+      ['Super Bowl', p.superBowl],
+    ];
+    for (const [label, games] of rounds) if (games.length > 0) weeks.push({ label, games });
+  }
+  return weeks;
+}
+
+function MatchupRow({ league, game, open, onToggle, prngKey }: { league: LeagueState; game: ScheduledGame; open: boolean; onToggle: () => void; prngKey: string }) {
+  const home = league.teams[game.homeTeamId];
+  const away = league.teams[game.awayTeamId];
+  if (!home || !away) return null;
+  return (
+    <div>
+      <button
+        onClick={onToggle}
+        className={`flex w-full items-center gap-3 px-3 py-1.5 text-left text-xs hover:bg-zinc-900/60 ${open ? 'bg-zinc-900/60' : ''}`}
+      >
+        <span className={`text-zinc-600 transition-transform ${open ? 'rotate-90' : ''}`}>›</span>
+        <span className="w-52 truncate text-zinc-300">
+          <span className="font-semibold text-zinc-100">{away.identity.abbreviation}</span>
+          <span className="text-zinc-500"> {away.identity.fullName}</span>
+        </span>
+        <span className="text-zinc-600">@</span>
+        <span className="w-52 truncate text-zinc-300">
+          <span className="font-semibold text-zinc-100">{home.identity.abbreviation}</span>
+          <span className="text-zinc-500"> {home.identity.fullName}</span>
+        </span>
+        <span className="ml-auto font-mono text-zinc-300">
+          {game.result ? (
+            <>
+              {game.result.awayScore}–{game.result.homeScore}{' '}
+              <span className="text-[9px] uppercase tracking-wider text-emerald-400">final</span>
+            </>
+          ) : (
+            <span className="text-[9px] uppercase tracking-wider text-zinc-600">not played</span>
+          )}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-1 border-t border-zinc-800/60 bg-zinc-950/60 p-2">
+          <div className="text-[10px] uppercase tracking-wider text-cyan-500/70">
+            Lab re-sim (deterministic: matchup × lab seed) — current rosters, not the season's played result
+          </div>
+          <SingleGame league={league} homeId={game.homeTeamId} awayId={game.awayTeamId} prngKey={prngKey} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ScheduleView({ league, seed }: { league: LeagueState; seed: string }) {
+  const weeks = useMemo(() => scheduleWeeks(league), [league]);
+  // Open on the latest week with a played result (the season's "current" week
+  // on a simmed league), else week 1.
+  const [wkIdx, setWkIdx] = useState(() => {
+    let last = 0;
+    weeks.forEach((w, i) => {
+      if (w.games.some((g) => g.result)) last = i;
+    });
+    return last;
+  });
+  const [openId, setOpenId] = useState<string | null>(null);
+  if (weeks.length === 0) {
+    return (
+      <div className="text-xs text-zinc-500">
+        No schedule on this league yet — sim a season (header buttons) to generate one.
+      </div>
+    );
+  }
+  const idx = Math.min(wkIdx, weeks.length - 1);
+  const week = weeks[idx]!;
+  const goto = (i: number) => {
+    setWkIdx(Math.max(0, Math.min(weeks.length - 1, i)));
+    setOpenId(null);
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-xs">
+        <button onClick={() => goto(idx - 1)} disabled={idx === 0} className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-30">
+          ‹
+        </button>
+        <select value={idx} onChange={(e) => goto(Number(e.target.value))} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-200">
+          {weeks.map((w, i) => (
+            <option key={w.label} value={i}>
+              {w.label}
+            </option>
+          ))}
+        </select>
+        <button onClick={() => goto(idx + 1)} disabled={idx === weeks.length - 1} className="rounded border border-zinc-700 px-2 py-1 text-zinc-300 hover:bg-zinc-800 disabled:opacity-30">
+          ›
+        </button>
+        <span className="text-zinc-500">
+          {week.games.length} games — click a matchup for its box score + drives
+        </span>
+      </div>
+      <div className="divide-y divide-zinc-800/60 rounded border border-zinc-800">
+        {week.games.map((g) => (
+          <MatchupRow
+            key={g.id}
+            league={league}
+            game={g}
+            open={openId === g.id}
+            onToggle={() => setOpenId(openId === g.id ? null : g.id)}
+            prngKey={`gamelab:${seed}:${g.id}`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Panel ────────────────────────────────────────────────────────────────────
 
 export function GameLabPanel({ league }: { league: LeagueState }) {
-  const teams = useMemo(
-    () => (Object.values(league.teams) as TeamState[]).slice().sort((a, b) => a.identity.abbreviation.localeCompare(b.identity.abbreviation)),
-    [league],
-  );
-  const [mode, setMode] = useState<'single' | 'aggregate'>('single');
-  const [homeId, setHomeId] = useState(teams[0]?.identity.id ?? '');
-  const [awayId, setAwayId] = useState(teams[1]?.identity.id ?? '');
+  const [mode, setMode] = useState<'schedule' | 'aggregate'>('schedule');
   const [seed, setSeed] = useState('1');
 
   return (
     <div className="space-y-3 rounded border border-cyan-500/20 bg-zinc-950/30 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex rounded border border-zinc-700 text-xs">
-          {(['single', 'aggregate'] as const).map((m) => (
+          {(['schedule', 'aggregate'] as const).map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
               className={`px-3 py-1 ${mode === m ? 'bg-cyan-500/20 text-cyan-200' : 'text-zinc-400 hover:text-zinc-200'}`}
             >
-              {m === 'single' ? 'Single game' : 'Aggregate (W/L)'}
+              {m === 'schedule' ? 'Schedule' : 'Aggregate (W/L)'}
             </button>
           ))}
         </div>
-        {mode === 'single' && (
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <select value={homeId} onChange={(e) => setHomeId(e.target.value)} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-200">
-              {teams.map((t) => (
-                <option key={t.identity.id} value={t.identity.id}>
-                  {t.identity.abbreviation} — {t.identity.fullName}
-                </option>
-              ))}
-            </select>
-            <span className="text-zinc-500">vs</span>
-            <select value={awayId} onChange={(e) => setAwayId(e.target.value)} className="rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-200">
-              {teams.map((t) => (
-                <option key={t.identity.id} value={t.identity.id}>
-                  {t.identity.abbreviation} — {t.identity.fullName}
-                </option>
-              ))}
-            </select>
-            <span className="text-zinc-500">seed</span>
+        {mode === 'schedule' && (
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-zinc-500">lab seed</span>
             <input value={seed} onChange={(e) => setSeed(e.target.value)} className="w-16 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 font-mono text-zinc-200" />
           </div>
         )}
       </div>
 
-      {mode === 'single' ? <SingleGame league={league} homeId={homeId} awayId={awayId} seed={seed} /> : <AggregateView league={league} />}
+      {mode === 'schedule' ? <ScheduleView league={league} seed={seed} /> : <AggregateView league={league} />}
     </div>
   );
 }
