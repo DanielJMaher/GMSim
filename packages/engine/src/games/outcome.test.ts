@@ -53,8 +53,12 @@ describe('simulateGame', () => {
       const r = game.result!;
       expect(r.homeScore).toBeGreaterThanOrEqual(0);
       expect(r.awayScore).toBeGreaterThanOrEqual(0);
-      expect(r.homeScore).toBeLessThanOrEqual(60);
-      expect(r.awayScore).toBeLessThanOrEqual(60);
+      // 70 = the real modern single-game max (2023 Dolphins); the sim's tail
+      // sits at ~1 team-score ≥60 per 3,000 games (measured on both the
+      // pre- and post-C3 gain models — `_c3_score_tail.mjs`), so a 60 cap was
+      // a ~1-in-30 landmine for this 100-team-score sample.
+      expect(r.homeScore).toBeLessThanOrEqual(70);
+      expect(r.awayScore).toBeLessThanOrEqual(70);
     }
   });
 

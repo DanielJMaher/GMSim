@@ -12,6 +12,37 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Changed
+
+- **Efficiency expression C3 — quality passes as EXPLOSIVENESS, not sustainment (the
+  W-L pass-delta endgame lever, coin-flip base).** The completion gain in
+  `resolvePlay` was one `N(mean, 11)` draw: 23.4% of completions gained 20+ (real
+  12–16%) for EVERYONE, while a team's `passEdge` only nudged the mean — so quality
+  expressed as drive SUSTAINMENT (comp% keeps drives alive), the root of the winner
+  drive-length skew. Now a three-part mixture shaped like the real distribution:
+  checkdown mass (26% of non-explosive, ~3 yds — the short mode that stalls
+  third-and-medium), a routine core `N(·, 5)`, and a **passEdge-scaled explosive
+  tail** (20 + Exp(10), capped 75). Mean-solved per play so the mixture mean is
+  exactly `YDS_PER_COMPLETION + passEdge·0.05` (+0.3 recenter) — `K_comp`,
+  ∂YPA/∂edge, points-per-edge, and the #1-QB pipeline untouched by construction.
+  Midfield 4th-down go rates trimmed (0.5→0.4, 0.35→0.28, real ~30–40%) — the
+  sustained drives were converting stalls into go-attempts (DOWNS 5.5% vs real 4.7).
+  New `PlayerStatLine.explosiveCompletions` counter (20+yd completions) makes the
+  bar measurable in-engine. MEASURED (all bars): 20+/att by team-quality quartile
+  **7.6% → 11.3%, ratio 1.48 = the real 1.48 exactly** (C1 bar: 6.86→10.16);
+  20+/comp 12.9→16.8 (real 12.2→16.1); league 20+/comp 23.4→14.9%. **Scorekeeper
+  10×12 fresh: W-L pass delta 14.9 → 10.7 (real 9.5, target ~10) with ALL 20 rows
+  in band, zero drift** (points 23.0, pass yds 234.9, pass-sd 60.5, comp% 64.0,
+  rush delta 44.5, giveaway −0.5, pts-drift −0.3). **Goatinator 32×12 fresh
+  (dual-gate): #1-QB share 75% vs real 75% EXACT**, #2 39/#3 29 unchanged, mix at
+  standing values. **Magistrate zero drift** (punt 34.3, DOWNS 5.0, plays/drive
+  5.02→5.22 toward real 5.5). Coin-flip-base clean skew flat (0.18; the 0.63→~0.1
+  skew target is measured on the grind — C4). outcome.test score cap 60→70 (real
+  modern max; the engine's tail was ≥60 once per ~3,000 team-games on BOTH the old
+  and new gain models — A/B measured — so the old cap was a seed landmine). Design:
+  `docs/design-docs/EFFICIENCY_EXPRESSION.md` §5 (revised per C1). Games/runner/
+  stats-coherence/benchmark tests green; engine + web typecheck green.
+
 ### Added
 
 - **Inspector "Game Lab" — the season schedule as a scoreboard, with box scores +

@@ -53,6 +53,10 @@ export interface PlayerStatLine {
   passCompletions: number;
   passingYards: number;
   passingTds: number;
+  /** Completions of 20+ yards (the explosive-play bar; C1: real 6.86–10.16%
+   *  of attempts by team quality). Game-level instrumentation — not part of
+   *  PlayerSeasonStats. */
+  explosiveCompletions: number;
   interceptionsThrown: number;
   rushingAttempts: number;
   rushingYards: number;
@@ -152,7 +156,45 @@ const BASE_COMPLETION = 0.655;
 // Lowered to 11.5 (≈ real yards) once the red-zone TD conversion below
 // backfills the points the shorter completions no longer grind out.
 const YDS_PER_COMPLETION = 11.5;
-const YDS_PER_COMPLETION_SD = 11;
+// ── Efficiency expression — explosiveness via variance (C3, 2026-07-09) ──
+// The single N(mean, 11) completion-gain draw handed 20+yd plays to EVERYONE
+// (23.4% of completions vs the real 12-16%) while quality barely moved the
+// rate (edge only nudged the MEAN) — so a team's passEdge expressed as
+// SUSTAINMENT (comp% keeps drives alive) instead of the real EXPLOSIVENESS
+// (best-quartile offenses hit 20+ on 10.16% of attempts vs 6.86% for the
+// worst — +48%, pbp 2015-24, `_explosive_by_quality.mjs`). That sustainment
+// is the winner drive-length skew behind the W-L pass delta (design:
+// docs/design-docs/EFFICIENCY_EXPRESSION.md §5, C1 result).
+//
+// The completion gain is now a THREE-PART mixture — the real completion
+// distribution's shape (short mode + body + chunk tail):
+//   1. checkdowns/screens (fixed share, ~3 yds) — the short mass that FAILS
+//      third-and-medium; without it drives never stall and the Magistrate
+//      punt share collapses (measured −4pp when the old draw's ≤0-yd mass
+//      vanished);
+//   2. a routine core N(routineMean, 5);
+//   3. a passEdge-scaled EXPLOSIVE tail (20 + Exp(EXPLOSIVE_TAIL_MEAN)) —
+//      the chunk play; quality expresses HERE.
+// MEAN-NEUTRAL BY CONSTRUCTION: routineMean solves so the mixture's mean is
+// exactly YDS_PER_COMPLETION + passEdge·0.05 (+ the recenter below) for
+// every edge — K_comp (real, earned quality per C1), ∂YPA/∂edge,
+// points-per-edge, and the #1-QB pipeline are all untouched. Only the SHAPE
+// moves: good teams reach the goal in bigger jumps (fewer plays per scoring
+// drive), bad teams grind.
+const ROUTINE_COMPLETION_SD = 5;
+const CHECKDOWN_SHARE = 0.26; // of non-explosive completions — the real short mode
+const CHECKDOWN_YDS = 3;
+const CHECKDOWN_SD = 3;
+const EXPLOSIVE_BASE = 0.1; // big-play chance per completion at edge 0 → league 20+/comp ≈ the real ~14%
+const EXPLOSIVE_EDGE_K = 0.002; // per passEdge point — calibrated to the real +48% top-vs-bottom quartile 20+/att spread
+const EXPLOSIVE_MIN_YDS = 20; // a big play is a 20+yd completion (the C1 bar's definition)
+const EXPLOSIVE_TAIL_MEAN = 10; // Exp tail beyond 20 (mean chunk ≈ 30, capped below)
+const EXPLOSIVE_MAX_YDS = 75; // cap the draw (99-yd TDs stay rare)
+const EXPLOSIVE_MEAN = EXPLOSIVE_MIN_YDS + EXPLOSIVE_TAIL_MEAN; // mixture-mean bookkeeping
+// The old N(·, 11) draw's floor-at-−3 truncation inflated the EFFECTIVE league
+// yds/comp to ~12.0; the reshaped draw loses that bias, so re-center the
+// target mean to hold league pass yards exactly where they were calibrated.
+const EXPLOSIVE_RECENTER = 0.3;
 const RUN_YDS = 4.7;
 const RUN_YDS_SD = 7.5;
 const SACK_RATE = 0.06;
@@ -433,8 +475,25 @@ function resolvePlay(
       return { isPass, gain: 0, kind: 'int' };
     }
     if (prng.next() < clamp(BASE_COMPLETION + ctx.passEdge * 0.004, 0.45, 0.82)) {
-      let gain = Math.round(prng.normal(YDS_PER_COMPLETION + ctx.passEdge * 0.05, YDS_PER_COMPLETION_SD));
-      if (gain < -3) gain = -3;
+      // Explosiveness-via-variance mixture (C3): checkdown mass + routine
+      // core + a passEdge-scaled chunk-play tail, mean-neutral per edge
+      // (see constants).
+      const targetMean = YDS_PER_COMPLETION + ctx.passEdge * 0.05 + EXPLOSIVE_RECENTER;
+      const pBig = clamp(EXPLOSIVE_BASE + ctx.passEdge * EXPLOSIVE_EDGE_K, 0.02, 0.3);
+      let gain: number;
+      if (prng.next() < pBig) {
+        gain = Math.min(
+          EXPLOSIVE_MAX_YDS,
+          Math.round(EXPLOSIVE_MIN_YDS - EXPLOSIVE_TAIL_MEAN * Math.log(1 - prng.next())),
+        );
+      } else if (prng.next() < CHECKDOWN_SHARE) {
+        gain = Math.round(prng.normal(CHECKDOWN_YDS, CHECKDOWN_SD, { min: -3, max: 9 }));
+      } else {
+        const nonBigMean = (targetMean - pBig * EXPLOSIVE_MEAN) / (1 - pBig);
+        const routineMean = (nonBigMean - CHECKDOWN_SHARE * CHECKDOWN_YDS) / (1 - CHECKDOWN_SHARE);
+        gain = Math.round(prng.normal(routineMean, ROUTINE_COMPLETION_SD));
+        if (gain < -3) gain = -3;
+      }
       return { isPass, gain, kind: 'complete' };
     }
     return { isPass, gain: 0, kind: 'incomplete' };
@@ -657,7 +716,7 @@ function pick(prng: Prng, refs: PRef[]): string | null {
 
 function emptyLine(): PlayerStatLine {
   return {
-    passAttempts: 0, passCompletions: 0, passingYards: 0, passingTds: 0, interceptionsThrown: 0,
+    passAttempts: 0, passCompletions: 0, passingYards: 0, passingTds: 0, explosiveCompletions: 0, interceptionsThrown: 0,
     rushingAttempts: 0, rushingYards: 0, rushingTds: 0, targets: 0, receptions: 0,
     receivingYards: 0, receivingTds: 0, tackles: 0, sacks: 0, interceptions: 0,
     fumblesLost: 0, fieldGoalsMade: 0, fieldGoalsAttempted: 0, extraPointsMade: 0,
@@ -716,8 +775,13 @@ function simulateDrive(
       else if (inFgRange) go = false;
       else if (togo <= 1 && ballOn >= 30) go = goP(0.8);
       else if (togo <= 2 && ballOn >= 42) go = goP(0.6);
-      else if (togo <= 5 && ballOn >= 45) go = goP(0.5);
-      else if (ballOn >= 48) go = goP(0.35);
+      // Midfield medium/long go rates trimmed 0.5→0.4 / 0.35→0.28 (C3): the
+      // reshaped completion draw sustains more drives into midfield 4th downs,
+      // and at the old rates the extra exposure converted stalls into go
+      // attempts — DOWNS ran 5.5% vs the real 4.7 while punts fell to 33.6 vs
+      // 37.2. Real 4th-and-3+ midfield go rates are ~30-40%.
+      else if (togo <= 5 && ballOn >= 45) go = goP(0.4);
+      else if (ballOn >= 48) go = goP(0.28);
       if (!go) {
         plays++;
         clock += CLOCK_RUN; // punt/FG snap ≈ run-cost (clock runs to the kick)
@@ -762,6 +826,7 @@ function simulateDrive(
             const q = line(attr.stats, passer);
             q.passCompletions += 1;
             q.passingYards += pr.gain;
+            if (pr.gain >= 20) q.explosiveCompletions += 1;
             if (recvId) {
               const r = line(attr.stats, recvId);
               r.receptions += 1;
