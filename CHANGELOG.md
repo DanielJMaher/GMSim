@@ -12,6 +12,10 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+---
+
+## [0.184.0] — 2026-07-10
+
 ### Changed
 
 - **The red-zone coin flip is GONE — drives sim all the way through (C4, the
