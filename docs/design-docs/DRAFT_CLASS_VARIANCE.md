@@ -56,16 +56,31 @@ where available). Windows: 2000–2024 unless noted (Daniel: "last 20 years").
   or independently? (Sets whether latent factors are per-position or share a
   class-level component.)
 - A5. **R1-caliber supply per class — total talent mass FLOATS (Daniel,
-  2026-07-10).** One class can carry ~50 legit first-round-grade prospects,
-  another 7 — and the later rounds do NOT make up the deficit. Derive the
-  spread two ways: outcome-based (players per class who reached a top-quality
-  career bar regardless of draft slot) and, where recoverable, analyst
-  first-round-grade counts per year. **HARD GENERATOR RULE: no conservation of
-  talent — no renormalization that evens class quality mass back toward the
-  mean. A weak class is weak, top to bottom, full stop.** (The engine's talent
-  regrade is within-position percentile over the LEAGUE, so a weak class
-  entering a strong league correctly reads as weak — verify no downstream
-  system quietly re-inflates it.)
+  2026-07-10, refined).** "First-round talent" means the **top-32-GRADE band,
+  hidden gems included — NOT top-5/top-10 caliber.** The band is a BLEND:
+  future elites, solid ten-year starters who never make a Pro Bowl, hidden
+  gems, and overhyped mirages. A deep class stretches that band ("50 players
+  who could go in the 1st in a normal year" — the 2025 class); a thin class
+  cuts it off at ~7 — and the later rounds do NOT make up the deficit.
+  **SCARCITY INVARIANT: top-5/top-10-caliber talent stays scarce in EVERY
+  class — a "50 first-rounders" year means breadth of R1-grade depth, never
+  50 blue-chips.** The "50 first-round talents" claim itself belongs to the
+  MEDIA layer (mock boards / class-depth narrative voice it, hype included —
+  part of the number is always a lie). Derive the spread two ways:
+  outcome-based (players per class reaching the A6 quality bands regardless
+  of slot) and, where recoverable, analyst first-round-grade counts per year.
+  **HARD GENERATOR RULE: no conservation of talent — no renormalization that
+  evens class quality mass back toward the mean. A weak class is weak, top to
+  bottom, full stop.** (The engine's talent regrade is within-position
+  percentile over the LEAGUE, so a weak class entering a strong league
+  correctly reads as weak — verify no downstream system quietly re-inflates it.)
+- A6. **Per-pick outcome dropoff curve — the quality-gradient anchor (Daniel,
+  2026-07-10).** P(Pro Bowl), P(All-Pro), P(Super Bowl starter), P(long-term
+  starter ≥8 yrs) by draft slot, 20 years. This curve DEFINES the quality
+  bands the rest of the doc uses — "top-5-caliber," "top-32-caliber,"
+  "day-2-caliber" become empirical outcome profiles, not vibes — and it sets
+  the generator's supply-curve shape (how steeply talent thins below the
+  blue-chips) that A5's floating breadth stretches and compresses.
 
 **B. The small-school / gems framework (Daniel #2, expanded):**
 School tiers: Power-conference / Group-of-5 / FCS / D2-D3-NAIA (map from the
