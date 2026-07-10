@@ -59,7 +59,7 @@ Top-of-market APY by position (OTC 2025, anchor for `POSITION_SALARY_FACTOR` / `
 
 ## On-field statistical bars (nflverse REG 2011–2025, via the Scorekeeper)
 
-Points/game **22.8 ± 10.1** (p5 7, p95 40) · pass yds/game 245.4 ± 75.4 · pass att 34.3, comp 63.3% · **winners vs losers: pass +9.5, rush +35.1, giveaways −0.9**. That pass/rush asymmetry is game script: *trailing teams pass more* (garbage-time passing decouples pass volume from winning); winners run out the clock. GMSim's biggest open gap lives exactly here (pass delta 32.8) — see `gmsim-wl-pass-delta-campaign`.
+Points/game **22.8 ± 10.1** (p5 7, p95 40) · pass yds/game 245.4 ± 75.4 · pass att 34.3, comp 63.3% · **winners vs losers: pass +9.5, rush +35.1, giveaways −0.9**. That pass/rush asymmetry is game script: *trailing teams pass more* (garbage-time passing decouples pass volume from winning); winners run out the clock. GMSim's biggest open gap lives exactly here (pass delta 20.8 as of v0.184.1, from 32.8; the remainder is garbage-time exposure via the wins-sd gap) — see `gmsim-wl-pass-delta-campaign`. Other bars now in the engine (v0.184, pbp 2015–24): completion gains are right-skewed (median 9, mean 11.2, 20+ on 14% of completions — best-quartile offenses +48% over worst); comp% is DOWN-dependent (early 66.3 vs 3rd/4th 59.1, sack rate 5.2%→9.7%); ~37% of drives punt, plays/drive ~5.5 scrimmage; kill-state seconds/play ≈ neutral (leaders shorten games by kneeling, not slow-walking).
 
 ## Vocabulary (one-line definitions)
 

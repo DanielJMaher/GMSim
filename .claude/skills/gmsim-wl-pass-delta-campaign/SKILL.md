@@ -1,21 +1,44 @@
 ---
 name: gmsim-wl-pass-delta-campaign
-description: The executable, decision-gated campaign for GMSim's hardest live problem — the W-L pass delta (winners out-pass losers by 32.8 yds/game vs the real 9.5). Load when assigned this problem, when the Scorekeeper flags the pass-delta drift, or when any change touches game-script, passEdge, or drive-sim outcome variance.
+description: The executable, decision-gated campaign for GMSim's hardest live problem — the W-L pass delta (winners out-pass losers; sim 20.8 yds/game as of v0.184.1 vs the real 9.5). Load when assigned this problem, when the Scorekeeper flags the pass-delta drift, or when any change touches game-script, passEdge, or drive-sim outcome variance.
 ---
 
 # Campaign: the W-L pass delta
 
-> **⚠ SUPERSEDED 2026-07-07 — the "endgame" below is retired.** Derivation (7 probes,
-> 2026-07-06/07) FALSIFIED both endgame levers: lever 1 (efficiency-expression — real
-> comp% delta is ~85% quality, sim already matches) and lever 2 (pass-rate identity —
-> neutral identity correlates with WINNING, wrong sign). Drive length is real-shaped; the
-> residual is a **possession-count asymmetry** (strict alternation), and an edge-win test
-> retired the "outcome-variance" hypothesis too. The delta is now **in band (31.4 ≤ 32)**.
-> This campaign folded into a **realism-first game-sim rebuild** — see
-> `docs/design-docs/GAME_SIM_REBUILD.md` and memory [[game-sim-rebuild]]. Use the
-> decomposition method and fenced-path history below; **do NOT pursue levers 1/2.**
+> **⚠ STATUS 2026-07-10 (v0.184.1) — delta 20.8, remainder OWNED by the talent-spread
+> slice.** The history below is layered; read it in this order:
+> 1. The 2026-07-07 "SUPERSEDED" note (next block) falsified lever 1 in its ORIGINAL
+>    comp%→yds-mean form. The C1 derivation (2026-07-08, `_wl_comppct_decomp.mjs`)
+>    then REVISED lever 1 into the **explosive-tail** form (quality as gain-VARIANCE,
+>    K_comp held) — and that form SHIPPED as the efficiency-expression slice
+>    (v0.184.0, design `docs/design-docs/EFFICIENCY_EXPRESSION.md`): C3 explosive
+>    tail + C4 red-zone grind (the coin flip is GONE — hard invariant) with a
+>    pbp-derived joint recal (down-dependent comp%/sacks, real-shaped Gamma
+>    completion body, 12s kick clock, RZ run tilt). Lever 2 (pass-rate identity)
+>    stays falsified.
+> 2. Measured landing (Scorekeeper 10×12 fresh, all rows in band, zero drift):
+>    **delta 20.8**; rush delta 54.3 AT the 55 ceiling (tilt-coupled knob — the RZ
+>    tilt trades rush-delta headroom for pass delta; 0.2 is the realism cap, 0.28
+>    broke goal-area pass rate vs the real 47%).
+> 3. **The measured remainder (20.8 → ~10) is GARBAGE-TIME EXPOSURE, owned by the
+>    talent-spread slice** (season wins sd 2.6 vs real 3.3): sim games are too
+>    close, so losers never accumulate real losers' trail volume — real loser
+>    aggregate pass rate 63.9% vs sim ~56% even though the per-state rate table
+>    matches real. Do not attack the delta again except through wins-sd.
+> 4. **NEW FENCE — leader-pace is FALSIFIED (2026-07-09, `_clock_cost_bar.mjs`):**
+>    real kill-state seconds/play ≈ neutral (complete 34.7 vs 31.3 = the existing
+>    ×1.11 KILL_COMPLETE_MULT exactly; kill runs 33.0 vs neutral 34.0). Real leaders
+>    shorten games via kneels (modeled), not per-play burn. Do not retry.
 
-**The problem (as of 2026-07-04, v0.177.0):** in real football, winners out-gain losers through the air by only **+9.5 pass yds/game** (nflverse REG 2011–2025) because *trailing teams throw their way back* — losing inflates your passing volume, decoupling pass yards from winning. In GMSim the delta is **32.8** (band ≤32; stable 32.2–32.9 across three releases): passing production still predicts winning ~3.5× too strongly. Winning by air is the tell of a sim; real teams win on the ground and defense while losers rack up empty air yards.
+> **(historical, 2026-07-07)** Derivation (7 probes, 2026-07-06/07) falsified lever 1
+> in its comp%→yds-mean form (real comp% delta is quality — `K_comp` is a matching
+> bar) and lever 2 (pass-rate identity — neutral identity correlates with WINNING,
+> wrong sign); an edge-win test retired the "outcome-variance" hypothesis. The
+> campaign folded into the realism-first game-sim rebuild
+> (`docs/design-docs/GAME_SIM_REBUILD.md`) — whose P5 became the efficiency-expression
+> slice above.
+
+**The problem (original statement, 2026-07-04 / v0.177.0):** in real football, winners out-gain losers through the air by only **+9.5 pass yds/game** (nflverse REG 2011–2025) because *trailing teams throw their way back* — losing inflates your passing volume, decoupling pass yards from winning. In GMSim the delta was **32.8** (band ≤32); as of v0.184.1 it is **20.8**: passing production still predicts winning ~2× too strongly, down from ~3.5×. Winning by air is the tell of a sim; real teams win on the ground and defense while losers rack up empty air yards.
 
 This is a CONTINUED siege, not a fresh fight. Four rounds already shipped: **96.5 → 70.4** (v0.149 game script v1) → **~57** → **36** (v0.153 script v2, shape locked to the real pass-rate table) → **~33** residual named and stable since. The cheap mechanisms are spent.
 
@@ -83,6 +106,11 @@ Shipped (v0.178 slice): the clock mechanism (plays cost real seconds — run 34.
 
 ## The endgame — two named levers carry the remaining ~20 yards (delta 31.4 → ~10-16)
 
+> **RESOLVED 2026-07-10:** lever 1 shipped in REVISED form (explosive tail, not the
+> comp% rotation described below — C1 falsified the rotation, §4/§5 of
+> `EFFICIENCY_EXPRESSION.md` record the redirect); lever 2 stays falsified. Landing:
+> delta 20.8; remainder owned by talent-spread. Kept for the derivation record.
+
 1. **Efficiency-expression rebalance**: shift `passEdge`'s expression from completion% (`BASE_COMPLETION + passEdge×0.004`) toward yards-per-completion, holding points-per-edge fixed — good teams strike bigger instead of grinding longer → plays/drive Δ 0.18 → ~0.06 → snap Δ → ~+1 (worth ~1.5 attempts of gap). OBLIGATION FIRST: decompose the real W-L comp% delta (+5.9) into quality-vs-game-state components from pbp — the sim's +5.0 currently matches real via quality alone, and naively halving the coupling would break that match.
 2. **Team pass-rate identity**: all sim teams share `PASS_RATE 0.57`; real team season pass rates spread ~50–66% and pass-heavy identity correlates with losing. Derive the real identity spread (pbp/team-week), drive it from scheme/personnel, and the W-L rate gap widens honestly (realized 7.3pp → toward 10.3pp ≈ ~2 attempts of gap). Watch: attempts sd and per-team stat distributions move too.
 
@@ -108,7 +136,7 @@ Theory obligation: derive real seconds/play by (type × outcome × script state)
 
 ## If you get stuck
 
-Re-read the arc in CHANGELOG (grep `pass delta`): 96.5→70.4→57→36→33 — each round's entry documents what its mechanism bought and what it explicitly left. The remaining gap has survived a real-calibrated attempt mix; any proposal that only moves attempts is already falsified.
+Re-read the arc in CHANGELOG (grep `pass delta`): 96.5→70.4→57→36→33→31.4 (v0.178 clock)→10.7 (C3, coin-flip base)→20.8 (v0.184, the grind re-exposes ~10 then the joint recal claws it back) — each round's entry documents what its mechanism bought and what it explicitly left. Falsified/fenced by measurement, do not retry: attempt-mix-only proposals, the comp%→yds-mean rotation (K_comp is a matching bar), pass-rate identity, leader-pace burn, RZ tilt past 0.2 (goal-area realism cap). The remaining gap is wins-sd/garbage-time — go through the talent-spread slice.
 
 ## Provenance and maintenance
 

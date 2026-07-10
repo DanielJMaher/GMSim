@@ -27,7 +27,7 @@ Repo-level SemVer (see `CONTRIBUTING.md`): every workspace package shares the ro
 
 Confirmed by Daniel 2026-07-04. No other doc states these; they are absolute.
 
-1. **No push and no full-suite gate without Daniel's explicit call.** Sessions ship tagged *local* releases and batch them. As of 2026-07-04 (v0.177.0) three releases sit local: `97cfa81` v0.175.0, `e1e3820` v0.176.0, `231685a` v0.177.0, with origin/main at v0.174.1. "Fire it off", "push", or any push trigger from Daniel activates the push protocol below — nothing else does. Running the ~27-minute full suite uninvited is also a violation: it is his gate to call.
+1. **No push and no full-suite gate without Daniel's explicit call.** Sessions ship tagged *local* releases and batch them (the 2026-07-07/10 batch ran to six releases before the push call — v0.179.0 through v0.184.1 went up together). "Fire it off", "push", or any push trigger from Daniel activates the push protocol below — a plan option he explicitly selects that names "full gate + push" counts as the call; nothing else does. Running the ~26-minute full suite uninvited is also a violation: it is his gate to call.
 2. **Design before code on vision-central modules.** Modules central to the game's vision (draft, front-office, media voice, the economy) get a *written design* and Daniel's approval before implementation. Precedents: `docs/design-docs/GM_HIRE_FIRE.md` ("design before code", authored 2026-06-11 before the front-office lifecycle shipped); the contract-shape project (2026-07-03) was planned, questioned, and approved before any code. Slices execute scope; they do not invent it.
 3. **Never tune to fix a symptom.** No calibration constant changes without a probe demonstrating the *mechanism* first, and never weaken a trigger to make dormant behavior fire. Precedent: v0.172 restructures fired zero times for two releases because no team was honestly cap-pinned — the trigger was deliberately left at 92% ("Don't lower the trigger (fake behavior)"); v0.176's escalating contracts created honest pinning instead. See `gmsim-levers-and-calibration` for the probe-first procedure.
 4. **Real-NFL bars are the spec.** Every calibration claim cites a real-data bar (nflverse/OTC data under `packages/truth-arbiter/data/`). "Looks right" is never evidence. Example spec citations from shipped work: #1-overall QB share real bar 75% (nflverse draft_picks.csv 2011-2026); cap growth 6%/yr (2005 $85.5M → 2025 $279.2M CAGR, derived at `SALARY_CAP_ANNUAL_GROWTH` in `packages/engine/src/contracts/constants.ts`).
@@ -39,13 +39,13 @@ Confirmed by Daniel 2026-07-04. No other doc states these; they are absolute.
 Two incidents justify the paranoia:
 
 - **CI was silently dead for 15 straight runs (2026-06-11 → v0.169).** An engine shard outgrew its `timeout-minutes`; GitHub renders a timeout as neutral grey "cancelled", not a red X, and nobody noticed. The fix (`.github/workflows/ci.yml`): 8 shards plus a `ci-green` aggregation job that goes RED unless every job succeeded. Lesson: a gate that can fail invisibly is not a gate.
-- **v0.174.0 passed every targeted gate and failed the full gate** (20 tests across 8 files: sub-53 rosters, contract-less players in the FA pool, broken depth charts, a non-empty day-one transaction log). The approach was replaced entirely in v0.174.1 (see CHANGELOG `[0.174.1]`). Lesson: targeted gates ship a slice; only the FULL gate guards a push.
+- **v0.174.0 passed every targeted gate and failed the full gate** (20 tests across 8 files: sub-53 rosters, contract-less players in the FA pool, broken depth charts, a non-empty day-one transaction log). The approach was replaced entirely in v0.174.1 (see CHANGELOG `[0.174.1]`). Lesson: targeted gates ship a slice; only the FULL gate guards a push. Same class again at v0.184.1: the career-stats "non-zero output" predicate predated P4b special teams — only a whole-season aggregation exposes it, and the P4a/P4b releases had never seen a full gate.
 
 ## Checklists
 
 ### Shipping a slice
 1. Targeted test files for every touched module green (run them yourself; report exact counts).
-2. Behavior-level validation where the slice touches league dynamics: relevant truth-arbiter agent(s) with **caches cleared first** (`packages/truth-arbiter/data/goat/`, `data/scorekeeper/` — keyed by seed+years only, they do NOT know the engine changed).
+2. Behavior-level validation where the slice touches league dynamics: relevant truth-arbiter agent(s) with **caches cleared first** (`packages/truth-arbiter/data/goat/`, `data/scorekeeper/` — keyed by seed+years only, they do NOT know the engine changed). **Clear from the REPO ROOT and VERIFY the dir is empty before launching** — on 2026-07-09 an `rm` with a wrong cwd (error hidden by `2>/dev/null`) silently left stale caches and produced a fully invalid agent verdict. Also rebuild `packages/engine/dist` first; probes and agents import dist, not src.
 3. `pnpm --filter @gmsim/engine build` (this is the typecheck) and, if types changed, web typecheck too.
 4. Inspector refresh check (CLAUDE.md obligation): `Invoke-WebRequest http://localhost:5173/@vite/env -UseBasicParsing` and confirm `__APP_VERSION__` shows the current version.
 5. CHANGELOG entry under `## [Unreleased]` with measured numbers.
@@ -57,7 +57,7 @@ Two incidents justify the paranoia:
 4. `git tag vX.Y.Z`, then verify: `git tag --points-at HEAD` and `git status --short` (clean).
 
 ### When Daniel calls the push
-1. Run the FULL suite detached (see `gmsim-build-and-env` for the detached pattern; ~27 min as of v0.177.0). Zero failures required — fix or revert anything red, even if unrelated.
+1. Run the FULL suite detached (see `gmsim-build-and-env` for the detached pattern; ~26 min as of v0.184.1). Zero failures required — fix or revert anything red, even if unrelated. A test-only fix after a 1-failure gate may ride on per-file re-verification (v0.177 and v0.184.1 precedent: every file green across runs in the same session).
 2. `git push` then `git push origin <tags>` for each batched tag (tags don't auto-push).
 3. Watch CI run to green (`gh run list`, `gh run watch`); the Pages deploy occasionally fails with a transient "Deployment failed, try again later" — just `gh run rerun <id> --failed`.
 4. First post-push run only (as of 2026-07-04): download the `vitest-timings-*` artifacts and capture the CI timing baseline per the CLAUDE.md test-timing-audit section.

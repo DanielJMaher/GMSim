@@ -20,9 +20,9 @@ All run from repo root: `pnpm --filter @gmsim/truth-arbiter run <script> [args]`
 | Agent | Script | Authority over | Notes (as of 2026-07-04) |
 |---|---|---|---|
 | **Goatinator** | `goatinator sim 12 32` | Top-of-draft realism: top-10 position mix, #1/#2/#3 QB shares (real 75/44/25), trade-ups, package composition | ~25–40 min detached; seed-parallel workers; **cache `data/goat/` keyed seed+years — CLEAR after engine changes**; flags `<-- DRIFT` per row |
-| **Scorekeeper** | `scorekeeper sim 10 12` | Per-game stats & results: points 22.8±10.1, pass yds, W-L pass/rush/giveaway deltas, points season-drift (stationarity gate) | cache `data/scorekeeper/`; the standing W-L pass-delta drift (32.8 vs band ≤32) is the known open problem |
+| **Scorekeeper** | `scorekeeper sim 10 12` | Per-game stats & results: points 22.8±10.1, pass yds, W-L pass/rush/giveaway deltas, points season-drift (stationarity gate) | cache `data/scorekeeper/` **keyed seed+years only — clear from the REPO ROOT and verify empty (a wrong-cwd rm produced an invalid verdict 2026-07-09)**; W-L pass delta 20.8 in band as of v0.184.1 (remainder owned by the talent-spread slice); rush delta rides the 55 ceiling |
 | **Liquidator** | `liquidator [fa]` | Salary-cap/contract realism vs OTC: position salary spread, guarantee structure, seed-contract pricing | derived `POSITION_SALARY_FACTOR`; re-run after market-anchor changes |
-| **Magistrate** | `magistrate` | Drive-level realism vs real NFL drive results | game-sim changes |
+| **Magistrate** | `magistrate sim 400` | Drive-level realism vs real NFL drive results | game-sim changes; **counting caveat (until the measurement audit fixes it): sim plays/drive INCLUDES kick snaps + kneel plays, the real 5.5 bar is scrimmage-only — apples-to-apples subtract ~0.5** |
 | **Skill Adjudicator** | `adjudicate` | 8-tier talent-grade distribution (overall + by position), 99-scarcity, accolades | talent/grading changes |
 | **Actuary** | `actuary` | Aging/development curves vs real career shapes | development changes |
 | **Headhunter** | `headhunter` | HC/GM firing-hiring ecology vs real carousel patterns (~6–7 HC changes/season) | front-office changes |

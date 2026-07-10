@@ -53,8 +53,10 @@ Battles already fought, newest first. **Status tags**: `SETTLED` (fixed, don't r
 ### 2026-05 era — Mood saturation (v0.17–v0.18.x) — SETTLED, gated forever
 **Symptom:** after a few seasons the whole league sat pegged near mood 100. **Root cause:** every mood driver leaned slightly positive; offseason drift only partially pulled back. **Fix:** all drivers balanced zero-mean across the league; the long-horizon equilibrium gate (now `season/mood-equilibrium.test.ts`: 4 seeds × 8 seasons, league mood mean within ±5 of setPoint mean, <2% saturation) guards it permanently. **Evidence:** the test's own comments; CHANGELOG `[0.18.x]`. **Lesson:** slow one-directional biases need long-horizon equilibrium gates, not single-season checks.
 
-### Standing OPEN RESIDUALS (as of 2026-07-04, v0.177.0)
-- **W-L pass delta 32.8 vs real 9.5** — passing volume predicts winning far too strongly; the named hardest live problem → `gmsim-wl-pass-delta-campaign`.
+### Standing OPEN RESIDUALS (as of 2026-07-10, v0.184.1)
+- **W-L pass delta 20.8 vs real 9.5** (was 32.8) — v0.184's explosive-tail + red-zone grind spent the in-slice levers; the measured remainder is garbage-time exposure, owned by the **season-wins-sd (talent-spread) slice** (2.6 vs real 3.3) → `gmsim-wl-pass-delta-campaign` for the fence list (leader-pace, comp% rotation, pass-rate identity all falsified).
+- **W-L rush delta 54.3 at the 55 band ceiling** — tilt-coupled to the pass delta; watch it on any drive-sim change.
+- **4th-down DOWNS share 2.6% vs real 4.7%** — under-going on 4th; a policy pass, coupled to the punt bar.
 - **Restructure March-pinning thin** (0–2 fires per 8 seasons) — honest activation depth needs longer star deals or deliberate war-chest behavior, never a lower trigger.
 - **Top-QB APY episodic** under STAR-tier scarcity (22–26% of cap when a fresh STAR QB deal exists; collapses when none does) — extensions can't re-price a franchise QB pre-expiry under the 0.95 extension ceiling.
 - **In-draft trade-up rate 4% vs real 16%** — accepted drift since v0.160.

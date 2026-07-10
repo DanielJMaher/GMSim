@@ -55,11 +55,14 @@ GMSim is a pnpm+Turborepo monorepo: `packages/engine` (pure TypeScript sim — t
 
 Old saves are healed forward in `season/migrations.ts` (`migrateLeagueForward`, called by `advanceSeason`): each missing field gets a backfill block with a comment naming the version that introduced it. Adding a `LeagueState`/`TeamState` field ⇒ add a migration block in the same slice. Repo-level SemVer: MAJOR = save break (CONTRIBUTING.md).
 
-## Known-weak points (open, as of 2026-07-04 / v0.177.0)
+## Known-weak points (open, as of 2026-07-10 / v0.184.1)
 
 | Weakness | Number | Why it's hard |
 |---|---|---|
-| W-L pass delta (winners out-pass losers) | 32.8 vs real 9.5 | Needs game-script dynamics (trailing teams pass more), not constant tuning — see `gmsim-wl-pass-delta-campaign` |
+| W-L pass delta (winners out-pass losers) | 20.8 vs real 9.5 (was 32.8) | The in-slice levers are spent (v0.184 explosive-tail + grind); the measured remainder is garbage-time exposure → the season-wins-sd (talent-spread) slice owns it — see `gmsim-wl-pass-delta-campaign` |
+| Season wins sd (talent spread) | 2.6 vs real 3.3 | Too few blowout seasons; now ALSO gates the pass delta — the named next slice |
+| W-L rush delta | 54.3 riding the 55 ceiling | Coupled to the RZ run tilt (0.2 = realism cap); any tilt change moves both deltas |
+| 4th-down DOWNS share | 2.6% vs real 4.7% | Sim under-goes on 4th; interacts with the punt bar — needs a policy pass, not a knob |
 | Restructure activation depth | 0–2 fires / 8 seasons | Honest March pinning is rare; fixing it via a lower trigger is forbidden |
 | Top-QB APY stability | 22–26% of cap only when a fresh STAR QB deal exists | The 0.95 extension ceiling blocks pre-expiry franchise-QB re-pricing |
 | #2-overall QB share | 39 vs real 44 | Shipped levers provably can't move it (CHANGELOG `[0.167.0]` monotonicity note) |
