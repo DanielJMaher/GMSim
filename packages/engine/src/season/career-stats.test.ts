@@ -55,7 +55,15 @@ describe('career stats accumulation', () => {
           entry.targets > 0 ||
           entry.tackles > 0 ||
           entry.sacks > 0 ||
-          entry.interceptions > 0;
+          entry.interceptions > 0 ||
+          // Special teams IS output (P4b, v0.183): kickers and punters post
+          // pure ST season lines (e.g. 36/49 FG, 69 punts) — the pre-ST
+          // predicate read those as "zero output"; only the FULL gate caught
+          // it (targeted suites never aggregate a whole season of ST lines).
+          entry.fieldGoalsAttempted > 0 ||
+          entry.extraPointsMade > 0 ||
+          entry.punts > 0 ||
+          entry.returnYards > 0;
         expect(recordedSomething).toBe(true);
       }
     }

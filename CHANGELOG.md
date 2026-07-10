@@ -14,6 +14,21 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.184.1] — 2026-07-10
+
+### Fixed
+
+- **career-stats "non-zero output" test taught about special teams.** The full
+  gate (the only suite that aggregates whole seasons of stat lines) caught 142
+  careerStats entries it called "zero output" — all kickers and punters with
+  correct, realistic P4b ST lines (e.g. 36/49 FG, 69 punts / 2,996 yds). The
+  engine is right; the test's output predicate predated v0.183's special-teams
+  stats. It now counts FG attempts, XPs, punts, and return yards as output.
+  Full gate otherwise green: 1133 passed / 12 skipped / this 1 failure across
+  134 files (~26 min).
+
+---
+
 ## [0.184.0] — 2026-07-10
 
 ### Changed
