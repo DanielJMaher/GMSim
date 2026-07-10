@@ -14,6 +14,53 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Changed
 
+- **The red-zone coin flip is GONE — drives sim all the way through (C4, the
+  grind).** The v0.157 red-zone trip roll (a single probability resolving TD/FG/fail
+  on RZ entry) is removed; a TD now happens only by reaching the goal line,
+  play by play (Daniel's hard invariant: "we simulate entire games"). The grind
+  arrives with its decoupling kit: a run TILT ramping from the 40 in (real pass
+  rate declines approaching the goal; winners' extra red-zone trips accumulate
+  short RUSHING, not passing), passEdge-CAPPED compressed throws inside ~the 12,
+  a goal-line gain cap (a scoring play credits real yards — also fixes player
+  stat-line overshoot), and 4th-and-goal go-for-it (toGoal≤5 & togo≤3 @ 0.5).
+  Joint recalibration, each piece bar-derived:
+  - **Down-dependent passing** (`_down_comp_bar.mjs`, pbp 2015-24): comp% early
+    66.3 vs late 59.1 (gap 7.3pp), sack rate 5.2%→9.7% on 3rd — the sim was
+    down-flat, so drives never stalled like real ones. Mean-neutral splits by
+    the real 28.4% late-down attempt share. Sim sacks/game landed 2.4 = real 2.4.
+  - **Real-shaped completion body** (`_comp_gain_dist.mjs`): the real completion
+    distribution (median 9, 5-9yd mass 34.5%, P(≥10) 44.5%) replaces the
+    symmetric routine core + checkdown; body = Gamma(3)−2 capped at 19, so ALL
+    20+ flows through the C3 explosive channel (level/quality-scaling exactly
+    settable). The old core's median ~12 made every extra completion an instant
+    first down — the last sustainment leak behind the winner drive-length skew.
+  - **Kick snaps cost real clock** (12s, stops at the change of possession) —
+    the old "≈ run-cost" placeholder (34s) overcharged ~9 kicks/game ≈ 4
+    plays/side, most of the standing plays/attempts shortfall.
+  - DEF_PENALTY_RATE 0.025→0.017 and midfield 4th-down go-rates trimmed with the
+    higher sustainment.
+  MEASURED: **Magistrate at/near real everywhere** — punt 36.6 (real 37.2, was
+  33-34 mid-recal), turnover 11.5 exact, points/drive 1.95 exact, drives/game
+  22.9 (real 22.8), TD 22.1/FG 13.7; **Scorekeeper 10×12 fresh: ALL 20 rows in
+  band, zero drift** — points 22.4, pass 231.9, att 31.9 (kick-clock fix), rush
+  103.5 (closest to real ever), sacks 2.4 exact, comp% 64.5; C1 explosive bars
+  hold (20+/att quartile ratio 1.49, level 13.5%/comp); **Goatinator dual-gate:
+  #1-QB 76% (real 75), #2-QB 42 (real 44 — best ever, was 39), #3 26 (real 25)**.
+  HONEST RESIDUALS: W-L pass delta lands **20.8** (band ≤32; Daniel's ~10 target
+  NOT reached in-slice — probes trace the remainder to garbage-time exposure:
+  sim wins-sd 2.6 vs real 3.3 compresses blowouts, so losers never rack real
+  losers' volume; real L pass rate 63.9% aggregate vs sim ~56% despite the
+  per-state rate table matching real — the named talent-spread slice owns it).
+  W-L rush delta 54.3 at the band ceiling (55) — the tilt trades rush-delta
+  headroom for pass delta (coupled knob, tilt 0.28 tried: goal-area pass rate
+  fell below real's 47%, reverted to 0.2). DOWNS share 2.6% vs real 4.7 (sim
+  under-goes on 4th; interacts with punts — left for a 4th-down-policy pass).
+  Leader-pace falsified as a lever: real kill-state s/play ≈ neutral
+  (`_clock_cost_bar.mjs` — the existing ×1.11 kill-complete is exactly real).
+- **Game Lab: 20+ plays surfaced.** Box scores get a "20+ plays" row and the
+  Aggregate W/L table a "20+ per att %" row beside the real quality-quartile
+  reference (6.9 → 10.2) — the C3/C4 explosiveness lever reads live.
+
 - **Efficiency expression C3 — quality passes as EXPLOSIVENESS, not sustainment (the
   W-L pass-delta endgame lever, coin-flip base).** The completion gain in
   `resolvePlay` was one `N(mean, 11)` draw: 23.4% of completions gained 20+ (real

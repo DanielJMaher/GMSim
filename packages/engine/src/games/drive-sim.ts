@@ -109,6 +109,11 @@ const CLOCK_COMPLETE = 31.3;
 const CLOCK_INCOMPLETE = 5.0;
 const CLOCK_SACK = 33.1;
 const CLOCK_TURNOVER = 7.3;
+// v0.184: a punt/FG snap runs ~10-15s and the clock STOPS on the change of
+// possession — the old "≈ run-cost" (34s) placeholder overcharged ~9 kick
+// snaps/game ≈ 200s/side ≈ 4 plays/side, most of the standing plays/attempts
+// shortfall (sim ~56 scrimmage plays/side vs real 62.7).
+const CLOCK_KICK = 12.0;
 /** Script-state cost modifiers. The gates are |shift| at ~Q4 ±7 (the
  *  pbp derivation's hurry/kill states: shift(−7, Q4) = +0.16,
  *  shift(+7, Q4) = −0.20). */
@@ -149,12 +154,12 @@ function playClock(kind: PlayResult['kind'], scriptShift: number): number {
 
 const PASS_RATE = 0.57;
 const BASE_COMPLETION = 0.655;
-// v0.157: real yds/completion is 11.3 (Scorekeeper). The drive sim scores
-// PURELY GEOMETRICALLY (a TD needs ballOn to reach 100), so this constant
-// had to be 13 to make geometric accumulation yield real POINTS — at the
-// cost of +14% inflated YARDS (live yds/completion 13.4, plays/drive 6.3).
-// Lowered to 11.5 (≈ real yards) once the red-zone TD conversion below
-// backfills the points the shorter completions no longer grind out.
+// real yds/completion is ~11.3 (Scorekeeper). The drive sim scores
+// geometrically (a TD needs ballOn to reach 100). v0.184: with the red-zone
+// coin flip gone, drives grind all the way through and 11.5 yields real
+// POINTS without inflating yards — the goal-line gain cap keeps a scoring
+// play from crediting overshoot yards. (Pre-v0.184 this needed the v0.157
+// red-zone roll to backfill points.)
 const YDS_PER_COMPLETION = 11.5;
 // ── Efficiency expression — explosiveness via variance (C3, 2026-07-09) ──
 // The single N(mean, 11) completion-gain draw handed 20+yd plays to EVERYONE
@@ -166,39 +171,60 @@ const YDS_PER_COMPLETION = 11.5;
 // is the winner drive-length skew behind the W-L pass delta (design:
 // docs/design-docs/EFFICIENCY_EXPRESSION.md §5, C1 result).
 //
-// The completion gain is now a THREE-PART mixture — the real completion
-// distribution's shape (short mode + body + chunk tail):
-//   1. checkdowns/screens (fixed share, ~3 yds) — the short mass that FAILS
-//      third-and-medium; without it drives never stall and the Magistrate
-//      punt share collapses (measured −4pp when the old draw's ≤0-yd mass
-//      vanished);
-//   2. a routine core N(routineMean, 5);
-//   3. a passEdge-scaled EXPLOSIVE tail (20 + Exp(EXPLOSIVE_TAIL_MEAN)) —
-//      the chunk play; quality expresses HERE.
-// MEAN-NEUTRAL BY CONSTRUCTION: routineMean solves so the mixture's mean is
-// exactly YDS_PER_COMPLETION + passEdge·0.05 (+ the recenter below) for
+// The completion gain is a TWO-PART mixture matched to the REAL completion
+// distribution (pbp 2015-24, `_comp_gain_dist.mjs`: mean 11.2, MEDIAN 9,
+// p25 5, 5-9yd mass 34.5%, 20+ 14.0%):
+//   1. a right-skewed Gamma(3) BODY (shifted −2) — the real shape. Its low
+//      median is load-bearing: most real completions gain 5-9 and do NOT
+//      convert the series by themselves, so a comp% edge buys far less drive
+//      SUSTAINMENT than a symmetric core did (the old N(mean, 5) core had
+//      median ≈ 12 → every extra completion was an instant first down →
+//      winner drives ground +0.57 plays/drive and the W-L pass delta stuck
+//      ~24 with the grind on);
+//   2. a passEdge-scaled EXPLOSIVE tail (20 + Exp(EXPLOSIVE_TAIL_MEAN)) —
+//      the chunk play; quality expresses HERE (C1: best-quartile offenses
+//      +48% more 20+yd completions).
+// MEAN-NEUTRAL BY CONSTRUCTION: the body's scale solves so the mixture mean
+// is exactly YDS_PER_COMPLETION + passEdge·0.05 (+ the recenter below) for
 // every edge — K_comp (real, earned quality per C1), ∂YPA/∂edge,
-// points-per-edge, and the #1-QB pipeline are all untouched. Only the SHAPE
-// moves: good teams reach the goal in bigger jumps (fewer plays per scoring
-// drive), bad teams grind.
-const ROUTINE_COMPLETION_SD = 5;
-const CHECKDOWN_SHARE = 0.26; // of non-explosive completions — the real short mode
-const CHECKDOWN_YDS = 3;
-const CHECKDOWN_SD = 3;
-const EXPLOSIVE_BASE = 0.1; // big-play chance per completion at edge 0 → league 20+/comp ≈ the real ~14%
-const EXPLOSIVE_EDGE_K = 0.002; // per passEdge point — calibrated to the real +48% top-vs-bottom quartile 20+/att spread
+// points-per-edge, and the #1-QB pipeline are all untouched.
+const ROUTINE_COMPLETION_SD = 5; // red-zone compressed-throw sd cap (see RZ_*)
+const BODY_SHIFT = 2; // body = Gamma(3, θ) − 2 (real ≤0-yd completions exist)
+const BODY_K = 3; // gamma shape — k=3 matches the real low half (the stall mass)
+const BODY_CAP = 19; // body capped below 20: ALL 20+ flows through the explosive channel, so level and quality-scaling are set exactly by EXPLOSIVE_*; k=4 (tail-tight, no cap) re-converted too much — punts fell to 34
+const EXPLOSIVE_BASE = 0.15; // 20+/comp at edge 0 — RZ/goal-capped completions dilute the measured league rate to ≈ the real ~14% (the body contributes none)
+const EXPLOSIVE_EDGE_K = 0.002; // per passEdge point — with the comp% edge multiplying in, lands the real +48% top-vs-bottom quartile 20+/att spread
 const EXPLOSIVE_MIN_YDS = 20; // a big play is a 20+yd completion (the C1 bar's definition)
 const EXPLOSIVE_TAIL_MEAN = 10; // Exp tail beyond 20 (mean chunk ≈ 30, capped below)
 const EXPLOSIVE_MAX_YDS = 75; // cap the draw (99-yd TDs stay rare)
 const EXPLOSIVE_MEAN = EXPLOSIVE_MIN_YDS + EXPLOSIVE_TAIL_MEAN; // mixture-mean bookkeeping
-// The old N(·, 11) draw's floor-at-−3 truncation inflated the EFFECTIVE league
-// yds/comp to ~12.0; the reshaped draw loses that bias, so re-center the
-// target mean to hold league pass yards exactly where they were calibrated.
-const EXPLOSIVE_RECENTER = 0.3;
+// Recenter holds the league's effective yds/comp where pass yards were
+// calibrated (the BODY_CAP truncation + rounding shave ~0.3 off the solved
+// mean; this puts it back).
+const EXPLOSIVE_RECENTER = 0.6;
 const RUN_YDS = 4.7;
 const RUN_YDS_SD = 7.5;
 const SACK_RATE = 0.06;
 const SACK_YDS = 7;
+// ── Down-dependent passing (v0.184) ───────────────────────────────────────
+// Real passing is DOWN-dependent — the defense knows 3rd-and-long is a throw:
+// comp% early (1st-2nd) 66.3 vs late (3rd-4th) 59.1 (gap 7.3pp) and the sack
+// rate nearly doubles (5.2% → 9.7%) — pbp 2015-24, `_down_comp_bar.mjs`. The
+// sim was down-FLAT, so drives never stalled like real ones: with the red-zone
+// grind in, plays/drive ran 6.0+ (real 5.5), punts 34% (real 37.2), and the
+// starved drive count sank points to the band floor. MEAN-NEUTRAL: the splits
+// are weighted by the real ~28% late-down attempt share so league comp% and
+// total sacks hold; only the DOWN SHAPE moves — series die on 3rd down like
+// real football, which shortens drives, restores punts, and (more drives per
+// game) refunds the points.
+const DOWN_COMP_EARLY = 0.021; // added to BASE_COMPLETION on 1st/2nd down
+const DOWN_COMP_LATE = -0.052; // 3rd/4th down (real gap 7.3pp, share-weighted)
+const DOWN_SACK_EARLY = 0.85; // sack-rate multiplier, 1st/2nd
+const DOWN_SACK_LATE = 1.6; // 3rd/4th — the obvious-passing-down spike
+// (A sticks-straddling late-down draw was tried here and REMOVED: with the
+// real-shaped Gamma body above, 3rd-down conversion-per-completion lands at
+// the real ~45% naturally — the special case double-counted the effect and
+// its flat converting share made 3rd-and-12 convert like 3rd-and-4.)
 // v0.158 raised both (INT 0.03→0.033, fumble 0.011→0.014) to lift total
 // drive-level turnovers onto the bar (10.0→11.3 giveaways/100 drives, real
 // 11.5). But it did so by over-feeding the INT channel: box-score INTs ran
@@ -226,7 +252,7 @@ const KICKOFF_TOUCHBACK = 25; // own-25 touchback line (real post-kickoff start 
 // per team-game): penalties sustain drives INTO the red zone where the trip
 // resolution converts them, so an aggressive rate over-scores — the red-zone
 // TD base is trimmed in tandem and turnovers carry most of the punt fix.
-const DEF_PENALTY_RATE = 0.025;
+const DEF_PENALTY_RATE = 0.017; // v0.184: trimmed 0.025→0.017 — with drives simming through the RZ (no coin flip) they sustain more, so less auto-first-down keeps plays/drive ~5.5 and punts on the bar
 
 /** Penalty yardage for a drive-extending defensive foul: usually a 5-yard
  *  (holding / illegal contact / offsides) auto first down, sometimes a big
@@ -235,37 +261,38 @@ function penaltyYards(prng: Prng): number {
   return prng.next() < 0.25 ? prng.nextRange(12, 28) : 5;
 }
 
-// ── Red-zone trip resolution (v0.157) ────────────────────────────────────
-// Geometric scoring under-converts the red zone: real offenses score a TD on
-// ~58% of red-zone trips, kick a FG on ~30%, and fail on ~12% — but pure
-// yardage accumulation stalls on the short field (plays clamp, drives grind
-// and punt-equivalent), so it both under-scores AND, with an additive TD
-// hack, cannibalizes field goals. Instead, once a positive play reaches the
-// red zone the trip is RESOLVED as a real outcome distribution: TD (depth +
-// edge scaled), else FG (the chip shot), else a rare fail. This produces the
-// real TD AND FG rates BY CONSTRUCTION (no FG cannibalization) and decouples
-// POINTS from raw YARDS, letting YDS_PER_COMPLETION sit at the real ~11.5.
-// Mid-range FGs (outside the 20) still come from the geometric 4th-down
-// logic. Fires in BOTH the live and facet paths (keyed off field position +
-// edge, not player attribution) so the Magistrate and the live league agree.
-const RED_ZONE_LINE = 80; // the opponent's 20 — the real NFL red zone
-const RED_ZONE_TD_BASE = 0.42; // TD prob for a trip entering at the 20 (depth 0)
-// v0.179 (P1): trimmed 0.48→0.42 — field-position chaining converts short-field
-// turnovers into points the old base double-counted. Centered on the LIVE path
-// (Scorekeeper points/game ~23); the facet Magistrate reads ~2 lower on drive
-// count until P5's sustain fix restores plays/drive. See GAME_SIM_REBUILD.md §2.5/P1.
-const RED_ZONE_TD_DEPTH = 0.48; // additional TD prob at the goal line (depth 1)
-const RED_ZONE_TD_EDGE = 0.004; // per-point passEdge adjustment
-const RED_ZONE_FG_CONDITIONAL = 0.82; // of NON-TD trips, the share that kick (else fail) — real FG 30 / fail 12
-
-function redZoneTdChance(passEdge: number, ballOn: number): number {
-  const depth = (ballOn - RED_ZONE_LINE) / (100 - RED_ZONE_LINE); // 0..1
-  return clamp(
-    RED_ZONE_TD_BASE + depth * RED_ZONE_TD_DEPTH + passEdge * RED_ZONE_TD_EDGE,
-    0.06,
-    0.95,
-  );
-}
+// ── Red zone (v0.184): drives sim ALL THE WAY THROUGH ────────────────────
+// The v0.157 red-zone "coin flip" (a single roll resolving the trip on RZ
+// entry) is GONE — Daniel: drives should be simmed play-by-play, not stopped
+// at the 20 (hard invariant, EFFICIENCY_EXPRESSION.md header). A drive now
+// scores a TD only by reaching the goal line (ballOn ≥ 100), kicks a FG from
+// the 4th-down logic, or fails on downs / turnover. A scoring gain is capped
+// at the distance to the goal (see the play loop) so a goal-line TD credits
+// real yards, not an overshoot — that cap is what keeps POINTS decoupled
+// from raw YARDS without the roll.
+//
+// Left naïve, the grind re-couples passing to winning: winners score more,
+// and grinding those drives accumulates winner PASSING. The fix mirrors real
+// football — goal-line offenses RUN it in:
+//   1. Tilt to the run near the goal (RZ_PASS_TILT; real 60%→47% pass, a
+//      notch past). Fewer RZ passes = less winner passing accumulation — the
+//      TILT, not per-play compression, is the real decoupling lever.
+//   2. Runs stay EXPLOSIVE (normal variance) so they punch it in — the
+//      goal-line cap trims a scoring run to the real distance. (Low-variance
+//      "reliable" runs were tried and FAILED — they advance but never break
+//      the plane, so TDs stalled into field goals.)
+//   3. Compressed, passEdge-CAPPED completions to the goal: the few RZ
+//      throws don't accumulate, and a great QB gains no extra. Inside the
+//      compression the C3 explosive mixture is bypassed — a 20+yd chunk
+//      cannot exist inside the 20 by definition.
+const RZ_TILT_DTG = 30; // yards-to-goal at which the run tilt begins ramping — real pass rate declines approaching the goal (~60% midfield → ~47% inside the 10); a 40-yd ramp cut league attempts below the band floor, 30 keeps the decoupling with less exposure; gain compression activates via the min() lines below (binds inside ~dtg 12)
+const RZ_PASS_TILT = 0.2; // pass-rate drop ramped to the goal — score on the ground (0.28 tried: goal-area pass rate fell to 34% vs the real ~47% — past the realism budget for ~1.5 delta)
+const RZ_COMP_BASE = 3.0; // completion mean line: min(mixture target, BASE + SLOPE·dtg)
+const RZ_COMP_SLOPE = 0.9; // v0.184 joint recal: 0.55→0.9 — tighter slopes ground 4-6 plays per RZ crossing (real ~3), inflating plays/drive and starving drives/game → points at the floor. The TILT decouples; compression only needs to cap the QB edge near the goal.
+const RZ_COMP_SD_FLOOR = 2;
+const RZ_COMP_SD_SLOPE = 0.6; // completion sd compresses toward the goal too
+const RZ_RUN_BASE = 3.0; // run mean line: min(normal, BASE + SLOPE·dtg) — light, keeps runs explosive
+const RZ_RUN_SLOPE = 0.7; // 0.45→0.7 with the comp slope (same play-count reasoning)
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, v));
@@ -458,48 +485,65 @@ interface PlayResult {
   kind: PlayKind;
 }
 
-/** Resolve one play's OUTCOME from the matchup (the calibrated 1a logic). */
+/** Resolve one play's OUTCOME from the matchup (the calibrated 1a logic).
+ *  `distToGoal` (yards to the end zone) tilts play-calling to the run and
+ *  compresses gains near the goal — see the RZ_* block. 100 (default) =
+ *  midfield, no compression (facet-safe). */
 function resolvePlay(
   prng: Prng,
   ctx: DriveCtx,
   down: number,
   togo: number,
   scriptShift = 0,
+  distToGoal = 100,
 ): PlayResult {
-  const isPass = prng.next() < passRate(down, togo, scriptShift);
+  const passTilt = RZ_PASS_TILT * clamp((RZ_TILT_DTG - distToGoal) / RZ_TILT_DTG, 0, 1);
+  const isPass = prng.next() < clamp(passRate(down, togo, scriptShift) - passTilt, 0.1, 0.95);
+  const late = down >= 3; // down-dependent passing (v0.184) — see DOWN_* constants
   if (isPass) {
-    if (prng.next() < clamp(SACK_RATE - ctx.protEdge * 0.0018, 0.02, 0.14)) {
+    if (prng.next() < clamp(SACK_RATE * (late ? DOWN_SACK_LATE : DOWN_SACK_EARLY) - ctx.protEdge * 0.0018, 0.02, 0.16)) {
       return { isPass, gain: -SACK_YDS, kind: 'sack' };
     }
     if (prng.next() < clamp((INT_RATE - ctx.passEdge * 0.0007) * ctx.turnoverMult, 0.004, 0.08)) {
       return { isPass, gain: 0, kind: 'int' };
     }
-    if (prng.next() < clamp(BASE_COMPLETION + ctx.passEdge * 0.004, 0.45, 0.82)) {
+    if (prng.next() < clamp(BASE_COMPLETION + (late ? DOWN_COMP_LATE : DOWN_COMP_EARLY) + ctx.passEdge * 0.004, 0.45, 0.82)) {
       // Explosiveness-via-variance mixture (C3): checkdown mass + routine
       // core + a passEdge-scaled chunk-play tail, mean-neutral per edge
       // (see constants).
       const targetMean = YDS_PER_COMPLETION + ctx.passEdge * 0.05 + EXPLOSIVE_RECENTER;
-      const pBig = clamp(EXPLOSIVE_BASE + ctx.passEdge * EXPLOSIVE_EDGE_K, 0.02, 0.3);
+      // Red-zone compression (v0.184): near the goal the throw is short and
+      // passEdge-capped; the C3 mixture is bypassed (no chunk plays inside
+      // the 20 by definition).
+      const rzMean = RZ_COMP_BASE + RZ_COMP_SLOPE * distToGoal;
       let gain: number;
+      if (rzMean < targetMean) {
+        const sd = Math.min(ROUTINE_COMPLETION_SD, Math.max(RZ_COMP_SD_FLOOR, distToGoal * RZ_COMP_SD_SLOPE));
+        gain = Math.round(prng.normal(rzMean, sd));
+        if (gain < -3) gain = -3;
+        return { isPass, gain, kind: 'complete' };
+      }
+      const pBig = clamp(EXPLOSIVE_BASE + ctx.passEdge * EXPLOSIVE_EDGE_K, 0.02, 0.3);
       if (prng.next() < pBig) {
         gain = Math.min(
           EXPLOSIVE_MAX_YDS,
           Math.round(EXPLOSIVE_MIN_YDS - EXPLOSIVE_TAIL_MEAN * Math.log(1 - prng.next())),
         );
-      } else if (prng.next() < CHECKDOWN_SHARE) {
-        gain = Math.round(prng.normal(CHECKDOWN_YDS, CHECKDOWN_SD, { min: -3, max: 9 }));
       } else {
-        const nonBigMean = (targetMean - pBig * EXPLOSIVE_MEAN) / (1 - pBig);
-        const routineMean = (nonBigMean - CHECKDOWN_SHARE * CHECKDOWN_YDS) / (1 - CHECKDOWN_SHARE);
-        gain = Math.round(prng.normal(routineMean, ROUTINE_COMPLETION_SD));
-        if (gain < -3) gain = -3;
+        // Real-shaped body: Gamma(BODY_K, θ) − BODY_SHIFT, θ solved mean-neutral.
+        const bodyMean = (targetMean - pBig * EXPLOSIVE_MEAN) / (1 - pBig);
+        const theta = (bodyMean + BODY_SHIFT) / BODY_K;
+        let u = 1;
+        for (let i = 0; i < BODY_K; i++) u *= prng.next();
+        gain = Math.min(BODY_CAP, Math.round(-theta * Math.log(u || Number.MIN_VALUE) - BODY_SHIFT));
       }
       return { isPass, gain, kind: 'complete' };
     }
     return { isPass, gain: 0, kind: 'incomplete' };
   }
   if (prng.next() < FUMBLE_LOST_RATE * ctx.turnoverMult) return { isPass: false, gain: 0, kind: 'fumble' };
-  const gain = Math.round(prng.normal(RUN_YDS + ctx.runEdge * 0.06, RUN_YDS_SD));
+  const runMean = Math.min(RUN_YDS + ctx.runEdge * 0.06, RZ_RUN_BASE + RZ_RUN_SLOPE * distToGoal);
+  const gain = Math.round(prng.normal(runMean, RUN_YDS_SD));
   return { isPass: false, gain, kind: 'run' };
 }
 
@@ -749,7 +793,6 @@ function simulateDrive(
   let togo = 10;
   let plays = 0;
   let clock = 0;
-  let redZoneRolled = false; // red-zone TD conversion fires at most once/drive
 
   for (;;) {
     // Drive-extending defensive penalty (v0.158): an automatic first down
@@ -771,7 +814,10 @@ function simulateDrive(
       // Coach 4th-down aggression (P3) scales every go-for-it probability.
       const goP = (p: number): boolean => prng.next() < clamp(p * ctx.aggression, 0.02, 0.97);
       let go = false;
-      if (toGoal <= 2 && togo <= 1) go = goP(0.55);
+      // Go for it on 4th-and-goal from short range (v0.184) — real teams don't
+      // always kick the chip shot; this converts stalled RZ drives into TD tries
+      // instead of a field goal, keeping TD/FG on the bar under compression.
+      if (toGoal <= 5 && togo <= 3) go = goP(0.5);
       else if (inFgRange) go = false;
       else if (togo <= 1 && ballOn >= 30) go = goP(0.8);
       else if (togo <= 2 && ballOn >= 42) go = goP(0.6);
@@ -784,7 +830,7 @@ function simulateDrive(
       else if (ballOn >= 48) go = goP(0.28);
       if (!go) {
         plays++;
-        clock += CLOCK_RUN; // punt/FG snap ≈ run-cost (clock runs to the kick)
+        clock += CLOCK_KICK; // kick snap: ~12s, clock stops at the change of possession
         if (inFgRange) {
           const made = prng.next() < fgSuccess(fgDist, ctx.kickerRating);
           if (attr?.off.kicker) {
@@ -799,8 +845,16 @@ function simulateDrive(
     }
 
     plays++;
-    const pr = resolvePlay(prng, ctx, down, togo, scriptShift);
+    const pr = resolvePlay(prng, ctx, down, togo, scriptShift, 100 - ballOn);
     clock += playClock(pr.kind, scriptShift);
+    // Cap a scoring gain at the goal line (v0.184): a completion/run can't gain
+    // more yards than the distance to the end zone, so a goal-line TD credits
+    // real yards, not an overshoot — this keeps points decoupled from raw
+    // yards now that drives sim all the way through (no red-zone roll), and
+    // player stat lines credit the capped (real) gain.
+    if ((pr.kind === 'complete' || pr.kind === 'run') && ballOn + pr.gain > 100) {
+      pr.gain = 100 - ballOn;
+    }
 
     // ── Attribute the play's outcome to specific players (stage 1b). ──
     let scorer: { id: string; kind: 'rec' | 'rush'; passer?: string } | null = null;
@@ -860,7 +914,6 @@ function simulateDrive(
       return { result: 'TURNOVER', plays, yards: ballOn - startYardline, clock };
     }
     ballOn += pr.gain;
-    const advanced = pr.kind === 'complete' || pr.kind === 'run';
     const scoreTd = (): { result: DriveResult; plays: number; yards: number; clock: number } => {
       if (attr && scorer) {
         if (scorer.kind === 'rec') {
@@ -875,32 +928,6 @@ function simulateDrive(
       return { result: 'TD', plays, yards: 100 - startYardline, clock };
     };
     if (ballOn >= 100) return scoreTd();
-    // Red-zone trip resolution (v0.157): the first positive play to reach the
-    // red zone resolves the trip — TD (attributed to this play's carrier on
-    // the live path), else the chip-shot FG, else a rare fail — at real
-    // red-zone rates. Replaces the geometric grind inside the 20.
-    if (advanced && !redZoneRolled && ballOn >= RED_ZONE_LINE) {
-      redZoneRolled = true;
-      const roll = prng.next();
-      const pTd = redZoneTdChance(ctx.passEdge, ballOn);
-      if (roll < pTd) return scoreTd();
-      if (roll < pTd + (1 - pTd) * RED_ZONE_FG_CONDITIONAL) {
-        const fgDist = 100 - ballOn + 17;
-        const made = prng.next() < fgSuccess(fgDist, ctx.kickerRating);
-        if (attr?.off.kicker) {
-          const kl = line(attr.stats, attr.off.kicker);
-          kl.fieldGoalsAttempted += 1;
-          if (made) kl.fieldGoalsMade += 1;
-        }
-        return {
-          result: made ? 'FG' : 'MISSED_FG',
-          plays,
-          yards: ballOn - startYardline,
-          clock,
-        };
-      }
-      return { result: 'DOWNS', plays, yards: ballOn - startYardline, clock };
-    }
     // A run/completion that didn't score ends in a tackle by the defense.
     if (attr && tackleEligible) {
       const t = pick(prng, attr.def.tacklers);

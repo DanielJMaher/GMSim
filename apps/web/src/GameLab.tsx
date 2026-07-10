@@ -61,6 +61,7 @@ interface Totals {
   rushYds: number;
   passAtt: number;
   passComp: number;
+  expl: number;
   intThrown: number;
   fumbles: number;
   sacks: number;
@@ -74,7 +75,7 @@ interface Totals {
 }
 
 function emptyTotals(): Totals {
-  return { passYds: 0, rushYds: 0, passAtt: 0, passComp: 0, intThrown: 0, fumbles: 0, sacks: 0, tackles: 0, defInt: 0, fgm: 0, fga: 0, xp: 0, punts: 0, puntYds: 0 };
+  return { passYds: 0, rushYds: 0, passAtt: 0, passComp: 0, expl: 0, intThrown: 0, fumbles: 0, sacks: 0, tackles: 0, defInt: 0, fgm: 0, fga: 0, xp: 0, punts: 0, puntYds: 0 };
 }
 
 function teamTotals(rosterIds: readonly PlayerId[], stats: Map<string, PlayerStatLine>): Totals {
@@ -86,6 +87,7 @@ function teamTotals(rosterIds: readonly PlayerId[], stats: Map<string, PlayerSta
     t.rushYds += l.rushingYards;
     t.passAtt += l.passAttempts;
     t.passComp += l.passCompletions;
+    t.expl += l.explosiveCompletions;
     t.intThrown += l.interceptionsThrown;
     t.fumbles += l.fumblesLost;
     t.sacks += l.sacks;
@@ -242,6 +244,7 @@ function SingleGame({ league, homeId, awayId, prngKey }: { league: LeagueState; 
               <StatRow label="Total yds" home={ht.passYds + ht.rushYds} away={at.passYds + at.rushYds} />
               <StatRow label="Att / Cmp" home={ht.passAtt} away={at.passAtt} fmt={(x) => String(x)} />
               <StatRow label="Comp %" home={compPct(ht)} away={compPct(at)} fmt={(x) => x.toFixed(1)} />
+              <StatRow label="20+ plays" home={ht.expl} away={at.expl} fmt={(x) => String(x)} />
               <StatRow label="Sacks (D)" home={ht.sacks} away={at.sacks} />
               <StatRow label="Turnovers" home={ht.intThrown + ht.fumbles} away={at.intThrown + at.fumbles} />
               <StatRow label="FG" home={ht.fgm} away={at.fgm} fmt={(x) => String(x)} />
@@ -280,13 +283,14 @@ interface SideAgg {
   rush: number;
   att: number;
   comp: number;
+  expl: number;
   n: number;
 }
 
 function runAggregate(league: LeagueState, n: number): { W: SideAgg; L: SideAgg; mix: Map<string, number>; games: number } {
   const teams = Object.values(league.teams) as TeamState[];
-  const W: SideAgg = { plays: 0, drives: 0, pass: 0, rush: 0, att: 0, comp: 0, n: 0 };
-  const L: SideAgg = { plays: 0, drives: 0, pass: 0, rush: 0, att: 0, comp: 0, n: 0 };
+  const W: SideAgg = { plays: 0, drives: 0, pass: 0, rush: 0, att: 0, comp: 0, expl: 0, n: 0 };
+  const L: SideAgg = { plays: 0, drives: 0, pass: 0, rush: 0, att: 0, comp: 0, expl: 0, n: 0 };
   const mix = new Map<string, number>();
   let games = 0;
   for (let i = 0; i < n; i++) {
@@ -304,7 +308,7 @@ function runAggregate(league: LeagueState, n: number): { W: SideAgg; L: SideAgg;
     const acc = (tm: TeamState, side: 'home' | 'away'): SideAgg => {
       const t = teamTotals(tm.rosterIds, stats);
       const dl = res.driveLog.filter((d) => d.offense === side && d.result !== 'END_HALF');
-      return { plays: dl.reduce((s, d) => s + d.plays, 0), drives: dl.length, pass: t.passYds, rush: t.rushYds, att: t.passAtt, comp: t.passComp, n: 1 };
+      return { plays: dl.reduce((s, d) => s + d.plays, 0), drives: dl.length, pass: t.passYds, rush: t.rushYds, att: t.passAtt, comp: t.passComp, expl: t.expl, n: 1 };
     };
     const h = acc(home, 'home');
     const aw = acc(away, 'away');
@@ -317,6 +321,7 @@ function runAggregate(league: LeagueState, n: number): { W: SideAgg; L: SideAgg;
       dst.rush += src.rush;
       dst.att += src.att;
       dst.comp += src.comp;
+      dst.expl += src.expl;
       dst.n += 1;
     }
     games += 1;
@@ -403,6 +408,12 @@ function AggregateView({ league }: { league: LeagueState }) {
                   <td className="text-right text-zinc-200">{cp(data.W).toFixed(1)}</td>
                   <td className="text-right text-zinc-200">{cp(data.L).toFixed(1)}</td>
                   <td className="text-right"><Delta sim={cp(data.W) - cp(data.L)} real={REAL.compW - REAL.compL} /></td>
+                </tr>
+                <tr className="border-t border-zinc-800/60">
+                  <td className="text-zinc-400">20+ per att %</td>
+                  <td className="text-right text-zinc-200">{(data.W.att ? (100 * data.W.expl) / data.W.att : 0).toFixed(1)}</td>
+                  <td className="text-right text-zinc-200">{(data.L.att ? (100 * data.L.expl) / data.L.att : 0).toFixed(1)}</td>
+                  <td className="text-right text-[10px] text-zinc-500">real quality quartiles 6.9 → 10.2</td>
                 </tr>
               </tbody>
             </table>
