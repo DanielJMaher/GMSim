@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DATA_DIR } from '../lib/config.js';
+import { DATA_DIR, engineBuildStamp } from '../lib/config.js';
 import { csvNum, csvRows } from '../lib/csv.js';
 import {
   simulateTopOfDraft,
@@ -321,11 +321,14 @@ async function exists(p: string): Promise<boolean> {
 
 async function runWorkers(years: number, numSeeds: number): Promise<SeedResult[]> {
   await mkdir(GOAT_DIR, { recursive: true });
+  // Cache keyed seed + years + engine build stamp — a cache written by a
+  // different engine build can never be silently reused.
+  const stamp = engineBuildStamp();
   const seeds = Array.from({ length: numSeeds }, (_, i) => `goat-${i + 1}`);
   const entry = fileURLToPath(import.meta.url);
   const pending = [];
   for (const seed of seeds) {
-    const file = resolve(GOAT_DIR, `${seed}-${years}.json`);
+    const file = resolve(GOAT_DIR, `${seed}-${years}-${stamp}.json`);
     if (!(await exists(file))) pending.push({ seed, file });
   }
   const concurrency = Math.min(8, Math.max(1, cpus().length - 2));
@@ -363,7 +366,7 @@ async function runWorkers(years: number, numSeeds: number): Promise<SeedResult[]
 
   const results: SeedResult[] = [];
   for (const seed of seeds) {
-    const file = resolve(GOAT_DIR, `${seed}-${years}.json`);
+    const file = resolve(GOAT_DIR, `${seed}-${years}-${stamp}.json`);
     results.push(JSON.parse(await readFile(file, 'utf8')) as SeedResult);
   }
   return results;
@@ -372,7 +375,7 @@ async function runWorkers(years: number, numSeeds: number): Promise<SeedResult[]
 async function workerMain(seed: string, years: number): Promise<void> {
   const { records, composition } = await simulateTopOfDraft(seed, years, 10);
   await mkdir(GOAT_DIR, { recursive: true });
-  const file = resolve(GOAT_DIR, `${seed}-${years}.json`);
+  const file = resolve(GOAT_DIR, `${seed}-${years}-${engineBuildStamp()}.json`);
   await writeFile(file, JSON.stringify({ seed, years, records, composition } satisfies SeedResult));
 }
 

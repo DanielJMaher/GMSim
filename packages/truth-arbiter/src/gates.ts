@@ -18,6 +18,11 @@ import { dirname, resolve } from 'node:path';
  * (e.g. the Liquidator's compressed QB top pending cap-aware generation).
  * The exit code is non-zero only when an agent itself errors, so this can
  * sit in a script chain without false-failing on a known residual.
+ *
+ * Deliberately NOT wired: the Goatinator (25-40 min even at modest sizes —
+ * run it detached when a slice touches the draft), the Barterer (gates
+ * wiring is its open slice 3), and the voice agents (scribe/narrator are
+ * qualitative calibration lenses, not pass/fail gates).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -98,7 +103,10 @@ const GATES: readonly Gate[] = [
   },
 ];
 
-/** Markers the agents print next to a metric that missed its target. */
+/** Markers the agents print next to a metric that missed its target.
+ *  Gates counts drift by these EXACT strings — an agent that invents a new
+ *  marker style is silently uncounted here. Add new markers to this pattern
+ *  in the same slice that introduces them. */
 const FLAG_PATTERN = /<-- (DRIFT|OFF|TOO MANY|TOO LOOSE|NOT NEGATIVE ENOUGH|SPURIOUSLY LINKED)/g;
 
 interface GateResult {

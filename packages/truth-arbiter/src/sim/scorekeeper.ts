@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { DATA_DIR } from '../lib/config.js';
+import { DATA_DIR, engineBuildStamp } from '../lib/config.js';
 import { csvNum, csvRows } from '../lib/csv.js';
 import { simulateBoxScores, type SkSimResult } from '../lib/engine-bridge.js';
 
@@ -45,6 +45,12 @@ const teamWeekUrl = (y: number): string =>
 const teamWeekPath = (y: number): string => resolve(DATA_DIR, `stats_team_week_${y}.csv`);
 const SK_DIR = resolve(DATA_DIR, 'scorekeeper');
 
+/** Real-bar window (nflverse REG team-weeks). Era note: the window straddles
+ *  the 2024 dynamic-kickoff rules change; per the W1 modern-rules decision
+ *  (2026-07-11) MODERN football is the spec — any re-derived or ST-adjacent
+ *  bar gets a 2024-25-window cross-check and an era stamp. Don't re-base
+ *  these bars without Daniel's sign-off (it re-bases every historical
+ *  calibration claim). */
 const START_YEAR = 2011;
 const END_YEAR = 2025;
 /** Pythagorean exponent (Football Outsiders convention). */
@@ -92,9 +98,12 @@ interface Bar {
   attempts: DistStat;
   compPct: number;
   sacksSuffered: number;
-  /** INTs + lost fumbles on the real side; GMSim's box `turnovers` is
-   *  INTs-thrown only (drive sim doesn't attribute fumbles) — compare
-   *  against `ints`, not this. */
+  /** INTs + lost fumbles on the real side; GMSim's box `turnovers` is still
+   *  INTs-thrown only — the drive sim DOES attribute ball-carrier fumbles to
+   *  player lines since P4b/v0.183, but the team box doesn't fold them in
+   *  yet (measurement-audit upgrade: aggregate player fumblesLost in the
+   *  bridge and add a true-giveaways row) — compare against `ints`, not
+   *  this. */
   giveaways: number;
   /** Interceptions-thrown only — the apples-to-apples giveaway bar. */
   ints: number;
@@ -299,11 +308,14 @@ interface SeedResult {
 
 async function runWorkers(years: number, numSeeds: number): Promise<SeedResult[]> {
   await mkdir(SK_DIR, { recursive: true });
+  // Cache keyed seed + years + engine build stamp — a cache written by a
+  // different engine build can never be silently reused.
+  const stamp = engineBuildStamp();
   const seeds = Array.from({ length: numSeeds }, (_, i) => `sk-${i + 1}`);
   const entry = fileURLToPath(import.meta.url);
   const pending = [];
   for (const seed of seeds) {
-    const file = resolve(SK_DIR, `${seed}-${years}.json`);
+    const file = resolve(SK_DIR, `${seed}-${years}-${stamp}.json`);
     if (!(await exists(file))) pending.push(seed);
   }
   const concurrency = Math.min(8, Math.max(1, cpus().length - 2));
@@ -337,7 +349,7 @@ async function runWorkers(years: number, numSeeds: number): Promise<SeedResult[]
 
   const results: SeedResult[] = [];
   for (const seed of seeds) {
-    const file = resolve(SK_DIR, `${seed}-${years}.json`);
+    const file = resolve(SK_DIR, `${seed}-${years}-${stamp}.json`);
     results.push(JSON.parse(await readFile(file, 'utf8')) as SeedResult);
   }
   return results;
@@ -347,7 +359,7 @@ async function workerMain(seed: string, years: number): Promise<void> {
   const result = await simulateBoxScores(seed, years);
   await mkdir(SK_DIR, { recursive: true });
   await writeFile(
-    resolve(SK_DIR, `${seed}-${years}.json`),
+    resolve(SK_DIR, `${seed}-${years}-${engineBuildStamp()}.json`),
     JSON.stringify({ seed, years, result } satisfies SeedResult),
   );
 }
@@ -491,10 +503,16 @@ function reportCompare(real: Bar, sim: Bar): void {
     );
   }
   console.log(
-    '\n  notes: GMSim box "giveaways" are INTs only (drive sim does not attribute',
+    '\n  notes: GMSim box "giveaways" are INTs only (player fumblesLost exists',
   );
   console.log(
-    '  fumbles to players) — compared against the real INT-only bar. The W-L',
+    '  since v0.183 but is not folded into the team box yet) — compared against',
+  );
+  console.log(
+    '  the real INT-only bar. The W-L giveaway delta is INT-only on the sim side',
+  );
+  console.log(
+    '  vs INT+fumble on the real side (known asymmetry, 2026-07-12). The W-L',
   );
   console.log(
     '  coupling is the game-script signature: winners out-rush losers late;',

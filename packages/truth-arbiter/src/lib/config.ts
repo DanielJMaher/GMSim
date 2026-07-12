@@ -1,10 +1,50 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /** Package root (…/packages/truth-arbiter). */
 export const PACKAGE_ROOT = resolve(__dirname, '..', '..');
+
+/** …/packages/engine — the build the sim agents import. */
+const ENGINE_ROOT = resolve(PACKAGE_ROOT, '..', 'engine');
+
+/**
+ * Identity of the engine build the agents simulate against — baked into
+ * sim-cache filenames so a cache written by a DIFFERENT engine can never be
+ * silently reused (2026-07-09: `${seed}-${years}`-keyed caches survived an
+ * engine change and produced a fully invalid Scorekeeper verdict).
+ *
+ * Version alone isn't enough — a slice edits the engine long before its
+ * release bumps package.json — so the stamp also folds in the newest mtime
+ * across dist/**\/*.js (the engine build is composite/incremental: only
+ * changed files re-emit, so the NEWEST mtime moves iff the build changed).
+ * Old-format cache files are simply never matched again; the dirs are
+ * disposable.
+ */
+export function engineBuildStamp(): string {
+  const pkg = JSON.parse(readFileSync(resolve(ENGINE_ROOT, 'package.json'), 'utf8')) as {
+    version: string;
+  };
+  let newest = 0;
+  const walk = (dir: string): void => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = resolve(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith('.js')) {
+        const m = statSync(p).mtimeMs;
+        if (m > newest) newest = m;
+      }
+    }
+  };
+  try {
+    walk(resolve(ENGINE_ROOT, 'dist'));
+  } catch {
+    throw new Error(`engine dist not found — build the engine first (${ENGINE_ROOT})`);
+  }
+  return `v${pkg.version}-b${Math.round(newest).toString(36)}`;
+}
 
 /** All scraped + derived artifacts live here (git-ignored). */
 export const DATA_DIR = resolve(PACKAGE_ROOT, 'data');

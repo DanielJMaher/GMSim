@@ -173,8 +173,10 @@ function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): Schedul
 
 /** Sum a team's emergent player lines into its conventional box score.
  *  `sacks` = defensive sacks the team generated; `turnovers` = offensive
- *  giveaways (INTs thrown; the drive sim doesn't attribute fumbles to a
- *  player, so this slightly undercounts — acceptable for the box score). */
+ *  giveaways, INTs thrown ONLY — player lines carry ball-carrier
+ *  `fumblesLost` (P4b), but folding them in changes `turnovers` semantics
+ *  for every consumer, so the team box stays INT-only until the
+ *  measurement audit re-bases it deliberately. */
 function teamStatsFromLines(
   team: TeamState,
   stats: Map<string, PlayerStatLine>,

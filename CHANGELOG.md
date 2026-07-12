@@ -14,6 +14,41 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ---
 
+## [0.184.2] — 2026-07-12
+
+### Fixed
+
+- **Agent sim caches are now engine-build-stamped — stale caches are
+  structurally impossible.** The Goatinator and Scorekeeper seed caches were
+  keyed `${seed}-${years}` only; they could not know the engine changed, and
+  on 2026-07-09 a validation run silently reused three-day-old caches and
+  produced a fully invalid verdict. Cache filenames now carry
+  `engineBuildStamp()` (`lib/config.ts`): engine package version + the newest
+  mtime across `dist/**/*.js` — stronger than version alone, which goes stale
+  again the moment a slice edits the engine before its release bump (the
+  engine build is composite/incremental, so the newest mtime moves iff the
+  build changed). Old-format files are simply never matched; the dirs stay
+  disposable. Smoke-verified: with 12 old-format caches present, a fresh
+  `scorekeeper sim 2 4` re-simulated all 4 seeds and wrote stamped files.
+
+### Documentation
+
+- **Measurement-layer honesty pass (from the 2026-07-12 fleet review).** The
+  Magistrate's `BAR` block now carries full provenance plus the plays/drive
+  counting caveat in-file (scrimmage-only 5.5 bar vs sim drive-log plays that
+  include kick snaps/kneels — subtract ~0.5 before trusting a flag; fix is
+  Charter 1). The Scorekeeper's stale "drive sim doesn't attribute fumbles"
+  notes are corrected (player `fumblesLost` exists since v0.183; the team box
+  is still INT-only) and its printed notes now name the W-L giveaway-delta
+  asymmetry (sim INT-only vs real INT+fumble). Era stamps added per the W1
+  modern-rules decision (both real-bar windows straddle the 2024
+  dynamic-kickoff change). `gates.ts` documents why Goatinator/Barterer/voice
+  agents aren't wired and that FLAG_PATTERN counts drift by exact marker
+  strings. Engine `outcome.ts` box-score comment updated to state the
+  INT-only `turnovers` constraint honestly. No agent verdict logic changed.
+
+---
+
 ## [0.184.1] — 2026-07-10
 
 ### Fixed

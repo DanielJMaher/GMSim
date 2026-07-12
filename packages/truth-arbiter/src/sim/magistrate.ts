@@ -4,7 +4,22 @@ import { DATA_DIR } from '../lib/config.js';
 import { splitCsvLine, csvNum } from '../lib/csv.js';
 import { simulateDriveLogs, type SimDrive } from '../lib/engine-bridge.js';
 
-/** Locked real-NFL drive bar (2015-2024, 61,493 drives) — what the sim must hit. */
+/** Locked real-NFL drive bar — what the sim must hit.
+ *
+ *  Provenance: nflverse pbp 2015-2024, 61,493 drives (the no-arg real-side
+ *  run of this file). Era: all but the last season predate the 2024
+ *  dynamic-kickoff change; per the W1 modern-rules decision (2026-07-11) any
+ *  re-derived bar gets a 2024-25-window cross-check and an era stamp. Bar
+ *  VALUE changes need Daniel's sign-off.
+ *
+ *  COUNTING CAVEAT (measurement-audit finding, unfixed): `playsPerDrive` 5.5
+ *  is SCRIMMAGE-ONLY (real 62.7 pass+run plays/team-game ÷ 11.4 drives), but
+ *  the sim row below feeds drive-log `plays`, which INCLUDE the 4th-down
+ *  kick snap and kneel-outs — apples-to-apples subtract ~0.5 from the sim
+ *  number before trusting a flag on that row. (nflverse drive_play_count,
+ *  incl. penalties/kicks, reads 5.87 — a third convention; reconciled by
+ *  `_drive_len_bars.mjs`, 2026-07-10.) The fix — one convention on both
+ *  sides — is Charter 1 of the measurement audit. */
 const BAR = {
   outcomePct: { TD: 21.7, FG: 14.6, 'Missed FG': 2.6, Punt: 37.2, Turnover: 11.5, Downs: 4.7, Safety: 0.3, 'End of half/game': 7.4 } as Record<string, number>,
   pointsPerDrive: 1.95,
