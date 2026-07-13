@@ -12,14 +12,13 @@ import { simulateDriveLogs, type SimDrive } from '../lib/engine-bridge.js';
  *  re-derived bar gets a 2024-25-window cross-check and an era stamp. Bar
  *  VALUE changes need Daniel's sign-off.
  *
- *  COUNTING CAVEAT (measurement-audit finding, unfixed): `playsPerDrive` 5.5
- *  is SCRIMMAGE-ONLY (real 62.7 pass+run plays/team-game ÷ 11.4 drives), but
- *  the sim row below feeds drive-log `plays`, which INCLUDE the 4th-down
- *  kick snap and kneel-outs — apples-to-apples subtract ~0.5 from the sim
- *  number before trusting a flag on that row. (nflverse drive_play_count,
- *  incl. penalties/kicks, reads 5.87 — a third convention; reconciled by
- *  `_drive_len_bars.mjs`, 2026-07-10.) The fix — one convention on both
- *  sides — is Charter 1 of the measurement audit. */
+ *  PLAYS/DRIVE CONVENTION (Charter 1 fix, 2026-07-13): `playsPerDrive` 5.5 is
+ *  SCRIMMAGE-ONLY (real 62.7 pass+run plays/team-game ÷ 11.4 drives). The sim
+ *  side now matches it — `scrimmagePlays()` strips the 4th-down kick snap
+ *  (one per PUNT/FG/MISSED_FG) and the synthetic END_HALF kneel plays from
+ *  the drive-log `plays` count, so both sides count pass/run/sack plays only.
+ *  (nflverse drive_play_count incl. penalties/kicks reads 5.87 — a third
+ *  convention; reconciled by `_drive_len_bars.mjs`, 2026-07-10.) */
 const BAR = {
   outcomePct: { TD: 21.7, FG: 14.6, 'Missed FG': 2.6, Punt: 37.2, Turnover: 11.5, Downs: 4.7, Safety: 0.3, 'End of half/game': 7.4 } as Record<string, number>,
   pointsPerDrive: 1.95,
@@ -166,6 +165,21 @@ function pointsPerDrive(outcomes: Record<string, number>, drives: number): numbe
   return drives ? pts / drives : 0;
 }
 
+/** Scrimmage (pass/run/sack) plays on a sim drive — apples-to-apples with the
+ *  real BAR.playsPerDrive (pass+run plays/team-game ÷ drives, scrimmage-only).
+ *  The engine drive log's `plays` also counts the 4th-down kick snap (exactly
+ *  one per PUNT/FG/MISSED_FG — drive-sim.ts does `plays++` before the kick) and
+ *  END_HALF markers carry synthetic kneel plays with no scrimmage detail; both
+ *  are stripped here so the plays/drive row compares one convention on both
+ *  sides (measurement audit, Charter 1). */
+function scrimmagePlays(d: SimDrive): number {
+  if (d.result === 'END_HALF') return 0;
+  if (d.result === 'PUNT' || d.result === 'FG' || d.result === 'MISSED_FG') {
+    return Math.max(0, d.plays - 1);
+  }
+  return d.plays;
+}
+
 /** Engine DriveResult token → bar bucket. */
 function simBucket(result: string): string {
   switch (result) {
@@ -193,10 +207,13 @@ async function reportSim(numGames: number): Promise<void> {
   for (const d of drives) {
     const b = simBucket(d.result);
     buckets[b] = (buckets[b] ?? 0) + 1;
-    plays += d.plays;
+    plays += scrimmagePlays(d);
     yards += d.yards;
+    // Match the real pointsPerDrive() formula exactly (TD+XP avg, FG, and the
+    // defensive safety it credits to the drive).
     if (d.result === 'TD') pts += 6.95;
     else if (d.result === 'FG') pts += 3;
+    else if (d.result === 'SAFETY') pts += 2;
   }
 
   const order = ['TD', 'FG', 'Missed FG', 'Punt', 'Turnover', 'Downs', 'Safety', 'End of half/game'];

@@ -98,14 +98,12 @@ interface Bar {
   attempts: DistStat;
   compPct: number;
   sacksSuffered: number;
-  /** INTs + lost fumbles on the real side; GMSim's box `turnovers` is still
-   *  INTs-thrown only — the drive sim DOES attribute ball-carrier fumbles to
-   *  player lines since P4b/v0.183, but the team box doesn't fold them in
-   *  yet (measurement-audit upgrade: aggregate player fumblesLost in the
-   *  bridge and add a true-giveaways row) — compare against `ints`, not
-   *  this. */
+  /** True giveaways: INTs + lost fumbles, on BOTH sides. The sim side folds in
+   *  ball-carrier fumbles the drive sim attributes to player lines since
+   *  P4b/v0.183 (aggregated in the bridge, Charter 1) — apples-to-apples with
+   *  the real INT+fumble figure. */
   giveaways: number;
-  /** Interceptions-thrown only — the apples-to-apples giveaway bar. */
+  /** Interceptions-thrown only — the narrower INT bar, both sides. */
   ints: number;
   homeWinPct: number;
   /** Season wins normalized to 17 games (ties = 0.5). */
@@ -380,7 +378,8 @@ function computeSimBar(results: SeedResult[]): Bar {
   let compSum = 0;
   let attSum = 0;
   let sacksSum = 0;
-  let givSum = 0;
+  let intSum = 0;
+  let givSum = 0; // true giveaways: INTs thrown + ball-carrier fumbles lost
   const winSide = {
     pass: [0, 0] as [number, number],
     rush: [0, 0] as [number, number],
@@ -389,6 +388,7 @@ function computeSimBar(results: SeedResult[]): Bar {
     ln: 0,
   };
   for (const g of games) {
+    const trueGiveaways = g.giveaways + g.fumblesLost;
     if (g.points !== g.oppPoints) {
       if (g.home) {
         decided++;
@@ -397,14 +397,15 @@ function computeSimBar(results: SeedResult[]): Bar {
       const w = g.points > g.oppPoints;
       winSide.pass[w ? 0 : 1] += g.passYds;
       winSide.rush[w ? 0 : 1] += g.rushYds;
-      winSide.giv[w ? 0 : 1] += g.giveaways;
+      winSide.giv[w ? 0 : 1] += trueGiveaways;
       if (w) winSide.wn++;
       else winSide.ln++;
     }
     compSum += g.passCompletions;
     attSum += g.passAttempts;
     sacksSum += g.sacksSuffered;
-    givSum += g.giveaways;
+    intSum += g.giveaways;
+    givSum += trueGiveaways;
   }
   const wins17: number[] = [];
   const pythErr: number[] = [];
@@ -423,8 +424,8 @@ function computeSimBar(results: SeedResult[]): Bar {
     attempts: dist(games.map((g) => g.passAttempts)),
     compPct: (100 * compSum) / Math.max(1, attSum),
     sacksSuffered: sacksSum / Math.max(1, games.length),
-    giveaways: givSum / Math.max(1, games.length),
-    ints: givSum / Math.max(1, games.length), // GMSim box turnovers ARE the INTs
+    giveaways: givSum / Math.max(1, games.length), // INT + fumble (true giveaways)
+    ints: intSum / Math.max(1, games.length), // INT-only (box turnovers)
     homeWinPct: (100 * homeWins) / Math.max(1, decided),
     wins17: dist(wins17),
     pythRmse: Math.sqrt(pythErr.reduce((a, b) => a + b * b, 0) / Math.max(1, pythErr.length)),
@@ -482,6 +483,7 @@ function reportCompare(real: Bar, sim: Bar): void {
     { label: 'completion %', real: real.compPct, sim: sim.compPct, lo: real.compPct - 3, hi: real.compPct + 3 },
     { label: 'sacks suffered', real: real.sacksSuffered, sim: sim.sacksSuffered, lo: real.sacksSuffered - 0.8, hi: real.sacksSuffered + 0.8 },
     { label: 'INTs thrown/game', real: real.ints, sim: sim.ints, lo: real.ints - 0.35, hi: real.ints + 0.35 },
+    { label: 'giveaways/game', real: real.giveaways, sim: sim.giveaways, lo: real.giveaways - 0.4, hi: real.giveaways + 0.4 },
     { label: 'home win %', real: real.homeWinPct, sim: sim.homeWinPct, lo: real.homeWinPct - 5, hi: real.homeWinPct + 5 },
     { label: 'season wins sd', real: real.wins17.sd, sim: sim.wins17.sd, lo: real.wins17.sd - 0.9, hi: real.wins17.sd + 0.9 },
     { label: 'season wins p5', real: real.wins17.p5, sim: sim.wins17.p5, lo: real.wins17.p5 - 2, hi: real.wins17.p5 + 2 },
@@ -503,21 +505,21 @@ function reportCompare(real: Bar, sim: Bar): void {
     );
   }
   console.log(
-    '\n  notes: GMSim box "giveaways" are INTs only (player fumblesLost exists',
+    '\n  notes: giveaways are true (INT + ball-carrier fumbles lost) on BOTH',
   );
   console.log(
-    '  since v0.183 but is not folded into the team box yet) — compared against',
+    '  sides now — the bridge aggregates the player fumblesLost the drive sim',
   );
   console.log(
-    '  the real INT-only bar. The W-L giveaway delta is INT-only on the sim side',
+    '  attributes since v0.183 (Charter 1, 2026-07-13); the "INTs thrown/game"',
   );
   console.log(
-    '  vs INT+fumble on the real side (known asymmetry, 2026-07-12). The W-L',
+    '  row keeps the narrower INT-only comparison. The W-L coupling is the',
   );
   console.log(
-    '  coupling is the game-script signature: winners out-rush losers late;',
+    '  game-script signature: winners out-rush losers late; pass volume must',
   );
-  console.log('  pass volume must NOT strongly predict winning.');
+  console.log('  NOT strongly predict winning.');
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────

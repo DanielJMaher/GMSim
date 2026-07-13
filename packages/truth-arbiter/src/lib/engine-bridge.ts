@@ -1346,7 +1346,11 @@ export interface SkTeamGame {
   rushYds: number;
   passAttempts: number;
   passCompletions: number;
+  /** Interceptions thrown (the team box `turnovers`, INT-only). */
   giveaways: number;
+  /** Ball-carrier fumbles lost, summed from the player lines (P4b/v0.183) —
+   *  lets the Scorekeeper build a true (INT+fumble) giveaways figure. */
+  fumblesLost: number;
   sacksSuffered: number;
 }
 
@@ -1373,6 +1377,7 @@ interface SkStatLine {
   passCompletions: number;
   passingYards: number;
   receivingYards: number;
+  fumblesLost: number;
 }
 interface SkTeamStats {
   passingYards: number;
@@ -1419,14 +1424,15 @@ export async function simulateBoxScores(seed: string, years: number): Promise<Sk
       const r = g.result;
       if (!r) continue;
 
-      const lineAgg = new Map<string, { att: number; comp: number; pass: number; recv: number }>();
+      const lineAgg = new Map<string, { att: number; comp: number; pass: number; recv: number; fum: number }>();
       for (const l of r.playerStats ?? []) {
         const tid = l.teamId ?? '';
-        const a = lineAgg.get(tid) ?? { att: 0, comp: 0, pass: 0, recv: 0 };
+        const a = lineAgg.get(tid) ?? { att: 0, comp: 0, pass: 0, recv: 0, fum: 0 };
         a.att += l.passAttempts;
         a.comp += l.passCompletions;
         a.pass += l.passingYards;
         a.recv += l.receivingYards;
+        a.fum += l.fumblesLost;
         lineAgg.set(tid, a);
       }
 
@@ -1436,7 +1442,7 @@ export async function simulateBoxScores(seed: string, years: number): Promise<Sk
         const oppTs = home ? r.awayStats : r.homeStats;
         const points = home ? r.homeScore : r.awayScore;
         const oppPoints = home ? r.awayScore : r.homeScore;
-        const lines = lineAgg.get(tid) ?? { att: 0, comp: 0, pass: 0, recv: 0 };
+        const lines = lineAgg.get(tid) ?? { att: 0, comp: 0, pass: 0, recv: 0, fum: 0 };
         if (lines.pass !== lines.recv) doubleEntryViolations++;
 
         games.push({
@@ -1450,6 +1456,7 @@ export async function simulateBoxScores(seed: string, years: number): Promise<Sk
           passAttempts: lines.att,
           passCompletions: lines.comp,
           giveaways: ts.turnovers,
+          fumblesLost: lines.fum,
           sacksSuffered: oppTs.sacks,
         });
 
