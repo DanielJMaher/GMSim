@@ -31,6 +31,9 @@ export interface PlayerGameStats {
   passCompletions: number;
   passingYards: number;
   passingTds: number;
+  /** Completions of 20+ yards (the explosive-play bar; C1: real 6.86–10.16%
+   *  of attempts by team quality). */
+  explosiveCompletions: number;
   interceptionsThrown: number;
 
   // ── Rushing ────────────────────────────────────────────────────
@@ -90,6 +93,7 @@ export function emptyPlayerGameStats(playerId: PlayerId, teamId?: TeamId): Playe
     passCompletions: 0,
     passingYards: 0,
     passingTds: 0,
+    explosiveCompletions: 0,
     interceptionsThrown: 0,
     rushingAttempts: 0,
     rushingYards: 0,

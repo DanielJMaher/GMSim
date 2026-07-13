@@ -129,6 +129,7 @@ function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): Schedul
     g.passCompletions = l.passCompletions;
     g.passingYards = l.passingYards;
     g.passingTds = l.passingTds;
+    g.explosiveCompletions = l.explosiveCompletions;
     g.interceptionsThrown = l.interceptionsThrown;
     g.rushingAttempts = l.rushingAttempts;
     g.rushingYards = l.rushingYards;

@@ -12,6 +12,22 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Changed
+
+- **Code-review cleanup (7 banked findings, no behavior change).** From the
+  2026-07-10 review of the v0.179–v0.184.1 batch: the drive-sim completion
+  path now has a single exit (RZ and mixture branches only select the gain —
+  PRNG draw order preserved); the explosive-attribution threshold uses
+  `EXPLOSIVE_MIN_YDS` instead of a bare `20`; `ROUTINE_COMPLETION_SD` was
+  renamed `RZ_COMP_SD_CAP` (it caps red-zone throw sd, not open-field) and
+  moved beside the other `RZ_COMP_SD_*` constants; a stale mixture comment
+  was corrected; and the Game Lab aggregate table is now data-driven (one
+  row renderer, dead cast removed, drive-mix total hoisted out of the map).
+- **`explosiveCompletions` (20+ yard completions) is now a season stat.** It
+  was emitted per game but dropped at the `PlayerGameStats` boundary; it now
+  plumbs through to season and career accumulation like every other passing
+  stat.
+
 ---
 
 ## [0.184.2] — 2026-07-12

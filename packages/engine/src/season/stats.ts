@@ -65,6 +65,7 @@ function aggregateSeasonStats(
       cur.passCompletions += line.passCompletions;
       cur.passingYards += line.passingYards;
       cur.passingTds += line.passingTds;
+      cur.explosiveCompletions += line.explosiveCompletions;
       cur.interceptionsThrown += line.interceptionsThrown;
       cur.rushingAttempts += line.rushingAttempts;
       cur.rushingYards += line.rushingYards;

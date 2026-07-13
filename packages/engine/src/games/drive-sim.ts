@@ -54,8 +54,7 @@ export interface PlayerStatLine {
   passingYards: number;
   passingTds: number;
   /** Completions of 20+ yards (the explosive-play bar; C1: real 6.86–10.16%
-   *  of attempts by team quality). Game-level instrumentation — not part of
-   *  PlayerSeasonStats. */
+   *  of attempts by team quality). */
   explosiveCompletions: number;
   interceptionsThrown: number;
   rushingAttempts: number;
@@ -188,7 +187,6 @@ const YDS_PER_COMPLETION = 11.5;
 // is exactly YDS_PER_COMPLETION + passEdge·0.05 (+ the recenter below) for
 // every edge — K_comp (real, earned quality per C1), ∂YPA/∂edge,
 // points-per-edge, and the #1-QB pipeline are all untouched.
-const ROUTINE_COMPLETION_SD = 5; // red-zone compressed-throw sd cap (see RZ_*)
 const BODY_SHIFT = 2; // body = Gamma(3, θ) − 2 (real ≤0-yd completions exist)
 const BODY_K = 3; // gamma shape — k=3 matches the real low half (the stall mass)
 const BODY_CAP = 19; // body capped below 20: ALL 20+ flows through the explosive channel, so level and quality-scaling are set exactly by EXPLOSIVE_*; k=4 (tail-tight, no cap) re-converted too much — punts fell to 34
@@ -291,6 +289,7 @@ const RZ_COMP_BASE = 3.0; // completion mean line: min(mixture target, BASE + SL
 const RZ_COMP_SLOPE = 0.9; // v0.184 joint recal: 0.55→0.9 — tighter slopes ground 4-6 plays per RZ crossing (real ~3), inflating plays/drive and starving drives/game → points at the floor. The TILT decouples; compression only needs to cap the QB edge near the goal.
 const RZ_COMP_SD_FLOOR = 2;
 const RZ_COMP_SD_SLOPE = 0.6; // completion sd compresses toward the goal too
+const RZ_COMP_SD_CAP = 5; // upper bound on the red-zone compressed-throw sd
 const RZ_RUN_BASE = 3.0; // run mean line: min(normal, BASE + SLOPE·dtg) — light, keeps runs explosive
 const RZ_RUN_SLOPE = 0.7; // 0.45→0.7 with the comp slope (same play-count reasoning)
 
@@ -508,9 +507,8 @@ function resolvePlay(
       return { isPass, gain: 0, kind: 'int' };
     }
     if (prng.next() < clamp(BASE_COMPLETION + (late ? DOWN_COMP_LATE : DOWN_COMP_EARLY) + ctx.passEdge * 0.004, 0.45, 0.82)) {
-      // Explosiveness-via-variance mixture (C3): checkdown mass + routine
-      // core + a passEdge-scaled chunk-play tail, mean-neutral per edge
-      // (see constants).
+      // Explosiveness-via-variance mixture (C3): a real-shaped Gamma body +
+      // a passEdge-scaled chunk-play tail, mean-neutral per edge (see constants).
       const targetMean = YDS_PER_COMPLETION + ctx.passEdge * 0.05 + EXPLOSIVE_RECENTER;
       // Red-zone compression (v0.184): near the goal the throw is short and
       // passEdge-capped; the C3 mixture is bypassed (no chunk plays inside
@@ -518,24 +516,24 @@ function resolvePlay(
       const rzMean = RZ_COMP_BASE + RZ_COMP_SLOPE * distToGoal;
       let gain: number;
       if (rzMean < targetMean) {
-        const sd = Math.min(ROUTINE_COMPLETION_SD, Math.max(RZ_COMP_SD_FLOOR, distToGoal * RZ_COMP_SD_SLOPE));
+        const sd = clamp(distToGoal * RZ_COMP_SD_SLOPE, RZ_COMP_SD_FLOOR, RZ_COMP_SD_CAP);
         gain = Math.round(prng.normal(rzMean, sd));
         if (gain < -3) gain = -3;
-        return { isPass, gain, kind: 'complete' };
-      }
-      const pBig = clamp(EXPLOSIVE_BASE + ctx.passEdge * EXPLOSIVE_EDGE_K, 0.02, 0.3);
-      if (prng.next() < pBig) {
-        gain = Math.min(
-          EXPLOSIVE_MAX_YDS,
-          Math.round(EXPLOSIVE_MIN_YDS - EXPLOSIVE_TAIL_MEAN * Math.log(1 - prng.next())),
-        );
       } else {
-        // Real-shaped body: Gamma(BODY_K, θ) − BODY_SHIFT, θ solved mean-neutral.
-        const bodyMean = (targetMean - pBig * EXPLOSIVE_MEAN) / (1 - pBig);
-        const theta = (bodyMean + BODY_SHIFT) / BODY_K;
-        let u = 1;
-        for (let i = 0; i < BODY_K; i++) u *= prng.next();
-        gain = Math.min(BODY_CAP, Math.round(-theta * Math.log(u || Number.MIN_VALUE) - BODY_SHIFT));
+        const pBig = clamp(EXPLOSIVE_BASE + ctx.passEdge * EXPLOSIVE_EDGE_K, 0.02, 0.3);
+        if (prng.next() < pBig) {
+          gain = Math.min(
+            EXPLOSIVE_MAX_YDS,
+            Math.round(EXPLOSIVE_MIN_YDS - EXPLOSIVE_TAIL_MEAN * Math.log(1 - prng.next())),
+          );
+        } else {
+          // Real-shaped body: Gamma(BODY_K, θ) − BODY_SHIFT, θ solved mean-neutral.
+          const bodyMean = (targetMean - pBig * EXPLOSIVE_MEAN) / (1 - pBig);
+          const theta = (bodyMean + BODY_SHIFT) / BODY_K;
+          let u = 1;
+          for (let i = 0; i < BODY_K; i++) u *= prng.next();
+          gain = Math.min(BODY_CAP, Math.round(-theta * Math.log(u || Number.MIN_VALUE) - BODY_SHIFT));
+        }
       }
       return { isPass, gain, kind: 'complete' };
     }
@@ -880,7 +878,7 @@ function simulateDrive(
             const q = line(attr.stats, passer);
             q.passCompletions += 1;
             q.passingYards += pr.gain;
-            if (pr.gain >= 20) q.explosiveCompletions += 1;
+            if (pr.gain >= EXPLOSIVE_MIN_YDS) q.explosiveCompletions += 1;
             if (recvId) {
               const r = line(attr.stats, recvId);
               r.receptions += 1;

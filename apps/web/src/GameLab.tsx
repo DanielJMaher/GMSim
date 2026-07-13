@@ -352,9 +352,10 @@ function AggregateView({ league }: { league: LeagueState }) {
       setBusy(false);
     }, 10);
   };
-  const per = (s: SideAgg, field: keyof SideAgg) => (s.n ? (s[field] as number) / s.n : 0);
+  const per = (s: SideAgg, field: keyof SideAgg) => (s.n ? s[field] / s.n : 0);
   const ppd = (s: SideAgg) => (s.drives ? s.plays / s.drives : 0);
   const cp = (s: SideAgg) => (s.att ? (100 * s.comp) / s.att : 0);
+  const pct20 = (s: SideAgg) => (s.att ? (100 * s.expl) / s.att : 0);
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-xs">
@@ -379,42 +380,27 @@ function AggregateView({ league }: { league: LeagueState }) {
                 </tr>
               </thead>
               <tbody className="font-mono">
-                <tr className="border-t border-zinc-800/60">
-                  <td className="text-zinc-400">plays/drive</td>
-                  <td className="text-right text-zinc-200">{ppd(data.W).toFixed(2)}</td>
-                  <td className="text-right text-zinc-200">{ppd(data.L).toFixed(2)}</td>
-                  <td className="text-right"><Delta sim={ppd(data.W) - ppd(data.L)} real={0} /></td>
-                </tr>
-                <tr className="border-t border-zinc-800/60">
-                  <td className="text-zinc-400">pass yds/g</td>
-                  <td className="text-right text-zinc-200">{per(data.W, 'pass').toFixed(1)}</td>
-                  <td className="text-right text-zinc-200">{per(data.L, 'pass').toFixed(1)}</td>
-                  <td className="text-right"><Delta sim={per(data.W, 'pass') - per(data.L, 'pass')} real={REAL.passDelta} /></td>
-                </tr>
-                <tr className="border-t border-zinc-800/60">
-                  <td className="text-zinc-400">rush yds/g</td>
-                  <td className="text-right text-zinc-200">{per(data.W, 'rush').toFixed(1)}</td>
-                  <td className="text-right text-zinc-200">{per(data.L, 'rush').toFixed(1)}</td>
-                  <td className="text-right"><Delta sim={per(data.W, 'rush') - per(data.L, 'rush')} real={REAL.rushDelta} /></td>
-                </tr>
-                <tr className="border-t border-zinc-800/60">
-                  <td className="text-zinc-400">pass att/g</td>
-                  <td className="text-right text-zinc-200">{per(data.W, 'att').toFixed(1)}</td>
-                  <td className="text-right text-zinc-200">{per(data.L, 'att').toFixed(1)}</td>
-                  <td className="text-right"><Delta sim={per(data.W, 'att') - per(data.L, 'att')} real={REAL.attDelta} /></td>
-                </tr>
-                <tr className="border-t border-zinc-800/60">
-                  <td className="text-zinc-400">comp %</td>
-                  <td className="text-right text-zinc-200">{cp(data.W).toFixed(1)}</td>
-                  <td className="text-right text-zinc-200">{cp(data.L).toFixed(1)}</td>
-                  <td className="text-right"><Delta sim={cp(data.W) - cp(data.L)} real={REAL.compW - REAL.compL} /></td>
-                </tr>
-                <tr className="border-t border-zinc-800/60">
-                  <td className="text-zinc-400">20+ per att %</td>
-                  <td className="text-right text-zinc-200">{(data.W.att ? (100 * data.W.expl) / data.W.att : 0).toFixed(1)}</td>
-                  <td className="text-right text-zinc-200">{(data.L.att ? (100 * data.L.expl) / data.L.att : 0).toFixed(1)}</td>
-                  <td className="text-right text-[10px] text-zinc-500">real quality quartiles 6.9 → 10.2</td>
-                </tr>
+                {([
+                  { label: 'plays/drive', w: ppd(data.W), l: ppd(data.L), digits: 2, real: 0 },
+                  { label: 'pass yds/g', w: per(data.W, 'pass'), l: per(data.L, 'pass'), digits: 1, real: REAL.passDelta },
+                  { label: 'rush yds/g', w: per(data.W, 'rush'), l: per(data.L, 'rush'), digits: 1, real: REAL.rushDelta },
+                  { label: 'pass att/g', w: per(data.W, 'att'), l: per(data.L, 'att'), digits: 1, real: REAL.attDelta },
+                  { label: 'comp %', w: cp(data.W), l: cp(data.L), digits: 1, real: REAL.compW - REAL.compL },
+                  { label: '20+ per att %', w: pct20(data.W), l: pct20(data.L), digits: 1, note: 'real quality quartiles 6.9 → 10.2' },
+                ] as { label: string; w: number; l: number; digits: number; real?: number; note?: string }[]).map((r) => (
+                  <tr key={r.label} className="border-t border-zinc-800/60">
+                    <td className="text-zinc-400">{r.label}</td>
+                    <td className="text-right text-zinc-200">{r.w.toFixed(r.digits)}</td>
+                    <td className="text-right text-zinc-200">{r.l.toFixed(r.digits)}</td>
+                    <td className="text-right">
+                      {r.note !== undefined ? (
+                        <span className="text-[10px] text-zinc-500">{r.note}</span>
+                      ) : (
+                        <Delta sim={r.w - r.l} real={r.real ?? 0} />
+                      )}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -422,19 +408,21 @@ function AggregateView({ league }: { league: LeagueState }) {
           <div className="rounded border border-zinc-800 bg-zinc-950/40 p-2">
             <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-500">drive-outcome mix (sim % · real %)</div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 font-mono text-[11px]">
-              {[...data.mix.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .map(([res, count]) => {
-                  const total = [...data.mix.values()].reduce((s, x) => s + x, 0);
-                  const simPct = (100 * count) / total;
-                  const realPct = REAL_MIX[res];
-                  return (
-                    <span key={res} className={RESULT_STYLE[res as DriveResult]?.text ?? 'text-zinc-300'}>
-                      {RESULT_STYLE[res as DriveResult]?.label ?? res} {simPct.toFixed(1)}%
-                      {realPct !== undefined && <span className="text-zinc-500"> · {realPct.toFixed(1)}</span>}
-                    </span>
-                  );
-                })}
+              {(() => {
+                const total = [...data.mix.values()].reduce((s, x) => s + x, 0);
+                return [...data.mix.entries()]
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([res, count]) => {
+                    const simPct = (100 * count) / total;
+                    const realPct = REAL_MIX[res];
+                    return (
+                      <span key={res} className={RESULT_STYLE[res as DriveResult]?.text ?? 'text-zinc-300'}>
+                        {RESULT_STYLE[res as DriveResult]?.label ?? res} {simPct.toFixed(1)}%
+                        {realPct !== undefined && <span className="text-zinc-500"> · {realPct.toFixed(1)}</span>}
+                      </span>
+                    );
+                  });
+              })()}
             </div>
           </div>
         </>
