@@ -31,6 +31,8 @@
     "ndb": "tsc -p tsconfig.json && node dist/media/ndb.js",
     "ombudsman": "tsc -p tsconfig.json && node dist/media/ombudsman.js",
     "beast": "tsc -p tsconfig.json && node dist/corpus/beast.js",
+    "madden": "tsc -p tsconfig.json && node dist/corpus/madden.js",
+    "madden-attr-draft": "tsc -p tsconfig.json && node dist/corpus/madden-attr-draft.js",
     "pff": "tsc -p tsconfig.json && node dist/corpus/pff.js",
     "scribe": "tsc -p tsconfig.json && node dist/voice/scribe.js",
     "narrator": "tsc -p tsconfig.json && node dist/voice/narrator.js"
