@@ -15,3 +15,8 @@ coverage/
 .vitest-timings.json
 .vitest-progress.txt
 vitest-report*.json
+
+# Design docs are LOCAL-ONLY working copies (Daniel 2026-07-11) — authoritative
+# backups live in Google Drive; only the index is published.
+docs/design-docs/*.md
+!docs/design-docs/README.md
