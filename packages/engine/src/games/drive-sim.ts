@@ -235,7 +235,7 @@ const DOWN_SACK_LATE = 1.6; // 3rd/4th — the obvious-passing-down spike
 // INTs de-inflates the picks leaderboard without touching team turnovers.
 const INT_RATE = 0.027;
 const FUMBLE_LOST_RATE = 0.022;
-const KICKOFF_TOUCHBACK = 25; // own-25 touchback line (real post-kickoff start ~25.4)
+const KICKOFF_TOUCHBACK = 31; // MODERN dynamic-kickoff touchback spot (W1, 2026-07-13, Daniel-approved). Blend of 2024 (TB→own-30, 64% of KOs) + 2025 (TB→own-35, 21% of KOs) = own-31.2, `_w1_kickoff_era.mjs`. Was own-25 under OLD 2015-23 rules; the 2024-25 dynamic kickoff moved the mean receiving start own-25.4→own-30.2 and dropped the touchback rate 60%→42.5%. See kickoffReturn below.
 
 // ── Drive-extending defensive penalties (v0.158) ─────────────────────────
 // The geometric pass/run model has no penalties, so it under-sustains: real
@@ -974,10 +974,14 @@ interface GameOpts {
 // ── Field position after each drive (P1 rebuild, 2026-07-07) ─────────────────
 // The next possession no longer always starts at own 27; it starts from where
 // the prior drive ENDED, by transition type. Real bars (pbp 2015-24,
-// `_drive_start_bars.mjs`, 56,489 drives): kickoff own 25.4 (45% of drives) ·
+// `_drive_start_bars.mjs`, 56,489 drives): kickoff own 30.2 (48% of drives) ·
 // punt own 24.4 (38%) · INT own 47 · fumble own 53 · downs own 36 · missed-FG
 // own 36.5. Turnovers now hand out the short fields that produce points; punts
 // net real field position. Constants calibrated to those bars (`_fieldpos_probe`).
+// ERA NOTE (W1, 2026-07-13, Daniel-approved): the KICKOFF start is now MODERN —
+// own-30.2 / ~48% of drives (2024-25 dynamic kickoff, `_w1_kickoff_era.mjs`),
+// up from the OLD 2015-23 own-25.4 (see kickoffReturn). Punt/turnover/downs/
+// missed-FG spots are rules-STABLE and keep the large 2015-24 window.
 const NET_PUNT = 44; // gross ~45 − return, tuned to receiving start own ~24.4
 const NET_PUNT_SD = 8;
 const FREE_KICK_START = 42; // safety free-kick receiving start (rare)
@@ -1001,9 +1005,15 @@ const PUNT_NET_K = 0.15; // net-punt yards per punter-point over neutral
 const RETURN_NET_K = 0.13; // net-punt yards shaved per returner-point over neutral
 const KO_RETURN_K = 0.1; // kickoff-return start yards per returner-point over neutral
 
+// MODERN dynamic-kickoff model (2024-25, W1 2026-07-13, Daniel-approved). Replaces
+// the OLD 2015-23 model (70% TB to own-25, mean own-25.3). The 2024-25 dynamic
+// kickoff moved returns to the fore: touchback rate 60%→42.5%, touchback spot to
+// ~own-31, and the mean receiving start own-25.4→own-30.2 (`_w1_kickoff_era.mjs`).
+// Calibrated to the own-30.2 blend: 42% touchback to own-31, else a return centered
+// own-29 (+ the ~1.5% long-return tail) → overall mean ≈own-30.2.
 function kickoffReturn(prng: Prng, returnerRating = RETURNER_NEUTRAL): number {
-  if (prng.next() < 0.7) return KICKOFF_TOUCHBACK; // touchback (returner irrelevant)
-  const ret = Math.round(20 + prng.normal(6, 7) + (returnerRating - RETURNER_NEUTRAL) * KO_RETURN_K);
+  if (prng.next() < 0.42) return KICKOFF_TOUCHBACK; // touchback (returner irrelevant)
+  const ret = Math.round(23 + prng.normal(6, 7) + (returnerRating - RETURNER_NEUTRAL) * KO_RETURN_K);
   return clamp(ret + (prng.next() < 0.015 ? prng.nextRange(25, 60) : 0), 1, 99);
 }
 function puntReturn(fromPos: number, prng: Prng, punterRating = PUNTER_NEUTRAL, returnerRating = RETURNER_NEUTRAL): number {

@@ -14,6 +14,19 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Changed
 
+- **Modern dynamic-kickoff mechanics (W1 rules-era update, Daniel-approved).**
+  The kickoff model moved from OLD 2015-23 rules (70% touchback to own-25,
+  mean receiving start own-25.4) to the MODERN 2024-25 dynamic kickoff: 42%
+  touchback to own-31, else a return centered own-29, for a mean receiving
+  start **own-30.2** — matching the real 2024-25 bar (`_w1_kickoff_era.mjs`:
+  touchback rate 60%→42.5%, start own-25.4→own-30.2 across the dynamic-kickoff
+  seasons). Only `kickoffReturn` changed (the single chokepoint for opening,
+  post-score, and OT kickoffs). Downstream, all in band: Scorekeeper
+  points/game 22.4→23.2 (real 22.8, band ±2), W-L pass delta 22.1, rush delta
+  54.5, every box-score band zero-drift; Magistrate points/drive 2.02 (bar
+  1.95, tol ±0.2), scoring-drive% 37.1 (real 36.3). The field-position texture
+  is now modern; punt/turnover/downs/missed-FG spots stay on the rules-stable
+  2015-24 window.
 - **Code-review cleanup (7 banked findings, no behavior change).** From the
   2026-07-10 review of the v0.179–v0.184.1 batch: the drive-sim completion
   path now has a single exit (RZ and mixture branches only select the gain —
