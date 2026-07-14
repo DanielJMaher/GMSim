@@ -23,7 +23,7 @@ To fetch a doc, use the Google Drive MCP tool with the listed file ID.
 |---|---|---|
 | Living Voice — Scouting & Media as a Living, Non-Deterministic Layer | `docs/design-docs/LIVING_VOICE.md` | Authored 2026-06-05 (Daniel-directed). Read-to-learn blurb encoding, two-seed determinism split (world seed = players, voice seed = voice), Voice Pack corpus seam. Candidate to promote to Drive as authoritative. |
 | GM Hire/Fire & The Front-Office Lifecycle | `docs/design-docs/GM_HIRE_FIRE.md` | Authored 2026-06-11 (Daniel-directed, design before code). Real-NFL firing baselines (GM W/L sequences vs coach-firing timing), Black Monday evaluation, firing ladder (HC before GM, "his guy" coupling), hiring market, Headhunter calibration agent. Resolves Doc #8's in-season-firings open thread; implements Doc #9's rebuild triggers. |
-| Talent Spread — Expression-Scale Recalibration | `docs/design-docs/TALENT_SPREAD.md` | Authored 2026-07-13 (Fable; W-L pass-delta endgame). Wins-sd 2.6→3.3 via per-channel edge-response scaling to real team-separation bars; full probe-backed diagnosis (talent spread ½ real, luck at floor, shuffle-null 1.02, persistence 0.71 vs 0.57). Drive backup `12e84IL4agrD8bh5QjC5Kcq1PBYnfwe5g`. Status: awaiting Daniel sign-off. |
+| Talent Spread — Expression-Scale Recalibration | `docs/design-docs/TALENT_SPREAD.md` | Authored 2026-07-13 (Fable; W-L pass-delta endgame). Wins-sd 2.6→3.3 via per-channel edge-response scaling to real team-separation bars; full probe-backed diagnosis (talent spread ½ real, luck at floor, shuffle-null 1.02, persistence 0.71 vs 0.57). Drive backup `1Gwjlro6SC1-2PdUYawi3-wU9LzCIByU5` (supersedes `12e84IL4a…` — safe to trash). **APPROVED Daniel 2026-07-14** — cleared for implementation. |
 
 ## Phase 1 — Foundation
 
