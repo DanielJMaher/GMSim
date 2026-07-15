@@ -1,11 +1,31 @@
 # Design Docs Index
 
-Authoritative design lives in Google Drive (owner: `danieljmaher@gmail.com`).
-We read each module doc just-in-time when implementing the corresponding
-slice rather than mirroring full text into the repo — this avoids drift
-between repo copies and Drive originals when designs evolve.
+**Posture (Daniel, 2026-07-11 final): design docs are LOCAL-ONLY working copies,
+Google-Drive-backed, NOT published.** Only this `README.md` is tracked in git;
+every other `docs/design-docs/*.md` is gitignored (see `.gitignore`, committed
+`bc31e8e`/`d34cd52`). The docs still live on disk as working copies you edit
+in place — they're just not part of the published repo.
 
-To fetch a doc, use the Google Drive MCP tool with the listed file ID.
+Two tiers of design doc:
+
+1. **Authored working docs** (the ones we write and revise here — Living Voice,
+   GM Hire/Fire, the game-sim/talent-spread/Maddeninator design docs, the alpha
+   UI/scouting docs, …). These live on disk (gitignored) and are **byte-faithfully
+   backed up** to the Drive folder **"GMSim design-docs (repo backup)"**
+   (`1rvpwCeAUczv1u8bKMemGPXNLAOxuMpjC`). **RULE: any session that edits one of
+   these re-uploads it to that Drive folder in the same session** (gitignored files
+   are not in git — a clean clone or `git clean` loses local edits otherwise).
+2. **The original numbered corpus** (Phase 1–4 module docs, resolution & research
+   docs below). These are Drive-native Google Docs, read **just-in-time by file ID**
+   via the Google Drive MCP tool — deliberately not mirrored to the repo, to avoid
+   drift between a local copy and the evolving Drive original.
+
+**Fresh-clone note:** a clean clone has NO design docs on disk (they're gitignored).
+Pull the authored working docs from the Drive backup folder, and fetch numbered
+corpus docs just-in-time by file ID as needed.
+
+If a design doc and the code disagree, the code is wrong, or the doc needs an
+explicit revision (re-uploaded to Drive the same session).
 
 ---
 
@@ -17,7 +37,10 @@ To fetch a doc, use the Google Drive MCP tool with the listed file ID.
 | 1 | Living League: 32-Team Ecosystem | `1vDnynFESV5120fZb1EZHUnz4F-VaXzQGy8c_W4Dm-5w` |
 | 0 | Master Reference (this index's source) | `1J9fxCVxItX1c2Pw97yaK0h-0zoA0uUN1oen9tH7yX20` |
 
-## Authored-in-repo design docs
+## Tier 1 — Authored working docs (local on disk, gitignored, Drive-backed)
+
+Backed up to Drive folder `1rvpwCeAUczv1u8bKMemGPXNLAOxuMpjC`. Edit locally →
+re-upload same session.
 
 | Title | Path | Notes |
 |---|---|---|

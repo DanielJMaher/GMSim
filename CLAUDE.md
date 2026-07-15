@@ -59,7 +59,7 @@ apps/
 docs/
   NORTH_STAR.md       UI/data philosophy — non-negotiable
   LIVING_LEAGUE.md    32-team scale requirements
-  design-docs/        index of Google Drive design docs (Drive is authoritative)
+  design-docs/        local-only (gitignored) working docs + Drive-backed; only README.md is tracked
 ```
 
 Currently only `@gmsim/engine` and `@gmsim/web` exist. The web app is the "inspector" — a single `App.tsx` that imports from the engine to render league state. It is published to GitHub Pages via `.github/workflows/deploy.yml`.
@@ -86,7 +86,12 @@ Subpath exports are configured in `packages/engine/package.json` (`./types`, `./
 
 ### Design docs
 
-Authoritative design lives in Google Drive (owner `danieljmaher@gmail.com`). The index with Drive file IDs is in `docs/design-docs/README.md`. **Read the Drive doc just-in-time** when implementing a module — we deliberately do not mirror full docs into the repo (avoids drift). Fetch via the Google Drive MCP tool using the listed file ID. If a design doc and the code disagree, the code is wrong, or the design doc needs explicit revision.
+**Design docs are LOCAL-ONLY working copies, Drive-backed, NOT published** (Daniel, 2026-07-11 final). Only `docs/design-docs/README.md` is tracked in git; every other `docs/design-docs/*.md` is gitignored. See that README for the full posture. Two tiers:
+
+- **Authored working docs** (Living Voice, GM Hire/Fire, game-sim/talent-spread/Maddeninator, alpha UI/scouting, …) live on disk (gitignored) and are byte-faithfully backed up to the Drive folder `1rvpwCeAUczv1u8bKMemGPXNLAOxuMpjC` ("GMSim design-docs (repo backup)"). **RULE: any session that edits one of these re-uploads it to that Drive folder the same session** — gitignored files aren't in git, so a clean clone or `git clean` loses local edits otherwise.
+- **The original numbered corpus** (Phase 1–4 module docs, resolution/research) stays Drive-native. **Read just-in-time via the Google Drive MCP tool by file ID** (listed in the README) — deliberately not mirrored, to avoid drift with the evolving Drive original.
+
+A fresh clone has NO design docs on disk: pull authored docs from the Drive backup folder, fetch numbered corpus docs by file ID. If a design doc and the code disagree, the code is wrong, or the doc needs an explicit revision (re-uploaded to Drive the same session).
 
 ## Conventions
 
