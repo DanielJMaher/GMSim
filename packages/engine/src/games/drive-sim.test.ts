@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/index.js';
-import { simulateGameDrives, simulateGameWithDrives, type PlayerStatLine } from './drive-sim.js';
+import { simulateGameDrives, simulateGameWithDrives, seasonForm, type PlayerStatLine } from './drive-sim.js';
 import { matchupFacets } from './strength.js';
 import { simulateGame } from './outcome.js';
 import { deriveGamePlayerStats } from './stats.js';
@@ -16,6 +16,40 @@ describe('drive sim (bottom-up)', () => {
     const af = matchupFacets(away, league);
     const a = simulateGameDrives(new Prng('g1'), hf, af);
     const b = simulateGameDrives(new Prng('g1'), hf, af);
+    expect(a.homeScore).toBe(b.homeScore);
+    expect(a.awayScore).toBe(b.awayScore);
+    expect(a.driveLog.length).toBe(b.driveLog.length);
+  });
+
+  // ── Season Form latent ε (v3 D1) ──
+  it('season form ε is zero-mean (recentered), non-degenerate, and deterministic', () => {
+    const league = createLeague({ seed: 'sf-test' });
+    const form = seasonForm(league);
+    const eps = [...form.values()];
+    expect(eps.length).toBe(Object.keys(league.teams).length);
+    // recentered to exactly zero league-mean (so the fumble expression is mean-neutral)
+    const sum = eps.reduce((s, e) => s + e, 0);
+    expect(Math.abs(sum)).toBeLessThan(1e-9);
+    // non-degenerate spread
+    expect(eps.some((e) => Math.abs(e) > 0.25)).toBe(true);
+    // deterministic: a fresh identical league recomputes the identical ε
+    const again = seasonForm(createLeague({ seed: 'sf-test' }));
+    for (const [id, e] of form) expect(again.get(id)).toBe(e);
+    // quality-orthogonal by construction: ε is a pure function of (seed, season,
+    // team order), never of roster/record/strength — a different world seed gives
+    // a different ε vector. (Roster-independence at fixed seed is structural: the
+    // function body reads only league.seed/seasonNumber/team keys.)
+    const other = [...seasonForm(createLeague({ seed: 'sf-test-2' })).values()];
+    expect(eps.some((e, i) => e !== other[i])).toBe(true);
+  });
+
+  it('live path with season form is deterministic', () => {
+    const league = createLeague({ seed: 'sf-det' });
+    const ids = Object.keys(league.teams);
+    const home = league.teams[ids[0]!]!;
+    const away = league.teams[ids[1]!]!;
+    const a = simulateGameWithDrives(new Prng('sfg'), home, away, league);
+    const b = simulateGameWithDrives(new Prng('sfg'), home, away, league);
     expect(a.homeScore).toBe(b.homeScore);
     expect(a.awayScore).toBe(b.awayScore);
     expect(a.driveLog.length).toBe(b.driveLog.length);

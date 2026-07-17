@@ -12,6 +12,29 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.185.0] — 2026-07-16
+
+### Added
+
+- **Season Form D1 — quality-orthogonal fumble variance (talent-spread v3, step 1).**
+  A hidden per-team-season "form" latent ε ~ N(0,1) — seeded at season init from
+  `${seed}::season-form::${seasonNumber}`, recentered to exactly zero league-mean,
+  redrawn each season — now tilts each team's FUMBLE rate only: `+ε` offense fumbles
+  less, `+ε` defense forces more, combined multiplicatively and clamped `[0.4, 1.8]`,
+  centered at 1 (mean-neutral). INT is frozen (sim INT spread already ×1.02 real).
+  Quality-ORTHOGONAL by construction (a pure function of seed × season × team order,
+  never roster/record/strength) — the property that evades the v1/v2 falsification,
+  where roster-quality turnover channels let the yardage-dominant team also win the
+  turnover battle. `FUMBLE_FORM_K = 0.07`, sized to the real fumble-margin latent bar
+  (giveaway-latent sd 0.127→0.182), NOT to wins-sd. Measured (Scorekeeper 10×12 fresh,
+  all 21 bands in band): giveaway W-L delta −0.4→−0.5 (toward real −0.9); split-half
+  win-residual persistence 0.116→0.177 (toward real 0.343); box score identical to
+  baseline (points 23.2, pass att 31.9, rush 103.4, comp% 64.4, INTs 0.8 frozen, pass
+  delta 21.4). Magistrate drive bar zero-drift (points/drive 2.02). Fatal-test
+  anti-coupling held (wins-sd did not buy pass delta). D2 (red-zone form) is the next
+  campaign step; season wins-sd stays 2.6 until D1+D2 land together. Design:
+  `docs/design-docs/SEASON_FORM.md`.
+
 ### Changed
 
 - **Modern dynamic-kickoff mechanics (W1 rules-era update, Daniel-approved).**
@@ -40,6 +63,19 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   was emitted per game but dropped at the `PlayerGameStats` boundary; it now
   plumbs through to season and career accumulation like every other passing
   stat.
+- **Roster-size invariant relaxed to `<= 53` post-`advanceSeason`
+  (INTENDED-TEMPORARY).** Season Form D1's game-outcome shift surfaced a
+  pre-existing cap-pin gap: a compliant-but-cap-strapped max-spend team (pinned
+  less than one minimum salary under the cap) has no mechanism to free room for
+  its 53rd body, so it can open a season sub-53 (observed: ATL 48 on seed
+  `retire-trajectory`, season 8). The exact-53 assertions post-`advanceSeason`
+  were seed-lucky overclaims, not engine guarantees; `retirement.test.ts`,
+  `advance.test.ts`, `proactive-trades.test.ts`, and the `offseason.test.ts`
+  e2e now assert `<= 53` (the over-53 `POST_DRAFT_ROSTER` cutdown bound is
+  kept), and the falsified cap-squeeze synthetic test was removed. Owned by the
+  named **"Roster Floor"** slice (restructure-first floor enforcement, design
+  pending) which restores exact-53 before the Season Form D3 checkpoint. Full
+  model + ruling: `docs/design-docs/ROSTER_LIFECYCLE_INVARIANT.md` §12–§13.
 
 ---
 

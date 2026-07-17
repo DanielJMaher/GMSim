@@ -1,4 +1,4 @@
-import type { Prng } from '../prng/index.js';
+import { Prng } from '../prng/index.js';
 import type { MatchupFacets } from './strength.js';
 import { matchupFacets } from './strength.js';
 import type { Player, PlayerSkills } from '../types/player.js';
@@ -235,6 +235,21 @@ const DOWN_SACK_LATE = 1.6; // 3rd/4th — the obvious-passing-down spike
 // INTs de-inflates the picks leaderboard without touching team turnovers.
 const INT_RATE = 0.027;
 const FUMBLE_LOST_RATE = 0.022;
+
+// ── Season Form (talent-spread v3, D1) ───────────────────────────────────
+// A hidden team-season "form" latent ε (see seasonForm below) — quality-
+// ORTHOGONAL, redrawn each season — expresses through the FUMBLE channel only
+// (INT is frozen: sim INT spread is already ×1.02 real). +ε ("good form") makes
+// a team's offense fumble LESS and its defense force MORE; the two combine on
+// each play's fumble roll (offense ball-security × defense fumble-forcing). This
+// supplies the season-persistent, quality-orthogonal win-variance the sim lacks
+// (D0: real split-half win-residual persistence 0.343 vs sim 0.116) WITHOUT
+// touching yardage — a +ε team wins the turnover battle repeatedly, so it can
+// win without out-gaining. `FUMBLE_FORM_K` is sized to the real fumble latent
+// bar (0.127→0.182 giveaway latent sd; `_sf_d0_*` / `_turnover_bars`), NOT to
+// wins-sd. Mean-neutral by construction (ε recentered to zero league-mean, and
+// the multiplier is centered at 1). See SEASON_FORM.md §2/§5.
+const FUMBLE_FORM_K = 0.07;
 const KICKOFF_TOUCHBACK = 31; // MODERN dynamic-kickoff touchback spot (W1, 2026-07-13, Daniel-approved). Blend of 2024 (TB→own-30, 64% of KOs) + 2025 (TB→own-35, 21% of KOs) = own-31.2, `_w1_kickoff_era.mjs`. Was own-25 under OLD 2015-23 rules; the 2024-25 dynamic kickoff moved the mean receiving start own-25.4→own-30.2 and dropped the touchback rate 60%→42.5%. See kickoffReturn below.
 
 // ── Drive-extending defensive penalties (v0.158) ─────────────────────────
@@ -375,6 +390,10 @@ interface DriveCtx {
   /** Chemistry mistakes channel (P3): >1 for a toxic room (more turnovers),
    *  <1 for a cohesive one. 1 on the facet path. */
   turnoverMult: number;
+  /** Season Form (v3, D1): quality-orthogonal fumble-rate multiplier from the
+   *  offense's & defense's season form latent ε. Applies to the FUMBLE roll
+   *  ONLY (not INT). 1 on the facet path and when ε is absent. */
+  fumbleFormMult: number;
   /** Coaching 4th-down aggression (P3): scales the go-for-it probabilities.
    *  1 on the facet path. */
   aggression: number;
@@ -454,6 +473,43 @@ function leagueRecenter(league: LeagueState): EdgeRecenter {
   return offset;
 }
 
+// ── Season Form latent ε (talent-spread v3, D1) ──────────────────────────
+// Each team draws a hidden per-SEASON "form" latent ε ~ N(0,1), QUALITY-
+// ORTHOGONAL by construction: it is a pure function of (seed, seasonNumber,
+// team ORDER) and is NEVER derived from roster, record, or strength — that
+// independence is the whole point (v2 failed by driving the same turnover pipes
+// from roster quality, so the yardage-dominant team also won the turnover
+// battle). Drawn from a dedicated season PRNG in fixed team order, then
+// RECENTERED to exactly zero league-mean so the fumble expression is league-
+// mean-neutral at any magnitude. Redrawn each season (no cross-season carryover
+// — real turnover-margin/RZ YoY persistence ≈ 0.04-0.19, so form is not a
+// team trait). Memoized per (seed, seasonNumber), mirroring `leagueRecenter`;
+// a pure function of league state, so determinism holds. Ground truth, hidden —
+// never serialized as knowledge. See SEASON_FORM.md §2/§5.
+const seasonFormCache = new Map<string, Map<string, number>>();
+/** @internal exported for tests only (not part of the public engine surface). */
+export function seasonForm(league: LeagueState): Map<string, number> {
+  const key = `${league.seed}:${league.seasonNumber}`;
+  const cached = seasonFormCache.get(key);
+  if (cached) return cached;
+  const prng = new Prng(`${league.seed}::season-form::${league.seasonNumber}`);
+  const ids = Object.keys(league.teams); // fixed (insertion) team order
+  const raw = ids.map(() => prng.normal(0, 1));
+  const m = raw.reduce((a, b) => a + b, 0) / (raw.length || 1);
+  const out = new Map<string, number>();
+  ids.forEach((id, i) => out.set(id, raw[i]! - m)); // recentered: Σε = 0
+  seasonFormCache.set(key, out);
+  return out;
+}
+
+// Fumble-rate multiplier from the two teams' form (D1). +ε offense fumbles LESS
+// (ball security), +ε defense forces MORE; centered at 1 (mean-neutral), clamped
+// so the σ tails stay physical. `FUMBLE_FORM_K` is sized to the real fumble
+// latent bar, not to wins-sd.
+function fumbleFormMult(offEps: number, defEps: number): number {
+  return clamp((1 - FUMBLE_FORM_K * offEps) * (1 + FUMBLE_FORM_K * defEps), 0.4, 1.8);
+}
+
 // QB share of pass offense raised 0.5→0.65 (2026-06-18, team-quality↔QB
 // coupling). `passEdge` drives completions/yards/INTs → scoring → wins, but QB
 // touches the game ONLY here, so its share of the outcome was diluted: the
@@ -472,6 +528,7 @@ function driveCtx(off: MatchupFacets, def: MatchupFacets, rc: EdgeRecenter = ZER
     protEdge: off.passProtection - def.passRush - rc.prot,
     runEdge: (off.runBlocking * 0.5 + off.rushingCorps * 0.5) - def.runDefense - rc.run,
     turnoverMult: 1, // set from team chemistry on the live path (P3)
+    fumbleFormMult: 1, // set from season form ε on the live path (v3 D1)
     aggression: 1, // set from the head coach on the live path (P3)
     kickerRating: KICKER_NEUTRAL, // set from the roster's kicker on the live path (P4a)
   };
@@ -539,7 +596,7 @@ function resolvePlay(
     }
     return { isPass, gain: 0, kind: 'incomplete' };
   }
-  if (prng.next() < FUMBLE_LOST_RATE * ctx.turnoverMult) return { isPass: false, gain: 0, kind: 'fumble' };
+  if (prng.next() < FUMBLE_LOST_RATE * ctx.turnoverMult * ctx.fumbleFormMult) return { isPass: false, gain: 0, kind: 'fumble' };
   const runMean = Math.min(RUN_YDS + ctx.runEdge * 0.06, RZ_RUN_BASE + RZ_RUN_SLOPE * distToGoal);
   const gain = Math.round(prng.normal(runMean, RUN_YDS_SD));
   return { isPass: false, gain, kind: 'run' };
@@ -1281,6 +1338,14 @@ export function simulateGameWithDrives(
   }
   homeCtx.turnoverMult = chemTurnoverMult(teamChemistry(homeTeam, league).score);
   awayCtx.turnoverMult = chemTurnoverMult(teamChemistry(awayTeam, league).score);
+  // Season Form (v3 D1): quality-orthogonal fumble tilt. Home offense's fumble
+  // rate depends on home ball-security ε and away fumble-forcing ε (and vice
+  // versa). Mean-neutral; INT untouched.
+  const form = seasonForm(league);
+  const epsHome = form.get(homeTeam.identity.id) ?? 0;
+  const epsAway = form.get(awayTeam.identity.id) ?? 0;
+  homeCtx.fumbleFormMult = fumbleFormMult(epsHome, epsAway);
+  awayCtx.fumbleFormMult = fumbleFormMult(epsAway, epsHome);
   // Special teams (P4a): the offense's kicker shapes its FG make rate.
   const homePers = buildTeamPersonnel(playersOf(homeTeam));
   const awayPers = buildTeamPersonnel(playersOf(awayTeam));
