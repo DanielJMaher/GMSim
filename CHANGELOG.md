@@ -12,6 +12,71 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Known issues
+
+- `fa-bidding-watch-list.test.ts`'s aggregate market-impact check (winner-on-
+  watch-list rate) drops from a pre-fix 0.158 to 0.083 (120-auction A/B,
+  identical seeds) after the QB-room-spread fix below — below its 0.15
+  threshold. Traced, not a regression: the test releases each team's first
+  STARTER-tier roster player, and pre-fix a meaningful share of BACKUP QBs
+  were spuriously STARTER-tier-and-strong (the exact order-statistic bug the
+  fix below removes) — genuinely weaker backups now draw fewer watch-lists,
+  so the measured boost-effect rate falls. The threshold was implicitly
+  calibrated against the buggy roster generation; recalibrating it is a
+  named follow-up, not blocking this ship.
+
+## [0.187.0] — 2026-07-20
+
+### Added
+
+- **QB-room-spread generator fix** (`_inj_tm_report.md` T1, routing from the
+  injury-realism transmission probe). Generated NFL rosters rolled all 3 QB
+  slots as i.i.d. draws from the same talent-grade distribution — "QB1" was
+  just whichever scored highest, so the measured QB1→QB2 `qbPlay`-facet gap
+  (mean 10.5 / median 7.9) was an order-statistic artifact, roughly half the
+  real, percentile-mapped bar (mean 16.9 / median 15.4). New
+  `BACKUP_QB_CEILING_DISCOUNT` (`players/skills.ts`) applies a direct 24-point
+  ceiling-baseline discount to backup-track QB roster slots (index > 0,
+  `players/roster.ts`) — the starter slot's roll is untouched. Calibrated via
+  a birth-time gap probe to land mean 16.81 / median 15.43 (target hit almost
+  exactly). Re-measuring the forced QB1→QB2 fingerprint (the injury-realism
+  P3 probe) deepens it from -1.32 pts/-5.6 win-pp to -3.15 pts/-11.7 win-pp
+  median (real: -4.3/-14.4) — closing most of the transmission shortfall.
+  QB-scoped only (does not touch draft-class QB generation, `CLASS_TOP_GRADE_MULT`,
+  or any game-sim/facet/edge-to-points constant); steady-state decays toward a
+  lower equilibrium over ~4-6 seasons as draft-sourced QBs (untouched by this
+  fix) replace the birth cohort — a named, reported residual for a possible
+  follow-on slice. Verified: full `players/`+`league/`+`draft/`+`games/` test
+  suites green, league-tick benchmark green, Goatinator #1/#2/#3 QB share
+  in-band (77/38/24 vs real 75/44/25), Scorekeeper league rows unchanged.
+
+### Fixed
+
+- **Roster Floor — the body-supply guard (v0.186.1 follow-up).** The floor
+  ladder's escalation loop had no floor on the league's free-agent body
+  supply: reaching 53 needs `deficit` DISTINCT signable bodies, but every
+  ladder op preserves `(availableFA − deficit)` — a vet-min sign is (−1,−1),
+  a fringe cut is (+1,+1) since the cut player re-enters the pool, a
+  restructure is (0,0) — so when the league-wide FA pool ran dry mid-season
+  (confirmed: seed `tsp-8` s1 team NO, ticks 15-17, 0 free agents among 2,208
+  players), rung 2 would cut a fringe vet to free room, that vet instantly
+  became the ONLY free agent, and the very next iteration re-signed the same
+  player — net-zero roster progress, dead money booked, and a spurious
+  `roster-floor-violation` logged despite the "activity" (surfaced by the
+  QB-room-spread fix above raising team-performance variance and roster
+  churn). New `countFreeAgents` guard in `enforceRosterFloor`
+  (`transactions/roster-floor.ts`) skips ladder engagement when league-wide
+  supply < the team's deficit — a body-supply gap is provably unreachable by
+  any cap maneuver, so the team is left honestly short (self-heals at the
+  next Week-1 boundary + draft) rather than churned. No-op at the Week-1
+  boundary itself (post-draft pool is never body-starved) — INV-FLOOR and the
+  pin-rate gate are unaffected there. Verified: reduced pin-rate gate (6
+  seasons × 24 seeds, 4,608 team-seasons) 0 sub-53 / 0 violations (previously
+  3), including `tsp-8`/`tsp-9` — the two seeds that broke it — now clearing
+  cleanly; 14/14 roster-floor tests (2 new); targeted `transactions/`+`season/`
+  suites green except the known, unrelated `fa-bidding-watch-list.test.ts`
+  drop noted above (isolated via revert/restore, byte-hash verified).
+
 ## [0.186.0] — 2026-07-19
 
 ### Added

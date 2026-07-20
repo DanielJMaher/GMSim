@@ -236,6 +236,102 @@ describe('enforceRosterFloor — rung 4 (loud failure)', () => {
   });
 });
 
+describe('enforceRosterFloor — body-supply gap (v0.186.1 net-zero cut/re-sign fix)', () => {
+  it('does not cut+re-sign the same fringe vet when the FA pool is empty', () => {
+    // The tsp-8/NO pathology: a cap-PINNED sub-53 team whose league FA pool is
+    // empty. Rung 1 has nothing to restructure (all 1-year deals). Pre-fix, rung
+    // 2 cut the cheapest vet to free room; that vet became the ONLY free agent,
+    // so `signFloorMinimum` re-signed the SAME just-cut player — zero net roster
+    // gain, dead money booked, and a spurious roster-floor-violation, repeated
+    // every mid-season week. Post-fix, the body-supply guard recognizes 53 is
+    // unreachable without a body to fill it and leaves the team short WITHOUT
+    // churn or a cap violation (the boundary + next draft replenish the pool).
+    //
+    // Build: keep 52 (deficit 1), pin under the cap, then drain the FA pool so
+    // NO teamId===null player remains anywhere in the league.
+    const { league, teamId } = pinFirstTeam('floor-supply-gap', {
+      keep: 52,
+      roomDollars: 300_000, // < one min salary → pinned
+      phase: 'REGULAR_SEASON',
+      makeContract: (pid) => oneYearDeal(pid, 4_000_000, false), // cuttable, not restructurable
+    });
+    // Drain the pool: park every free agent on a throwaway roster slot so the
+    // supply is genuinely zero (mirrors the mid-season all-owned state).
+    const otherTeamId = (Object.keys(league.teams) as TeamId[]).sort()[1]!;
+    const playersDrained = { ...league.players };
+    const parked: PlayerId[] = [];
+    for (const [pid, p] of Object.entries(league.players)) {
+      if (p.teamId === null) {
+        playersDrained[pid as PlayerId] = { ...p, teamId: otherTeamId };
+        parked.push(pid as PlayerId);
+      }
+    }
+    const other = league.teams[otherTeamId]!;
+    const drained: LeagueState = {
+      ...league,
+      players: playersDrained as LeagueState['players'],
+      teams: {
+        ...league.teams,
+        [otherTeamId]: { ...other, rosterIds: [...other.rosterIds, ...parked] },
+      } as LeagueState['teams'],
+    };
+    // Sanity: the pinned team is short and no free agent exists.
+    expect(drained.teams[teamId]!.rosterIds.length).toBe(52);
+    expect(Object.values(drained.players).filter((p) => p.teamId === null).length).toBe(0);
+
+    const after = enforceRosterFloor(drained, 200);
+
+    // No churn: the team was NOT touched (no fringe cut, no re-sign, no dead
+    // money booked) and — critically — NO spurious roster-floor-violation.
+    expect(floorTxns(after, 'cap-cut').length).toBe(0);
+    expect(floorTxns(after, 'fa-sign').length).toBe(0);
+    expect(floorTxns(after, 'restructure').length).toBe(0);
+    expect(after.transactionLog.filter((t) => t.kind === 'roster-floor-violation').length).toBe(0);
+    // Left honestly short at 52 (a body genuinely does not exist to fill it).
+    expect(after.teams[teamId]!.rosterIds.length).toBe(52);
+    // Untouched by reference — the guard skips before any world-state change.
+    expect(after).toBe(drained);
+  });
+
+  it('still fills to 53 when the pool has exactly `deficit` bodies (guard is not over-eager)', () => {
+    // The guard skips ONLY when supply < deficit. With exactly `deficit` bodies
+    // available, the ladder must still reach 53 as before (no regression).
+    const { league, teamId } = pinFirstTeam('floor-supply-exact', {
+      keep: 50, // deficit 3
+      roomDollars: 300_000,
+      phase: 'REGULAR_SEASON',
+      makeContract: (pid, i) =>
+        i === 0 ? megaDeal(pid, 26_000_000) : oneYearDeal(pid, 2_000_000, false),
+    });
+    // pinFirstTeam already trimmed the other 3 into the FA pool; keep exactly
+    // those 3 by parking any surplus FAs elsewhere.
+    const fas = Object.values(league.players).filter((p) => p.teamId === null);
+    expect(fas.length).toBeGreaterThanOrEqual(3);
+    const otherTeamId = (Object.keys(league.teams) as TeamId[]).sort()[1]!;
+    const playersTrim = { ...league.players };
+    const parked: PlayerId[] = [];
+    fas.slice(3).forEach((p) => {
+      playersTrim[p.id] = { ...p, teamId: otherTeamId };
+      parked.push(p.id);
+    });
+    const other = league.teams[otherTeamId]!;
+    const trimmed: LeagueState = {
+      ...league,
+      players: playersTrim as LeagueState['players'],
+      teams: {
+        ...league.teams,
+        [otherTeamId]: { ...other, rosterIds: [...other.rosterIds, ...parked] },
+      } as LeagueState['teams'],
+    };
+    expect(Object.values(trimmed.players).filter((p) => p.teamId === null).length).toBe(3);
+
+    const after = enforceRosterFloor(trimmed, 200);
+    expect(after.teams[teamId]!.rosterIds.length).toBe(53);
+    expect(teamCapUsage(after.teams[teamId]!, after)).toBeLessThanOrEqual(after.salaryCap);
+    expect(after.transactionLog.filter((t) => t.kind === 'roster-floor-violation').length).toBe(0);
+  });
+});
+
 describe('enforceRosterFloor — mid-season posture', () => {
   it('fills a pinned in-season team (post-IR shape) back to 53', () => {
     // REGULAR_SEASON = all-53 cap accounting. A team dropped below 53 that

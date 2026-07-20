@@ -44,6 +44,15 @@ export interface GeneratePlayerOptions {
    * the season the player enters.
    */
   simYear?: number;
+  /**
+   * QB-room-spread fix (2026-07-20, `_inj_tm_report.md` T1 — see the
+   * provenance comment on `BACKUP_QB_CEILING_DISCOUNT` in `players/skills.ts`
+   * for the full mechanism). When true, the talent-grade roll is reshaped away
+   * from starter-caliber grades — used ONLY for QB roster slots the caller has
+   * already decided are backup-track (not a starter draw). Omit/false for every
+   * other case; this must never change a presumptive starter's distribution.
+   */
+  backupTilt?: boolean;
 }
 
 /**
@@ -62,7 +71,9 @@ export function generatePlayer(prng: Prng, options: GeneratePlayerOptions): Play
   const age = options.forceAgeStage
     ? rollForcedAge(prng.fork('age'), options.forceAgeStage)
     : rollAgeProfile(prng.fork('age'));
-  const skills = rollSkills(prng.fork('skills'), archetype, age.stage, options.position);
+  const skills = rollSkills(prng.fork('skills'), archetype, age.stage, options.position, {
+    ...(options.backupTilt !== undefined ? { backupTilt: options.backupTilt } : {}),
+  });
   const development = rollDevelopmentArchetype(prng.fork('dev'));
   const moodProfile = rollMoodProfile(prng.fork('mood'));
   const name = generateName(prng.fork('name'));

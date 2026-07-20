@@ -372,6 +372,52 @@ export function softCap(x: number): number {
 }
 
 /**
+ * QB-room-spread generator fix (2026-07-20, `_inj_tm_report.md` T1). T1 measured
+ * the sim's generated QB1->QB2 qbPlay-facet gap at mean 10.5 / median 7.9 vs the
+ * real, percentile-mapped bar mean 16.9 / median 15.4 — sim rooms 1.6-1.95x too
+ * flat. Root cause (D0): NFL roster generation rolled every QB roster slot (all
+ * 3 per team) from the SAME `GRADE_WEIGHTS` distribution with zero depth
+ * awareness — "QB1" was just whichever of 3 i.i.d. draws scored highest, so the
+ * measured gap was an order-statistic artifact, not a modeled starter/backup
+ * quality cliff.
+ *
+ * First attempt (reweighting `GRADE_WEIGHTS` toward the bottom 4 bands for
+ * backup rolls) FALSIFIED by measurement: even suppressing starter-caliber
+ * grades to ~3% of their normal mass moved the birth-time gap from ~10.5 to
+ * only ~9.9-10.1 (noise-level). Cause: the measured "gap" is an ORDER
+ * STATISTIC — max(3 draws) minus 2nd-max — and a team has TWO backup-slot
+ * draws, so `max(backup1, backup2)` regresses back toward the starter's level
+ * even when each backup's own mean is well below it; reweighting among the
+ * EXISTING bottom-4 bands only pulls the backup population mean down to ~60
+ * (vs. unbiased ~68) because those bands (WEAK_STARTER 68 / ROTATIONAL 61 /
+ * BACKUP 55 / FRINGE 49) aren't THAT much lower than STARTER (75) — nowhere
+ * near enough separation to survive the max-of-two dilution.
+ *
+ * `BACKUP_QB_CEILING_DISCOUNT` instead applies a direct, uncapped points
+ * discount to the ceiling baseline for backup-track QB rolls (roster slots
+ * the caller marks — currently `players/roster.ts` QB slots beyond the
+ * first), independent of the grade-band floor. The STARTER slot's roll is
+ * completely untouched (the fence: "don't shift the top"). Calibrated via the
+ * birth-time gap probe (`_qbroom_*`, gitignored under truth-arbiter/data,
+ * 20 seeds / 640 team-rooms): 24 points lands mean **17.00** / median **13.95**
+ * (target T1.b: mean 16.9 / median 15.4) — mean landed exactly, median ~1.5pt
+ * under the mapped real bar but well within the sd~13 noise band; sd 12.95,
+ * p10 2.37 / p90 36.13. slot0 (starter-track) ends up the room's best QB
+ * 78.3% of the time (33.3% under the old undifferentiated draw). QB-scoped
+ * only — applying this broadly would perturb the Skill Adjudicator's
+ * league-wide grade/tier composition and a raft of unvalidated position bars;
+ * QB is the only position with both a measured real bar (T1) and validating
+ * gates (P3 fingerprint, Goatinator #1-3 QB share). Does NOT apply to
+ * draft-class QB generation (`draft/generate-college-player.ts` — pool-level,
+ * no per-team depth signal exists at prospect-roll time, and sits adjacent to
+ * the Goatinator-validated `CLASS_TOP_GRADE_MULT` lever) — D0-2 measured that
+ * this NFL-roster-only fix decays over steady state as draft-sourced QBs
+ * (untouched by this discount) replace the original birth cohort as seasons
+ * pass; a named, reported residual, not silently absorbed here.
+ */
+const BACKUP_QB_CEILING_DISCOUNT = 24;
+
+/**
  * Roll current and ceiling skill ratings for a player.
  *
  * Factor model (2026-06-02): per-player cluster latents + a small idiosyncratic
@@ -392,11 +438,14 @@ export function rollSkills(
   archetype: PlayerArchetype,
   ageStage: AgeStage,
   position: Position,
-  opts?: { classTopTilt?: boolean },
+  opts?: { classTopTilt?: boolean; backupTilt?: boolean },
 ): RolledSkills {
   const talentGrade = rollTalentGrade(prng, opts?.classTopTilt ? position : undefined);
   const tier = gradeToTier(talentGrade);
-  const ceilingBaseline = GRADE_CEILING_MEAN[talentGrade];
+  // QB-room-spread fix (2026-07-20, `_inj_tm_report.md` T1) — see
+  // `BACKUP_QB_CEILING_DISCOUNT` below for the mechanism + calibration.
+  const ceilingBaseline =
+    GRADE_CEILING_MEAN[talentGrade] - (opts?.backupTilt ? BACKUP_QB_CEILING_DISCOUNT : 0);
   const realization = REALIZATION_BY_STAGE[ageStage];
 
   // Slice 3: PHYSICAL attributes are baselined off POSITION, not talent grade —

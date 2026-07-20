@@ -107,4 +107,31 @@ describe('generateRoster', () => {
     // Even modest rookie gap should be 5+ points on average.
     expect(avg).toBeGreaterThan(5);
   });
+
+  it('QB-room-spread fix (_inj_tm_report.md T1): backup QB slots roll a lower ' +
+    'ceiling than the starter slot; the starter slot is unaffected', () => {
+    // Average ceiling (mean of all skill keys) per QB roster slot, over many
+    // rosters, isolates the depth-aware downshift from single-roll noise.
+    const sums = [0, 0, 0];
+    const counts = [0, 0, 0];
+    const trials = 60;
+    for (let i = 0; i < trials; i++) {
+      const roster = generateRoster(new Prng(`qbroom-${i}`), baseOpts);
+      const qbs = roster.filter((p) => p.position === Position.QB);
+      // Blueprint order is preserved by generateRoster's push loop, so index
+      // 0/1/2 correspond to roster-blueprint QB slots 0/1/2.
+      qbs.forEach((p, slotIdx) => {
+        const vals = Object.values(p.ceiling);
+        const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+        sums[slotIdx] += mean;
+        counts[slotIdx] += 1;
+      });
+    }
+    const avg = sums.map((s, i) => s / counts[i]!);
+    // Backup slots (1, 2) average below the starter slot (0) — the depth
+    // falloff the generator now models. Starter-slot mean is untouched by
+    // this change (same distribution as before); backups are shifted down.
+    expect(avg[1]!).toBeLessThan(avg[0]!);
+    expect(avg[2]!).toBeLessThan(avg[0]!);
+  });
 });

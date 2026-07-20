@@ -9,7 +9,7 @@ import { generatePlayer } from './generate.js';
 import { ROSTER_BLUEPRINT_53 } from './roster-blueprint.js';
 import type { PlayerArchetype } from '../archetypes/types.js';
 import { positionGroupFor } from './position-group.js';
-import { PositionGroup } from '../types/enums.js';
+import { Position, PositionGroup } from '../types/enums.js';
 
 export interface GenerateRosterOptions {
   teamId: TeamId;
@@ -36,6 +36,13 @@ export function generateRoster(prng: Prng, options: GenerateRosterOptions): read
       const positionGroup = positionGroupFor(slot.position);
       const side = sideForGroup(positionGroup);
 
+      // QB-room-spread fix (`_inj_tm_report.md` T1, 2026-07-20): the roster
+      // blueprint's first QB slot (i===0) is the presumptive starter and rolls
+      // from the unbiased grade distribution unchanged; the remaining QB slots
+      // are backup-track and get the depth-aware downshift (see
+      // `BACKUP_QB_CEILING_DISCOUNT` in `players/skills.ts`). Every other
+      // position is untouched — the measured real bar and validating gates
+      // (P3 fingerprint, Goatinator QB share) are QB-specific.
       const player = generatePlayer(prng.fork(`p:${counter}`), {
         position: slot.position,
         idSuffix,
@@ -44,6 +51,7 @@ export function generateRoster(prng: Prng, options: GenerateRosterOptions): read
           offensiveScheme: options.offensiveScheme,
           defensiveScheme: options.defensiveScheme,
         },
+        backupTilt: slot.position === Position.QB && i > 0,
       });
       players.push({ ...player, teamId: options.teamId });
       counter++;

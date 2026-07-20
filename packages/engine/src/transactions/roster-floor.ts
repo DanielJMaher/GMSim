@@ -51,6 +51,12 @@ import { pickMinimalCasualty, sortedFreeAgentPool } from './offseason.js';
  *     loudly. The guarantee is "53 or a red test", never "48 and shrug"
  *     (design §2.4). No cap tolerance / minimum-salary-benefit discount — that
  *     would reintroduce the born-non-compliant class v0.174.1 killed (fence §7).
+ *     A team engages the ladder only when the league FA pool actually holds
+ *     `deficit` signable bodies (the body-supply guard, v0.186.1): 53 is
+ *     unreachable without the bodies to fill it, so a mid-season supply gap is a
+ *     self-healing condition (boundary + draft replenish the pool), NOT the
+ *     cap-clearability failure rung 4 is for — engaging it anyway net-zero
+ *     cut/re-signs the same fringe vet. See the guard comment for the invariant.
  *
  * Runs at two points, one ladder, two enforcement postures (design §3):
  *   - The Week-1 boundary (end of `applyPostDraftRoster`) — where INV-FLOOR is
@@ -167,6 +173,28 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
     // Week-1 boundary `applyVetMinFillUp` has already filled every affordable
     // team, so "short" there always means "pinned" and this changes nothing.
     if (roomStart >= minSalaryStart) continue;
+
+    // Body-supply guard (v0.186.1 — the net-zero cut/re-sign fix). Reaching 53
+    // needs `deficit` DISTINCT free-agent bodies. Every ladder op preserves the
+    // quantity (availableFA − deficit): a vet-min sign is (−1 pool, −1 deficit),
+    // a fringe cut is (+1 pool, +1 deficit — the cut vet re-enters the pool), a
+    // restructure (0, 0). So if the FA pool holds fewer than `deficit` signable
+    // bodies at engagement, 53 is UNREACHABLE no matter how much cap room the
+    // ladder frees — this is a body-SUPPLY gap (the whole league FA pool is
+    // drained mid-season), NOT the cap-clearability failure rung 4 is for
+    // (design §2.4). Engaging anyway produced the net-zero loop this fix
+    // removes: rung 2 cuts a fringe vet to free room; that vet is now the only
+    // free agent, so the very next iteration's `signFloorMinimum` re-signs the
+    // SAME just-cut player — zero net roster gain, dead money booked, and a
+    // spurious `roster-floor-violation` despite the "activity" (falsifying §2.3's
+    // implicit monotonic-progress assumption). Repro: seed tsp-8 s1 team NO,
+    // ticks 15-17 (P_NO_WR_4, P_NO_NICKEL_0). A mid-season supply gap self-heals
+    // — the boundary's `applyVetMinFillUp` and the next draft replenish the pool
+    // — so leave the team short without churn or a cap violation. At the Week-1
+    // boundary the pool is never body-starved (post-draft ~250 fresh bodies), so
+    // this guard is a no-op there, where INV-FLOOR and the pin-rate gate live.
+    const deficitStart = ROSTER_FLOOR_SIZE - startTeam.rosterIds.length;
+    if (countFreeAgents(working) < deficitStart) continue;
 
     // Engaged: walk the ladder, freeing room when unaffordable and signing a
     // body when affordable, until the team is at 53 or the ladder exhausts.
@@ -407,6 +435,15 @@ function logFloorViolation(
     unmetNeed: Math.max(0, deficit * minSalary - room),
   };
   return { ...league, transactionLog: [...league.transactionLog, entry] };
+}
+
+/** Count signable free agents (teamId === null) league-wide — the body supply. */
+function countFreeAgents(league: LeagueState): number {
+  let n = 0;
+  for (const player of Object.values(league.players)) {
+    if (player.teamId === null) n++;
+  }
+  return n;
 }
 
 function addToYear(arr: readonly number[], index: number, amount: number): readonly number[] {
