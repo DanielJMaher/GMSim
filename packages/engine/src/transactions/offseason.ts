@@ -212,7 +212,7 @@ export function applyVetMinFillUp(league: LeagueState, signedOnTick: number): Le
   return working;
 }
 
-function pickMinimalCasualty(
+export function pickMinimalCasualty(
   team: TeamState,
   league: LeagueState,
   over: number,
@@ -261,7 +261,7 @@ function pickMinimalCasualty(
   return smallestSufficient ?? largest;
 }
 
-interface CutCandidate {
+export interface CutCandidate {
   playerId: PlayerId;
   deadMoney: number;
   saving: number;
@@ -415,7 +415,7 @@ export function refillRosters(league: LeagueState, signedOnTick: number): League
  * Build the ordered FA pool: tier-major (STAR best), then skill-summary
  * descending, then PlayerId for deterministic tiebreak.
  */
-function sortedFreeAgentPool(league: LeagueState): readonly PlayerId[] {
+export function sortedFreeAgentPool(league: LeagueState): readonly PlayerId[] {
   const pool: PlayerId[] = [];
   for (const player of Object.values(league.players)) {
     if (player.teamId !== null) continue;

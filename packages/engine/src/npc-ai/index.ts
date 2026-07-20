@@ -98,7 +98,19 @@ export {
   restructureContract,
   RESTRUCTURE_ROOM_TARGET,
   MAX_RESTRUCTURES_PER_SEASON,
+  MIN_CONVERTIBLE,
 } from '../transactions/restructures.js';
+
+// Roster floor (v0.186) — the mandatory-53 backstop. A team pinned just under
+// the cap with a roster hole gets a restructure-first escalation ladder that
+// frees exactly the room its 53rd body needs, then fills. Same ladder at the
+// Week-1 boundary and as the mid-season affordability fallback. The selection
+// functions (which contract converts, which vet is cut) are the NPC front-
+// office decisions this surface exists to centralize.
+export { enforceRosterFloor, selectFloorRestructure } from '../transactions/roster-floor.js';
+export type { FloorRestructurePlan } from '../transactions/roster-floor.js';
+export { pickMinimalCasualty } from '../transactions/offseason.js';
+export type { CutCandidate } from '../transactions/offseason.js';
 
 // Free agency — the offseason auction (bids shaped by GM personality, cap
 // room, rookie-pool reserve), weekly mid-season gap-fills, and poaching

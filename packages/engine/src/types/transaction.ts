@@ -72,7 +72,8 @@ export type Transaction =
   | TransactionGmFired
   | TransactionHcHired
   | TransactionGmHired
-  | TransactionHcInterim;
+  | TransactionHcInterim
+  | TransactionRosterFloorViolation;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -113,6 +114,14 @@ export interface TransactionFreeAgentSign extends TransactionBase {
   yearOneCapHit: number;
   /** True if this signing came from the offseason FA market (vs. mid-season "vet-min" street signing). */
   marketContract: boolean;
+  /**
+   * True when the signing was forced by the Roster Floor pass
+   * (`enforceRosterFloor`, v0.186) rather than the normal FA / fill-up
+   * flow — the vet-min body that brought a cap-pinned team back to 53.
+   * Absent (undefined) on every other signing. Lets the §4 floor
+   * instrument attribute the whole floor footprint.
+   */
+  forFloor?: true;
   /**
    * Teams that bid on the FA but lost the auction, ordered from
    * strongest to weakest runner-up. Optional — only the offseason
@@ -178,6 +187,13 @@ export interface TransactionRestructure extends TransactionBase {
   capRelief: number;
   /** Remaining contract years the converted money prorates across. */
   years: number;
+  /**
+   * True when the restructure was executed by the Roster Floor pass
+   * (`enforceRosterFloor`, v0.186) to free room for a 53-man fill —
+   * distinct from the discretionary March war-chest pass. Absent on
+   * war-chest restructures. Keys the §4 future-room-cost instrument.
+   */
+  forFloor?: true;
 }
 
 export interface TransactionTrade extends TransactionBase {
@@ -356,6 +372,13 @@ export interface TransactionCapCut extends TransactionBase {
   deadMoney: number;
   /** Cap saving (cap-hit minus dead money) the cut produced. */
   capSaving: number;
+  /**
+   * True when the cut was a Roster Floor fringe cut (`enforceRosterFloor`,
+   * v0.186, rung 2) — the cheapest sufficient vet shed to free room for a
+   * 53-man fill when no restructure was available. Absent on ordinary
+   * compliance cuts.
+   */
+  forFloor?: true;
 }
 
 /**
@@ -510,6 +533,24 @@ export interface TransactionGmHired extends TransactionBase {
   teamId: TeamId;
   gmId: GmId;
   retread: boolean;
+}
+
+/**
+ * The Roster Floor's loud failure (`enforceRosterFloor`, v0.186, rung 4).
+ * Emitted when the restructure→cut escalation ladder cannot free enough room
+ * to field 53 (or the FA pool is exhausted) — the honest posture is "53 or a
+ * red test", never a silent sub-53. INV-FLOOR's exact-53 assertions fail loudly
+ * alongside this entry. Structurally unreachable in generated leagues (design
+ * §2.3 termination argument, verified by D0-P2: 0 unclearable pins across 7,680
+ * team-seasons); its existence is the guarantee, not an expected event.
+ */
+export interface TransactionRosterFloorViolation extends TransactionBase {
+  kind: 'roster-floor-violation';
+  teamId: TeamId;
+  /** Active-roster size at the moment the ladder gave up (< 53). */
+  rosterSize: number;
+  /** Dollars of room still needed to fill to 53 when the ladder exhausted. */
+  unmetNeed: number;
 }
 
 export type LockerRoomIncidentFlavor =

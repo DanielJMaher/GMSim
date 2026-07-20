@@ -344,16 +344,15 @@ describe('runProactiveTrades', () => {
     }
   });
 
-  it('end-to-end: advanceSeason preserves cap + <=53-man roster invariants', () => {
+  it('end-to-end: advanceSeason preserves cap + exact-53-man roster invariants', () => {
     let league = createLeague({ seed: 'proactive-e2e-advance' });
     league = simulateSeason(league);
     league = advanceSeason(league);
     for (const team of Object.values(league.teams)) {
-      // <=53, not exact-53: exact-53 is NOT engine-guaranteed yet — a
-      // compliant-but-cap-strapped team (under the cap by less than one min
-      // salary) cannot fill its last slots. INTENDED-TEMPORARY until the
-      // "Roster Floor" slice restores exact-53 (then this reverts to toBe(53)).
-      expect(team.rosterIds.length).toBeLessThanOrEqual(53);
+      // Exact-53 + compliant: INV-FLOOR (v0.186, `enforceRosterFloor`)
+      // guarantees both halves — the restructure-first floor fills to 53
+      // without buying it via silent over-cap non-compliance.
+      expect(team.rosterIds.length).toBe(53);
       expect(teamCapUsage(team, league)).toBeLessThanOrEqual(league.salaryCap);
     }
   });

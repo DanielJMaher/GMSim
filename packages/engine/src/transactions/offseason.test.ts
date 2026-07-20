@@ -107,17 +107,16 @@ describe('refillRosters', () => {
     }
   });
 
-  it('end-to-end: advanceSeason produces <=53-man rosters with resolvable contracts', () => {
+  it('end-to-end: advanceSeason produces exact-53-man rosters with resolvable contracts', () => {
     let league = createLeague({ seed: 'refill-e2e' });
     league = simulateSeason(league);
     league = advanceSeason(league);
 
     for (const team of Object.values(league.teams)) {
-      // <=53, not exact-53: exact-53 is NOT engine-guaranteed yet — a
-      // compliant-but-cap-strapped team (under the cap by less than one min
-      // salary) cannot fill its last slots. INTENDED-TEMPORARY until the
-      // "Roster Floor" slice restores exact-53 (then this reverts to toBe(53)).
-      expect(team.rosterIds.length).toBeLessThanOrEqual(53);
+      // Exact-53: INV-FLOOR (v0.186, `enforceRosterFloor`) guarantees the
+      // under-53 half (a cap-pinned team's restructure-first fill) and the
+      // POST_DRAFT_ROSTER cutdown the over-53 half.
+      expect(team.rosterIds.length).toBe(53);
       for (const playerId of team.rosterIds) {
         const player = league.players[playerId]!;
         expect(player.contractId).not.toBeNull();

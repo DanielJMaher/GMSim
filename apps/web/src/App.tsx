@@ -3727,6 +3727,7 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'hc-hired':
     case 'gm-hired':
     case 'hc-interim':
+    case 'roster-floor-violation':
       return [entry.teamId];
   }
 }
@@ -3755,6 +3756,7 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'hc-hired':
     case 'gm-hired':
     case 'hc-interim':
+    case 'roster-floor-violation':
       return [];
   }
 }
@@ -4173,6 +4175,8 @@ function kindColor(kind: Transaction['kind']): string {
       return 'text-sky-400';
     case 'hc-interim':
       return 'text-amber-400';
+    case 'roster-floor-violation':
+      return 'text-red-500';
   }
 }
 
@@ -4224,6 +4228,8 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${teamLabel(entry.teamId)} hired GM ${league.gms[entry.gmId]?.name ?? entry.gmId}${entry.retread ? ' (retread)' : ''}`;
     case 'hc-interim':
       return `${teamLabel(entry.teamId)} named ${league.coaches[entry.coachId]?.name ?? entry.coachId} interim HC (week ${entry.weekIndex + 1})`;
+    case 'roster-floor-violation':
+      return `⚠ ${teamLabel(entry.teamId)} ROSTER FLOOR VIOLATION · ${entry.rosterSize}/53, unmet $${(entry.unmetNeed / 1e6).toFixed(1)}M`;
   }
 }
 

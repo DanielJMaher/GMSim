@@ -55,7 +55,7 @@ export const RESTRUCTURE_ROOM_TARGET = 0.08;
 /** Most restructures a team executes in one offseason. */
 export const MAX_RESTRUCTURES_PER_SEASON = 3;
 /** Skip conversions too small to matter — the move must free real money. */
-const MIN_CONVERTIBLE = 2_000_000;
+export const MIN_CONVERTIBLE = 2_000_000;
 
 const WIN_NOW: ReadonlySet<CompetitiveWindow> = new Set([
   CompetitiveWindow.CHAMPIONSHIP,
@@ -79,26 +79,40 @@ export interface RestructureResult {
  * old bonus's UNAMORTIZED remainder (real + void years, matching the engine's
  * dead-money accounting) plus the converted base both land in the new signing
  * bonus, prorated evenly over the remaining (+ carried void) years.
+ *
+ * `maxConvert` (Roster Floor, v0.186) caps how much of the above-minimum base
+ * is converted — the floor pass converts only what its 53-man fill requires
+ * (minimal footprint, least future dead money), whereas the war-chest pass
+ * converts the whole base for maximum relief. Omitting it converts everything
+ * above the minimum, bit-identical to the pre-floor behavior; when supplied,
+ * the converted base is clamped into `[MIN_CONVERTIBLE, fullConvertible]`.
  */
 export function restructureContract(
   contract: Contract,
   idSuffix: string,
   signedOnTick: number,
   salaryCap: number = ANCHOR_CAP,
+  maxConvert?: number,
 ): RestructureResult | null {
   const yearsLeft = contract.yearsRemaining;
   if (yearsLeft < 2) return null; // converting into a 1-year proration frees nothing
   const yearOfDeal = contract.realYears - yearsLeft;
   const currentBase = contract.baseSalaries[yearOfDeal] ?? 0;
   const minSalary = leagueMinimumSalary(salaryCap);
-  const converted = currentBase - minSalary;
+  const fullConvertible = currentBase - minSalary;
+  const converted =
+    maxConvert === undefined
+      ? fullConvertible
+      : Math.min(fullConvertible, Math.max(MIN_CONVERTIBLE, maxConvert));
   if (converted < MIN_CONVERTIBLE) return null;
 
   const oldBonusRemaining = unamortizedSigningBonus(contract);
   const sliceYear = <T>(arr: readonly T[]): T[] => arr.slice(yearOfDeal);
 
   const baseSalaries = sliceYear(contract.baseSalaries);
-  baseSalaries[0] = minSalary;
+  // Partial conversion leaves the residual base in year 0 (a full conversion
+  // reduces it to exactly the minimum — the pre-floor invariant).
+  baseSalaries[0] = currentBase - converted;
   const guarantees = sliceYear(contract.guarantees);
   // The remaining minimum base rides along with the (inherently guaranteed)
   // bonus cash the player just received — a March restructure locks the year.

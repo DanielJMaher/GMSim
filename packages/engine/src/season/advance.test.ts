@@ -68,15 +68,13 @@ describe('advanceSeason', () => {
         expect(contract.yearsRemaining).toBeLessThanOrEqual(contract.realYears);
       }
 
-      // Every team at <=53 with every rostered player on a resolvable,
-      // positive-cap-hit contract. NOTE: exact-53 is NOT engine-guaranteed
-      // yet — a compliant-but-cap-strapped team (under the cap by less than one
-      // min salary) cannot fill its last slots. INTENDED-TEMPORARY: the "Roster
-      // Floor" slice (restructure-first floor enforcement) restores exact-53 and
-      // this reverts to toBe(53). The over-53 bound (the POST_DRAFT_ROSTER
-      // cutdown) IS a real guarantee, which <=53 preserves.
+      // Every team at exactly 53 with every rostered player on a resolvable,
+      // positive-cap-hit contract. INV-FLOOR (v0.186, `enforceRosterFloor`):
+      // the under-53 half is guaranteed by the restructure-first floor ladder
+      // (a compliant-but-cap-strapped team frees room for its 53rd body), the
+      // over-53 half by the POST_DRAFT_ROSTER cutdown.
       for (const team of Object.values(league.teams)) {
-        expect(team.rosterIds.length, `season ${season}: ${team.identity.id}`).toBeLessThanOrEqual(53);
+        expect(team.rosterIds.length, `season ${season}: ${team.identity.id}`).toBe(53);
         for (const playerId of team.rosterIds) {
           const player = league.players[playerId]!;
           expect(player.contractId).not.toBeNull();

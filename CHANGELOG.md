@@ -12,6 +12,51 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.186.0] — 2026-07-19
+
+### Added
+
+- **Roster Floor — the mandatory-53, restructure-first floor** (`ROSTER_FLOOR.md`,
+  Daniel-approved all five §12 calls). A compliant-but-cap-strapped team could
+  open a season below 53 (the ATL-at-48 find, seed `retire-trajectory` s8:
+  under the cap by $0.88M but a vet-min body costs $1.43M — every room-freeing
+  mechanism triggered only when OVER the cap). New
+  `transactions/roster-floor.ts` `enforceRosterFloor`: for any team short AND
+  pinned (`capRoom < leagueMinimumSalary`), a restructure-first escalation
+  ladder — (1) minimal-footprint restructure via a new `maxConvert` partial-
+  conversion parameter on `restructureContract` (war-chest path bit-identical
+  by default, proven by test), no competitive-window gate on this path and not
+  counted against `MAX_RESTRUCTURES_PER_SEASON`; (2) fringe cut via
+  `pickMinimalCasualty` (target `need + one min salary`); (3) loop, with a
+  structural termination argument verified empirically (D0-P2: 0 unclearable
+  pins in 7,680 team-seasons); (4) loud `roster-floor-violation` transaction —
+  never a silent sub-53, never a cap tolerance. Wired at the end of
+  `applyPostDraftRoster` (the Week-1 gate) AND as the weekly midseason-FA
+  affordability fallback (IR-driven pins clear the same week — the mid-season
+  ruling Injury Stage I depends on). PRNG-free; league-shaped (all 32 teams,
+  no player-team privilege); selection surface re-exported through `npc-ai/`.
+  Transaction log distinguishes floor moves (`forFloor` flag) for the
+  future-room instrument.
+
+### Changed
+
+- **The four `<=53` INTENDED-TEMPORARY test sites re-tightened to exact-53**
+  (retirement, advance, offseason, proactive-trades) — the debt taken on at
+  the Season Form D1 ship is retired; INV-FLOOR (exact-53 AND cap-compliant
+  post-`advanceSeason`) is now asserted, and the pin-rate instrument becomes a
+  permanent GATE = 0 in every subsequent battery.
+
+### Validation
+
+- D0 P1-P3 predictions all HIT (ATL repro: rung-1 headroom $84M vs need $6.3M;
+  pin census 1/7,680 team-seasons, ladder sufficient in 100%). P4 A/B: ATL
+  season-9 opens 53/53 compliant off exactly one $9.4M floor restructure + 5
+  vet-min fills; non-pinned seeds byte-identical no-ops. Targeted battery 394
+  passed / 0 failed (incl. determinism); fresh Scorekeeper `sim 10 12`
+  identical-to-noise vs v0.185.0 (17/21 rows exactly equal, rest ±0.1
+  display rounding); league-tick benchmark in budget; pin-rate gate 0/7,680.
+  Magistrate/Goatinator waived per §12.4 (no game/draft mechanism touched).
+
 ## [0.185.0] — 2026-07-16
 
 ### Added

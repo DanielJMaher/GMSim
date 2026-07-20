@@ -54,6 +54,7 @@ import {
 import { applyResigningWindow } from '../transactions/re-sign.js';
 import { applyCapFloorExtensions } from '../transactions/extensions.js';
 import { applyCapRestructures } from '../transactions/restructures.js';
+import { enforceRosterFloor } from '../transactions/roster-floor.js';
 import { teamSeasonCash } from '../contracts/cash.js';
 import { runProactiveTrades } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
@@ -562,6 +563,26 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
   teamsDuringSeason = faResult.teams as Record<string, TeamState>;
   contractsDuringSeason = faResult.contracts as Record<string, Contract>;
   logDuringSeason = faResult.transactionLog;
+
+  // Roster-floor fallback (v0.186, design §3): a team the weekly FA pass left
+  // sub-53 ONLY because it couldn't afford a vet-min body (the cap-pin — e.g.
+  // after IR moves) gets the same restructure-first ladder the Week-1 boundary
+  // runs. Short-but-affordable teams are skipped (the FA pass owns those), so
+  // this is a no-op except on a genuinely pinned team. PRNG-free — it consumes
+  // no fork, so the downstream draw sequence (and determinism) is untouched.
+  const floorLeague: LeagueState = {
+    ...league,
+    players: playersDuringSeason as typeof league.players,
+    teams: teamsDuringSeason as Readonly<Record<TeamId, TeamState>>,
+    contracts: contractsDuringSeason as Readonly<Record<ContractIdType, Contract>>,
+    phase: 'REGULAR_SEASON',
+    transactionLog: logDuringSeason,
+  };
+  const floorResult = enforceRosterFloor(floorLeague, currentTick + 1);
+  playersDuringSeason = floorResult.players as Record<string, Player>;
+  teamsDuringSeason = floorResult.teams as Record<string, TeamState>;
+  contractsDuringSeason = floorResult.contracts as Record<string, Contract>;
+  logDuringSeason = floorResult.transactionLog;
 
   // Mood update: feed the full played-weeks history so streak detection
   // sees the just-played week.
@@ -1185,6 +1206,12 @@ function applyPostDraftRoster(
   // and this pass spends that room — without it a team the FA market left
   // cap-pinned below 53 entered the season at 52 (adv-trajectory find).
   offseason = applyVetMinFillUp(offseason, offseason.tick);
+  // Mandatory-53 floor (v0.186): the last word before READY_FOR_NEXT_SEASON.
+  // A team pinned JUST under the cap has no room for its 53rd body — the two
+  // passes above only free room when a team is OVER the cap. This restructure-
+  // first ladder frees exactly the room the fill needs, then fills to 53
+  // (INV-FLOOR). No-op for any team already at 53. PRNG-free — no fork.
+  offseason = enforceRosterFloor(offseason, offseason.tick);
   return { ...offseason, lifecyclePhase: 'POST_DRAFT_ROSTER' };
 }
 
