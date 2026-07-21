@@ -12,18 +12,21 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
-### Known issues
+## [0.187.1] — 2026-07-20
 
-- `fa-bidding-watch-list.test.ts`'s aggregate market-impact check (winner-on-
-  watch-list rate) drops from a pre-fix 0.158 to 0.083 (120-auction A/B,
-  identical seeds) after the QB-room-spread fix below — below its 0.15
-  threshold. Traced, not a regression: the test releases each team's first
-  STARTER-tier roster player, and pre-fix a meaningful share of BACKUP QBs
-  were spuriously STARTER-tier-and-strong (the exact order-statistic bug the
-  fix below removes) — genuinely weaker backups now draw fewer watch-lists,
-  so the measured boost-effect rate falls. The threshold was implicitly
-  calibrated against the buggy roster generation; recalibrating it is a
-  named follow-up, not blocking this ship.
+### Fixed
+
+- **`fa-bidding-watch-list.test.ts` threshold recalibration** (follow-up to
+  v0.187.0's QB-room-spread fix). The aggregate market-impact check's
+  winner-on-watch-list rate dropped from a pre-fix 0.158 to ~0.08-0.09 —
+  traced, not a regression: the test releases each team's first STARTER-tier
+  roster player, and pre-fix a meaningful share of released players were
+  BACKUP QBs spuriously STARTER-tier-and-strong (the exact order-statistic
+  bug v0.187.0 removed) — genuinely weaker backups now draw fewer
+  watch-lists. Widened the sample from 3 to 8 seeds (stabilizes the estimate;
+  the original sample was noisier than the effect size it gated) and lowered
+  the threshold to 0.06 — still well clear of the ~3-5% no-boost chance
+  floor the test guards against.
 
 ## [0.187.0] — 2026-07-20
 

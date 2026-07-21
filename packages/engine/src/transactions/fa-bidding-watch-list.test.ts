@@ -172,7 +172,7 @@ describe('watch-list aggregate market impact', () => {
     // count how often the winning team had the player on their list.
     let totalAuctions = 0;
     let winnerOnWatchList = 0;
-    for (const seed of ['agg-1', 'agg-2', 'agg-3']) {
+    for (const seed of ['agg-1', 'agg-2', 'agg-3', 'agg-4', 'agg-5', 'agg-6', 'agg-7', 'agg-8']) {
       let league = createLeague({ seed });
       const releaseCount = 15;
       const releaseIds: PlayerId[] = [];
@@ -199,8 +199,20 @@ describe('watch-list aggregate market impact', () => {
     // we'd expect ~3-5% hit rate. With the boost we expect more — set a
     // conservative lower bound that catches a regression to "no boost"
     // without being flaky.
+    //
+    // Threshold recalibrated 2026-07-20 (v0.187.0, QB-room-spread fix): this
+    // test releases each team's first STARTER-tier roster player, and before
+    // the fix a meaningful share of released players were backup QBs that
+    // were spuriously STARTER-tier-and-strong (the exact order-statistic bug
+    // `BACKUP_QB_CEILING_DISCOUNT` removes, `players/skills.ts`) — genuinely
+    // weaker backups draw fewer watch-lists, so the boost-effect rate fell
+    // from a measured ~0.16 to ~0.08-0.09 (8-seed A/B, `_inj_tm_report.md`
+    // lineage). Widened from 3 to 8 seeds (stabilizes the estimate — the
+    // original 3-seed sample was noisier than the effect size it was gating)
+    // and the floor lowered to 0.06, still well above the ~3-5% no-boost
+    // chance floor above.
     expect(totalAuctions).toBeGreaterThan(10);
     const rate = winnerOnWatchList / totalAuctions;
-    expect(rate).toBeGreaterThan(0.15);
+    expect(rate).toBeGreaterThan(0.06);
   });
 });
