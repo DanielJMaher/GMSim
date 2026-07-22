@@ -63,7 +63,7 @@ const REAL_GROUP: Record<string, string> = {
 /** GMSim engine positions → the same comparison groups. GMSim's OLB is the
  *  off-ball 3-4 backer (EDGE is its own position), so OLB maps to LB here
  *  while the real-side OLB (sack artist era) maps to EDGE. */
-const SIM_GROUP: Record<string, string> = {
+export const SIM_GROUP: Record<string, string> = {
   QB: 'QB', RB: 'RB', FB: 'RB', WR: 'WR', TE: 'TE',
   LT: 'OL', RT: 'OL', LG: 'OL', RG: 'OL', C: 'OL',
   EDGE: 'EDGE', DT: 'DL', NT: 'DL',
@@ -72,11 +72,11 @@ const SIM_GROUP: Record<string, string> = {
   K: 'ST', P: 'ST', LS: 'ST',
 };
 
-const GROUP_ORDER = ['QB', 'EDGE', 'WR', 'OL', 'DB', 'DL', 'LB', 'RB', 'TE', 'ST'];
+export const GROUP_ORDER = ['QB', 'EDGE', 'WR', 'OL', 'DB', 'DL', 'LB', 'RB', 'TE', 'ST'];
 
 // ── Real side ────────────────────────────────────────────────────────────────
 
-interface RealTopPick {
+export interface RealTopPick {
   season: number;
   pick: number;
   team: string;
@@ -93,7 +93,7 @@ interface PickTradeRow {
   received: string;
 }
 
-async function loadRealTopPicks(maxPick: number): Promise<RealTopPick[]> {
+export async function loadRealTopPicks(maxPick: number): Promise<RealTopPick[]> {
   const picksCsv = await readFile(DRAFT_PICKS_PATH, 'utf8');
   const tradesCsv = await readFile(TRADES_PATH, 'utf8');
 
@@ -505,7 +505,7 @@ function reportCompare(
   }
 }
 
-function pctShare(groups: string[], ...want: string[]): number {
+export function pctShare(groups: string[], ...want: string[]): number {
   if (groups.length === 0) return 0;
   return (100 * groups.filter((g) => want.includes(g)).length) / groups.length;
 }

@@ -12,11 +12,22 @@ export {
 } from './standings.js';
 export { advanceSeason } from './advance.js';
 export {
+  createLivingLeague,
+  type CreateLivingLeagueOptions,
+  type GenesisProgressEvent,
+} from './genesis.js';
+export {
   tickPhase,
   nextPhaseAfter,
   LIFECYCLE_ORDER,
   type LifecyclePhase,
 } from './lifecycle.js';
+export {
+  propagateGameInjuries,
+  recoverInjuries,
+  type IrMove,
+  type InjuryPropagationResult,
+} from './injuries.js';
 export { buildSeasonTimeline, type TimelineStep } from './timeline.js';
 export { REGULAR_SEASON_WEEKS } from './schedule.js';
 export {

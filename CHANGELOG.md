@@ -12,6 +12,34 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.188.0] — 2026-07-22
+
+### Added
+
+- **`createLivingLeague` (League Genesis)** — root-cause fix for the
+  Roster Floor dead-money spiral (`ROSTER_FLOOR.md` v0.187.2): leagues were
+  born at "year 0" with no financial history, so cap complexity got
+  manufactured forward under stress instead of reflecting real accumulated
+  decisions. New `packages/engine/src/season/genesis.ts`, exported from
+  both `season/index.ts` and the top-level engine surface: genesis a league
+  at year −5 via the existing `createLeague` (unchanged), then
+  forward-simulate 5 seasons via the same `simulateSeason`/`advanceSeason`
+  calls every normal season already uses — the result IS the player's day-1
+  league, with organic contract ages and organic breakout/bust asymmetry
+  falling out of the engine's own development variance for free. Exposes a
+  platform-pure `onProgress` callback (`GenesisProgressEvent`) so a UI can
+  show real status during the ~80s genesis cost instead of a frozen screen.
+  Deliberately additive — `createLeague` (~550 call sites) is untouched and
+  stays the fast, near-instant generator; `createLivingLeague` is the new
+  player-facing "start a new game" path. Design: `LEAGUE_GENESIS.md`.
+  Gate battery (all green): D0 robustness — 0/20 seeds hit a
+  roster-floor-violation across 5-year genesis runs (post v0.187.2 fix);
+  targeted `season`/`contracts`/`transactions` suites clean under 5x
+  repetition; a fresh Scorekeeper-style W-L coupling check and a
+  Goatinator-style top-10 draft-class check, both run against genesis-
+  derived leagues specifically, hold within the same real-NFL bounds as
+  ordinary leagues.
+
 ## [0.187.1] — 2026-07-20
 
 ### Fixed

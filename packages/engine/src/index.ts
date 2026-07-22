@@ -116,7 +116,7 @@ export type {
 } from './contracts/index.js';
 
 // Phase 2 — Game simulation + season runner
-export { teamStrength, simulateGame, matchupFacets, simulateGameDrives, simulateGameWithDrives, buildTeamPersonnel } from './games/index.js';
+export { teamStrength, simulateGame, matchupFacets, availableRoster, simulateGameDrives, simulateGameWithDrives, buildTeamPersonnel } from './games/index.js';
 export type { SimulateGameOptions, MatchupFacets, DriveOutcome, DriveResult, DriveGameResult, PlayerStatLine, TeamPersonnel } from './games/index.js';
 export { deriveGamePlayerStats } from './games/stats.js';
 export {
@@ -129,6 +129,9 @@ export {
   playoffSeeds,
   winPct,
   advanceSeason,
+  createLivingLeague,
+  type CreateLivingLeagueOptions,
+  type GenesisProgressEvent,
   tickPhase,
   nextPhaseAfter,
   LIFECYCLE_ORDER,
@@ -175,6 +178,10 @@ export {
   type CalendarDate,
   type LifecyclePhase,
   type TimelineStep,
+  propagateGameInjuries,
+  recoverInjuries,
+  type IrMove,
+  type InjuryPropagationResult,
 } from './season/index.js';
 export type { SimulateSeasonOptions } from './season/index.js';
 
