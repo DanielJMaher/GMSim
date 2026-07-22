@@ -41,11 +41,19 @@ import { pickMinimalCasualty, sortedFreeAgentPool } from './offseason.js';
  *     sufficient vet (`pickMinimalCasualty`, target `need + one min salary`
  *     because the cut opens one more slot to refill).
  *   Rung 3 — escalate: the loop re-enters rungs 1-2 until affordable. The
- *     ladder provably terminates — a cap-pinned sub-53 team carries large
- *     contracts, each either multi-year (→ rung-1 convertible) or expiring
- *     (→ small dead money → positive-saving cut); an all-minimum roster has
- *     usage far under the cap, contradicting "pinned" (design §2.3, verified
- *     empirically by D0-P2: 0 unclearable pins in 7,680 team-seasons).
+ *     ladder terminates in at most ~2x roster size iterations: a restructure
+ *     may touch a given contract only ONCE per engagement (v0.187.2 — see
+ *     `selectFloorRestructure`'s doc comment; without this, "smallest
+ *     sufficient, sized to exactly cover `need`" can partially convert the
+ *     SAME contract call after call and spin past 5,000 iterations on a
+ *     single deeply cap-negative team — reproduced on Injury Stage I's
+ *     19x-higher injury churn, seed `goat-18` team NYG, room -$64.4M), and a
+ *     cut is inherently single-use (it leaves the roster). D0-P2's original
+ *     empirical check (0 unclearable pins in 7,680 team-seasons, pre-Stage-I)
+ *     covered the bounded, occasional pin the design anticipated — it did not
+ *     anticipate a team's cap situation degrading this far under sustained
+ *     injury-driven ladder pressure, which is why the fix above is a real
+ *     termination bound, not a larger empirical sample.
  *   Rung 4 — the loud failure. If the ladder somehow exhausts, record a
  *     `roster-floor-violation` and let the exact-53 invariant tests fail
  *     loudly. The guarantee is "53 or a red test", never "48 and shrug"
@@ -94,11 +102,28 @@ export interface FloorRestructurePlan {
  * convertible base (full conversion, maximum progress) when no single deal
  * covers the need alone, letting the pass loop. Mirrors `pickMinimalCasualty`'s
  * smallest-sufficient-else-largest shape. Pure — no PRNG.
+ *
+ * `excluded` (v0.187.2 — the non-terminating-ladder fix): contracts already
+ * restructured earlier in the SAME `enforceRosterFloor` engagement. Without
+ * this, "smallest sufficient sized to exactly cover `need`" can select the
+ * SAME contract call after call — each partial conversion leaves convertible
+ * base behind, so a deeply cap-negative team (whose `need` recomputes small
+ * relative to that contract's total convertible base) nibbles one deal in
+ * dozens of tiny increments instead of exhausting the roster's restructurable
+ * contracts in bounded order. Reproduced: seed `goat-18`, team NYG, tick 272
+ * (starting room -$64.4M) — the ladder spun past 5,000 iterations. Excluding
+ * touched contracts for the rest of THIS engagement bounds restructures to at
+ * most one attempt per eligible contract (any value left un-converted is
+ * picked up by a later, independent engagement) — combined with cuts already
+ * being single-use (a cut leaves the roster), this bounds total ladder
+ * iterations by ~2x roster size, restoring the design's §2.3 termination
+ * argument instead of hoping convergence happens.
  */
 export function selectFloorRestructure(
   team: TeamState,
   league: LeagueState,
   need: number,
+  excluded?: ReadonlySet<PlayerId>,
 ): FloorRestructurePlan | null {
   const cap = league.salaryCap;
   const minSalary = leagueMinimumSalary(cap);
@@ -107,6 +132,7 @@ export function selectFloorRestructure(
   let largest: { playerId: PlayerId; convertible: number } | null = null;
 
   for (const pid of team.rosterIds) {
+    if (excluded?.has(pid)) continue;
     const player = league.players[pid];
     if (!player || !player.contractId) continue;
     const contract = league.contracts[player.contractId];
@@ -198,7 +224,38 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
 
     // Engaged: walk the ladder, freeing room when unaffordable and signing a
     // body when affordable, until the team is at 53 or the ladder exhausts.
+    // Each contract may be restructured AT MOST ONCE per engagement (v0.187.2
+    // — see `selectFloorRestructure`'s doc comment); cuts are inherently
+    // single-use (a cut leaves the roster). Together these bound RESTRUCTURES
+    // and CUTS individually — but a team whose fringe cuts each recover too
+    // little to profitably refill can still spiral: cut, deficit grows by 1,
+    // the freed room still can't afford a sign, cut again — net progress
+    // *negative*. Reproduced (v0.187.2, seed `goat-18` team NYG, tick 272):
+    // deficit 2 at engagement start spiraled to 11 over 224+ cuts before the
+    // raw iteration backstop caught it. A cap-pinned team this catastrophic
+    // (accumulated dead money from repeated Injury-Stage-I-driven restructures
+    // over prior seasons) cannot be dug out by a BOUNDED cut sequence — that
+    // is exactly rung 4's case (design §2.4), and the honest, fast answer is a
+    // loud violation, not hundreds of cuts hoping the math turns around.
+    // `maxCuts` bounds fringe cuts to a generous multiple of the STARTING
+    // deficit (comfortably enough for the legitimate multi-cut case D0-P2
+    // verified; far short of a genuine spiral) — once exhausted without
+    // reaching 53, fall through to rung 4 exactly as if no candidate existed.
+    const restructuredThisEngagement = new Set<PlayerId>();
+    const maxCuts = Math.max(5, deficitStart * 3);
+    let cutsUsed = 0;
+    const iterationLimit = 4 * startTeam.rosterIds.length + 20;
+    let ladderIters = 0;
     while (true) {
+      ladderIters++;
+      if (ladderIters > iterationLimit) {
+        throw new Error(
+          `enforceRosterFloor: ladder exceeded its ${iterationLimit}-iteration bound for team ` +
+          `${teamId} at tick ${signedOnTick} (roster=${working.teams[teamId]!.rosterIds.length}, ` +
+          `FAs=${countFreeAgents(working)}) — the restructure exclusion + cut budget should make ` +
+          `this structurally unreachable; investigate as a real bug, do not raise the cap.`,
+        );
+      }
       const team = working.teams[teamId]!;
       const deficit = ROSTER_FLOOR_SIZE - team.rosterIds.length;
       if (deficit <= 0) break;
@@ -219,16 +276,22 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
       // toward usage) — freeing a touch extra is harmless.
       const need = deficit * minSalary - room;
 
-      // Rung 1 — restructure (minimal footprint).
-      const plan = selectFloorRestructure(team, working, need);
+      // Rung 1 — restructure (minimal footprint; excludes contracts already
+      // touched this engagement so the ladder can't nibble one deal forever).
+      const plan = selectFloorRestructure(team, working, need, restructuredThisEngagement);
       if (plan) {
         const idSuffix = `${team.identity.abbreviation}_RFLR${league.seasonNumber}_${counter++}`;
+        restructuredThisEngagement.add(plan.playerId);
         working = applyFloorRestructure(working, teamId, plan, idSuffix, signedOnTick);
         continue;
       }
+      // Rung 2 exhausted its cut budget — fall to rung 4 rather than keep
+      // trading fringe vets for a hole that isn't closing.
+      if (cutsUsed >= maxCuts) break;
       // Rung 2 — fringe cut (target need + one min salary; the cut opens a slot).
       const cut = pickMinimalCasualty(team, working, need + minSalary);
       if (cut) {
+        cutsUsed++;
         working = applyFloorCut(working, teamId, cut);
         continue;
       }

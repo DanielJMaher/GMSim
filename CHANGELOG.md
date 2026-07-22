@@ -12,6 +12,25 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.188.1] — 2026-07-22
+
+### Fixed
+
+- **Roster Floor v0.187.2 — non-terminating ladder fix.** `enforceRosterFloor`'s
+  §12 termination proof was falsified under Injury Stage I stress (repro:
+  seed `goat-18`, team NYG, tick 272, $64.4M room deficit): (1)
+  `selectFloorRestructure` could partially-convert the SAME contract across
+  many ladder iterations — fixed with a per-engagement restructure-exclusion
+  set; (2) even after that fix, a catastrophically cap-negative team's
+  fringe cuts could each net less than they cost, spiraling the deficit
+  2→11 while dead money detonated to $232M against a $341M cap (68%) by
+  season 5 — fixed with a cut budget (`Math.max(5, deficitStart*3)`) that
+  falls through to the honest rung-4 `roster-floor-violation` log instead
+  of spinning. Reran the exact hang scenario post-fix: resolves in <2min
+  (was 11 hours). 2 new regression tests, 16/16 passing. Root cause of the
+  underlying cap spiral — leagues starting with no contract history —
+  routed to `LEAGUE_GENESIS.md` (v0.188.0, this release).
+
 ## [0.188.0] — 2026-07-22
 
 ### Added

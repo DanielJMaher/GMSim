@@ -180,6 +180,74 @@ describe('enforceRosterFloor — rung 1 (restructure-first)', () => {
   });
 });
 
+describe('enforceRosterFloor — non-terminating ladder fix (v0.187.2)', () => {
+  // Regression for a real hang: Injury Stage I's 19x-higher injury churn
+  // drove a team (seed goat-18, team NYG, tick 272, starting room -$64.4M)
+  // through this ladder so many times across a season that
+  // `selectFloorRestructure`'s "smallest sufficient, sized to exactly cover
+  // need" logic partially re-converted the SAME contract call after call,
+  // spinning past 5,000 iterations instead of exhausting the roster's
+  // restructurable contracts in bounded order. See `selectFloorRestructure`'s
+  // doc comment for the full mechanism.
+
+  it('selectFloorRestructure never re-selects a contract already in `excluded`', () => {
+    // A single restructurable mega-deal comfortably covers `need` on the
+    // first call (the exact "smallest sufficient" case that could recur).
+    const { league, teamId } = pinFirstTeam('floor-noloop-select', {
+      keep: 40,
+      roomDollars: -20_000_000,
+      phase: 'OFFSEASON_TRANSACTIONS',
+      makeContract: (pid, i) =>
+        i === 0 ? megaDeal(pid, 30_000_000) : oneYearDeal(pid, 2_000_000, false),
+    });
+    const team = league.teams[teamId]!;
+    const need = 5_000_000;
+
+    const first = selectFloorRestructure(team, league, need);
+    expect(first).not.toBeNull();
+    expect(first!.playerId).toBe(team.rosterIds[0]);
+
+    // Identical (team, league, need) — the exact call the old ladder would
+    // repeat on an under-shot relief. With the contract excluded, it must
+    // NOT be reselected (no other restructurable deal exists here → null).
+    const second = selectFloorRestructure(team, league, need, new Set([first!.playerId]));
+    expect(second).toBeNull();
+  });
+
+  it('never restructures the same contract twice within one engagement, and terminates well under the safety bound', () => {
+    // Deep cap distress (deficit 21, room -$40M) with exactly ONE
+    // restructurable contract and a pool of one-year (cuttable) deals — the
+    // shape that would have nibbled the mega-deal across dozens of
+    // iterations under the pre-fix code.
+    const { league, teamId } = pinFirstTeam('floor-noloop-engage', {
+      keep: 32,
+      roomDollars: -40_000_000,
+      phase: 'OFFSEASON_TRANSACTIONS',
+      makeContract: (pid, i) =>
+        i === 0 ? megaDeal(pid, 35_000_000) : oneYearDeal(pid, 2_500_000, false),
+    });
+    const megaDealPlayerId = league.teams[teamId]!.rosterIds[0]!;
+
+    const after = enforceRosterFloor(league, league.tick);
+
+    // Either it converged to 53 compliant, or it honestly logged a rung-4
+    // violation — but it must not have thrown the iteration-bound error, and
+    // the transaction log proves that either way.
+    const restructures = floorTxns(after, 'restructure');
+    const restructuresOfMegaDeal = restructures.filter(
+      (t) => (t as { playerId: PlayerId }).playerId === megaDealPlayerId,
+    );
+    expect(restructuresOfMegaDeal.length).toBeLessThanOrEqual(1);
+
+    const finalTeam = after.teams[teamId]!;
+    if (finalTeam.rosterIds.length === 53) {
+      expect(teamCapUsage(finalTeam, after)).toBeLessThanOrEqual(after.salaryCap);
+    } else {
+      expect(floorTxns(after, 'roster-floor-violation').length).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
 describe('enforceRosterFloor — rung 2 (fringe cut)', () => {
   it('cuts the cheapest sufficient vet when nothing is restructurable', () => {
     // All 1-year deals (nothing convertible) → rung 1 finds nothing, rung 2
