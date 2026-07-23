@@ -12,6 +12,30 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.188.3] — 2026-07-23
+
+### Fixed
+
+- **Repo: `main` compiles from a clean clone again.** The League Genesis
+  commit (v0.188.0) was made from a working tree carrying the uncommitted
+  Injury Realism Stage I slice and swept in three re-export blocks of its
+  symbols (`availableRoster` from `games/`; `propagateGameInjuries` /
+  `recoverInjuries` / `IrMove` / `InjuryPropagationResult` from
+  `season/injuries.js`) whose defining files were never committed — one is
+  an untracked file. Any clean checkout of v0.188.0-v0.188.2 fails
+  `pnpm build` with TS2305/TS2307; the pre-push full-suite gate (2026-07-22)
+  passed only because it ran on the dirty tree, which masked the hole. This
+  release deletes the three dangling blocks (behavior-neutral: nothing in
+  the committed engine or the web app references the symbols — verified by
+  grep + clean-tree build). The re-exports return WITH their definitions
+  when Stage I ships as its own slice; in the working tree they are now
+  carried as part of the uncommitted Stage I diff, where they belong.
+  Verified on the committed tree state (Stage I stashed): engine build
+  green, `season/injuries.test.ts` 11/11. Process lesson for the record:
+  a push gate run on a dirty tree does not certify the commit — clean-tree
+  verification (stash/worktree) is required whenever the tree carries
+  uncommitted work.
+
 ## [0.188.2] — 2026-07-22
 
 ### Fixed
