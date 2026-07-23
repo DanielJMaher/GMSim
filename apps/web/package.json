@@ -1,6 +1,6 @@
 {
   "name": "@gmsim/web",
-  "version": "0.188.1",
+  "version": "0.188.2",
   "private": true,
   "type": "module",
   "scripts": {
