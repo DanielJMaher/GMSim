@@ -94,6 +94,7 @@ interface EngineModule {
   simulateSeason: (league: EngineLeague) => EngineLeague;
   advanceSeason: (league: EngineLeague) => EngineLeague;
   matchupFacets: (team: unknown, league: EngineLeague) => unknown;
+  teamStrength: (team: unknown, league: EngineLeague) => number;
   simulateGameDrives: (
     prng: unknown,
     homeFacets: unknown,
@@ -1362,6 +1363,12 @@ export interface SkSeasonTeam {
   games: number;
   pf: number;
   pa: number;
+  /** PRESEASON `teamStrength` snapshot, taken before this season's games are
+   *  simulated (2026-07-24, ANCHOR_RECALIBRATION.md §6.3 corr instrument).
+   *  Same-season pairing by construction (captured and consumed inside the
+   *  same season-loop iteration, before `advanceSeason` even runs) — this
+   *  function never had the season-N/N-1 lag `_winssd_decomp.mjs` had. */
+  preStrength: number;
 }
 
 export interface SkSimResult {
@@ -1396,9 +1403,13 @@ interface SkGame {
     playerStats?: SkStatLine[];
   } | null;
 }
+interface SkTeam {
+  identity: { id: string };
+}
 interface SkLeague {
   seasonNumber: number;
   schedule: { regularSeason: SkGame[][] } | null;
+  teams: Record<string, SkTeam>;
 }
 
 /**
@@ -1416,6 +1427,14 @@ export async function simulateBoxScores(seed: string, years: number): Promise<Sk
   let doubleEntryViolations = 0;
 
   for (let y = 0; y < years; y++) {
+    // PRESEASON strength snapshot, before this season's games run (the corr
+    // instrument's input) -- captured from the same `league` that goes into
+    // simulateSeason below, so it is unambiguously this season's preseason
+    // read, never a stale one.
+    const preStrength = new Map<string, number>();
+    for (const t of Object.values(league.teams)) {
+      preStrength.set(t.identity.id, eng.teamStrength(t, league as unknown as EngineLeague));
+    }
     const played = eng.simulateSeason(league as unknown as EngineLeague) as unknown as SkLeague;
     const season = played.seasonNumber;
     const byTeam = new Map<string, SkSeasonTeam>();
@@ -1460,7 +1479,15 @@ export async function simulateBoxScores(seed: string, years: number): Promise<Sk
           sacksSuffered: oppTs.sacks,
         });
 
-        const rec = byTeam.get(tid) ?? { season, teamId: tid, wins: 0, games: 0, pf: 0, pa: 0 };
+        const rec = byTeam.get(tid) ?? {
+          season,
+          teamId: tid,
+          wins: 0,
+          games: 0,
+          pf: 0,
+          pa: 0,
+          preStrength: preStrength.get(tid) ?? 0,
+        };
         rec.games++;
         rec.pf += points;
         rec.pa += oppPoints;

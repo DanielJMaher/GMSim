@@ -1,4 +1,4 @@
-export { teamStrength, matchupFacets } from './strength.js';
+export { teamStrength, matchupFacets, availableRoster } from './strength.js';
 export type { MatchupFacets } from './strength.js';
 export { simulateGame } from './outcome.js';
 export type { SimulateGameOptions } from './outcome.js';

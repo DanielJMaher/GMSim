@@ -120,6 +120,14 @@ interface Bar {
    *  re-centered on the league mean. Real side = 0 (15 yrs of distinct teams,
    *  no single-franchise aging). */
   pointsDrift: number;
+  /** corr(preseason teamStrength, season wins) instrument (sim-only; 2026-07-24,
+   *  ANCHOR_RECALIBRATION.md §6.3). REPORT-ONLY, no band -- added after the
+   *  discovery that the prior "anchor" corr figure (0.435) was never
+   *  reproducible and had never been watched by any gate. null on the real
+   *  side (no equivalent "preseason strength" signal in nflverse). */
+  strengthWinsCorr: number | null;
+  /** Derived split (|r| * winsSd, sqrt(1-r^2) * winsSd) -- report-only. */
+  talentLuckSplit: { talentWinsSd: number; luckWinsSd: number } | null;
 }
 
 // ── Real side ────────────────────────────────────────────────────────────────
@@ -293,7 +301,27 @@ async function computeRealBar(): Promise<Bar> {
     },
     doubleEntryViolations: deViolations,
     pointsDrift: 0, // sim-only gate (real = 15 yrs of distinct teams, no franchise aging)
+    strengthWinsCorr: null, // no real-side equivalent
+    talentLuckSplit: null,
   };
+}
+
+/** Pearson corr; NaN-safe (returns null on a degenerate/zero-variance input). */
+function corr(x: number[], y: number[]): number | null {
+  const n = x.length;
+  if (n < 2) return null;
+  const mx = x.reduce((a, b) => a + b, 0) / n;
+  const my = y.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = (x[i] ?? 0) - mx;
+    const dy = (y[i] ?? 0) - my;
+    sxy += dx * dy;
+    sxx += dx * dx;
+    syy += dy * dy;
+  }
+  if (sxx === 0 || syy === 0) return null;
+  return sxy / Math.sqrt(sxx * syy);
 }
 
 // ── Sim side (seed-parallel workers, cached like the Goatinator) ─────────────
@@ -409,12 +437,25 @@ function computeSimBar(results: SeedResult[]): Bar {
   }
   const wins17: number[] = [];
   const pythErr: number[] = [];
+  const strengths: number[] = [];
+  const strengthWins: number[] = [];
   for (const t of seasons) {
     const w = (t.wins / Math.max(1, t.games)) * 17;
     wins17.push(w);
     const pyth = (t.pf ** PYTH_EXP / (t.pf ** PYTH_EXP + t.pa ** PYTH_EXP)) * 17;
     pythErr.push(w - pyth);
+    strengths.push(t.preStrength);
+    strengthWins.push(w);
   }
+  const strengthWinsCorr = corr(strengths, strengthWins);
+  const talentLuckSplit =
+    strengthWinsCorr === null
+      ? null
+      : (() => {
+          const winsSd = dist(wins17).sd;
+          const r = Math.abs(strengthWinsCorr);
+          return { talentWinsSd: r * winsSd, luckWinsSd: Math.sqrt(Math.max(0, 1 - r * r)) * winsSd };
+        })();
 
   return {
     teamGames: games.length,
@@ -436,6 +477,8 @@ function computeSimBar(results: SeedResult[]): Bar {
     },
     doubleEntryViolations: results.reduce((a, r) => a + r.result.doubleEntryViolations, 0),
     pointsDrift: seasonPointsDrift(perSeasonPoints),
+    strengthWinsCorr,
+    talentLuckSplit,
   };
 }
 
@@ -503,6 +546,22 @@ function reportCompare(real: Bar, sim: Bar): void {
     console.log(
       `  ${c.label.padEnd(24)} ${f1(c.real).padStart(8)} ${f1(c.sim).padStart(8)}   [${f1(c.lo)}, ${f1(c.hi)}]${flag}`,
     );
+  }
+  if (sim.strengthWinsCorr !== null && sim.talentLuckSplit !== null) {
+    console.log(
+      `\n  [instrument, report-only, no band] corr(preseason strength, wins): ${sim.strengthWinsCorr.toFixed(3)}` +
+        `   -> talent-wins-sd ${f1(sim.talentLuckSplit.talentWinsSd)} · luck-wins-sd ${f1(sim.talentLuckSplit.luckWinsSd)}`,
+    );
+    console.log(
+      '  (ANCHOR_RECALIBRATION.md §6.3: added after the prior "anchor" corr figure',
+    );
+    console.log(
+      '  0.435 was found never reproducible and had never been watched by any gate;',
+    );
+    console.log(
+      '  corrected mature baseline of record ~0.26 -- this row is how a future drift',
+    );
+    console.log('  in either direction gets caught early, not gated on.');
   }
   console.log(
     '\n  notes: giveaways are true (INT + ball-carrier fumbles lost) on BOTH',

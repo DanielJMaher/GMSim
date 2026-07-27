@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
 import { simulateSeason } from './runner.js';
 import { advanceSeason } from './advance.js';
+import { propagateGameInjuries, recoverInjuries } from './injuries.js';
+import type { Player } from '../types/player.js';
+import type { GameInjury } from '../types/game.js';
 
 /**
  * Injury propagation tests. The `simulateSeason` runner now copies
@@ -73,6 +76,59 @@ describe('injury propagation', () => {
   });
 });
 
+describe('injury state machine helpers (extracted, §3.2 — behaviour-preserving)', () => {
+  function firstRostered(league: ReturnType<typeof createLeague>): Player {
+    const team = Object.values(league.teams)[0]!;
+    return league.players[team.rosterIds[0]!]!;
+  }
+
+  it('recoverInjuries clears injuries at/after the return tick and leaves the rest', () => {
+    const league = createLeague({ seed: 'rec-unit' });
+    const p = firstRostered(league);
+    const players: Record<string, Player> = {
+      [p.id]: { ...p, injury: { type: 'ankle', severity: 'MODERATE', occurredOnTick: 2, estimatedReturnTick: 5 } },
+    };
+    // Before the return tick: unchanged, same reference (identity-stable).
+    expect(recoverInjuries(players, 4)).toBe(players);
+    // At the return tick: cleared.
+    const healed = recoverInjuries(players, 5);
+    expect(healed[p.id]!.injury).toBeNull();
+    expect(healed).not.toBe(players);
+  });
+
+  it('propagateGameInjuries stamps status, reports MAJOR IR moves, and scars only MAJOR', () => {
+    const league = createLeague({ seed: 'prop-unit' });
+    const team = Object.values(league.teams)[0]!;
+    const a = league.players[team.rosterIds[0]!]!;
+    const b = league.players[team.rosterIds[1]!]!;
+    const players: Record<string, Player> = { [a.id]: a, [b.id]: b };
+    const injuries: GameInjury[] = [
+      { playerId: a.id, weeksOut: 4, severity: 'MODERATE', type: 'shoulder' },
+      { playerId: b.id, weeksOut: 12, severity: 'MAJOR', type: 'knee' },
+    ];
+    const { players: next, irMoves } = propagateGameInjuries(players, injuries, 3);
+    // Status stamped with occurredOnTick + weeksOut.
+    expect(next[a.id]!.injury).toEqual({ type: 'shoulder', severity: 'MODERATE', occurredOnTick: 3, estimatedReturnTick: 7 });
+    expect(next[b.id]!.injury!.estimatedReturnTick).toBe(15);
+    // Only the MAJOR reports an IR move.
+    expect(irMoves).toHaveLength(1);
+    expect(irMoves[0]!.playerId).toBe(b.id);
+    expect(irMoves[0]!.severity).toBe('MAJOR');
+    // MAJOR scars durability (applyInjuryScar); MODERATE does not.
+    expect(next[b.id]!.current.durability).toBeLessThan(b.current.durability);
+    expect(next[a.id]!.current.durability).toBe(a.current.durability);
+    // Input map untouched.
+    expect(players[a.id]!.injury).toBeNull();
+  });
+
+  it('propagateGameInjuries returns the same map reference when nothing applied', () => {
+    const league = createLeague({ seed: 'prop-empty' });
+    const p = firstRostered(league);
+    const players: Record<string, Player> = { [p.id]: p };
+    expect(propagateGameInjuries(players, [], 1).players).toBe(players);
+  });
+});
+
 describe('injured reserve', () => {
   it('createLeague initializes every team with an empty IR list', () => {
     const league = createLeague({ seed: 'ir-init' });
@@ -135,14 +191,19 @@ describe('injured reserve', () => {
     const after = advanceSeason(played);
     for (const team of Object.values(after.teams)) {
       expect(team.injuredReserveIds).toEqual([]);
-      // Each pre-advance IR player either retired (gone from league.players)
-      // or is now on the active roster (or was released by cap cuts).
+      // Each pre-advance IR player either retired (gone from league.players),
+      // was released/signed elsewhere, landed on the practice squad, or is now
+      // on the active roster. (The practice-squad terminal state is reached far
+      // more often under Injury Realism Stage I's higher IR volume — a restored
+      // IR player is a natural PS candidate during the offseason cycle.)
+      const afterTeam = after.teams[team.identity.id]!;
       for (const playerId of irBefore.get(team.identity.id) ?? []) {
         const player = after.players[playerId];
         if (!player) continue; // retired
         if (player.teamId === null) continue; // released or expired
         if (player.teamId !== team.identity.id) continue; // signed elsewhere
-        expect(after.teams[team.identity.id]!.rosterIds).toContain(playerId);
+        if (afterTeam.practiceSquadIds.includes(playerId)) continue; // on the practice squad
+        expect(afterTeam.rosterIds).toContain(playerId);
       }
     }
   });

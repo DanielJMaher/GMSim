@@ -38,7 +38,7 @@ import { Prng as PrngClass } from '../prng/index.js';
 import { computeRecords, divisionStandings } from './standings.js';
 import { advancePlayerDevelopment, computePerformanceMultipliers } from './development.js';
 import { regradeLeagueTalent } from './talent-score.js';
-import { applyInjuryScar } from '../players/aging-curves.js';
+import { propagateGameInjuries, recoverInjuries } from './injuries.js';
 import { processRetirements } from './retirement.js';
 import { seasonStatsForLeague } from './stats.js';
 import { seasonAwards, selectAccolades } from './awards.js';
@@ -438,16 +438,9 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
   let contractsDuringSeason: Record<string, Contract> = league.contracts as Record<string, Contract>;
   let logDuringSeason: readonly Transaction[] = league.transactionLog;
 
-  // Recover any injuries whose return tick has passed.
-  const recovered: Record<string, Player> = {};
-  for (const [pid, p] of Object.entries(playersDuringSeason)) {
-    if (p.injury && p.injury.estimatedReturnTick <= currentTick) {
-      recovered[pid] = { ...p, injury: null };
-    }
-  }
-  if (Object.keys(recovered).length > 0) {
-    playersDuringSeason = { ...playersDuringSeason, ...recovered };
-  }
+  // Recover any injuries whose return tick has passed (shared engine path,
+  // Injury Realism §3.2 — same fn the B2 harness runs).
+  playersDuringSeason = recoverInjuries(playersDuringSeason, currentTick);
 
   // Play this week's games. Injuries propagate onto Player.injury so
   // the next game in the same week sees the up-to-date state. MAJOR
@@ -477,45 +470,31 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
     playedWeek.push(played);
 
     if (played.result?.injuries.length) {
-      const updates: Record<string, Player> = {};
-      const irMoves: { playerId: PlayerId; teamId: TeamId }[] = [];
-      for (const inj of played.result.injuries) {
-        const p = playersDuringSeason[inj.playerId];
-        if (!p) continue;
-        // S5: MAJOR injuries permanently scar the body (durability + a
-        // coin-flip step from each explosive trait) — applied at injury
-        // time, before the status flag.
-        const scarred = inj.severity === 'MAJOR' ? applyInjuryScar(p, currentTick) : p;
-        updates[inj.playerId] = {
-          ...scarred,
-          injury: {
-            type: inj.type,
-            severity: inj.severity,
-            occurredOnTick: currentTick,
-            estimatedReturnTick: currentTick + inj.weeksOut,
+      const { players: nextPlayers, irMoves } = propagateGameInjuries(
+        playersDuringSeason,
+        played.result.injuries,
+        currentTick,
+      );
+      playersDuringSeason = nextPlayers;
+      for (const mv of irMoves) {
+        logDuringSeason = [
+          ...logDuringSeason,
+          {
+            kind: 'ir-move',
+            tick: currentTick,
+            seasonNumber: league.seasonNumber,
+            teamId: mv.teamId,
+            playerId: mv.playerId,
+            injurySeverity: mv.severity,
+            weeksOut: mv.weeksOut,
           },
-        };
-        if (inj.severity === 'MAJOR' && p.teamId) {
-          irMoves.push({ playerId: inj.playerId, teamId: p.teamId });
-          logDuringSeason = [
-            ...logDuringSeason,
-            {
-              kind: 'ir-move',
-              tick: currentTick,
-              seasonNumber: league.seasonNumber,
-              teamId: p.teamId,
-              playerId: inj.playerId,
-              injurySeverity: inj.severity,
-              weeksOut: inj.weeksOut,
-            },
-          ];
-        }
-      }
-      if (Object.keys(updates).length > 0) {
-        playersDuringSeason = { ...playersDuringSeason, ...updates };
+        ];
       }
       if (irMoves.length > 0) {
-        teamsDuringSeason = applyIrMoves(teamsDuringSeason, irMoves);
+        teamsDuringSeason = applyIrMoves(
+          teamsDuringSeason,
+          irMoves.map((mv) => ({ playerId: mv.playerId, teamId: mv.teamId })),
+        );
       }
     }
   }

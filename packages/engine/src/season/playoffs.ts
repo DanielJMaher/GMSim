@@ -4,7 +4,7 @@ import type { Player } from '../types/player.js';
 import type { TeamId } from '../types/ids.js';
 import type { Prng } from '../prng/index.js';
 import { simulateGame } from '../games/outcome.js';
-import { applyInjuryScar } from '../players/aging-curves.js';
+import { propagateGameInjuries } from './injuries.js';
 import { computeRecords, playoffSeeds } from './standings.js';
 import { Conference } from '../types/enums.js';
 import type { TeamRecord } from './standings.js';
@@ -251,25 +251,10 @@ function playMatchup(
   let nextPlayers = players;
   if (game.result?.injuries.length) {
     const occurredOnTick = league.tick + (PLAYOFF_TICK_OFFSET[kind] ?? 17);
-    const updates: Record<string, Player> = {};
-    for (const inj of game.result.injuries) {
-      const p = players[inj.playerId];
-      if (!p) continue;
-      // S5: MAJOR injuries permanently scar the body (see applyInjuryScar).
-      const scarred = inj.severity === 'MAJOR' ? applyInjuryScar(p, occurredOnTick) : p;
-      updates[inj.playerId] = {
-        ...scarred,
-        injury: {
-          type: inj.type,
-          severity: inj.severity,
-          occurredOnTick,
-          estimatedReturnTick: occurredOnTick + inj.weeksOut,
-        },
-      };
-    }
-    if (Object.keys(updates).length > 0) {
-      nextPlayers = { ...players, ...updates };
-    }
+    // Shared engine path (Injury Realism §3.2). Playoff MAJOR injuries scar the
+    // body but do NOT trigger an IR move — the season ends and the offseason
+    // heal clears state — so the reported irMoves are intentionally discarded.
+    nextPlayers = propagateGameInjuries(players, game.result.injuries, occurredOnTick).players;
   }
   return { game, players: nextPlayers };
 }

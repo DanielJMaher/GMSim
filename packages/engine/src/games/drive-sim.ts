@@ -1,6 +1,6 @@
 import { Prng } from '../prng/index.js';
 import type { MatchupFacets } from './strength.js';
-import { matchupFacets } from './strength.js';
+import { matchupFacets, availableRoster } from './strength.js';
 import type { Player, PlayerSkills } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
 import type { LeagueState } from '../types/league.js';
@@ -1300,8 +1300,9 @@ export function simulateGameWithDrives(
   league: LeagueState,
   opts: DriveGameOptions = {},
 ): DriveGameResult {
-  const playersOf = (t: TeamState): Player[] =>
-    t.rosterIds.map((id) => league.players[id]).filter((p): p is Player => Boolean(p));
+  // Injury Realism §3.2: participation reads the AVAILABLE roster (injured-out
+  // players excluded), matching the facet path so personnel and facets agree.
+  const playersOf = (t: TeamState): Player[] => availableRoster(t, league);
   const hf = matchupFacets(homeTeam, league);
   const af = matchupFacets(awayTeam, league);
   // Re-center each edge on this league-season's mean (invariant to the talent

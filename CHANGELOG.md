@@ -12,6 +12,101 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.189.0] — 2026-07-27
+
+### Added
+
+- **Injury Realism Stage I — availability + transmission** (design of record
+  `docs/design-docs/INJURY_REALISM.md`, approved Daniel 2026-07-18; scored
+  against the re-anchored fatal test in `docs/design-docs/
+  ANCHOR_RECALIBRATION.md` §5, approved Daniel 2026-07-24). Two defects
+  fixed together, per the design's own finding that fixing either alone
+  would change almost nothing:
+  - **Rate.** `injuryRateByPosition()` (`games/outcome.ts`) replaces the old
+    doc-guess rates: QB ≈0.035/game (~12× prior), every non-QB position
+    ≈19-20× prior — fit per-constraint (not a uniform multiplier) to land
+    QB1 starts-missed mean ~2.0-2.2/season and roster-wide man-games
+    ~285/team, both confirmed on target (measured 8×8 lifecycle run:
+    exposure 11.72% of team-games, band 10-14%). Interim `'head'` injury
+    type carved out of the generic pool (fixed 3-week absence, no severity
+    roll, no GM override, per Daniel's §13.4 ruling) — measured assigned
+    duration exactly 3.00 weeks across n=18,652.
+  - **Transmission.** `availableRoster(team, league)` (new,
+    `games/strength.ts`) filters `rosterIds` to exclude any player with an
+    active injury; wired into `teamStrength`, `matchupFacets`,
+    `applyAbilityBoosts`, and the drive-sim's participation paths.
+    Previously nothing in `games/` read `Player.injury` at all — MINOR/
+    MODERATE injuries (85% of events) set the flag and then had zero
+    on-field effect; only MAJOR→IR removal (via roster-list exclusion)
+    transmitted. Verified complete code-path coverage: both the
+    regular-season and playoffs paths route through the same
+    `availableRoster`-filtered `simulateGame`, no bypass.
+  - `season/injuries.ts` (new) extracts `propagateGameInjuries`/
+    `recoverInjuries`, shared by the engine lifecycle and the B2
+    real-roster validation harness — one code path, not a
+    harness reimplementation.
+
+### Fixed
+
+- **`_winssd_decomp.mjs`'s season-N/N-1 pairing bug** (gitignored probe
+  tooling, `packages/truth-arbiter/data/`): `simulateSeason` doesn't append
+  `seasonHistory` — only `advanceSeason` does — so every corr(strength,wins)
+  figure this script ever produced was paired against the PREVIOUS season's
+  wins. Fixed to advance before reading; a missing history entry now throws
+  instead of silently falling back.
+- Added a report-only corr(preseason strength, wins) + talent/luck-split
+  instrument to the Scorekeeper (`engine-bridge.ts` / `scorekeeper.ts`) so
+  this class of drift is watched going forward, not just at the next
+  ad-hoc investigation.
+
+### Measured (gate battery, `_inj_sonnet_work_order_2.md` + `_inj_gate2_stop_report.md`)
+
+- Targeted tests: 365 passed / 0 failed across `src/games src/season
+  src/players`.
+- **Fatal-test A/B** (same-seed baseline vs treatment, corrected-pairing
+  estimator + `_spread_iter.mjs`, confirmed at both 10 and 20 seeds):
+  wins-sd +0.01 (direction gate, passes narrowly); corr(strength,wins)
+  0.258 (within the re-anchored [0.22, 0.34] band). **W-L pass delta rose
+  +0.7 to +0.9 over baseline (21.0-21.1 → 21.8-21.9), exceeding the
+  designed >+0.7 fail threshold.** The 20-seed confirmatory sample
+  sharpened this to a clear, stable fail rather than resolving it toward a
+  pass. **Daniel reviewed and explicitly overrode this gate** ("write up
+  that we saw an increase, but lets move forward with this") to ship the
+  slice; the finding is not retracted and is recorded in full at
+  `_inj_gate2_stop_report.md`, including the open question of whether the
+  rise is a real availability-channel side effect or a measurement
+  artifact (this campaign's third, after the corr anchor and the pairing
+  bug) — left for follow-up investigation, not resolved here.
+- Scorekeeper `sim 10 12` (fresh caches): all 21 rows in band, zero drift.
+- Magistrate `sim 400`: clean, matches known drive bars exactly.
+- Goatinator `sim 12 20`: QB dual-gate holds (#1 74% vs real 75%, #2 41%
+  vs real 44%, #3 30% vs real 25%). One drift flag (in-draft trade-up
+  rate) is a pre-existing, already-documented residual unrelated to this
+  slice (`TALENT_SPREAD.md` §3, accepted since v0.160).
+- League-tick benchmark: in budget (21s).
+- B2 real-roster harness with injury layer (9 years × 20 reps,
+  `_rr_b2.mjs` extended with `--inj`, gitignored): DAL-2024 marquee passes
+  (real 7 wins inside the sim 5-15 band). Pooled corr(sim,real) 0.411
+  (bound 0.35-0.50), coverage 214/288 = 74.3% (below the original 90%
+  target, but that target was sized against the retired 0.435 anchor —
+  coverage and corr are report-only instruments under the re-anchored
+  fatal test, not gated). Mean wins-sd 2.66.
+
+### Context
+
+- `docs/design-docs/ANCHOR_RECALIBRATION.md` (approved 2026-07-24): the
+  sim corr(strength,wins)=0.435 / talent-wins-sd=1.13 anchor this slice's
+  original fatal test was scored against never reproduced (max 0.36 across
+  every tree/estimator/maturity tested) and was retired. Corrected mature
+  baseline: corr ~0.26, talent-wins-sd ~0.64, wins-sd ~2.49.
+- `_inj_c2_report.md`: this slice's lifecycle fingerprint reads shallower
+  than its original (retired) sizing predicted — traced to a DIFFERENT,
+  already-shipped slice (QB-room-spread, v0.187.0), whose backup-talent
+  discount applies only at initial league generation and decays across a
+  multi-season lifecycle (QB1-QB2 facet gap 18.5 at birth → 7.6 by season
+  7). Not a defect in this slice; named as its own future slice
+  ("QB-room persistence").
+
 ## [0.188.3] — 2026-07-23
 
 ### Fixed

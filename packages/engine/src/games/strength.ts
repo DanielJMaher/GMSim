@@ -9,6 +9,31 @@ import { moodMultiplier } from '../season/mood.js';
 import { getAbility, type AbilityFacet } from '../players/abilities.js';
 
 /**
+ * The players available to play THIS game: rostered and not currently out with
+ * an injury (Injury Realism Stage I, v0.188.0). This is THE transmission fix —
+ * before it, `matchupFacets`/`teamStrength`/`applyAbilityBoosts` read
+ * `team.rosterIds` unfiltered, so a MINOR/MODERATE injury (85% of events) set
+ * `Player.injury` and then had ZERO on-field effect (Defect 2). Now an injured
+ * starter is excluded, the backup seats into the facet, and the dropoff
+ * transmits through passEdge/qbPlay.
+ *
+ * Stage I semantics: an active `Player.injury` means OUT — there is no
+ * play-through mode yet (that is Stage II, which adds `mode: 'PLAYING_THROUGH'`
+ * and reads it here). MAJOR injuries are already off `rosterIds` (moved to IR),
+ * so this filter is what makes MINOR/MODERATE/head injuries matter.
+ */
+export function availableRoster(team: TeamState, league: LeagueState): Player[] {
+  const players: Player[] = [];
+  for (const id of team.rosterIds) {
+    const p = league.players[id];
+    if (!p) continue;
+    if (p.injury) continue; // active injury ⇒ OUT (no play-through this stage)
+    players.push(p);
+  }
+  return players;
+}
+
+/**
  * Compute a single-number team strength used as the primary input to
  * game outcome rolls. Higher = stronger team.
  *
@@ -23,9 +48,7 @@ import { getAbility, type AbilityFacet } from '../players/abilities.js';
  * less than consistent ordinality across the league.
  */
 export function teamStrength(team: TeamState, league: LeagueState): number {
-  const players = team.rosterIds
-    .map((id) => league.players[id])
-    .filter((p): p is Player => Boolean(p));
+  const players = availableRoster(team, league);
   if (players.length === 0) return 50;
 
   const hc = league.coaches[team.headCoachId]!;
@@ -248,9 +271,7 @@ const mirrorScore = (p: Player) =>
   0.7 * p.current.passBlockFinesse + 0.3 * p.current.handTechnique;
 
 export function matchupFacets(team: TeamState, league: LeagueState): MatchupFacets {
-  const players = team.rosterIds
-    .map((id) => league.players[id])
-    .filter((p): p is Player => Boolean(p));
+  const players = availableRoster(team, league);
   return {
     qbPlay: facet(players, QB_POS, (p) => meanKeys(p, QB_KEYS), 1),
     passProtection: facet(players, OL_POS, (p) => meanKeys(p, PROTECT_KEYS), 5),
@@ -299,9 +320,7 @@ export function applyAbilityBoosts(
   prng: Prng,
 ): MatchupFacets {
   const out = { ...facets };
-  const players = team.rosterIds
-    .map((id) => league.players[id])
-    .filter((p): p is Player => Boolean(p));
+  const players = availableRoster(team, league);
   for (const p of players) {
     for (const id of p.abilities) {
       const a = getAbility(id);

@@ -330,12 +330,14 @@ function clamp(v: number, min: number, max: number): number {
 }
 
 /**
- * Per-game injury rolls. Per the Game Sim doc, RBs ~15-20% season rate,
- * LBs ~12-15%, WRs ~10-12%, etc. We translate season rates to per-game
- * rates (divide by ~17 games) and roll independently per player.
+ * Per-game injury rolls (Injury Realism Stage I, v0.188.0).
  *
- * Most games: 0-2 injuries. Many games: zero. This keeps injury impact
- * present without overwhelming the early-game simulation.
+ * A player who is ALREADY out with an active injury is not exposed to a new
+ * game injury — he is not on the field. This matches the availability model the
+ * rate table was fit against (the D0 Monte-Carlo skips the out-window, INJURY_
+ * REALISM §3.1 / `_inj_d0_p4fit.mjs`) and keeps man-games from double-counting.
+ * MAJOR-injured players are already off `rosterIds` (on IR); MINOR/MODERATE/head
+ * players stay rostered but are skipped here.
  */
 function rollInjuries(
   prng: Prng,
@@ -348,10 +350,11 @@ function rollInjuries(
     for (const playerId of team.rosterIds) {
       const player = league.players[playerId];
       if (!player) continue;
+      if (player.injury) continue; // already out — not exposed (see fn doc)
       // S5: proneness rises with age + falls with durability (real bar:
       // injury-shortened seasons run 17% mid-20s → 32% at 34).
       const rate =
-        perGameInjuryRate(player.position) * injuryAgeMultiplier(player, league.seasonNumber);
+        injuryRateByPosition(player.position) * injuryAgeMultiplier(player, league.seasonNumber);
       if (prng.next() < rate) {
         injuries.push(rollInjury(prng, playerId));
       }
@@ -360,8 +363,38 @@ function rollInjuries(
   return injuries;
 }
 
+/**
+ * Interim head-injury share (INJURY_REALISM §6, Daniel's §13.4 ruling). Of all
+ * injury EVENTS, this fraction is a generic `'head'` injury (fixed 3-week
+ * absence, no severity roll, no play-through) carved out of the severity/
+ * duration pool — replacing the old `'concussion'` entry in the generic type
+ * list. 0.12 inherits the prior generic-pool concussion share (~1/7, trimmed:
+ * concussions are a minority of significant injuries) as an INTERIM placeholder;
+ * the precise incidence/timeline is the named Concussion Protocol module's D0 to
+ * derive from real injury-report data. The `'head'` type tag lets that module
+ * migrate these records without save-format archaeology.
+ */
+const HEAD_INJURY_SHARE = 0.12;
+/** Fixed head-injury absence (weeks). Interim; the protocol module replaces it. */
+const HEAD_INJURY_WEEKS = 3;
+
 function rollInjury(prng: Prng, playerId: string): GameInjury {
-  // Severity distribution per Game Sim doc: 50% minor, 35% moderate, 15% major.
+  // Head injuries are carved out of the generic severity/duration rolls (§6):
+  // a fixed 3-week absence, tagged distinctly. Nominal MODERATE severity keeps
+  // it off IR and off the MAJOR body-scar path (severity is not meaningful for
+  // head — the `'head'` type is the load-bearing tag).
+  if (prng.next() < HEAD_INJURY_SHARE) {
+    return {
+      playerId: playerId as GameInjury['playerId'],
+      weeksOut: HEAD_INJURY_WEEKS,
+      severity: 'MODERATE',
+      type: 'head',
+    };
+  }
+  // Severity distribution (kept — D0-P4 found the §3.1 "more short events,
+  // MODERATE narrowed" reshape COUNTERPRODUCTIVE: it caps p90 and forces the
+  // rate absurdly high. The M-INJ.1 p90~9/sd~4 skew comes from the long MAJOR
+  // tail, so 50/35/15 with 1-3/3-9/8-26 is retained and the tail kept long).
   const severity = prng.weighted([
     { value: 'MINOR' as const, weight: 50 },
     { value: 'MODERATE' as const, weight: 35 },
@@ -373,7 +406,7 @@ function rollInjury(prng: Prng, playerId: string): GameInjury {
       : severity === 'MODERATE'
         ? prng.nextRange(3, 9)
         : prng.nextRange(8, 26);
-  const types = ['hamstring', 'ankle', 'concussion', 'shoulder', 'knee', 'back', 'foot'];
+  const types = ['hamstring', 'ankle', 'shoulder', 'knee', 'back', 'foot'];
   return {
     playerId: playerId as GameInjury['playerId'],
     weeksOut,
@@ -382,41 +415,57 @@ function rollInjury(prng: Prng, playerId: string): GameInjury {
   };
 }
 
-function perGameInjuryRate(position: string): number {
-  // Approximate per-game probabilities derived from doc's season-rate ranges.
-  // Numbers are intentionally low so a 17-game season produces realistic
-  // ~10-20% per-position season injury rates.
+/**
+ * Per-game injury probability by position (Injury Realism Stage I, v0.188.0),
+ * replacing the old doc-guess `perGameInjuryRate`. Sized so season-level
+ * starts-missed distributions land on the M-INJ.1-derived, D0-P1-discounted
+ * targets: QB1 mean ~2.0-2.2 starts missed (real 3.24 raw, benching-discounted;
+ * P1 bracket [1.33, 2.82]); roster-wide man-games ~286/team (sd 40) and
+ * value-weighted loss ~34.3% (sd 4.5pp).
+ *
+ * Fit PER-CONSTRAINT, not by a uniform multiplier (D0-P4 HARD FLAG 2): the QB
+ * bar wants ~12× the old rate, but the man-games / value-weighted bars want
+ * ~19-20× — a single scale cannot hit both, because the old table over-weighted
+ * QB relative to the skill/front-seven positions that dominate man-games. So QB
+ * sits at its own P1-discounted bar (0.035 ≈ 11.7×), and every non-QB row is
+ * ~19× its old value. Bracket carried: QB [0.022, 0.047].
+ *
+ * The DRAW stays quality-orthogonal by construction (per-position exposure ×
+ * age/durability only — never record, strength, or standings; INJURY_REALISM
+ * §8). Effective rate = this × `injuryAgeMultiplier`.
+ */
+function injuryRateByPosition(position: string): number {
   switch (position) {
     case 'RB':
-      return 0.011;
+      return 0.209; // 0.011 × 19
     case 'OLB':
     case 'ILB':
-      return 0.008;
+      return 0.152; // 0.008 × 19
     case 'WR':
-      return 0.007;
+      return 0.133; // 0.007 × 19
     case 'CB':
     case 'S':
     case 'NICKEL':
-      return 0.006;
+      return 0.114; // 0.006 × 19
     case 'TE':
-      return 0.005;
+      return 0.095; // 0.005 × 19
     case 'LT':
     case 'LG':
     case 'C':
     case 'RG':
     case 'RT':
-      return 0.005;
+      return 0.095; // 0.005 × 19
     case 'EDGE':
     case 'DT':
     case 'NT':
-      return 0.005;
+      return 0.095; // 0.005 × 19
     case 'QB':
-      return 0.003;
+      return 0.035; // own P1-discounted bar (~11.7×); bracket 0.022-0.047
     case 'K':
     case 'P':
     case 'LS':
-      return 0.0008;
+      return 0.015; // 0.0008 × ~19
     default:
-      return 0.005;
+      return 0.095; // 0.005 × 19
   }
 }
