@@ -8,12 +8,11 @@ import type {
   ContractId as ContractIdType,
 } from '../types/ids.js';
 import { ContractId } from '../types/ids.js';
-import type { Position } from '../types/enums.js';
 import type { Prng } from '../prng/index.js';
 import { generatePlayer } from '../players/generate.js';
 import { positionGroupFor } from '../players/position-group.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
-import { PositionGroup } from '../types/enums.js';
+import { Position, PositionGroup } from '../types/enums.js';
 import { keySkillAverage } from '../archetypes/key-skill.js';
 import {
   PRACTICE_SQUAD_SALARY,
@@ -109,12 +108,35 @@ export function refillPracticeSquad(
         // Emergency fill = a 23-24-year-old street journeyman (DEVELOPING,
         // experience 1-2), NOT a fake rookie — invented bodies must never
         // masquerade as draft-class entrants (the Actuary's entry-age gate).
+        //
+        // `backupTilt` (QB-room persistence D0-a, 2026-07-29,
+        // `QB_ROOM_PERSISTENCE.md` §2): `forceAgeStage` forces only the AGE/
+        // experience roll — it never suppressed talent, so the "street
+        // journeyman" narrative above was drawing from the same grade
+        // distribution as anyone else (measured backup qbScore 68.65 ≈ the
+        // unbiased population mean 68.05). A body signed off the street to
+        // fill a PS slot is genuinely fringe; this makes the talent draw
+        // match the narrative already written here. QB-scoped only, per
+        // `BACKUP_QB_CEILING_DISCOUNT`'s own fence in `players/skills.ts`.
+        //
+        // Measured (8 seeds × 14 seasons, `_qbroom_d0_supply.mjs`): ps-fill's
+        // own QB1-QB2 gap 7.22 → 11.79, its backup qbScore 68.65 → 61.23;
+        // league steady-state gap (seasons 8-13) 7.0 → 9.65. HONEST LIMIT:
+        // that rise is partly COMPOSITION, not talent suppression — discounted
+        // ps-fill QBs lose the QB2 slot to draft/UDFA (draft-udfa's share of
+        // the backup slot 48% → 86% by season 13), so the league number moved
+        // less than the per-source number. This does NOT close on the real bar
+        // (T1: median 15.4 / mean 16.9). The residual is an ALLOCATION problem,
+        // not a generation one — real QB rooms hold at most one starter-caliber
+        // QB (4.7% have two, vs 19.2% under random assignment), and no engine
+        // path redistributes QBs toward starting jobs. See §9 of the design doc.
         const generated = generatePlayer(slotPrng.fork('gen'), {
           position,
           idSuffix,
           forceAgeStage: 'DEVELOPING',
           simYear: 2026 + (seasonNumber - 1),
           schemeContext: schemeContextFor(team, league, position),
+          backupTilt: position === Position.QB,
         });
         const player: Player = {
           ...generated,

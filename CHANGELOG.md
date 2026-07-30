@@ -12,6 +12,44 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.189.1] — 2026-07-30
+
+### Fixed
+
+- **Practice-squad emergency-fill QBs now draw fringe talent, matching the
+  "street journeyman" narrative the call site already claimed** (QB-Room
+  Persistence part 1; design of record `docs/design-docs/QB_ROOM_PERSISTENCE.md`,
+  Daniel-approved 2026-07-29 §7.2). `transactions/practice-squad.ts`'s
+  last-resort generator passes `forceAgeStage: 'DEVELOPING'` to invent a
+  23-24-year-old body when the FA pool is dry at a position — but
+  `forceAgeStage` forces only the age/experience roll, never the talent
+  grade. The result: invented "journeymen" drew from the same grade
+  distribution as anyone else (measured backup qbScore **68.65**, against an
+  unbiased population mean of **68.05**). The QB call site now threads
+  `backupTilt`, reusing `BACKUP_QB_CEILING_DISCOUNT` exactly as birth
+  generation does for backup-track QB slots (`players/roster.ts`); QB-scoped
+  only, per that constant's own fence.
+
+  Measured (8 seeds × 14 seasons, `_qbroom_d0_supply.mjs`): ps-fill's own
+  QB1-QB2 facet gap **7.22 → 11.79**, its backup qbScore **68.65 → 61.23**;
+  league steady-state gap (seasons 8-13 mean) **7.0 → 9.65**.
+
+  **Named residual, not closed by this fix.** The league number moved less
+  than the per-source number because part of the rise is *composition*:
+  discounted ps-fill QBs lose the QB2 slot to draft/UDFA-sourced QBs
+  (draft-udfa's share of the backup slot **48% → 86%** by season 13). The
+  steady state remains well below the real bar (T1 median 15.4 / mean 16.9).
+  D1 then falsified the planned follow-on: the real "unproven vs proven
+  backup" rating gap is only **1.49 mean / 2.00 median OVR**
+  (`_qbroom_d1_unproven_backup.mjs`, n=106 vs 357), roughly a tenth of the
+  magnitude that follow-on assumed — so it was retired rather than resized.
+  Diagnosis of the true residual: real QB rooms hold **at most one**
+  starter-caliber QB (4.7% hold two, against **19.2%** under random
+  assignment — 4.1× less clustered), and the real gap ladder is asymmetric
+  (QB1−QB2 13.62 vs QB2−QB3 7.23, ratio **1.88**, where i.i.d. draws give
+  1.00). The remaining gap is therefore an **allocation** problem, not a
+  generation one. Tracked as Candidate D in the design doc §9.
+
 ## [0.189.0] — 2026-07-27
 
 ### Added
