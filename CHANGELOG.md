@@ -12,6 +12,53 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.190.0] — 2026-08-04
+
+### Added
+
+- **Talent Allocation D-1/D-2/D-3 — NPC teams now value starter-calibre depth,
+  not roster shape** (design of record `docs/design-docs/TALENT_ALLOCATION.md`,
+  Candidate D from `QB_ROOM_PERSISTENCE.md` §9, Daniel-approved 2026-07-30
+  "full burn"). Real teams carry ~27.7 starter-calibre players; the engine's
+  trade/FA logic previously used the 53-man roster blueprint itself as the
+  quality-depth target, over-demanding starter-calibre players 1.7-2.6x at
+  every position and letting them pile up wherever they landed instead of
+  clearing to one starter per job.
+  - **D-1** `QUALITY_DEPTH_TARGET` (`players/roster-blueprint.ts`,
+    re-exported via `players/index.ts` and `npc-ai/index.ts`): real-bar
+    starter-calibre count per position (QB=1, league total 26 vs real 27.7),
+    replacing the blueprint count in `proactive-trades.ts`'s
+    `positionDeficits()` (D-1a, trade need/surplus) and `fa-bidding.ts`'s
+    cash-bid `needFactor` (D-1b).
+  - **D-3** starting-opportunity FA preference
+    (`fa-bidding.ts computePlayerPreferenceBreakdown`): a STAR/STARTER free
+    agent is pulled toward teams where he'd start, pushed away from teams
+    where he'd be blocked (`startingOpportunity` factor, surfaced in the
+    inspector's win-explanation breakdown via `App.tsx`).
+  - **D-2** `releaseSurplusStarters()` (`proactive-trades.ts`, wired into
+    `season/lifecycle.ts` right after `runProactiveTrades`): a starter-calibre
+    player above his team's `QUALITY_DEPTH_TARGET` becomes genuinely
+    available — trade block first, release to free agency if no partner
+    takes him.
+
+  Measured (`_qbroom_d2_allocation.mjs`, 8 seeds x 14 seasons): QB1-QB2 gap
+  ladder ratio 0.98 -> **1.18** (real 1.88), room clustering (P(>=2
+  starter-calibre QBs)) 23.3% -> **15.5%** (real 4.7%). Real, monotonic
+  progress, **partial** — falls well short of the real bar. Root-caused in
+  `TALENT_ALLOCATION.md` §10 (written 2026-08-04, supersedes §9's "structural
+  single-pass clearing" diagnosis, which was investigated and falsified): D-1/
+  D-2/D-3 all gate on `player.tier`, but 48.9% of the QBs who actually block a
+  room are tier-invisible against a 3.2% population-wide rate — the follow-up
+  slice (§10 Tracks 1-2, roster shape then a position-relative quality gate)
+  is scoped and pre-registered there.
+
+  **The neighbour battery (Goatinator QB dual-gate, Barterer, Liquidator,
+  Scorekeeper, Headhunter, league-tick benchmark) was deliberately deferred
+  past this commit** — Track 1 of the follow-up slice rewrites the exact
+  predicate at the same five call sites this commit touches, so gating the
+  intermediate state here would be spent twice. It runs once after Track 1
+  lands.
+
 ## [0.189.1] — 2026-07-30
 
 ### Fixed

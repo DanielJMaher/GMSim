@@ -4797,6 +4797,11 @@ function WinnerExplanation({
       `HC relationships ${formatSigned(factors.hcPlayerRelationships)}`,
     );
   }
+  if (factors.startingOpportunityLabel) {
+    labelParts.push(
+      `${factors.startingOpportunityLabel} ${formatSigned(factors.startingOpportunity)}`,
+    );
+  }
   const winnerTeam = league.teams[winner.teamId];
   const winnerAbbr = winnerTeam?.identity.abbreviation ?? winner.teamId;
 

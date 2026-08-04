@@ -56,7 +56,7 @@ import { applyCapFloorExtensions } from '../transactions/extensions.js';
 import { applyCapRestructures } from '../transactions/restructures.js';
 import { enforceRosterFloor } from '../transactions/roster-floor.js';
 import { teamSeasonCash } from '../contracts/cash.js';
-import { runProactiveTrades } from '../transactions/proactive-trades.js';
+import { runProactiveTrades, releaseSurplusStarters } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
 import { advanceCollegePool } from '../draft/pool.js';
@@ -1018,6 +1018,14 @@ function applyOffseasonTransactions(
     offseason,
     league.tick,
   );
+  // Talent Allocation D-2 (`docs/design-docs/TALENT_ALLOCATION.md` §5) —
+  // trade block first (just above), release to free agency if unmoved. Runs
+  // strictly after proactive trades so a trade partner always gets first
+  // crack at a genuinely surplus starter-calibre player; the freed player
+  // re-enters this same offseason's FA pool via `refillRosters` below, where
+  // D-3's starting-opportunity preference can weight him toward a team where
+  // he'd actually start.
+  offseason = releaseSurplusStarters(offseason);
   offseason = advanceScoutingCycle(
     prng.fork('scouting-cycle'),
     offseason,

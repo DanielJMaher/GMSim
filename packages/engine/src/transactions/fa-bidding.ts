@@ -5,7 +5,7 @@ import type { TeamId, PlayerId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
 import { MarketSize } from '../types/enums.js';
 import type { WatchListReason } from '../types/scout.js';
-import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
+import { ROSTER_BLUEPRINT_53, QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { teamCashFloorStatus } from '../contracts/cash.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
@@ -121,12 +121,16 @@ export interface PreferenceFactors {
   hcQuirks: number;
   /** Contribution from HC playerRelationships (centered at 5.5). */
   hcPlayerRelationships: number;
+  /** Contribution from starting-opportunity fit (Talent Allocation D-3). */
+  startingOpportunity: number;
   /** Human-readable label for the archetype × market pairing, if it moved preference. */
   archetypeLabel: string | null;
   /** Human-readable labels for each owner quirk that fired (signed). */
   ownerQuirkLabels: readonly string[];
   /** Human-readable labels for each HC quirk that fired (signed). */
   hcQuirkLabels: readonly string[];
+  /** Human-readable label for the starting-opportunity contribution, if it fired. */
+  startingOpportunityLabel: string | null;
 }
 
 /**
@@ -428,6 +432,10 @@ export function computeTeamCashBid(
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
 ): number {
+  // Kept in the signature for public-API stability (exported via index.ts /
+  // npc-ai/index.ts) though no longer consumed here — the shape number no
+  // longer drives cash pricing as of D-1b. See the needFactor comment below.
+  void blueprintByPos;
   const standard = positionScaledStandardY1(player, league);
 
   const hc = league.coaches[team.headCoachId];
@@ -437,16 +445,26 @@ export function computeTeamCashBid(
     defensiveScheme: hc.defensiveScheme,
   });
 
-  const have = countAtPosition(team, league, player.position);
-  const blueprintCount = blueprintByPos.get(player.position) ?? 0;
-  const deficit = Math.max(0, blueprintCount - have);
   // Need factor: 1.0 (no need) → 1.25 (dire need). Caps prevent a
   // QB-needy team from bidding 2× for any QB — even a desperate team
   // is bounded by what they think the player is actually worth.
+  //
+  // Talent Allocation D-1b (2026-07-31, `TALENT_ALLOCATION.md` §6): the
+  // premium is now measured against `QUALITY_DEPTH_TARGET` (how many
+  // STARTER-CALIBRE players the team wants), not raw headcount against the
+  // 53-man blueprint. Against the blueprint a team could show a "deficit"
+  // — and pay a premium — while already holding a franchise starter, purely
+  // for lacking camp bodies; that's a roster-SHAPE gap, not a reason to
+  // overpay in cash. `blueprintByPos`'s eligibility gate above (line ~365,
+  // "already at blueprint count, don't even bid") is intentionally left on
+  // the shape number — it governs whether there's DEPTH-CHART ROOM for
+  // another body at all, a different question from how much a team should
+  // pay once it's bidding.
+  const qualityTarget = QUALITY_DEPTH_TARGET[player.position] ?? 0;
+  const haveQuality = countStarterCaliberAtPosition(team, league, player.position);
+  const deficit = Math.max(0, qualityTarget - haveQuality);
   const needFactor =
-    blueprintCount > 0
-      ? 1.0 + Math.min(0.25, (deficit / blueprintCount) * 0.5)
-      : 1.0;
+    qualityTarget > 0 ? 1.0 + Math.min(0.25, (deficit / qualityTarget) * 0.5) : 1.0;
 
   // Cap-room factor: a near-cap-pinned team's bid collapses toward 0,
   // so they naturally fall out of bidding wars. This is what spreads
@@ -552,9 +570,11 @@ export function computePlayerPreferenceBreakdown(
       ownerQuirks: 0,
       hcQuirks: 0,
       hcPlayerRelationships: 0,
+      startingOpportunity: 0,
       archetypeLabel: null,
       ownerQuirkLabels: [],
       hcQuirkLabels: [],
+      startingOpportunityLabel: null,
     };
   }
 
@@ -627,7 +647,63 @@ export function computePlayerPreferenceBreakdown(
   // HC playerRelationships — centered at 5.5, ±0.045 max.
   const hcPlayerRelationships = (hc.spectrums.playerRelationships - 5.5) * 0.01;
 
-  const raw = 1.0 + archetypeMarket + ownerQuirks + hcQuirks + hcPlayerRelationships;
+  // Starting-opportunity fit (Talent Allocation D-3, 2026-07-31,
+  // `TALENT_ALLOCATION.md` §5). QB_ROOM_PERSISTENCE.md §9 diagnosed the
+  // QB1-QB2 gap deficit as an ALLOCATION problem: real starter-calibre
+  // players hold at most one starting job (95.3% of real QB rooms have
+  // <=1) because a good player who'd sit behind another good player instead
+  // signs where he'd start — the dominant real-world channel (backup QBs
+  // on short deals leaving for starting jobs). Nothing in the engine
+  // modeled that preference before this; a starter-calibre FA only cared
+  // about scheme fit, cap, and personality quirks, identically to a
+  // FRINGE roster-filler. Scoped to STAR/STARTER tier only — a
+  // BACKUP/FRINGE signing has no real "wants to start" pull at anywhere
+  // near this strength, and this whole diagnosis + its downstream gates
+  // (Goatinator QB dual-gate, the QB1-QB2 facet bars) are about the
+  // starter-calibre population specifically.
+  //
+  // MAGNITUDE — unlike `QUALITY_DEPTH_TARGET` (a direct Madden real-bar
+  // count), there is no equivalent direct real-data number for HOW STRONGLY
+  // a player should prefer an open starting job over personality/scheme
+  // factors. This is a first-cut magnitude sized to be the single largest
+  // preference term in this function (exceeding any one owner/HC quirk,
+  // ~0.02-0.06) without alone dominating the [0.85, 1.15] clamp — measured
+  // against the downstream real bars this whole slice targets (QB1-QB2
+  // gap-ladder ratio 1.88, room clustering 4.7%,
+  // `_qbroom_d2_allocation.mjs`), not asserted a priori.
+  //
+  // MEASURED (2026-07-31): at 0.1 (combined with D-1a/D-1b/D-2), ladder
+  // ratio moved 0.98 -> 1.18, clustering 23.3% -> 15.5% — real, monotonic
+  // progress, well short of the real bar. TRIPLING to 0.3 moved it only to
+  // 1.28 / 15.7% — essentially flat. This is diminishing-returns evidence
+  // the residual is STRUCTURAL (scarcity of genuinely open slots at
+  // signing time within a single offseason pass), not a magnitude problem —
+  // per law #3, that is the signal to stop tuning this constant, not push
+  // it further. See `TALENT_ALLOCATION.md` §7 for the full record before
+  // trying a different value here.
+  let startingOpportunity = 0;
+  let startingOpportunityLabel: string | null = null;
+  if (player.tier === 'STAR' || player.tier === 'STARTER') {
+    const qualityTarget = QUALITY_DEPTH_TARGET[player.position] ?? 0;
+    if (qualityTarget > 0) {
+      const haveQuality = countStarterCaliberAtPosition(team, league, player.position);
+      if (haveQuality < qualityTarget) {
+        startingOpportunity = STARTING_OPPORTUNITY_MAGNITUDE;
+        startingOpportunityLabel = 'open starting opportunity';
+      } else {
+        startingOpportunity = -STARTING_OPPORTUNITY_MAGNITUDE;
+        startingOpportunityLabel = 'blocked at position';
+      }
+    }
+  }
+
+  const raw =
+    1.0 +
+    archetypeMarket +
+    ownerQuirks +
+    hcQuirks +
+    hcPlayerRelationships +
+    startingOpportunity;
   const total = clamp(raw, 0.85, 1.15);
 
   return {
@@ -636,17 +712,38 @@ export function computePlayerPreferenceBreakdown(
     ownerQuirks,
     hcQuirks,
     hcPlayerRelationships,
+    startingOpportunity,
     archetypeLabel,
     ownerQuirkLabels,
     hcQuirkLabels,
+    startingOpportunityLabel,
   };
 }
+
+/**
+ * See the provenance comment at its use site in
+ * `computePlayerPreferenceBreakdown` (Talent Allocation D-3).
+ */
+const STARTING_OPPORTUNITY_MAGNITUDE = 0.1;
 
 function countAtPosition(team: TeamState, league: LeagueState, position: Position): number {
   let n = 0;
   for (const playerId of team.rosterIds) {
     const p = league.players[playerId];
     if (p && p.position === position) n++;
+  }
+  return n;
+}
+
+function countStarterCaliberAtPosition(
+  team: TeamState,
+  league: LeagueState,
+  position: Position,
+): number {
+  let n = 0;
+  for (const playerId of team.rosterIds) {
+    const p = league.players[playerId];
+    if (p && p.position === position && (p.tier === 'STAR' || p.tier === 'STARTER')) n++;
   }
   return n;
 }

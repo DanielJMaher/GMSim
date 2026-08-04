@@ -86,6 +86,14 @@ describe('auctionFreeAgent', () => {
     let league = withWrNeedAtOnly(base, friendly.identity.id);
     league = withWrNeedAtAlso(league, hostile.identity.id);
     // All other teams cannot bid (no need).
+    // Talent Allocation D-3: starting-opportunity preference now also
+    // differs by each team's STAR/STARTER WR count vs QUALITY_DEPTH_TARGET.
+    // Pin both teams to the SAME (zero) starter-calibre WR count so that
+    // term is symmetric and cancels out — the test isolates the HC-quirk
+    // effect specifically, per its own "same roster... differ only in HC
+    // quirks" premise above.
+    league = demoteAllWrToFringe(league, friendly.identity.id);
+    league = demoteAllWrToFringe(league, hostile.identity.id);
 
     const friendlyHc: HeadCoach = {
       ...league.coaches[friendly.headCoachId]!,
@@ -340,7 +348,8 @@ describe('computePlayerPreferenceBreakdown', () => {
           f.archetypeMarket +
           f.ownerQuirks +
           f.hcQuirks +
-          f.hcPlayerRelationships;
+          f.hcPlayerRelationships +
+          f.startingOpportunity;
         const expected = Math.max(0.85, Math.min(1.15, raw));
         expect(f.total).toBeCloseTo(expected, 5);
       }
@@ -451,6 +460,23 @@ function removeOneWrFromTeam(league: LeagueState, teamId: TeamId): LeagueState {
       [teamId]: { ...team, rosterIds: newRosterIds },
     } as LeagueState['teams'],
   };
+}
+
+/**
+ * Demote every WR on a team to FRINGE tier — deterministically zeroes its
+ * STAR/STARTER WR count (used to neutralize the D-3 starting-opportunity
+ * preference term in tests that isolate a different factor).
+ */
+function demoteAllWrToFringe(league: LeagueState, teamId: TeamId): LeagueState {
+  const team = league.teams[teamId]!;
+  const playersNext = { ...league.players };
+  for (const pid of team.rosterIds) {
+    const p = playersNext[pid];
+    if (p?.position === Position.WR && p.tier !== 'FRINGE') {
+      playersNext[pid] = { ...p, tier: 'FRINGE' };
+    }
+  }
+  return { ...league, players: playersNext as LeagueState['players'] };
 }
 
 function setTeamMarketSize(

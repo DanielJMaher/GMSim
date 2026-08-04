@@ -6,6 +6,7 @@ export { generateRoster, type GenerateRosterOptions } from './roster.js';
 export {
   ROSTER_BLUEPRINT_53,
   ROSTER_SIZE,
+  QUALITY_DEPTH_TARGET,
   type RosterPositionSlot,
 } from './roster-blueprint.js';
 export { positionGroupFor } from './position-group.js';

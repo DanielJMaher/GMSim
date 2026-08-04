@@ -10,10 +10,11 @@ import type {
 } from '../types/personnel.js';
 import type { Prng } from '../prng/index.js';
 import { CompetitiveWindow } from '../types/enums.js';
-import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
+import { ROSTER_BLUEPRINT_53, QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
 import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { executeTrade } from './trade.js';
+import { releasePlayer } from './release.js';
 import {
   evaluateTradePackage,
   evaluatePlayerValue,
@@ -161,6 +162,76 @@ export function runProactiveTrades(
     outcomes.push({ candidate: c, outcome: 'fires' });
     usedTeams.add(c.buyerId);
     usedTeams.add(c.sellerId);
+  }
+
+  return working;
+}
+
+/**
+ * Talent Allocation D-2 (2026-07-31, `docs/design-docs/TALENT_ALLOCATION.md`
+ * §5). A starter-calibre player a team holds ABOVE its `QUALITY_DEPTH_TARGET`
+ * at his position is genuinely surplus — trade block first
+ * (`runProactiveTrades`, which this runs strictly after, so a trade partner
+ * always gets first crack), release to free agency if no partner materializes.
+ *
+ * D-1 (the quality-depth target) only stops a team from acquiring MORE
+ * surplus; it does not by itself resolve surplus that already exists —
+ * without this pass a genuinely blocked starter-calibre player under
+ * contract simply sits, unreachable by D-1 (a trade-only lever) or D-3 (a
+ * free-agency-only lever). Measured (`_qbroom_d2_allocation.mjs`, 8x14):
+ * D-1a+D-1b+D-3 combined moved the QB1-QB2 gap ladder ratio 0.98 -> 1.08
+ * (real 1.88) and room clustering 23.3% -> 17.0% (real 4.7%) — real,
+ * monotonic progress, but a material residual remained, consistent with
+ * this diagnosis.
+ *
+ * Releases the WORST of the surplus first (by `evaluatePlayerValue`,
+ * scheme-fit-aware — a real GM keeps whoever fits the scheme best and lets
+ * the weaker fit go), down to exactly the position's target. Never touches
+ * a team's target-worth of best players at any position — `players.length >
+ * target` is required to release anything, so the team's actual starter(s)
+ * are never at risk.
+ *
+ * No extra cap gate: `releasePlayer` accrues dead money to the CURRENT year
+ * only (accelerated bonus proration, not remaining base), so a release is
+ * typically cap-NEUTRAL-OR-POSITIVE across the life of the deal; the
+ * existing `applyMinimalCapCasualties` pass later in the same offseason
+ * pipeline (`season/lifecycle.ts`) is the established backstop for the rare
+ * case a release itself tips a team over for its current year.
+ */
+export function releaseSurplusStarters(league: LeagueState): LeagueState {
+  let working = league;
+
+  for (const teamId of Object.keys(league.teams) as TeamId[]) {
+    const team = working.teams[teamId];
+    if (!team) continue;
+
+    const byPosition = new Map<Position, Player[]>();
+    for (const playerId of team.rosterIds) {
+      const player = working.players[playerId];
+      if (!player) continue;
+      if (player.tier !== 'STAR' && player.tier !== 'STARTER') continue;
+      const arr = byPosition.get(player.position) ?? [];
+      arr.push(player);
+      byPosition.set(player.position, arr);
+    }
+
+    for (const [position, players] of byPosition) {
+      const target = QUALITY_DEPTH_TARGET[position] ?? 0;
+      const surplusCount = players.length - target;
+      if (surplusCount <= 0) continue;
+
+      const ranked = [...players].sort(
+        (a, b) =>
+          evaluatePlayerValue(team, a, working).total -
+          evaluatePlayerValue(team, b, working).total,
+      );
+      const toRelease = ranked.slice(0, surplusCount);
+
+      for (const player of toRelease) {
+        if (!player.contractId) continue;
+        working = releasePlayer(working, player.id);
+      }
+    }
   }
 
   return working;
@@ -319,9 +390,15 @@ function collectPositionalNeedCandidates(
         );
         if (sellerStarsAndStarters.length === 0) continue;
 
+        // Surplus is measured against the QUALITY target, not the 53-man
+        // blueprint. Against the blueprint this was all but unreachable — a
+        // team needed MORE than three starter-calibre QBs to be considered a
+        // willing seller — which is why the sell side of this market was
+        // effectively inert and starter-calibre players piled up where they
+        // landed (`docs/design-docs/TALENT_ALLOCATION.md` §2).
         const sellerCount = sellerStarsAndStarters.length;
-        const blueprintCount = blueprintByPos.get(needPos) ?? 0;
-        const hasSurplus = sellerCount > blueprintCount;
+        const qualityTarget = QUALITY_DEPTH_TARGET[needPos] ?? 0;
+        const hasSurplus = sellerCount > qualityTarget;
         const isRebuilder = REBUILD_WINDOWS.has(seller.competitiveWindow);
         if (!hasSurplus && !isRebuilder) continue;
 
@@ -676,6 +753,19 @@ function buildFireSaleOffer(
  * map of position -> deficit, only populated for positions with > 0
  * deficit.
  */
+/**
+ * How many starter-calibre players a team is SHORT at each position.
+ *
+ * The target is `QUALITY_DEPTH_TARGET`, not the 53-man blueprint. Using the
+ * blueprint here (pre-2026-07-30) conflated roster SHAPE with roster QUALITY:
+ * a team "needed" a QB unless it rostered three starter-calibre ones, so every
+ * contender read as needy at nearly every position and no team ever registered
+ * surplus worth selling. See the constant's provenance comment and
+ * `docs/design-docs/TALENT_ALLOCATION.md`.
+ *
+ * `blueprintByPos` is still the iteration domain — it enumerates the league's
+ * positions — but no longer supplies the threshold.
+ */
 function positionDeficits(
   team: TeamState,
   league: LeagueState,
@@ -689,9 +779,11 @@ function positionDeficits(
     counts.set(player.position, (counts.get(player.position) ?? 0) + 1);
   }
   const deficits = new Map<Position, number>();
-  for (const [pos, blueprint] of blueprintByPos) {
+  for (const pos of blueprintByPos.keys()) {
+    const target = QUALITY_DEPTH_TARGET[pos] ?? 0;
+    if (target <= 0) continue;
     const have = counts.get(pos) ?? 0;
-    const deficit = blueprint - have;
+    const deficit = target - have;
     if (deficit > 0) deficits.set(pos, deficit);
   }
   return deficits;

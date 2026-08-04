@@ -55,10 +55,18 @@ export {
 } from '../draft/position-value.js';
 export { qbUpgradeDesire } from '../draft/team-needs.js';
 
+// Talent allocation (2026-07-30, `docs/design-docs/TALENT_ALLOCATION.md`):
+// how many STARTER-CALIBRE players an NPC team wants at a position — the
+// quality analogue of the 53-man shape blueprint, and the threshold behind
+// every "we need one" / "we can sell one" decision. Previously the blueprint
+// COUNT stood in for this, over-demanding starter-calibre players 1.7-2.6x at
+// every position and letting talent pile up where it landed.
+export { QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
+
 // Trades — in-season weekly trade matching + the deadline/proactive lane
 // (fire-sales, contender consolidation).
 export { runWeeklyNpcTrades } from '../transactions/npc-trade.js';
-export { runProactiveTrades } from '../transactions/proactive-trades.js';
+export { runProactiveTrades, releaseSurplusStarters } from '../transactions/proactive-trades.js';
 
 // Re-sign window (v0.148) — teams keep their own expiring players before
 // the FA market opens (tier/age/mood desire + cap gate, franchise-QB

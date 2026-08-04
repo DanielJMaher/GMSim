@@ -38,9 +38,13 @@ export interface FaSignPreferenceFactors {
   ownerQuirks: number;
   hcQuirks: number;
   hcPlayerRelationships: number;
+  /** Contribution from starting-opportunity fit (Talent Allocation D-3). */
+  startingOpportunity: number;
   archetypeLabel: string | null;
   ownerQuirkLabels: readonly string[];
   hcQuirkLabels: readonly string[];
+  /** Human-readable label for the starting-opportunity contribution, if it fired. */
+  startingOpportunityLabel: string | null;
 }
 
 /**
