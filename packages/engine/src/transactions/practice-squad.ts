@@ -14,6 +14,8 @@ import { positionGroupFor } from '../players/position-group.js';
 import { ROSTER_BLUEPRINT_53 } from '../players/roster-blueprint.js';
 import { Position, PositionGroup } from '../types/enums.js';
 import { keySkillAverage } from '../archetypes/key-skill.js';
+import type { Transaction } from '../types/transaction.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 import {
   PRACTICE_SQUAD_SALARY,
   PRACTICE_SQUAD_SIZE,
@@ -73,6 +75,7 @@ export function refillPracticeSquad(
   const playersNext: Record<string, Player> = { ...league.players };
   const contractsNext: Record<string, Contract> = { ...league.contracts };
   const teamsNext: Record<string, TeamState> = { ...league.teams };
+  const collisionEntries: Transaction[] = [];
   let counter = 0;
 
   for (const team of Object.values(league.teams)) {
@@ -99,11 +102,11 @@ export function refillPracticeSquad(
         }
         fromPool = deepest?.shift();
       }
-      let finalPlayer: Player;
+      let basePlayer: Player;
       let contract: Contract;
       if (fromPool) {
         contract = makePracticeSquadContract(fromPool, team.identity.id, idSuffix, signedOnTick);
-        finalPlayer = { ...fromPool, teamId: team.identity.id, contractId: contract.id };
+        basePlayer = { ...fromPool, teamId: team.identity.id };
       } else {
         // Emergency fill = a 23-24-year-old street journeyman (DEVELOPING,
         // experience 1-2), NOT a fake rookie — invented bodies must never
@@ -143,8 +146,21 @@ export function refillPracticeSquad(
           teamId: team.identity.id,
         };
         contract = makePracticeSquadContract(player, team.identity.id, idSuffix, signedOnTick);
-        finalPlayer = { ...player, contractId: contract.id };
+        basePlayer = player;
       }
+
+      // Fix 2 (§14): resolve against the CURRENT (already-mutated-this-pass)
+      // map before either the map write or the contractId stamp.
+      const minted = mintContractId(contractsNext, contract.id);
+      if (minted.collision !== undefined) contract = { ...contract, id: minted.id };
+      const finalPlayer: Player = { ...basePlayer, contractId: contract.id };
+      const collisionEntry = contractIdCollisionEntry(minted, {
+        tick: signedOnTick,
+        seasonNumber,
+        teamId: team.identity.id,
+        playerId: finalPlayer.id,
+      });
+      if (collisionEntry) collisionEntries.push(collisionEntry);
 
       playersNext[finalPlayer.id] = finalPlayer;
       contractsNext[contract.id] = contract;
@@ -162,6 +178,10 @@ export function refillPracticeSquad(
     teams: teamsNext as Readonly<Record<TeamId, TeamState>>,
     players: playersNext as Readonly<Record<PlayerId, Player>>,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
+    transactionLog:
+      collisionEntries.length > 0
+        ? [...league.transactionLog, ...collisionEntries]
+        : league.transactionLog,
   };
 }
 

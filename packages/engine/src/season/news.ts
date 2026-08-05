@@ -135,6 +135,7 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
     case 'contract-expiration':
     case 'mood-shift':
     case 'roster-floor-violation':
+    case 'contract-id-collision':
       // Intentionally not surfaced. IR moves and PS promotions happen
       // weekly across the league — routine roster bookkeeping rather
       // than news. Contract expirations are a calendar event, not a
@@ -142,7 +143,9 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       // narrative-worthy crossing into wants_out is captured by the
       // matching trade-request transaction emitted alongside it. A
       // roster-floor-violation is a loud INTERNAL alarm (design §2.4) —
-      // it fails the invariant tests, not the news feed.
+      // it fails the invariant tests, not the news feed. Same posture
+      // for contract-id-collision (Roster Floor §14 Fix 2): a self-healed
+      // engine-internal repair, not a player-facing beat.
       return null;
   }
 }

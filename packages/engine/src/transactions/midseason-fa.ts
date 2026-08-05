@@ -15,6 +15,7 @@ import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import type { Transaction } from '../types/transaction.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * Run a single mid-season free-agent signing pass. Each team with fewer
@@ -143,8 +144,12 @@ function applySigning(
 ): LeagueState {
   const player = league.players[playerId]!;
   const team = league.teams[teamId]!;
+  // Fix 2 (§14): resolve BEFORE construction — same discipline as
+  // roster-floor.ts's signFloorMinimum, the site this class of bug was
+  // actually caught at.
+  const minted = mintContractId(league.contracts, ContractId(`C_${idSuffix}`));
   const contract: Contract = {
-    id: ContractId(`C_${idSuffix}`),
+    id: minted.id,
     playerId: player.id,
     teamId,
     signedOnTick,
@@ -170,6 +175,12 @@ function applySigning(
     marketContract: false,
     phaseAtSigning: league.phase,
   };
+  const collisionEntry = contractIdCollisionEntry(minted, {
+    tick: signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    playerId,
+  });
   return {
     ...league,
     teams: {
@@ -184,6 +195,8 @@ function applySigning(
       ...league.contracts,
       [contract.id]: contract,
     } as Readonly<Record<ContractIdType, Contract>>,
-    transactionLog: [...league.transactionLog, entry],
+    transactionLog: collisionEntry
+      ? [...league.transactionLog, entry, collisionEntry]
+      : [...league.transactionLog, entry],
   };
 }

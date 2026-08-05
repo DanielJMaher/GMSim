@@ -8,6 +8,7 @@ import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
 import { ANCHOR_CAP } from '../contracts/constants.js';
 import { teamCashFloorStatus } from '../contracts/cash.js';
 import { ageOfPlayer } from '../season/development.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 import {
   RESIGN_INCUMBENT_PREMIUM,
   RESIGN_QB_BAD_TEAM_WINS,
@@ -158,7 +159,7 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
       const player = players[cand.playerId]!;
       const oldContractId = player.contractId!;
       const idSuffix = `${team.identity.abbreviation}_EXT${league.seasonNumber}_${counter++}`;
-      const newContract = makeFreeAgentContract(
+      const rawContract = makeFreeAgentContract(
         player,
         teamId,
         idSuffix,
@@ -166,6 +167,12 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
         premium,
         league.salaryCap,
       );
+
+      // Fix 2 (§14): resolve against the CURRENT (already-mutated-this-pass)
+      // map before either the map write or the contractId stamp.
+      const minted = mintContractId(contracts, rawContract.id);
+      const newContract: Contract =
+        minted.collision === undefined ? rawContract : { ...rawContract, id: minted.id };
 
       contracts = { ...contracts };
       delete contracts[oldContractId];
@@ -182,6 +189,13 @@ export function applyCapFloorExtensions(league: LeagueState, signedOnTick: numbe
         yearOneCapHit: currentCapHit(newContract),
         years: newContract.realYears,
       });
+      const collisionEntry = contractIdCollisionEntry(minted, {
+        tick: league.tick,
+        seasonNumber: league.seasonNumber,
+        teamId,
+        playerId: player.id,
+      });
+      if (collisionEntry) logEntries.push(collisionEntry);
 
       usage = teamCapUsage(team, view());
     }

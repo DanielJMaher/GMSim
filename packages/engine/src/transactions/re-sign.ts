@@ -10,6 +10,7 @@ import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
 import { teamCashFloorStatus } from '../contracts/cash.js';
 import { moodBucket } from '../season/mood.js';
 import { ageOfPlayer } from '../season/development.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * The RE-SIGN WINDOW (v0.148) — teams keep their own expiring players.
@@ -223,7 +224,7 @@ export function applyResigningWindow(
       if (prng.next() >= p) continue; // team (or player) opts for the market
 
       const idSuffix = `${team.identity.abbreviation}_RS${league.seasonNumber}_${counter++}`;
-      const contract = makeFreeAgentContract(
+      const rawContract = makeFreeAgentContract(
         player,
         teamId,
         idSuffix,
@@ -231,9 +232,15 @@ export function applyResigningWindow(
         premium,
         league.salaryCap,
       );
-      const y1 = currentCapHit(contract);
+      const y1 = currentCapHit(rawContract);
       // Cap casualty — he walks. Headroom keeps FA budget for the refill.
       if (committed + y1 > league.salaryCap * RESIGN_CAP_HEADROOM) continue;
+
+      // Fix 2 (§14): resolve against the CURRENT (already-mutated-this-pass)
+      // map before either the map write or the contractId stamp.
+      const minted = mintContractId(contractsNext, rawContract.id);
+      const contract: Contract =
+        minted.collision === undefined ? rawContract : { ...rawContract, id: minted.id };
 
       committed += y1;
       delete contractsNext[player.contractId!];
@@ -249,6 +256,13 @@ export function applyResigningWindow(
         yearOneCapHit: y1,
         years: contract.realYears,
       });
+      const collisionEntry = contractIdCollisionEntry(minted, {
+        tick: league.tick,
+        seasonNumber: league.seasonNumber,
+        teamId,
+        playerId: player.id,
+      });
+      if (collisionEntry) logEntries.push(collisionEntry);
     }
   }
 

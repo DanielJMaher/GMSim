@@ -13,6 +13,7 @@ import { ContractId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
 import { LEAGUE_MINIMUM_SALARY, ANCHOR_CAP } from '../contracts/constants.js';
 import { buildGuaranteedSplit, positionGuaranteeTargetFa } from '../contracts/tiers.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * All players currently without a team. A player is a free agent when
@@ -68,7 +69,7 @@ export function signFreeAgent(
   const team = league.teams[teamId];
   if (!team) throw new Error(`signFreeAgent: team ${teamId} not found`);
 
-  const contract = makeFreeAgentContract(
+  const rawContract = makeFreeAgentContract(
     player,
     teamId,
     options.idSuffix,
@@ -76,6 +77,10 @@ export function signFreeAgent(
     1.0,
     league.salaryCap,
   );
+  // Fix 2 (§14): resolve before either the map write or the contractId stamp.
+  const minted = mintContractId(league.contracts, rawContract.id);
+  const contract: Contract =
+    minted.collision === undefined ? rawContract : { ...rawContract, id: minted.id };
 
   const updatedPlayer: Player = {
     ...player,
@@ -98,6 +103,12 @@ export function signFreeAgent(
     marketContract: true,
     phaseAtSigning: league.phase,
   };
+  const collisionEntry = contractIdCollisionEntry(minted, {
+    tick: options.signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    playerId,
+  });
 
   return {
     ...league,
@@ -111,7 +122,9 @@ export function signFreeAgent(
       ...league.contracts,
       [contract.id]: contract,
     } as Readonly<Record<ContractIdType, Contract>>,
-    transactionLog: [...league.transactionLog, entry],
+    transactionLog: collisionEntry
+      ? [...league.transactionLog, entry, collisionEntry]
+      : [...league.transactionLog, entry],
   };
 }
 

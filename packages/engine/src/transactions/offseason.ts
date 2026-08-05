@@ -19,6 +19,7 @@ import type { FaBidderDetail } from './fa-bidding.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
 import { ContractId } from '../types/ids.js';
 import type { Transaction, FaSignBidder } from '../types/transaction.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * Drop every contract whose `yearsRemaining` is 0. The corresponding
@@ -559,10 +560,17 @@ function mergeSigning(
   league: LeagueState,
   team: TeamState,
   player: Player,
-  contract: Contract,
+  contractIn: Contract,
   runnersUp: readonly TeamId[] = [],
   bidders: readonly FaSignBidder[] = [],
 ): LeagueState {
+  // Fix 2 (§14): the shared insertion point for BOTH of this file's signing
+  // paths (auction-priced `makeFreeAgentContract` and the inline minimum
+  // fill) — resolve here, before either the map write or the contractId
+  // stamp, so a single guard covers both.
+  const minted = mintContractId(league.contracts, contractIn.id);
+  const contract: Contract =
+    minted.collision === undefined ? contractIn : { ...contractIn, id: minted.id };
   const entry: Transaction = {
     kind: 'fa-sign',
     tick: contract.signedOnTick,
@@ -576,6 +584,12 @@ function mergeSigning(
     ...(runnersUp.length > 0 ? { runnersUp } : {}),
     ...(bidders.length > 0 ? { bidders } : {}),
   };
+  const collisionEntry = contractIdCollisionEntry(minted, {
+    tick: contract.signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId: team.identity.id,
+    playerId: player.id,
+  });
   return {
     ...league,
     teams: {
@@ -590,6 +604,8 @@ function mergeSigning(
       ...league.contracts,
       [contract.id]: contract,
     } as Readonly<Record<ContractIdType, Contract>>,
-    transactionLog: [...league.transactionLog, entry],
+    transactionLog: collisionEntry
+      ? [...league.transactionLog, entry, collisionEntry]
+      : [...league.transactionLog, entry],
   };
 }

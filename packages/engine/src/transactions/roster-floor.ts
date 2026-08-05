@@ -13,6 +13,7 @@ import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
 import { restructureContract, MIN_CONVERTIBLE } from './restructures.js';
 import { pickMinimalCasualty, sortedFreeAgentPool } from './offseason.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * The mandatory-53 ROSTER FLOOR (Roster Floor design doc, v0.186).
@@ -329,13 +330,21 @@ function applyFloorRestructure(
   );
   if (!result) return league; // defensive — the selector guarantees eligibility
 
-  const relief = currentCapHit(oldContract) - currentCapHit(result.contract);
+  // Fix 2 (§14, class-wide + log-and-continue): resolve the id against the
+  // CURRENT map before either the map write or the contractId stamp, and use
+  // the resolved id for both — this is the guard that would have prevented
+  // Bug B (§13.2/§14.2).
+  const minted = mintContractId(league.contracts, result.contract.id);
+  const finalContract: Contract =
+    minted.collision === undefined ? result.contract : { ...result.contract, id: minted.id };
+
+  const relief = currentCapHit(oldContract) - currentCapHit(finalContract);
   const contracts: Record<string, Contract> = { ...league.contracts };
   delete contracts[oldContractId];
-  contracts[result.contract.id] = result.contract;
+  contracts[finalContract.id] = finalContract;
   const players = {
     ...league.players,
-    [player.id]: { ...player, contractId: result.contract.id },
+    [player.id]: { ...player, contractId: finalContract.id },
   };
 
   const entry: Transaction = {
@@ -344,18 +353,26 @@ function applyFloorRestructure(
     seasonNumber: league.seasonNumber,
     teamId,
     playerId: player.id,
-    contractId: result.contract.id,
+    contractId: finalContract.id,
     convertedAmount: result.converted,
     capRelief: relief,
-    years: result.contract.realYears,
+    years: finalContract.realYears,
     forFloor: true,
   };
+  const collisionEntry = contractIdCollisionEntry(minted, {
+    tick: league.tick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    playerId: player.id,
+  });
 
   return {
     ...league,
     players: players as Readonly<Record<PlayerId, Player>>,
     contracts: contracts as Readonly<Record<ContractIdType, Contract>>,
-    transactionLog: [...league.transactionLog, entry],
+    transactionLog: collisionEntry
+      ? [...league.transactionLog, entry, collisionEntry]
+      : [...league.transactionLog, entry],
   };
 }
 
@@ -431,8 +448,11 @@ function signFloorMinimum(
 
   const player = league.players[chosen]!;
   const team = league.teams[teamId]!;
+  // Fix 2 (§14): resolve BEFORE construction so the id used for the map
+  // write, the contractId stamp, and the transaction entry can never diverge.
+  const minted = mintContractId(league.contracts, ContractId(`C_${idSuffix}`));
   const contract: Contract = {
-    id: ContractId(`C_${idSuffix}`),
+    id: minted.id,
     playerId: player.id,
     teamId,
     signedOnTick,
@@ -460,6 +480,12 @@ function signFloorMinimum(
     phaseAtSigning: league.phase,
     forFloor: true,
   };
+  const collisionEntry = contractIdCollisionEntry(minted, {
+    tick: signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    playerId: chosen,
+  });
 
   return {
     ...league,
@@ -475,7 +501,9 @@ function signFloorMinimum(
       ...league.contracts,
       [contract.id]: contract,
     } as Readonly<Record<ContractIdType, Contract>>,
-    transactionLog: [...league.transactionLog, entry],
+    transactionLog: collisionEntry
+      ? [...league.transactionLog, entry, collisionEntry]
+      : [...league.transactionLog, entry],
   };
 }
 

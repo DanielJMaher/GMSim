@@ -77,7 +77,8 @@ export type Transaction =
   | TransactionHcHired
   | TransactionGmHired
   | TransactionHcInterim
-  | TransactionRosterFloorViolation;
+  | TransactionRosterFloorViolation
+  | TransactionContractIdCollision;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -555,6 +556,28 @@ export interface TransactionRosterFloorViolation extends TransactionBase {
   rosterSize: number;
   /** Dollars of room still needed to fill to 53 when the ladder exhausted. */
   unmetNeed: number;
+}
+
+/**
+ * A contract-minting site requested an id already present in
+ * `league.contracts` — two different players would otherwise alias one
+ * contract object, which orphans whichever one a later delete-by-id
+ * doesn't touch (Roster Floor §14, `ROSTER_FLOOR.md`). `mintContractId`
+ * (`contracts/mint.ts`) deterministically uniquifies and the sim
+ * continues (Daniel-ruled 2026-08-05, §14.9: log-and-continue, not a
+ * throw) — this entry is the loud, greppable record of that repair.
+ * Structurally rare: proven reachable only when the SAME team engages a
+ * transaction pass more than once in one season (a team pinned repeatedly
+ * mid-season); the permanent gate is zero entries of this kind.
+ */
+export interface TransactionContractIdCollision extends TransactionBase {
+  kind: 'contract-id-collision';
+  teamId: TeamId;
+  playerId: PlayerId;
+  /** The id that was already taken. */
+  attemptedId: ContractId;
+  /** The deterministically uniquified id actually used. */
+  resolvedId: ContractId;
 }
 
 export type LockerRoomIncidentFlavor =

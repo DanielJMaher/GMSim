@@ -12,6 +12,7 @@ import type {
 } from '../types/ids.js';
 import { ContractId } from '../types/ids.js';
 import { unamortizedSigningBonus } from '../contracts/cap.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * A two-team trade: each side sends some players and/or draft picks
@@ -125,10 +126,29 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
   // Apply: drop old contracts, add new ones, update players.
   const contractsNext: Record<string, Contract> = { ...league.contracts };
   const playersNext: Record<string, Player> = { ...league.players };
+  const collisionEntries: Transaction[] = [];
   for (const r of replacements) {
     delete contractsNext[r.oldContractId];
-    contractsNext[r.contract.id] = r.contract;
-    playersNext[r.player.id] = r.player;
+    // Fix 2 (§14): resolve against the CURRENT (already-mutated-this-trade)
+    // map before either the map write or the contractId stamp. `newId` is
+    // derived from the OLD contract's already-unique id (safe by
+    // construction in the common case), but class-wide means every mint
+    // site gets the guard regardless (Daniel, §14.9: "don't trust it not to
+    // sneak back in").
+    const minted = mintContractId(contractsNext, r.contract.id);
+    const finalContract: Contract =
+      minted.collision === undefined ? r.contract : { ...r.contract, id: minted.id };
+    const finalPlayer: Player =
+      minted.collision === undefined ? r.player : { ...r.player, contractId: minted.id };
+    contractsNext[finalContract.id] = finalContract;
+    playersNext[finalPlayer.id] = finalPlayer;
+    const collisionEntry = contractIdCollisionEntry(minted, {
+      tick: league.tick,
+      seasonNumber: league.seasonNumber,
+      teamId: finalPlayer.teamId!,
+      playerId: finalPlayer.id,
+    });
+    if (collisionEntry) collisionEntries.push(collisionEntry);
   }
 
   // Splice rosters.
@@ -196,7 +216,10 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     players: playersNext as Readonly<Record<PlayerId, Player>>,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
     draftPicks: draftPicksNext,
-    transactionLog: [...league.transactionLog, entry],
+    transactionLog:
+      collisionEntries.length > 0
+        ? [...league.transactionLog, entry, ...collisionEntries]
+        : [...league.transactionLog, entry],
   };
 }
 

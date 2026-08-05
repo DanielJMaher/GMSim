@@ -30,6 +30,8 @@ import { generateRoster } from '../players/roster.js';
 import { generateContract } from '../contracts/generate.js';
 import { ContractId } from '../types/ids.js';
 import type { ContractId as ContractIdType } from '../types/ids.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
+import type { Transaction } from '../types/transaction.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
@@ -99,6 +101,11 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
   const teamPersonalities: Record<string, TeamPersonality> = {};
   const players: Record<string, Player> = {};
   const contracts: Record<string, Contract> = {};
+  // Roster Floor §14 Fix 2: safe by construction here (idSuffix is each
+  // player's own globally-unique id, minted exactly once per player), but
+  // class-wide means every mint site carries the guard (Daniel, §14.9 —
+  // "don't trust it not to sneak back in").
+  const contractCollisions: Transaction[] = [];
 
   // Scout staffs per team, kept alongside `scouts` directory so the
   // observation sweep below can look up each team's scouts without
@@ -125,12 +132,24 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     const rosterIds: typeof roster[number]['id'][] = [];
     const contractsPrng = teamPrng.fork('contracts');
     for (const rawPlayer of roster) {
-      const contract = generateContract(contractsPrng.fork(rawPlayer.id), {
+      const rawContract = generateContract(contractsPrng.fork(rawPlayer.id), {
         player: rawPlayer,
         idSuffix: String(rawPlayer.id),
         currentTick: initialTick,
       });
+      const minted = mintContractId(contracts, rawContract.id);
+      const contract: Contract =
+        minted.collision === undefined ? rawContract : { ...rawContract, id: minted.id };
       contracts[contract.id] = contract;
+      if (minted.collision) {
+        const entry = contractIdCollisionEntry(minted, {
+          tick: initialTick,
+          seasonNumber: 1,
+          teamId: identity.id,
+          playerId: rawPlayer.id,
+        });
+        if (entry) contractCollisions.push(entry);
+      }
       const player: Player = { ...rawPlayer, contractId: ContractId(contract.id) };
       players[player.id] = player;
       rosterIds.push(player.id);
@@ -269,7 +288,7 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     contracts: contracts as Readonly<Record<ContractIdType, Contract>>,
     teamPersonalities: teamPersonalities as Readonly<Record<TeamId, TeamPersonality>>,
     schedule: null, // populated when simulateSeason runs
-    transactionLog: [],
+    transactionLog: contractCollisions,
     observations,
     watchLists,
     collegePool,

@@ -25,6 +25,8 @@ import {
   qbRevealedSlotBoost,
   QB_SETTLED_DAMPEN_END_PICK,
 } from './position-value.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
+import type { Transaction } from '../types/transaction.js';
 
 /**
  * How credible the best available QB must be for a QB-desperate team to REACH
@@ -491,7 +493,26 @@ export function applyDraftResult(
   const players: Record<string, Player> = { ...league.players };
   for (const p of result.newPlayers) players[p.id] = p;
   const contracts: Record<string, Contract> = { ...league.contracts };
-  for (const c of result.newContracts) contracts[c.id] = c;
+  // Roster Floor §14 Fix 2: safe by construction (idSuffix is each rookie's
+  // own globally-unique player id, minted exactly once), but class-wide
+  // means every mint site carries the guard (Daniel, §14.9).
+  const contractCollisions: Transaction[] = [];
+  for (const c of result.newContracts) {
+    const minted = mintContractId(contracts, c.id);
+    const finalContract: Contract = minted.collision === undefined ? c : { ...c, id: minted.id };
+    contracts[finalContract.id] = finalContract;
+    if (minted.collision) {
+      const existingPlayer = players[c.playerId];
+      if (existingPlayer) players[c.playerId] = { ...existingPlayer, contractId: finalContract.id };
+      const entry = contractIdCollisionEntry(minted, {
+        tick: league.tick,
+        seasonNumber: league.seasonNumber,
+        teamId: finalContract.teamId,
+        playerId: c.playerId,
+      });
+      if (entry) contractCollisions.push(entry);
+    }
+  }
 
   // Teams: append rookies to rosterIds
   const teams: Record<string, TeamState> = { ...league.teams };
@@ -544,6 +565,10 @@ export function applyDraftResult(
       result.tradeUps.length > 0
         ? [...league.tradeUpHistory, ...result.tradeUps]
         : league.tradeUpHistory,
+    transactionLog:
+      contractCollisions.length > 0
+        ? [...league.transactionLog, ...contractCollisions]
+        : league.transactionLog,
   };
 }
 

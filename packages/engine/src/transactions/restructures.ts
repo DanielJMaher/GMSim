@@ -7,6 +7,7 @@ import type { Transaction } from '../types/transaction.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { currentCapHit, teamCapUsage, unamortizedSigningBonus } from '../contracts/cap.js';
 import { ANCHOR_CAP, leagueMinimumSalary } from '../contracts/constants.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * Contract RESTRUCTURES (cap-realism deep model, Slice 2 — Salary Cap doc §
@@ -204,11 +205,17 @@ export function applyCapRestructures(league: LeagueState, signedOnTick: number):
       const result = restructureContract(oldContract, idSuffix, signedOnTick, league.salaryCap);
       if (!result) continue;
 
-      const relief = currentCapHit(oldContract) - currentCapHit(result.contract);
+      // Fix 2 (§14): resolve against the CURRENT (already-mutated-this-pass)
+      // map before either the map write or the contractId stamp.
+      const minted = mintContractId(contracts, result.contract.id);
+      const finalContract: Contract =
+        minted.collision === undefined ? result.contract : { ...result.contract, id: minted.id };
+
+      const relief = currentCapHit(oldContract) - currentCapHit(finalContract);
       contracts = { ...contracts };
       delete contracts[oldContractId];
-      contracts[result.contract.id] = result.contract;
-      players = { ...players, [player.id]: { ...player, contractId: result.contract.id } };
+      contracts[finalContract.id] = finalContract;
+      players = { ...players, [player.id]: { ...player, contractId: finalContract.id } };
       done++;
 
       logEntries.push({
@@ -217,11 +224,18 @@ export function applyCapRestructures(league: LeagueState, signedOnTick: number):
         seasonNumber: league.seasonNumber,
         teamId,
         playerId: player.id,
-        contractId: result.contract.id,
+        contractId: finalContract.id,
         convertedAmount: result.converted,
         capRelief: relief,
-        years: result.contract.realYears,
+        years: finalContract.realYears,
       });
+      const collisionEntry = contractIdCollisionEntry(minted, {
+        tick: league.tick,
+        seasonNumber: league.seasonNumber,
+        teamId,
+        playerId: player.id,
+      });
+      if (collisionEntry) logEntries.push(collisionEntry);
 
       usage = teamCapUsage(team, view());
     }

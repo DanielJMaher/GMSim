@@ -15,6 +15,7 @@ import { teamCapUsage } from '../contracts/cap.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import type { Transaction } from '../types/transaction.js';
+import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
  * Run a single mid-season practice-squad poaching pass. Each team with
@@ -219,8 +220,10 @@ function applyPoach(
   const origin = league.teams[originTeamId]!;
   const poacher = league.teams[poachingTeamId]!;
 
+  // Fix 2 (§14): resolve BEFORE construction.
+  const minted = mintContractId(league.contracts, ContractId(`C_${idSuffix}`));
   const newContract: Contract = {
-    id: ContractId(`C_${idSuffix}`),
+    id: minted.id,
     playerId: player.id,
     teamId: poachingTeamId,
     signedOnTick,
@@ -282,12 +285,20 @@ function applyPoach(
     ownPromotion: originTeamId === poachingTeamId,
     contractId: newContract.id,
   };
+  const collisionEntry = contractIdCollisionEntry(minted, {
+    tick: signedOnTick,
+    seasonNumber: league.seasonNumber,
+    teamId: poachingTeamId,
+    playerId,
+  });
 
   return {
     ...league,
     teams: teamsNext,
     players: playersNext,
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
-    transactionLog: [...league.transactionLog, entry],
+    transactionLog: collisionEntry
+      ? [...league.transactionLog, entry, collisionEntry]
+      : [...league.transactionLog, entry],
   };
 }
