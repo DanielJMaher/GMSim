@@ -13,27 +13,25 @@ import { enforceRosterFloor, selectFloorRestructure } from './roster-floor.js';
 import { restructureContract } from './restructures.js';
 
 /**
- * Rebuild the sorted-first team into a controlled cap-PINNED, sub-53 state:
- * keep `keep` roster players (the rest become signable free agents), replace
- * each kept player's contract via `makeContract`, then set the salary cap so
- * the team sits `roomDollars` under it — deliberately less than one minimum
- * salary, so the team can't fill its last slots without freeing room. `phase`
- * selects the cap-accounting rule (offseason top-51 vs in-season all-53).
+ * Rebuild `teamId`'s roster within an EXISTING league into a controlled
+ * cap-PINNED, sub-53 state: keep `keep` roster players (the rest become
+ * signable free agents), replace each kept player's contract via
+ * `makeContract`, then set the salary cap so the team sits `roomDollars`
+ * under it — deliberately less than one minimum salary, so the team can't
+ * fill its last slots without freeing room. Extracted from `pinFirstTeam` so
+ * a test can pin the SAME team a second time against an already-engaged
+ * league (§14 Fix 1's two-engagements-one-season regression).
  */
-function pinFirstTeam(
-  seed: string,
+function pinTeam(
+  league: LeagueState,
+  teamId: TeamId,
   opts: {
     keep: number;
     roomDollars: number;
-    phase: LeagueState['phase'];
     makeContract: (playerId: PlayerId, index: number) => Contract;
   },
-): { league: LeagueState; teamId: TeamId; minSalary: number } {
-  let league = createLeague({ seed });
-  league = { ...league, phase: opts.phase };
-  const teamId = (Object.keys(league.teams) as TeamId[]).sort()[0]!;
+): LeagueState {
   const team = league.teams[teamId]!;
-
   const players = { ...league.players };
   const contracts = { ...league.contracts };
   const kept: PlayerId[] = [];
@@ -54,17 +52,35 @@ function pinFirstTeam(
   });
 
   const pinnedTeam = { ...team, rosterIds: kept };
-  league = {
+  const next: LeagueState = {
     ...league,
     players: players as LeagueState['players'],
     contracts: contracts as LeagueState['contracts'],
     teams: { ...league.teams, [teamId]: pinnedTeam } as LeagueState['teams'],
   };
 
-  const usage = teamCapUsage(pinnedTeam, league);
-  const salaryCap = usage + opts.roomDollars;
-  league = { ...league, salaryCap };
-  return { league, teamId, minSalary: leagueMinimumSalary(salaryCap) };
+  const usage = teamCapUsage(pinnedTeam, next);
+  return { ...next, salaryCap: usage + opts.roomDollars };
+}
+
+/**
+ * `pinTeam` applied to a fresh league's sorted-first team. `phase` selects
+ * the cap-accounting rule (offseason top-51 vs in-season all-53).
+ */
+function pinFirstTeam(
+  seed: string,
+  opts: {
+    keep: number;
+    roomDollars: number;
+    phase: LeagueState['phase'];
+    makeContract: (playerId: PlayerId, index: number) => Contract;
+  },
+): { league: LeagueState; teamId: TeamId; minSalary: number } {
+  let league = createLeague({ seed });
+  league = { ...league, phase: opts.phase };
+  const teamId = (Object.keys(league.teams) as TeamId[]).sort()[0]!;
+  league = pinTeam(league, teamId, opts);
+  return { league, teamId, minSalary: leagueMinimumSalary(league.salaryCap) };
 }
 
 /** A restructurable multi-year deal: big convertible base + a real bonus. */
@@ -244,6 +260,81 @@ describe('enforceRosterFloor — non-terminating ladder fix (v0.187.2)', () => {
       expect(teamCapUsage(finalTeam, after)).toBeLessThanOrEqual(after.salaryCap);
     } else {
       expect(floorTxns(after, 'roster-floor-violation').length).toBeGreaterThanOrEqual(1);
+    }
+  });
+});
+
+describe('enforceRosterFloor — contract-id collision across two engagements in one season (§14 Fix 1)', () => {
+  // Regression for a real crash: `enforceRosterFloor` mints floor contract
+  // ids as `${abbr}_FLR${seasonNumber}_${counter}` (and `_RFLR...` for
+  // restructures) with `counter` LOCAL to each call. The Week-1 boundary and
+  // the weekly mid-season fallback (design §3) are TWO call sites for the
+  // same pass — if the SAME team engages the ladder twice in one season (a
+  // second thin-QB/IR wave a few weeks later), the second engagement's
+  // counter restarts at 0 and can regenerate an id the first engagement
+  // already used. Proven in production: seed `qcensus-1`, team PHI, season 4
+  // — 3 engagements at ticks 156/170/171 produced 129 floor ops onto only 75
+  // distinct contract ids (19 collisions); the aliased id was later deleted
+  // by one player's cut/release, orphaning the other and crashing
+  // `releasePlayer: contract ... missing`. This test reproduces the minimal
+  // two-engagement case directly (no multi-season sim needed — the defect is
+  // in `enforceRosterFloor` alone) and MUST fail on `main` before Fix 1: the
+  // two engagements below use identical `keep`/`makeContract` parameters, so
+  // pre-fix they mint an IDENTICAL counter sequence at an IDENTICAL
+  // `${abbr}_FLR${seasonNumber}_` prefix — full collision, guaranteed, not
+  // probabilistic.
+  it('mints DISJOINT floor contract ids when the same team is pinned and engaged twice in one season at different ticks', () => {
+    const pinOpts = {
+      keep: 48,
+      roomDollars: 300_000,
+      makeContract: (pid: PlayerId, i: number) =>
+        i === 0 ? megaDeal(pid, 30_000_000) : oneYearDeal(pid, 3_000_000, false),
+    };
+    const { league, teamId } = pinFirstTeam('floor-collision', {
+      ...pinOpts,
+      phase: 'REGULAR_SEASON',
+    });
+
+    // First engagement, mid-season tick 150.
+    const afterFirst = enforceRosterFloor(league, 150);
+    expect(afterFirst.teams[teamId]!.rosterIds.length).toBe(53);
+    const firstFloorIds = new Set(
+      [...floorTxns(afterFirst, 'fa-sign'), ...floorTxns(afterFirst, 'restructure')].map(
+        (t) => (t as { contractId: string }).contractId,
+      ),
+    );
+    expect(firstFloorIds.size).toBeGreaterThan(0);
+
+    // Knock the SAME team thin again — a second wave the same season — and
+    // engage a second time at a LATER tick. `seasonNumber` is untouched by
+    // `pinTeam` (it only rewrites roster/contracts/cap), so this is exactly
+    // "same team, same season, different tick."
+    const rePinned = pinTeam(afterFirst, teamId, pinOpts);
+    const beforeSecondLen = rePinned.transactionLog.length;
+
+    const afterSecond = enforceRosterFloor(rePinned, 170);
+    expect(afterSecond.teams[teamId]!.rosterIds.length).toBe(53);
+
+    // Only the SECOND engagement's new entries — the first engagement's
+    // entries are still present (transaction log is append-only) and must
+    // not be counted twice.
+    const secondFloorIds = new Set(
+      afterSecond.transactionLog
+        .slice(beforeSecondLen)
+        .filter(
+          (t) =>
+            (t.kind === 'fa-sign' || t.kind === 'restructure') &&
+            (t as { forFloor?: true }).forFloor === true,
+        )
+        .map((t) => (t as { contractId: string }).contractId),
+    );
+    expect(secondFloorIds.size).toBeGreaterThan(0);
+
+    for (const id of secondFloorIds) {
+      expect(
+        firstFloorIds.has(id),
+        `contract id ${id} was minted by BOTH engagements — the exact aliasing that orphans a player's contractId and crashes releasePlayer downstream`,
+      ).toBe(false);
     }
   });
 });

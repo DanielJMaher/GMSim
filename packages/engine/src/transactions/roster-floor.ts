@@ -264,7 +264,7 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
       const room = cap - teamCapUsage(team, working);
 
       if (room >= minSalary) {
-        const idSuffix = `${team.identity.abbreviation}_FLR${league.seasonNumber}_${counter++}`;
+        const idSuffix = `${team.identity.abbreviation}_FLR${signedOnTick}_${counter++}`;
         const filled = signFloorMinimum(working, teamId, idSuffix, signedOnTick);
         if (!filled) break; // FA pool exhausted — not a cap failure; rung 4
         working = filled;
@@ -280,7 +280,7 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
       // touched this engagement so the ladder can't nibble one deal forever).
       const plan = selectFloorRestructure(team, working, need, restructuredThisEngagement);
       if (plan) {
-        const idSuffix = `${team.identity.abbreviation}_RFLR${league.seasonNumber}_${counter++}`;
+        const idSuffix = `${team.identity.abbreviation}_RFLR${signedOnTick}_${counter++}`;
         restructuredThisEngagement.add(plan.playerId);
         working = applyFloorRestructure(working, teamId, plan, idSuffix, signedOnTick);
         continue;
