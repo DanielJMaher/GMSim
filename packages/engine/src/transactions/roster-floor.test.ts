@@ -264,6 +264,93 @@ describe('enforceRosterFloor — non-terminating ladder fix (v0.187.2)', () => {
   });
 });
 
+describe('enforceRosterFloor — iteration-bound derivation (§15, Fix 5)', () => {
+  // Regression for a real crash: `iterationLimit = 4 * startRoster + 20`
+  // scales with the CURRENT roster, but the ladder's work scales with the
+  // DEFICIT (53 − roster) — inversely related. The termination proof in the
+  // code comments bounds restructures (≤ roster) and cuts (≤ maxCuts) but
+  // never counts the SIGN operations, which dominate at large deficits.
+  // Reproduced on `main`: seed `goat-15`, team CHI, tick 109 — a 43-deficit
+  // engagement needed 259 iterations against a granted budget of 60.
+  //
+  // This fixture reproduces the same mechanism synthetically. `roomDollars:
+  // 0` puts the team below one minimum salary at entry (the "short but
+  // AFFORDABLE, not the floor's job" guard requires room >= one minSalary to
+  // skip a team — see `enforceRosterFloor`'s first guard), so the ladder
+  // engages immediately rather than being waved off. The 10 kept contracts
+  // are 96%-guaranteed 1-year deals: not restructure-eligible
+  // (`yearsRemaining < 2`), and cutting one frees only the 4% unguaranteed
+  // sliver (~$1.02M) — real but modest savings, exactly the
+  // `pickMinimalCasualty` "largest available, even if insufficient" fallback
+  // case (`smallestSufficient ?? largest`, offseason.ts:262), never a clean
+  // restructure-away. Once those 10 are exhausted, the only remaining cut
+  // candidates are freshly-signed (fully unguaranteed) floor players, whose
+  // full-base saving roughly equals one minSalary sign — so the ladder
+  // oscillates cut-a-floor-player / sign-a-replacement with near-zero net
+  // roster progress until the cut budget (`maxCuts = max(5, 3*43) = 129`)
+  // exhausts. On today's bound (60) this throws well before the budget
+  // exhausts; corrected (§15.6) it must run the full ladder, fall through to
+  // rung 4, and log a `roster-floor-violation` rather than reaching 53 —
+  // never a silent sub-53, never an abort. Measured against the corrected
+  // bound (patched scratch build, confirming this fixture behaves as
+  // designed): 129 cuts (10 of the original kept + 119 floor-signed), 130
+  // signs, final roster 11, exactly 1 violation logged.
+  it('a hopeless team degrades gracefully (logs a violation) instead of aborting the sim', () => {
+    const { league, teamId } = pinFirstTeam('floor-boundfix', {
+      keep: 10,
+      roomDollars: 0,
+      phase: 'REGULAR_SEASON',
+      makeContract: (pid) => ({
+        id: ContractId(`C_BOUNDFIX_${pid}`),
+        playerId: pid,
+        teamId: 'T' as Contract['teamId'],
+        signedOnTick: 0,
+        realYears: 1,
+        voidYears: 0,
+        yearsRemaining: 1,
+        baseSalaries: [25_500_000],
+        signingBonus: 0,
+        rosterBonuses: [0],
+        workoutBonuses: [0],
+        guarantees: [{ baseGuaranteedPct: 96, type: 'FULLY_GUARANTEED' }],
+        incentives: [],
+        noTradeClause: false,
+      }),
+    });
+    // Anchored to a clean cap so the derivation is checkable by inspection:
+    // usage 10 * $25.5M = $255M (= ANCHOR_CAP) + $0 room →
+    // minSalary = exactly $900,000 (= LEAGUE_MINIMUM_SALARY), and room ($0)
+    // sits below it, so the team is genuinely PINNED, not skipped.
+    expect(league.salaryCap).toBe(255_000_000);
+    expect(leagueMinimumSalary(league.salaryCap)).toBe(900_000);
+    const originalRosterIds = new Set(league.teams[teamId]!.rosterIds);
+
+    const after = enforceRosterFloor(league, league.tick);
+
+    const finalTeam = after.teams[teamId]!;
+    expect(finalTeam.rosterIds.length).toBeLessThan(53);
+    // `roster-floor-violation` entries never carry `forFloor` (unlike
+    // cuts/signs/restructures) — `floorTxns` would silently always read 0
+    // here, so this filters the kind directly, matching the proven pattern
+    // in the "rung 4 (loud failure)" describe block below.
+    expect(
+      after.transactionLog.filter((t) => t.kind === 'roster-floor-violation').length,
+    ).toBeGreaterThanOrEqual(1);
+
+    // Confirms the mechanism, not just the outcome: all 10 original kept
+    // players get cut eventually (their partial guarantee makes them
+    // eligible, just not free), and MORE cuts land on floor-signed
+    // replacements than on the original 10 — the oscillation phase.
+    const cuts = floorTxns(after, 'cap-cut');
+    expect(cuts.length).toBeGreaterThan(10);
+    const cutsOfOriginal = cuts.filter((c) =>
+      originalRosterIds.has((c as { playerId: PlayerId }).playerId),
+    ).length;
+    expect(cutsOfOriginal).toBeGreaterThan(0);
+    expect(cutsOfOriginal).toBeLessThan(cuts.length);
+  });
+});
+
 describe('enforceRosterFloor — contract-id collision across two engagements in one season (§14 Fix 1)', () => {
   // Regression for a real crash: `enforceRosterFloor` mints floor contract
   // ids as `${abbr}_FLR${seasonNumber}_${counter}` (and `_RFLR...` for

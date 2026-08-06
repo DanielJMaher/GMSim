@@ -245,16 +245,34 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
     const restructuredThisEngagement = new Set<PlayerId>();
     const maxCuts = Math.max(5, deficitStart * 3);
     let cutsUsed = 0;
-    const iterationLimit = 4 * startTeam.rosterIds.length + 20;
+    // §15.2 (2026-08-06): the iteration bound must be derived from the same
+    // per-loop-op accounting as the paragraph above, and that accounting
+    // OMITTED THE SIGN OPERATIONS — the bug. Each loop iteration performs
+    // exactly one of {sign, restructure, cut}, or breaks, so per engagement:
+    //   restructures <= startRoster (each contract excluded after one use)
+    //   cuts <= maxCuts (the explicit budget above)
+    //   signs <= deficitStart + cutsUsed (every cut reopens one more slot)
+    // Summing: totalIters <= startRoster + maxCuts + (53 - startRoster) +
+    // maxCuts = ROSTER_FLOOR_SIZE + 2*maxCuts. The old bound
+    // (`4 * startRoster + 20`) scaled with the CURRENT roster while the real
+    // work scales with the DEFICIT — inversely related, so it shrank exactly
+    // as the work exploded (a team 43 short got 60 iterations for 43 signings
+    // alone). Measured: seed `goat-15` team CHI needed 259 iterations against
+    // a granted 60, comfortably under this derived ceiling of 311. The "+ 10"
+    // slack covers the terminal iteration that trips the `deficit <= 0`
+    // break and `applyFloorRestructure`'s defensive no-op return path.
+    const iterationLimit = ROSTER_FLOOR_SIZE + 2 * maxCuts + 10;
     let ladderIters = 0;
     while (true) {
       ladderIters++;
       if (ladderIters > iterationLimit) {
         throw new Error(
-          `enforceRosterFloor: ladder exceeded its ${iterationLimit}-iteration bound for team ` +
+          `enforceRosterFloor: ladder exceeded its derived ${iterationLimit}-iteration bound ` +
+          `(ROSTER_FLOOR_SIZE + 2*maxCuts + 10, see §15.2) for team ` +
           `${teamId} at tick ${signedOnTick} (roster=${working.teams[teamId]!.rosterIds.length}, ` +
-          `FAs=${countFreeAgents(working)}) — the restructure exclusion + cut budget should make ` +
-          `this structurally unreachable; investigate as a real bug, do not raise the cap.`,
+          `FAs=${countFreeAgents(working)}) — this bound is a DERIVED PROOF (§15.2), not a ` +
+          `tunable trigger; a breach means the derivation itself is wrong, which is a real bug ` +
+          `to investigate, not a number to raise.`,
         );
       }
       const team = working.teams[teamId]!;
