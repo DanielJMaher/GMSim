@@ -40,6 +40,13 @@ export interface GameResult {
    * the team box score top-down. Absent for legacy top-down games.
    */
   playerStats?: readonly PlayerGameStats[];
+  /**
+   * Roster Viability §4.1 (2026-08-05): teams that had NO available QB and
+   * started an emergency skill-position passer instead. Absent when both
+   * teams had a real QB (the overwhelming common case). Feeds the
+   * `emergency-qb-game` transaction log entry — see `season/lifecycle.ts`.
+   */
+  emergencyQb?: { home?: PlayerId; away?: PlayerId };
 }
 
 export interface TeamGameStats {

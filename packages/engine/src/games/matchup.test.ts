@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
-import { matchupFacets, applyAbilityBoosts, teamStrength } from './strength.js';
+import { matchupFacets, applyAbilityBoosts, teamStrength, EMERGENCY_QB_RATING, selectEmergencyPasser } from './strength.js';
 import { simulateGame } from './outcome.js';
 import { Prng } from '../prng/index.js';
 import { Position } from '../types/enums.js';
@@ -176,5 +176,67 @@ describe('matchup drives the box score (Stage 5 / sub-slice B)', () => {
     }
     // Comfortably above the league-average ~2.4 sacks/game.
     expect(sacks / n).toBeGreaterThan(3.2);
+  });
+});
+
+/** Drop every player at `position` from a team's active roster — simulates
+ *  "every QB is out" without needing to fake injury state. */
+function clearPosition(league: LeagueState, teamId: string, position: Position): LeagueState {
+  const team = league.teams[teamId as keyof typeof league.teams]!;
+  const rosterIds = team.rosterIds.filter((id) => league.players[id]?.position !== position);
+  return {
+    ...league,
+    teams: { ...league.teams, [teamId]: { ...team, rosterIds } },
+  } as LeagueState;
+}
+
+describe('qbPlay for a QB-less team (Roster Viability §4.0/§4.1)', () => {
+  it('rates qbPlay at EMERGENCY_QB_RATING, not the neutral 50 empty-group default', () => {
+    const league = createLeague({ seed: 'no-qb-facet' });
+    const teamId = Object.keys(league.teams)[0]!;
+    const noQbLeague = clearPosition(league, teamId, Position.QB);
+    const team = noQbLeague.teams[teamId as keyof typeof noQbLeague.teams]!;
+    expect(team.rosterIds.some((id) => noQbLeague.players[id]?.position === Position.QB)).toBe(false);
+
+    const facets = matchupFacets(team, noQbLeague);
+    expect(facets.qbPlay).toBe(EMERGENCY_QB_RATING);
+    // The regression this guards: before this fix, facet()'s empty-group
+    // fallback silently rated a QB-less team at 50 (neutral/average).
+    expect(facets.qbPlay).toBeLessThan(50);
+  });
+
+  it('is unaffected when a real QB is present (no behavior change on the common path)', () => {
+    const league = createLeague({ seed: 'has-qb-facet' });
+    const teamId = Object.keys(league.teams)[0]!;
+    const team = league.teams[teamId as keyof typeof league.teams]!;
+    const facets = matchupFacets(team, league);
+    expect(facets.qbPlay).not.toBe(EMERGENCY_QB_RATING);
+  });
+});
+
+describe('selectEmergencyPasser (Roster Viability §4.1)', () => {
+  it('picks only from WR/RB/TE — never a lineman or defender, regardless of stat rolls', () => {
+    const league = createLeague({ seed: 'emergency-pick' });
+    const teamId = Object.keys(league.teams)[0]!;
+    const team = league.teams[teamId as keyof typeof league.teams]!;
+    const players = team.rosterIds.map((id) => league.players[id]!);
+    const chosen = selectEmergencyPasser(players);
+    expect(chosen).not.toBeNull();
+    expect(['WR', 'RB', 'TE']).toContain(chosen!.position);
+  });
+
+  it('is deterministic — same roster picks the same player every call', () => {
+    const league = createLeague({ seed: 'emergency-det' });
+    const teamId = Object.keys(league.teams)[0]!;
+    const players = league.teams[teamId as keyof typeof league.teams]!.rosterIds.map(
+      (id) => league.players[id]!,
+    );
+    const a = selectEmergencyPasser(players);
+    const b = selectEmergencyPasser(players);
+    expect(a?.id).toBe(b?.id);
+  });
+
+  it('returns null when the roster has no WR/RB/TE candidate at all', () => {
+    expect(selectEmergencyPasser([])).toBeNull();
   });
 });

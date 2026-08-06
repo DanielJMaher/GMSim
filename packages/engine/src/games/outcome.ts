@@ -160,6 +160,14 @@ function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): Schedul
     injuries: rollInjuries(prng, homeTeam, awayTeam, league),
     variance: 'moderate',
     playerStats,
+    ...(sim.emergencyQb
+      ? {
+          emergencyQb: {
+            ...(sim.emergencyQb.home ? { home: sim.emergencyQb.home as PlayerGameStats['playerId'] } : {}),
+            ...(sim.emergencyQb.away ? { away: sim.emergencyQb.away as PlayerGameStats['playerId'] } : {}),
+          },
+        }
+      : {}),
   };
 
   return {

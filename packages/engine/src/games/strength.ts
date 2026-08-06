@@ -228,8 +228,13 @@ function facet(
 }
 
 const OL_POS = new Set([Position.LT, Position.LG, Position.C, Position.RG, Position.RT]);
-const QB_POS = new Set([Position.QB]);
+const QB_POS: ReadonlySet<Position> = new Set([Position.QB]);
 const RECV_POS = new Set([Position.WR, Position.TE, Position.RB]);
+/** Skill positions football would plausibly redeploy under center in an
+ *  emergency (Roster Viability §4.1) — deliberately narrower than "anyone
+ *  on the roster": a real team hands the ball to a WR/RB/TE, never a
+ *  lineman, regardless of that lineman's unrelated stat rolls. */
+const EMERGENCY_QB_CANDIDATE_POS: ReadonlySet<Position> = RECV_POS;
 const RUSH_POS = new Set([Position.RB, Position.FB]);
 const RUSHER_POS = new Set([Position.EDGE, Position.DT, Position.NT, Position.OLB]);
 const COVER_POS = new Set([Position.CB, Position.S, Position.NICKEL]);
@@ -253,6 +258,59 @@ const RUNDEF_KEYS: readonly (keyof PlayerSkills)[] = ['blockShedding', 'tackle',
 const POWER_MOVES: readonly (keyof PlayerSkills)[] = ['bullRush', 'longArm', 'pushPull'];
 const FINESSE_MOVES: readonly (keyof PlayerSkills)[] = ['swimMove', 'ripMove', 'spinRush', 'crossChop', 'ghostMove'];
 
+/**
+ * Roster Viability §4.1 (Opus, 2026-08-05) — the emergency passer.
+ *
+ * `availableRoster` (Injury Stage I) can leave a team with ZERO players at
+ * QB. Before this, `facet()`'s empty-group fallback silently rated that
+ * team's `qbPlay` at 50 — a fully NEUTRAL, average-starter value — so a
+ * team with no quarterback at all played at ordinary passing strength. Real
+ * football never fields a team with no one who can take a snap; a skill
+ * player goes in.
+ *
+ * `EMERGENCY_QB_RATING` is NOT derived from the emergency passer's own
+ * `QB_KEYS` mean — measured directly (`_s40_qbkeys_probe.mjs`,
+ * `_s40_qbfloor_probe.mjs`), those accuracy/throw-power fields are
+ * effectively unrolled noise for non-QBs: a random WR/RB/TE's `QB_KEYS`
+ * mean averages ~60-67 and tops out near 85-92 — HIGHER than the real QB
+ * population's own mean (45.8) and its single best player (88.2) in the
+ * same measurement. Selecting or scoring an emergency passer off that field
+ * would make a wide receiver read as an above-average NFL starter — the
+ * exact "impossible situation plays well" failure this slice exists to
+ * prevent, just reached from the facet side rather than the box-score side.
+ *
+ * The real QB population's measured floor was 15.5 (FRINGE tier, p10 27.6,
+ * median 42.8) — `EMERGENCY_QB_RATING` sits at that floor, a fixed
+ * league-calibrated constant, not a per-player computation. Selection
+ * (WHO plays emergency QB, for stat-attribution realism) and rating (HOW
+ * WELL the team performs) are deliberately decoupled: a skill player's
+ * general football sense is a defensible pick criterion for "who", but no
+ * combination of his real stats is a defensible measure of passing
+ * competence he was never trained for.
+ */
+export const EMERGENCY_QB_RATING = 15;
+
+/**
+ * Pick the emergency passer from `players` (already availability-filtered)
+ * when no real QB exists — the same selection feeds BOTH `buildTeamPersonnel`
+ * (stat-attribution target, `games/drive-sim.ts`) and `matchupFacets` (the
+ * qbPlay rating below), so the two never disagree on who's "playing QB".
+ * Ranked by football sense (footballIq + decisionMaking) — a defensible
+ * proxy for "makes the safest read under pressure" — NOT `QB_KEYS`, which
+ * measured as noise for non-QBs (see `EMERGENCY_QB_RATING`'s comment).
+ * Deterministic (no PRNG — invariant 2): stable sort, id tie-break.
+ */
+export function selectEmergencyPasser(players: readonly Player[]): Player | null {
+  const candidates = players.filter((p) => EMERGENCY_QB_CANDIDATE_POS.has(p.position));
+  if (candidates.length === 0) return null;
+  return candidates
+    .slice()
+    .sort((a, b) => {
+      const score = meanKeys(b, ['footballIq', 'decisionMaking']) - meanKeys(a, ['footballIq', 'decisionMaking']);
+      return score !== 0 ? score : a.id < b.id ? -1 : 1;
+    })[0]!;
+}
+
 /** A pass rusher is good if he has a winning move — power OR finesse — on
  * top of get-off/bend/hands; we don't require both. */
 function passRushScore(p: Player): number {
@@ -272,8 +330,14 @@ const mirrorScore = (p: Player) =>
 
 export function matchupFacets(team: TeamState, league: LeagueState): MatchupFacets {
   const players = availableRoster(team, league);
+  const hasRealQb = players.some((p) => QB_POS.has(p.position));
+  const qbPlay = hasRealQb
+    ? facet(players, QB_POS, (p) => meanKeys(p, QB_KEYS), 1)
+    : selectEmergencyPasser(players) !== null
+      ? EMERGENCY_QB_RATING
+      : 50; // no QB and no skill-position candidate either — outside this slice's scope
   return {
-    qbPlay: facet(players, QB_POS, (p) => meanKeys(p, QB_KEYS), 1),
+    qbPlay,
     passProtection: facet(players, OL_POS, (p) => meanKeys(p, PROTECT_KEYS), 5),
     receivingCorps: facet(players, RECV_POS, (p) => meanKeys(p, RECV_KEYS), 4),
     rushingCorps: facet(players, RUSH_POS, (p) => meanKeys(p, RUSHCORPS_KEYS), 2),

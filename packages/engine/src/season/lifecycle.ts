@@ -497,6 +497,34 @@ function applyRegularSeasonWeek(league: LeagueState): LeagueState {
         );
       }
     }
+
+    // Roster Viability §4.1: a team fielded no available QB and started an
+    // emergency skill-position passer. Log it — the §4.2 census reads this.
+    if (played.result?.emergencyQb) {
+      const eq = played.result.emergencyQb;
+      const entries: Transaction[] = [];
+      if (eq.home) {
+        entries.push({
+          kind: 'emergency-qb-game',
+          tick: currentTick,
+          seasonNumber: league.seasonNumber,
+          teamId: pendingGame.homeTeamId,
+          playerId: eq.home,
+          gameId: pendingGame.id,
+        });
+      }
+      if (eq.away) {
+        entries.push({
+          kind: 'emergency-qb-game',
+          tick: currentTick,
+          seasonNumber: league.seasonNumber,
+          teamId: pendingGame.awayTeamId,
+          playerId: eq.away,
+          gameId: pendingGame.id,
+        });
+      }
+      logDuringSeason = [...logDuringSeason, ...entries];
+    }
   }
 
   // We've played the full week — push it into the schedule.

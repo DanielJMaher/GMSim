@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/index.js';
-import { simulateGameDrives, simulateGameWithDrives, seasonForm, type PlayerStatLine } from './drive-sim.js';
+import {
+  simulateGameDrives,
+  simulateGameWithDrives,
+  seasonForm,
+  buildTeamPersonnel,
+  type PlayerStatLine,
+} from './drive-sim.js';
 import { matchupFacets } from './strength.js';
 import { simulateGame } from './outcome.js';
 import { deriveGamePlayerStats } from './stats.js';
@@ -133,5 +139,44 @@ describe('statEngine flag wiring', () => {
     const topGame = simulateGame(new Prng('g'), opts(legacy));
     expect(topGame.result?.playerStats).toBeUndefined();
     expect(deriveGamePlayerStats(topGame, legacy).length).toBeGreaterThan(0);
+  });
+});
+
+describe('buildTeamPersonnel — emergency passer (Roster Viability §4.1)', () => {
+  it('designates a non-null emergency passer when the roster has no QB', () => {
+    const league = createLeague({ seed: 'no-qb-personnel' });
+    const teamId = Object.keys(league.teams)[0]!;
+    const team = league.teams[teamId as keyof typeof league.teams]!;
+    const withQb = team.rosterIds.map((id) => league.players[id]!);
+    const noQb = withQb.filter((p) => p.position !== 'QB');
+    expect(noQb.some((p) => p.position === 'QB')).toBe(false); // sanity
+
+    const pers = buildTeamPersonnel(noQb);
+    // The regression this guards: before this fix, `qb` was `null` here,
+    // and drive-sim.ts credited a receiver's TARGET on every dropback while
+    // crediting NO passer an ATTEMPT — the exact box-score defect
+    // stats-coherence.test.ts caught (att=0, tgt=33, one real game).
+    expect(pers.qb).not.toBeNull();
+    expect(pers.emergencyQbId).not.toBeNull();
+    expect(pers.emergencyQbId).toBe(pers.qb);
+    expect(pers.qb2).toBeNull(); // no second option in the emergency case
+
+    const chosen = noQb.find((p) => p.id === pers.qb);
+    expect(chosen).toBeDefined();
+    expect(['WR', 'RB', 'TE']).toContain(chosen!.position);
+    // He must not also appear in his own receiver pool (can't target himself).
+    expect(pers.receivers.some((r) => r.id === pers.qb)).toBe(false);
+  });
+
+  it('leaves emergencyQbId null and behavior unchanged when a real QB is present', () => {
+    const league = createLeague({ seed: 'has-qb-personnel' });
+    const teamId = Object.keys(league.teams)[0]!;
+    const players = league.teams[teamId as keyof typeof league.teams]!.rosterIds.map(
+      (id) => league.players[id]!,
+    );
+    const pers = buildTeamPersonnel(players);
+    expect(pers.emergencyQbId).toBeNull();
+    const chosen = players.find((p) => p.id === pers.qb);
+    expect(chosen?.position).toBe('QB');
   });
 });

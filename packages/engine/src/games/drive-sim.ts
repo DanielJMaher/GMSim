@@ -1,6 +1,6 @@
 import { Prng } from '../prng/index.js';
 import type { MatchupFacets } from './strength.js';
-import { matchupFacets, availableRoster } from './strength.js';
+import { matchupFacets, availableRoster, selectEmergencyPasser } from './strength.js';
 import type { Player, PlayerSkills } from '../types/player.js';
 import type { TeamState } from '../types/team.js';
 import type { LeagueState } from '../types/league.js';
@@ -83,6 +83,13 @@ export interface DriveGameResult {
   driveLog: DriveOutcome[];
   /** Bottom-up per-player stat lines (only when run with personnel). */
   playerStats?: Map<string, PlayerStatLine>;
+  /**
+   * Roster Viability §4.1: teams that had no available QB and started an
+   * emergency passer instead. Empty when both teams had a real QB (the
+   * overwhelming common case). `{home,away}` are absent, not `null`, when
+   * that side didn't need one.
+   */
+  emergencyQb?: { home?: string; away?: string };
 }
 
 // ── Calibration constants (Magistrate 2015-2024 bar; see git history). ──
@@ -613,6 +620,13 @@ export interface TeamPersonnel {
   /** Backup QB — takes a small share of dropbacks (spot duty / garbage time)
    *  so the starter doesn't post 100% of a team's passing every season. */
   qb2: string | null;
+  /**
+   * Set to `qb`'s id when the team had NO available QB and `qb` is instead
+   * an emergency passer (Roster Viability §4.1, `selectEmergencyPasser` in
+   * `games/strength.ts`). `null` on every ordinary team. Lets callers log
+   * the event without re-deriving "was this an emergency" from the roster.
+   */
+  emergencyQbId: string | null;
   receivers: PRef[];
   rushers: PRef[];
   passRush: PRef[];
@@ -697,11 +711,18 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
   const qbs = players
     .filter((p) => p.position === Position.QB)
     .sort((a, b) => (QB_TIER_RANK[b.tier] ?? 0) - (QB_TIER_RANK[a.tier] ?? 0));
-  const qb = qbs[0];
+  // Roster Viability §4.1: no available QB at all — a real team still fields
+  // a passer (an emergency skill player), it doesn't forfeit. `qb2` stays
+  // null; there is no second option in this situation.
+  const emergency = qbs.length === 0 ? selectEmergencyPasser(players) : null;
+  const qb = qbs[0] ?? emergency ?? undefined;
   const qb2 = qbs[1];
 
   const receivers: PRef[] = players
     .filter((p) => p.position === Position.WR || p.position === Position.TE || p.position === Position.RB)
+    // An emergency passer (Roster Viability §4.1) is drawn from this same
+    // WR/TE/RB pool — exclude him here so he's never his own target.
+    .filter((p) => p.id !== emergency?.id)
     .map((p) => ({ id: p.id, weight: recvSteep(meanKeys(p, RECV_KEYS)) * (RECV_POS_FACTOR[p.position] ?? 0.3) }))
     .filter((r) => r.weight > 0)
     .sort((a, b) => b.weight - a.weight)
@@ -787,6 +808,7 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
   return {
     qb: qb?.id ?? null,
     qb2: qb2?.id ?? null,
+    emergencyQbId: emergency?.id ?? null,
     receivers,
     rushers,
     passRush,
@@ -1352,11 +1374,22 @@ export function simulateGameWithDrives(
   const awayPers = buildTeamPersonnel(playersOf(awayTeam));
   homeCtx.kickerRating = homePers.kickerRating;
   awayCtx.kickerRating = awayPers.kickerRating;
-  return runGame(
+  const result = runGame(
     prng,
     { ctx: homeCtx, pers: homePers },
     { ctx: awayCtx, pers: awayPers },
     new Map<string, PlayerStatLine>(),
     { resolveTie: true },
   );
+  // Roster Viability §4.1: attach after `runGame` rather than inside it —
+  // `runGame` is shared with the facet-only `simulateGameDrives` path
+  // (`pers: null`, no personnel at all), so emergency-QB detection stays
+  // here where real personnel is guaranteed in scope.
+  if (homePers.emergencyQbId || awayPers.emergencyQbId) {
+    result.emergencyQb = {
+      ...(homePers.emergencyQbId ? { home: homePers.emergencyQbId } : {}),
+      ...(awayPers.emergencyQbId ? { away: awayPers.emergencyQbId } : {}),
+    };
+  }
+  return result;
 }

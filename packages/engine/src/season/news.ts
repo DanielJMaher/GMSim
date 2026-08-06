@@ -136,6 +136,7 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
     case 'mood-shift':
     case 'roster-floor-violation':
     case 'contract-id-collision':
+    case 'emergency-qb-game':
       // Intentionally not surfaced. IR moves and PS promotions happen
       // weekly across the league — routine roster bookkeeping rather
       // than news. Contract expirations are a calendar event, not a
@@ -145,7 +146,11 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       // roster-floor-violation is a loud INTERNAL alarm (design §2.4) —
       // it fails the invariant tests, not the news feed. Same posture
       // for contract-id-collision (Roster Floor §14 Fix 2): a self-healed
-      // engine-internal repair, not a player-facing beat.
+      // engine-internal repair, not a player-facing beat. emergency-qb-game
+      // (Roster Viability §4.1) IS plausibly narrative-worthy ("Team X
+      // forced to start an emergency QB") but that's a deliberate future
+      // News surfacing pass, not part of this slice's spec — logging the
+      // event is; do not invent the headline now.
       return null;
   }
 }

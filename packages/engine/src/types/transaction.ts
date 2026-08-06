@@ -1,4 +1,4 @@
-import type { PlayerId, TeamId, ContractId, CoachId, GmId, OwnerId, DraftPickId } from './ids.js';
+import type { PlayerId, TeamId, ContractId, CoachId, GmId, OwnerId, DraftPickId, GameId } from './ids.js';
 import type { TalentTier } from './player.js';
 import type { LeaguePhase } from './league.js';
 import type { WatchListReason } from './scout.js';
@@ -78,7 +78,8 @@ export type Transaction =
   | TransactionGmHired
   | TransactionHcInterim
   | TransactionRosterFloorViolation
-  | TransactionContractIdCollision;
+  | TransactionContractIdCollision
+  | TransactionEmergencyQbGame;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -578,6 +579,25 @@ export interface TransactionContractIdCollision extends TransactionBase {
   attemptedId: ContractId;
   /** The deterministically uniquified id actually used. */
   resolvedId: ContractId;
+}
+
+/**
+ * A team took the field with NO available quarterback and started an
+ * emergency skill-position passer instead (Roster Viability §4.1,
+ * `ROSTER_VIABILITY.md`, `selectEmergencyPasser` in `games/strength.ts`).
+ * Real football never fields a team unable to throw a pass; this is the
+ * loud, greppable record of the condition — house precedent
+ * `roster-floor-violation` / `contract-id-collision`. The §4.2 census reads
+ * this log to measure how often it fires and whether it concentrates on
+ * cap-distressed teams (P2, the falsifiable test of the doc's own thesis).
+ */
+export interface TransactionEmergencyQbGame extends TransactionBase {
+  kind: 'emergency-qb-game';
+  teamId: TeamId;
+  playerId: PlayerId;
+  /** True home team in the game this fired in — lets the census join back
+   *  to the schedule without re-deriving home/away from the game id. */
+  gameId: GameId;
 }
 
 export type LockerRoomIncidentFlavor =
