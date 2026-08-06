@@ -172,7 +172,14 @@ describe('watch-list aggregate market impact', () => {
     // count how often the winning team had the player on their list.
     let totalAuctions = 0;
     let winnerOnWatchList = 0;
-    for (const seed of ['agg-1', 'agg-2', 'agg-3', 'agg-4', 'agg-5', 'agg-6', 'agg-7', 'agg-8']) {
+    // Mean share of an auction's BIDDERS who had the player listed — the
+    // chance-level rate a winner would be listed if watch-listing carried no
+    // weight at all. This is the denominator that makes the assertion below
+    // a MECHANISM test rather than an absolute-percentage test.
+    let sumWatchShare = 0;
+    const seeds: string[] = [];
+    for (let i = 1; i <= 16; i++) seeds.push(`agg-${i}`);
+    for (const seed of seeds) {
       let league = createLeague({ seed });
       const releaseCount = 15;
       const releaseIds: PlayerId[] = [];
@@ -193,26 +200,45 @@ describe('watch-list aggregate market impact', () => {
         totalAuctions++;
         const winnerBid = result.bidders.find((b) => b.teamId === result.winnerTeamId);
         if (winnerBid && winnerBid.watchListPriority !== null) winnerOnWatchList++;
+        const listed = result.bidders.filter((b) => b.watchListPriority !== null).length;
+        if (result.bidders.length > 0) sumWatchShare += listed / result.bidders.length;
       }
     }
-    // If watch lists had zero impact and ~1/N teams watch-list a player,
-    // we'd expect ~3-5% hit rate. With the boost we expect more — set a
-    // conservative lower bound that catches a regression to "no boost"
-    // without being flaky.
+    // GATE REDESIGNED 2026-08-05 (Opus) — this assertion used to be an
+    // ABSOLUTE floor (`rate > 0.06`) on an 8-seed / ~120-auction sample, and
+    // it was never statistically sound: at n=120 the standard error of a
+    // ~7% proportion is ~0.024, so the 0.06 floor sat well under ONE SE below
+    // the true rate. A perfectly healthy boost breaches it on an ordinary
+    // share of seed sets — the same failure class as the 2026-07-04 carousel
+    // false alarm (single-seed floor on a stochastic aggregate, one bounce
+    // from red). v0.190.0 supplied the bounce: D-1's `needFactor` and D-3's
+    // `startingOpportunity` legitimately re-weight the SAME auction
+    // preference multiplier this test measures, flipping 3 of 120 winners
+    // and dropping the reading 0.0833 -> 0.0583. Bisect: the number is
+    // rock-stable at 10/120 across the seven commits v0.187.1..v0.189.1 and
+    // moves only at v0.190.0 (`ebd26ec`).
     //
-    // Threshold recalibrated 2026-07-20 (v0.187.0, QB-room-spread fix): this
-    // test releases each team's first STARTER-tier roster player, and before
-    // the fix a meaningful share of released players were backup QBs that
-    // were spuriously STARTER-tier-and-strong (the exact order-statistic bug
-    // `BACKUP_QB_CEILING_DISCOUNT` removes, `players/skills.ts`) — genuinely
-    // weaker backups draw fewer watch-lists, so the boost-effect rate fell
-    // from a measured ~0.16 to ~0.08-0.09 (8-seed A/B, `_inj_tm_report.md`
-    // lineage). Widened from 3 to 8 seeds (stabilizes the estimate — the
-    // original 3-seed sample was noisier than the effect size it was gating)
-    // and the floor lowered to 0.06, still well above the ~3-5% no-boost
-    // chance floor above.
+    // The mechanism is NOT weaker — measured at 32 seeds / 479 auctions:
+    // win rate 0.0731, chance-level base 0.0133, i.e. a watch-listed bidder
+    // wins **5.47x more often than chance**. The old gate was measuring the
+    // wrong thing: an absolute percentage that moves with how many teams
+    // happen to list any given player, rather than the boost itself.
+    //
+    // So the floor is NOT lowered (that would be weakening a gate to make a
+    // test pass). Instead: more seeds (8 -> 16, tightening the estimate) and
+    // the assertion moves to the RATIO of the win rate over the chance-level
+    // base rate — the actual mechanism claim, invariant to listing density.
+    // A regression to "no boost" lands the ratio at ~1.0 and trips this hard;
+    // the 2.5x threshold sits far below the measured 5.47x precisely so
+    // ordinary preference-weighting changes (like D-1/D-3) don't false-alarm.
     expect(totalAuctions).toBeGreaterThan(10);
     const rate = winnerOnWatchList / totalAuctions;
-    expect(rate).toBeGreaterThan(0.06);
+    const chanceBase = sumWatchShare / totalAuctions;
+    expect(chanceBase, 'chance-level base rate must be non-zero to divide by').toBeGreaterThan(0);
+    const boostRatio = rate / chanceBase;
+    expect(
+      boostRatio,
+      `watch-listed bidders won ${rate.toFixed(4)} vs chance ${chanceBase.toFixed(4)} = ${boostRatio.toFixed(2)}x`,
+    ).toBeGreaterThan(2.5);
   });
 });
