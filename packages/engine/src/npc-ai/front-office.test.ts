@@ -22,8 +22,11 @@ import {
   LAME_DUCK_FLOOR,
   SECOND_HIRE_JOINT_P,
   SECOND_HIRE_HATCH_JOINT_P,
+  startCareerStint,
   type SeasonOutcome,
 } from './front-office.js';
+import type { CareerStint } from '../types/personnel.js';
+import { TeamId } from '../types/ids.js';
 
 const league = createLeague({ seed: 'front-office-test' });
 const anyTeam = Object.values(league.teams)[0]!;
@@ -419,5 +422,54 @@ describe('migration backfill', () => {
       expect(hc.status).toBe('EMPLOYED');
       expect(hc.careerStints).toEqual([]);
     }
+  });
+});
+
+describe('startCareerStint (Roster Viability Appendix A)', () => {
+  // Regression for the real defect: before this, a coordinator's FIRST
+  // stint for a seat was only ever created lazily at season finalize
+  // (`runCoordinatorSeasonPass`). A coordinator poached to HC before ever
+  // reaching that fold point carried an EMPTY `careerStints` into
+  // `coordinatorToHeadCoach`, so his HC record showed no OC/DC history at
+  // all (observed: `HC_SEA_S3 stintRoles ["HC"]` instead of `["OC","HC"]`).
+
+  it('opens a fresh stint immediately — no season-fold required', () => {
+    const stints = startCareerStint([], TeamId('SEA'), 'OC', 3);
+    expect(stints.length).toBe(1);
+    const s = stints[0] as CareerStint;
+    expect(s.teamId).toBe('SEA');
+    expect(s.role).toBe('OC');
+    expect(s.fromSeason).toBe(3);
+    expect(s.toSeason).toBeNull();
+    expect(s.wins).toBe(0);
+    expect(s.losses).toBe(0);
+  });
+
+  it('is idempotent — a second call with an already-open stint for the same team+role is a no-op', () => {
+    const first = startCareerStint([], TeamId('SEA'), 'OC', 3);
+    const second = startCareerStint(first, TeamId('SEA'), 'OC', 3);
+    expect(second).toEqual(first);
+    expect(second.length).toBe(1);
+  });
+
+  it('does not touch a DIFFERENT team/role — a coordinator can hold one open OC stint and one open DC stint simultaneously only if both were opened', () => {
+    const ocOnly = startCareerStint([], TeamId('SEA'), 'OC', 3);
+    const both = startCareerStint(ocOnly, TeamId('SF'), 'OC', 3);
+    expect(both.length).toBe(2);
+    expect(both.some((s) => s.teamId === 'SEA')).toBe(true);
+    expect(both.some((s) => s.teamId === 'SF')).toBe(true);
+  });
+
+  it('a coordinator poached to HC the SAME season he was backfilled-in carries his OC/DC stint (the exact production bug, reproduced directly)', () => {
+    // Simulates the failure chain without a multi-season sim: a coordinator
+    // is seated (stint opened) then immediately converted to HC — this is
+    // what `coordinatorToHeadCoach` receives as `coordinator.careerStints`.
+    const seatedStints = startCareerStint([], TeamId('SEA'), 'DC', 3);
+    // The conversion path (npc-ai/front-office.ts) closes the coordinator
+    // stint and hands `careerStints` straight to `coordinatorToHeadCoach`,
+    // which copies it verbatim onto the new HeadCoach — so the OPEN (or
+    // just-closed) stint's role must be present.
+    expect(seatedStints.some((s) => s.role === 'DC')).toBe(true);
+    // Before this fix, `seatedStints` here would have been `[]`.
   });
 });

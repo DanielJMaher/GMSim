@@ -19,6 +19,7 @@ import type {
   TeamPersonality,
 } from '../types/personnel.js';
 import { generateCoordinator } from '../personnel/coordinator.js';
+import { startCareerStint } from '../npc-ai/front-office.js';
 import type { Scout } from '../types/scout.js';
 import type { Player } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
@@ -181,9 +182,20 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     }
     collegeScoutsByTeam[identity.id] = teamCollegeScouts;
 
-    // S4 (v0.140): the founding coordinator staff.
-    const oc = generateCoordinator(teamPrng.fork('oc'), identity.abbreviation, 'OC');
-    const dc = generateCoordinator(teamPrng.fork('dc'), identity.abbreviation, 'DC');
+    // S4 (v0.140): the founding coordinator staff. Roster Viability Appendix
+    // A: open their stint at birth (season 1) — without this a founding
+    // coordinator poached to HC before season 1's finalize carried no OC/DC
+    // history (the same latent defect `fillCoordinatorSeat` had).
+    const ocGen = generateCoordinator(teamPrng.fork('oc'), identity.abbreviation, 'OC');
+    const dcGen = generateCoordinator(teamPrng.fork('dc'), identity.abbreviation, 'DC');
+    const oc: Coordinator = {
+      ...ocGen,
+      careerStints: startCareerStint(ocGen.careerStints, identity.id, 'OC', 1),
+    };
+    const dc: Coordinator = {
+      ...dcGen,
+      careerStints: startCareerStint(dcGen.careerStints, identity.id, 'DC', 1),
+    };
     coordinators[oc.id] = oc;
     coordinators[dc.id] = dc;
 

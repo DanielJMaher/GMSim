@@ -527,6 +527,49 @@ function isOpenStintFor(stint: CareerStint, teamId: TeamId, role: CareerStint['r
   return stint.toSeason === null && stint.teamId === teamId && stint.role === role;
 }
 
+/** A brand-new, zero-accumulated stint — the shape both `accumulateStint`'s
+ *  lazy-create branch and `startCareerStint` (below) need. */
+function freshStint(teamId: TeamId, role: CareerStint['role'], fromSeason: number): CareerStint {
+  return {
+    teamId,
+    role,
+    fromSeason,
+    toSeason: null,
+    wins: 0,
+    losses: 0,
+    ties: 0,
+    playoffAppearances: 0,
+    championships: 0,
+    end: null,
+  };
+}
+
+/**
+ * Open a fresh career stint for `teamId`/`role` AT SEAT-TAKING (hiring,
+ * backfill, league genesis) — idempotent, a no-op if one's already open.
+ *
+ * Fixes a latent defect (Roster Viability Appendix A, triage 1.1,
+ * `ROSTER_VIABILITY.md`): before this, a person's FIRST stint for a seat
+ * was only ever created lazily by `accumulateStint` at season finalize
+ * (`runCoordinatorSeasonPass`). A coordinator poached to HC before ever
+ * reaching that fold point — backfilled mid-carousel, then poached the
+ * SAME offseason — carried an EMPTY `careerStints` into
+ * `coordinatorToHeadCoach`, so his HC record showed no OC/DC history at all
+ * (`stintRoles: ["HC"]` instead of `["OC","HC"]`/`["DC","HC"]`).
+ * Bisect-confirmed LATENT, not introduced by any one version — v0.187.1's 9
+ * coordinator hires and v0.189.0's 7 simply never produced that exact
+ * sequence; v0.190.0's 5 did.
+ */
+export function startCareerStint(
+  stints: readonly CareerStint[],
+  teamId: TeamId,
+  role: CareerStint['role'],
+  season: number,
+): readonly CareerStint[] {
+  if (stints.some((s) => isOpenStintFor(s, teamId, role))) return stints;
+  return [...stints, freshStint(teamId, role, season)];
+}
+
 /**
  * Fold this season's result onto the person's open stint for this team,
  * creating the stint lazily (self-heals migrated saves where stints
@@ -540,21 +583,7 @@ function accumulateStint(
   outcome: SeasonOutcome,
 ): readonly CareerStint[] {
   const idx = stints.findIndex((s) => isOpenStintFor(s, teamId, role));
-  const base: CareerStint =
-    idx >= 0
-      ? stints[idx]!
-      : {
-          teamId,
-          role,
-          fromSeason: hiredSeason,
-          toSeason: null,
-          wins: 0,
-          losses: 0,
-          ties: 0,
-          playoffAppearances: 0,
-          championships: 0,
-          end: null,
-        };
+  const base: CareerStint = idx >= 0 ? stints[idx]! : freshStint(teamId, role, hiredSeason);
   const updated: CareerStint = {
     ...base,
     wins: base.wins + outcome.wins,
@@ -1279,6 +1308,7 @@ function fillCoordinatorSeat(
   side: Coordinator['side'],
   idSeed: string,
   currentSeason: number,
+  teamId: TeamId,
 ): Coordinator {
   const pool = Object.values(coordinators).filter((c) => {
     if (c.status !== 'UNEMPLOYED' || c.side !== side) return false;
@@ -1287,11 +1317,23 @@ function fillCoordinatorSeat(
       .sort((a, b) => (b.toSeason ?? 0) - (a.toSeason ?? 0))[0];
     return last ? currentSeason - (last.toSeason ?? 0) <= RETREAD_RECENCY : false;
   });
+  // Appendix A: open the stint HERE, at seat-taking, for BOTH branches — a
+  // retread reactivating at a NEW team needs a fresh stint just as much as
+  // a freshly generated coordinator does; his existing stints are for
+  // whichever team(s) he held before, all already closed.
   if (pool.length > 0 && prng.next() < COORDINATOR_RETREAD_P) {
     const pick = prng.weighted(pool.map((c) => ({ value: c, weight: Math.max(0.2, c.stock) })));
-    return { ...pick, status: 'EMPLOYED' };
+    return {
+      ...pick,
+      status: 'EMPLOYED',
+      careerStints: startCareerStint(pick.careerStints, teamId, side, currentSeason),
+    };
   }
-  return generateCoordinator(prng.fork('gen'), idSeed, side);
+  const generated = generateCoordinator(prng.fork('gen'), idSeed, side);
+  return {
+    ...generated,
+    careerStints: startCareerStint(generated.careerStints, teamId, side, currentSeason),
+  };
 }
 
 /**
@@ -1426,6 +1468,7 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
                   pick.side,
                   `${t.identity.abbreviation}_S${hiredSeason}`,
                   league.seasonNumber,
+                  t.identity.id,
                 );
                 coordinators[backfill.id] = backfill;
                 teams[t.identity.id] =
@@ -1496,6 +1539,7 @@ export function runHiringWindow(league: LeagueState, prng: Prng): LeagueState {
           side,
           `${team.identity.abbreviation}_S${hiredSeason}${side}`,
           league.seasonNumber,
+          teamId,
         );
         coordinators[replacement.id] = replacement;
         nextTeam =
