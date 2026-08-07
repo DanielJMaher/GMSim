@@ -3728,6 +3728,8 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'gm-hired':
     case 'hc-interim':
     case 'roster-floor-violation':
+    case 'contract-id-collision':
+    case 'emergency-qb-game':
       return [entry.teamId];
   }
 }
@@ -3750,6 +3752,8 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'cap-cut':
     case 'mood-shift':
     case 'trade-request':
+    case 'contract-id-collision':
+    case 'emergency-qb-game':
       return [entry.playerId];
     case 'hc-fired':
     case 'gm-fired':
@@ -4176,6 +4180,8 @@ function kindColor(kind: Transaction['kind']): string {
     case 'hc-interim':
       return 'text-amber-400';
     case 'roster-floor-violation':
+    case 'contract-id-collision':
+    case 'emergency-qb-game':
       return 'text-red-500';
   }
 }
@@ -4230,6 +4236,10 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${teamLabel(entry.teamId)} named ${league.coaches[entry.coachId]?.name ?? entry.coachId} interim HC (week ${entry.weekIndex + 1})`;
     case 'roster-floor-violation':
       return `⚠ ${teamLabel(entry.teamId)} ROSTER FLOOR VIOLATION · ${entry.rosterSize}/53, unmet $${(entry.unmetNeed / 1e6).toFixed(1)}M`;
+    case 'contract-id-collision':
+      return `⚠ ${teamLabel(entry.teamId)} CONTRACT ID COLLISION · ${playerLabel(entry.playerId)} · ${entry.attemptedId} → ${entry.resolvedId} (uniquified)`;
+    case 'emergency-qb-game':
+      return `⚠ ${teamLabel(entry.teamId)} fielded ${playerLabel(entry.playerId)} as EMERGENCY QB (no available passer)`;
   }
 }
 
