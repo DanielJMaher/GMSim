@@ -12,6 +12,101 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.191.0] — 2026-08-07
+
+### Fixed
+
+- **Roster Floor contract-id collision — a mid-season crash that could orphan
+  a player's contract and corrupt a league during genesis itself** (design of
+  record `docs/design-docs/ROSTER_FLOOR.md` §14, Daniel-ruled 2026-08-05: fix
+  class-wide, log-and-continue). `enforceRosterFloor` minted floor contract
+  ids keyed on `seasonNumber` with a counter local to each call — a team
+  engaged twice in one season (a second thin-body wave a few weeks later)
+  could regenerate an id the first engagement already used, aliasing two
+  players' contracts; deleting one on cut/release then orphaned the other
+  (`releasePlayer: contract ... missing`). **Fix 1**: rekey ids on
+  `signedOnTick` instead of `seasonNumber` (unique per call by construction).
+  **Fix 2**: a class-wide mint-time uniqueness guard (`contracts/mint.ts`,
+  wired at all ten real contract-insertion sites) as defense in depth —
+  deterministically uniquifies any surviving collision and logs a new
+  `contract-id-collision` transaction rather than crashing. Reproduced seed
+  (`qcensus-1`, team PHI season 4, 129 floor ops → 75 ids pre-fix, 0
+  collisions post-fix across the same 129 ops → 167 ids) and a fresh 10-seed
+  probe (0/10 crashes) both green.
+- **Roster Floor iteration bound — a mis-derived termination proof that
+  could abort a simulation mid-season, on vanilla main, with no T2a
+  involvement** (`ROSTER_FLOOR.md` §15, Opus-designed 2026-08-06, "Fix 5").
+  `enforceRosterFloor`'s ladder bounded its iteration budget at
+  `4 * currentRosterSize + 20` — but the ladder's actual work scales with
+  the *deficit* (53 − roster), which moves in the opposite direction: a team
+  43 bodies short was granted 60 iterations for 43 signings plus every
+  interleaved restructure/cut. Corrected to a derived bound
+  (`ROSTER_FLOOR_SIZE + 2*maxCuts + 10`) that accounts for signs,
+  restructures, and cuts together. Found via a real Goatinator crash (seed
+  `goat-15`, team CHI, tick 109); confirmed the corrected bound lets that
+  exact engagement finish (259 iterations, under the derived 311-iteration
+  ceiling) while still logging a loud `roster-floor-violation` rather than
+  silently succeeding — the underlying distress stays visible, only the
+  spurious abort goes away. Also confirmed to independently clear an
+  unrelated T2a-triggered instance of the same crash class (team TEN),
+  though T2a itself remains unshipped.
+- **Watch-list bidder boost gate — replaced an absolute floor with a
+  chance-normalized ratio** (`transactions/fa-bidding-watch-list.test.ts`).
+  The prior gate (win rate > 6%) sat under one standard error of its own
+  measured value at n=120 and tripped on an ordinary seed set after Talent
+  Allocation's D-1/D-3 legitimately reweighted the same auction preference
+  multiplier. Widened to 16 seeds and reasserted as a boost ratio (win rate
+  ÷ chance-level base rate > 2.5×, invariant to how many teams happen to
+  list any given player) — measured 5.47× at 32 seeds.
+- **Front-office coordinator career stints — a promoted coordinator could
+  lose his OC/DC history** (`npc-ai/front-office.ts`). Coordinators started
+  with an empty `careerStints` array that only ever filled in at season
+  finalize; a coordinator seated mid-carousel and poached to HC before
+  reaching that fold point carried no stint record into the promotion.
+  Latent since coordinator generation, exposed by an unrelated Talent
+  Allocation reshuffle. Fixed by opening a stint the moment a coordinator
+  takes a seat (`startCareerStint`, both the backfill and league-genesis
+  paths) rather than waiting for season-end accounting.
+- **`mood-long-horizon.test.ts`'s HC-dispersion gate — dropped a fragile
+  per-seed direction check that a legitimate change could trip by chance.**
+  Full-suite push-gate run found the per-seed `topMean > bottomMean`
+  assertion failing on one of three seeds (-0.064, bisected to Roster
+  Viability's emergency-QB fielding rippling into long-horizon game
+  outcomes). Quantified rather than assumed: team-mood stdev within a
+  league snapshot is ~1.7–1.85, so the SEM on an 8-team quartile's
+  dispersion is ~0.9 — the failing seed's -0.064 is 0.035 standard
+  deviations from zero (statistically a null result, not a reversal), while
+  its two sibling seeds in the same run measured +2.05 SD and +0.76 SD.
+  The test's own seed-averaged gate (`avgDispersion > 0.3`, its comment's
+  "robust floor") passed at 1.09 throughout. Same shape as the watch-list
+  gate above: dropped the zero-tolerance per-seed check, kept the
+  saturation bounds, rely on the seed-averaged floor the test already
+  computes and already calls the real contract.
+
+### Added
+
+- **Roster Viability Slice 1 — a team can no longer field zero quarterbacks
+  without the engine noticing** (design of record
+  `docs/design-docs/ROSTER_VIABILITY.md`, Opus 2026-08-05). `INV-FLOOR`
+  guaranteed a team reached 53 bodies and stayed cap-compliant, but never
+  that those bodies could play football — a team with every rostered QB
+  hurt or cut simulated a game with `qb: null`, silently unable to complete
+  a pass. `buildTeamPersonnel` now designates a deterministic emergency
+  passer (best remaining skill player by football IQ + decision-making)
+  when no real QB is available, rated at a fixed floor
+  (`EMERGENCY_QB_RATING`) deliberately decoupled from the passer's own
+  passing-adjacent stats — measured directly that ranking candidates by
+  their own throwing stats would have rated an emergency WR as an
+  above-average NFL starter passer. Logged via a new `emergency-qb-game`
+  transaction so the condition is auditable rather than masked. Census (10
+  seeds × 10 seasons, 54,400 team-games): void rate 0.21%, inside the
+  pre-registered 0.1–0.5% band. The design doc's own falsifiable test (are
+  voids concentrated on cap-distressed teams?) came back negative — void
+  team-seasons and roster-floor-distressed team-seasons never co-occurred
+  in this sample — so the two symptom families are independent, not one
+  disease as originally hypothesized; recorded plainly rather than
+  rationalized.
+
 ## [0.190.0] — 2026-08-04
 
 ### Added
