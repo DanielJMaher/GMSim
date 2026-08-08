@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
-import { runProactiveTrades } from './proactive-trades.js';
+import { runProactiveTrades, releaseSurplusStarters } from './proactive-trades.js';
 import { simulateSeason } from '../season/runner.js';
 import { advanceSeason } from '../season/advance.js';
 import { tickPhase } from '../season/lifecycle.js';
@@ -11,6 +11,7 @@ import {
   evaluateTradePackage,
 } from '../trade/value.js';
 import type { DraftPickAsset } from '../types/college.js';
+import { QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
 import { Prng } from '../prng/index.js';
 import { CompetitiveWindow, Position } from '../types/enums.js';
 import { teamCapUsage } from '../contracts/cap.js';
@@ -919,5 +920,63 @@ describe.skip('instrument: per-week trade volume (v0.58 deadline calibration)', 
       console.log(`  ${gate.padEnd(20)}: ${count}`);
     }
     expect(true).toBe(true);
+  });
+});
+
+describe('releaseSurplusStarters — target-0 exemption (FA_ECONOMY_FIX.md Fix A)', () => {
+  it('retains target-0 starters (FB/NT/P/LS) while still releasing genuine target>=1 surplus', () => {
+    // FA_ECONOMY_FIX.md §5: four positions (FB, NT, P, LS) carry
+    // QUALITY_DEPTH_TARGET 0 -- exempt from D-2's quality-depth management
+    // (the tier model doesn't meaningfully rank specialists), not "the team
+    // should carry zero." Before Fix A, surplusCount = players.length - 0 =
+    // players.length at those positions, so EVERY STAR/STARTER there got
+    // released, unconditionally, every offseason. This test asserts both
+    // halves of §5.1: target-0 starters are retained, AND a genuine
+    // target>=1 surplus is still shed -- the second half is what stops a
+    // future "fix" from quietly neutering D-2 entirely.
+    const base = createLeague({ seed: 'proactive-target0' });
+    const teamIds = Object.keys(base.teams) as TeamId[];
+    const teamId = teamIds[0]!;
+    let league = base;
+    const team = league.teams[teamId]!;
+
+    const findAll = (pos: Position) =>
+      team.rosterIds
+        .map((id) => league.players[id])
+        .filter((p): p is Player => Boolean(p) && p.position === pos && p.contractId !== null);
+
+    const fb = findAll(Position.FB)[0];
+    const nt = findAll(Position.NT)[0];
+    const punter = findAll(Position.P)[0];
+    const ls = findAll(Position.LS)[0];
+    const qbs = findAll(Position.QB);
+    if (!fb || !nt || !punter || !ls || qbs.length < 2) return; // seed-specific skip
+    // The genuine-surplus half of this test depends on QB's real target.
+    expect(QUALITY_DEPTH_TARGET[Position.QB]).toBe(1);
+
+    const target0 = [fb, nt, punter, ls];
+    const qbSurplus = qbs.slice(0, 2);
+
+    const playersNext = { ...league.players };
+    for (const p of [...target0, ...qbSurplus]) {
+      playersNext[p.id] = { ...p, tier: 'STAR' };
+    }
+    league = { ...league, players: playersNext as LeagueState['players'] };
+
+    const after = releaseSurplusStarters(league);
+    const afterRoster = after.teams[teamId]!.rosterIds;
+
+    for (const p of target0) {
+      expect(
+        afterRoster.includes(p.id),
+        `${p.position} ${p.id} carries target 0 and must be retained, not treated as surplus`,
+      ).toBe(true);
+    }
+
+    const survivingQbs = qbSurplus.filter((p) => afterRoster.includes(p.id)).length;
+    expect(
+      survivingQbs,
+      'genuine surplus (2 STAR QBs vs target 1) must still shed exactly one',
+    ).toBe(1);
   });
 });

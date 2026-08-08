@@ -12,6 +12,72 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Fixed
+
+- **FA economy — `releaseSurplusStarters` releasing every starter-calibre
+  FB/NT/P/LS in the league every offseason, a live regression already shipped
+  in v0.190.0 and v0.191.0** (design of record
+  `docs/design-docs/FA_ECONOMY_FIX.md`, Opus-designed 2026-08-07, "Fix A").
+  Four positions (FB, NT, P, LS) carry `QUALITY_DEPTH_TARGET` 0 — deliberately
+  exempt from D-1/D-3's quality-depth *acquisition* machinery, since the tier
+  model doesn't meaningfully rank specialists. D-2's `releaseSurplusStarters`
+  (v0.190.0) read that same acquisition-appetite number as a *retention
+  floor* instead: at target 0, `surplusCount = players.length - 0 =
+  players.length`, so the entire starter-calibre group at those four
+  positions was "surplus" and got released, unconditionally, every
+  offseason. Measured before the fix (`_fix4_target0_probe.mjs`, 3 seeds ×
+  32 teams, one direct call after 2 seasons): NT 41→0, P 34→0, FB 37→0,
+  LS 38→0; $803.6M of dead money (41.7% of $1,927.1M total), NT alone
+  $483.1M because it's the only target-0 position carrying real salary
+  (`POSITION_SALARY_FACTOR` 1.06 vs FB 0.17 / P 0.20 / LS 0.10). Fix: a
+  single guard, `if (target <= 0) continue;`, inserted before `surplusCount`
+  is computed — exemption, not a retention number of its own (raising NT's
+  target would re-enter it into acquisition machinery it was deliberately
+  excluded from). Four predictions, pre-registered before the fix landed:
+  - **P1** (target-0 retained, target≥1 unchanged): confirmed. Post-fix,
+    FB/NT/P/LS before/after are identical (36→36, 41→41, 41→41, 34→34) —
+    zero released. The target≥1 code path is untouched by the diff (the
+    guard is a pure early-`continue` inserted before it) and is directly
+    exercised by the new regression test (2 STAR QBs vs target 1 → exactly
+    1 released, the unchanged pre-fix formula).
+  - **P2** (~40-45% total dead-money drop): partially confirmed. The
+    target-0 *share* went to exactly $0.0M of $1,332.3M (0.0%, was 41.7%) —
+    full elimination of the diagnosed mechanism. The *total* drop undershot
+    the estimate at 30.9% ($1,927.1M → $1,332.3M) because QB dead money
+    roughly doubled in the same comparison ($162.4M → $317.0M) — a knock-on
+    effect of Fix A changing league trajectory from season 1's offseason
+    onward (target-0 positions no longer disrupted), not evidence the
+    diagnosis was wrong.
+  - **P3** (`_NT_0` hot-potato signature disappears, total ≥$50M events
+    drop materially from 180): confirmed, exceeded. Re-running
+    `_fix4_bigcut_census.mjs` (15 seeds × 10 seasons): 56 events (was 180,
+    a 68.9% drop), zero of which carry an `_NT_0` id (was 75/180, 41.7%). A
+    new pattern is visible in the post-fix data — several exact-dollar
+    repeats among draft-prospect-derived (`CP_*`) releases across many
+    seeds (e.g. $88.5M ×4, $77.0M ×4) — flagged as a possible new lead, not
+    investigated here (out of Fix A's scope).
+  - **P4**, the honesty check (QB one-offs survive; they're target≥1
+    releases, Fix B's territory): confirmed. Ten independent QB big-cut
+    events survive in the fresh post-fix census (`P_IND_QB_1` $68.1M,
+    `P_PHI_QB_2` ×2, `P_ARI_QB_2`, `P_SF_QB_1`, `P_GB_QB_2`, `P_CLE_QB_1`,
+    `P_HOU_QB_2`, `P_KC_QB_2`, `P_SF_QB_2`, `P_BAL_QB_2`). The specific
+    named Goldberg/CHI case (`FIX4_DIAGNOSTIC_2026-08-06.md` §2.2) does not
+    literally replay under Fix A — traced in full, Goldberg's very first
+    free-agent signing goes to a different team (PIT, not CHI) under the
+    changed season-1 trajectory, and he has a stable career instead
+    (STARTER, re-signed through season 6) — a trajectory-divergence effect,
+    not a sign the guard is broader than intended.
+
+  Gates: `proactive-trades.test.ts` (new regression test + 16 pre-existing,
+  all green), `fa-bidding.test.ts`, `fa-bidding-watch-list.test.ts`,
+  `season/advance.test.ts` — 51 passed, 3 pre-existing skips, zero
+  regressions. Scorekeeper (12 seeds × 10 seasons, cache cleared): all 21
+  checks in band, zero drift flags. Determinism: byte-identical output
+  across two independent probe runs (the guard is a pure branch on a
+  constant, no PRNG). Fix B (the residual ~121 starter-calibre
+  releases/league/offseason and the function's dead-money blindness)
+  remains deliberately unspecced, pending a Liquidator-anchored bar.
+
 ## [0.191.0] — 2026-08-07
 
 ### Fixed

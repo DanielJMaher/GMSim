@@ -217,6 +217,19 @@ export function releaseSurplusStarters(league: LeagueState): LeagueState {
 
     for (const [position, players] of byPosition) {
       const target = QUALITY_DEPTH_TARGET[position] ?? 0;
+      // A target of 0 (FB, NT, P, LS) means the position is EXEMPT from
+      // quality-depth management — the tier model does not meaningfully rank
+      // specialists, so "we never shop for a quality one" must not be read as
+      // "purge the one we have." Without this guard `surplusCount` equals the
+      // whole group and every starter-calibre FB/NT/P/LS in the league is
+      // released every offseason (measured 2026-08-07: NT 41->0, P 34->0,
+      // FB 37->0, LS 38->0 league-wide in a single call; $803.6M of dead money,
+      // 41.7% of the total, with NT alone at $483.1M because it is the only
+      // target-0 position carrying real salary — POSITION_SALARY_FACTOR 1.06 vs
+      // FB 0.17 / P 0.20 / LS 0.10). See FA_ECONOMY_FIX.md §3: this function was
+      // using the ACQUISITION-appetite number as a RETENTION floor, a shape
+      // question `fa-bidding.ts` correctly answers with the blueprint instead.
+      if (target <= 0) continue;
       const surplusCount = players.length - target;
       if (surplusCount <= 0) continue;
 
