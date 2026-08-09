@@ -3,8 +3,14 @@ import { Prng } from '../prng/index.js';
 import { createLeague } from '../league/generate.js';
 import { simulateSeason } from './runner.js';
 import { advanceSeason } from './advance.js';
+import { tickPhase } from './lifecycle.js';
 import { ageOfPlayer } from './development.js';
 import { rollRetirement, retirementProbabilityForAge, rollWashout } from './retirement.js';
+import { unamortizedSigningBonus } from '../contracts/cap.js';
+import { ContractId } from '../types/ids.js';
+import type { Contract } from '../types/contract.js';
+import type { LeagueState } from '../types/league.js';
+import type { TeamId } from '../types/ids.js';
 
 function runSeasons(seed: string, n: number) {
   let league = createLeague({ seed });
@@ -260,5 +266,106 @@ describe('advanceSeason — retirement integration', () => {
     expect(Object.keys(a.contracts).sort()).toEqual(Object.keys(b.contracts).sort());
     expect(a.players).toEqual(b.players);
     expect(a.contracts).toEqual(b.contracts);
+  });
+});
+
+describe('retirement — contract evaporation must book dead money (LIQUIDATOR_DEAD_MONEY.md §11.1)', () => {
+  it('a retiring player with unamortized signing bonus books that exact amount as dead money', () => {
+    // Today, a retiring player's contract is dropped via
+    // POST_SEASON_FINALIZE's dropContractIds handling (lifecycle.ts) with
+    // NO cap charge -- the same accounting gap every other departure route
+    // (release/cap-cut/roster-floor/trade/expiration) already closes.
+    // Measured league-wide: $141.0M/league/season unbooked (~+1.47pp).
+    const base = createLeague({ seed: 'retire-deadmoney' });
+    const teamIds = Object.keys(base.teams) as TeamId[];
+    const teamId = teamIds[0]!;
+    const team = base.teams[teamId]!;
+    const targetId = team.rosterIds[0]!;
+
+    // Age every OTHER rostered player safely under the retirement floor (34)
+    // so the target is the ONLY retirement candidate on this team -- pinning
+    // the fixture rather than trusting a live sim not to produce a second,
+    // uncontrolled retirement that would muddy the dead-money delta.
+    const playersNext = { ...base.players };
+    for (const pid of team.rosterIds) {
+      if (pid === targetId) continue;
+      playersNext[pid] = { ...playersNext[pid]!, birthDate: '2005-01-01' };
+    }
+
+    // rollRetirement is deterministically true at age >= 40 (see the
+    // 'always returns true for 40+ players' case above) -- age well past
+    // that floor for margin.
+    const retireAge = 45;
+    const nextSeasonNumber = base.seasonNumber + 1;
+    const birthYear = 2026 + (nextSeasonNumber - 1) - retireAge;
+
+    // A freshly-signed multi-year deal: yearsRemaining === realYears means
+    // zero years charged, so unamortizedSigningBonus === the full bonus --
+    // a large, exactly-known figure.
+    const contract: Contract = {
+      id: ContractId('C_RETIRE_TARGET'),
+      playerId: targetId,
+      teamId,
+      signedOnTick: base.tick,
+      realYears: 5,
+      voidYears: 0,
+      yearsRemaining: 5,
+      baseSalaries: [4_000_000, 4_000_000, 4_000_000, 4_000_000, 4_000_000],
+      signingBonus: 20_000_000,
+      rosterBonuses: [0, 0, 0, 0, 0],
+      workoutBonuses: [0, 0, 0, 0, 0],
+      guarantees: [
+        { baseGuaranteedPct: 0, type: 'NONE' },
+        { baseGuaranteedPct: 0, type: 'NONE' },
+        { baseGuaranteedPct: 0, type: 'NONE' },
+        { baseGuaranteedPct: 0, type: 'NONE' },
+        { baseGuaranteedPct: 0, type: 'NONE' },
+      ],
+      incentives: [],
+      noTradeClause: false,
+    };
+    playersNext[targetId] = {
+      ...playersNext[targetId]!,
+      birthDate: `${birthYear}-01-01`,
+      contractId: contract.id,
+    };
+    const contractsNext = { ...base.contracts, [contract.id]: contract };
+
+    let league: LeagueState = {
+      ...base,
+      players: playersNext as LeagueState['players'],
+      contracts: contractsNext as LeagueState['contracts'],
+    };
+
+    expect(unamortizedSigningBonus(contract)).toBe(20_000_000); // sanity: fresh deal, full bonus
+
+    // POST_SEASON_FINALIZE decrements every contract's yearsRemaining by 1
+    // for the season just played BEFORE retirement is processed
+    // (lifecycle.ts's contractsAfterAdvance) -- one year of proration is
+    // legitimately already amortized by the time a player retires
+    // post-season, so the charge is priced off that post-decrement state,
+    // not the pre-season contract.
+    const expectedUnamortized = unamortizedSigningBonus({
+      ...contract,
+      yearsRemaining: contract.yearsRemaining - 1,
+    });
+    expect(expectedUnamortized).toBe(16_000_000); // 1 of 5 years' proration already spent
+
+    const beforeDead = league.teams[teamId]!.deadMoneyByYear[0] ?? 0;
+
+    league = simulateSeason(league);
+    league = tickPhase(league);
+    expect(league.lifecyclePhase).toBe('POST_SEASON_FINALIZE');
+
+    expect(
+      league.players[targetId],
+      'fixture check: the age-45 target must have retired (age >= 40 is a guaranteed roll)',
+    ).toBeUndefined();
+
+    const afterDead = league.teams[teamId]!.deadMoneyByYear[0] ?? 0;
+    expect(
+      afterDead - beforeDead,
+      'retirement must book the unamortized signing bonus as dead money',
+    ).toBe(expectedUnamortized);
   });
 });

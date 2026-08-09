@@ -3,6 +3,7 @@ import type { Player, PlayerSkills } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
 import type { PlayerId, TeamId } from '../types/ids.js';
+import { unamortizedSigningBonus } from '../contracts/cap.js';
 
 const ACTIVE_ROSTER_LIMIT = 53;
 
@@ -40,9 +41,12 @@ export interface PreseasonCutsOptions {
  *      fallback so the invariant holds.
  *   3. Released players become free agents (`teamId: null`,
  *      `contractId: null`); their contracts are dropped.
- *   4. NO dead money charged — preseason cuts in real NFL are
- *      mostly cost-free except for guaranteed money in rookie deals;
- *      that nuance lands in a later slice.
+ *   4. Unamortized signing-bonus proration accelerates onto the cutting
+ *      team's dead money (LIQUIDATOR_DEAD_MONEY.md §11.1) — the same rule
+ *      every other departure route already applies. Most preseason cuts
+ *      are still cost-free in practice (rookie-pool/vet-min bodies with
+ *      little-to-no bonus), but a cut veteran on a real deal is not free,
+ *      and wasn't being charged.
  *
  * Idempotent — running again on a roster already at 53 is a no-op.
  * Pure function — no PRNG.
@@ -85,18 +89,26 @@ export function preseasonCuts(
     if (cutSet.size === 0) continue;
     anyChange = true;
 
+    let deadMoney = 0;
     for (const pid of cutSet) {
       const player = players[pid];
       if (!player) continue;
       if (player.contractId) {
+        const contract = contracts[player.contractId];
+        if (contract) deadMoney += unamortizedSigningBonus(contract);
         delete contracts[player.contractId];
       }
       players[pid] = { ...player, teamId: null, contractId: null };
     }
 
+    const deadMoneyByYear =
+      deadMoney > 0
+        ? [(team.deadMoneyByYear[0] ?? 0) + deadMoney, ...team.deadMoneyByYear.slice(1)]
+        : team.deadMoneyByYear;
     teams[team.identity.id] = {
       ...team,
       rosterIds: team.rosterIds.filter((id) => !cutSet.has(id)),
+      deadMoneyByYear,
     };
   }
 

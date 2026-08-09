@@ -56,6 +56,7 @@ import { applyCapFloorExtensions } from '../transactions/extensions.js';
 import { applyCapRestructures } from '../transactions/restructures.js';
 import { enforceRosterFloor } from '../transactions/roster-floor.js';
 import { teamSeasonCash } from '../contracts/cash.js';
+import { unamortizedSigningBonus } from '../contracts/cap.js';
 import { runProactiveTrades, releaseSurplusStarters } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
@@ -970,10 +971,26 @@ function applyPostSeasonFinalize(
     playersNext[id] = player;
   }
 
+  // A retiring (or washed-out) player's unamortized signing bonus
+  // accelerates onto his team's cap -- the same rule every other departure
+  // route (release, cap-cut, roster-floor, trade, natural expiration)
+  // already applies. Without this, retirement was a free way to shed a
+  // contract (LIQUIDATOR_DEAD_MONEY.md §11.1; measured $141.0M/league/season
+  // unbooked, ~+1.47pp on the league dead-money share).
   const contractsNext: Record<string, Contract> = {};
   const droppedSet = new Set<ContractIdType>(retirement.dropContractIds);
+  const retirementDeadByTeam = new Map<TeamId, number>();
   for (const [id, contract] of Object.entries(contractsAfterAdvance)) {
-    if (droppedSet.has(id as ContractIdType)) continue;
+    if (droppedSet.has(id as ContractIdType)) {
+      const dead = unamortizedSigningBonus(contract);
+      if (dead > 0) {
+        retirementDeadByTeam.set(
+          contract.teamId,
+          (retirementDeadByTeam.get(contract.teamId) ?? 0) + dead,
+        );
+      }
+      continue;
+    }
     contractsNext[id] = contract;
   }
 
@@ -981,11 +998,17 @@ function applyPostSeasonFinalize(
     const team = teamsNext[teamId]!;
     const postRetirementRoster = retirement.rosterIdsByTeam.get(teamId) ?? team.rosterIds;
     const restoredIr = team.injuredReserveIds.filter((id) => !retiredSet.has(id));
+    const retirementDead = retirementDeadByTeam.get(teamId as TeamId) ?? 0;
+    const deadMoneyByYear =
+      retirementDead > 0
+        ? [(team.deadMoneyByYear[0] ?? 0) + retirementDead, ...team.deadMoneyByYear.slice(1)]
+        : team.deadMoneyByYear;
     teamsNext[teamId] = {
       ...team,
       rosterIds: [...postRetirementRoster, ...restoredIr],
       injuredReserveIds: [],
       practiceSquadIds: team.practiceSquadIds.filter((id) => !retiredSet.has(id)),
+      deadMoneyByYear,
     };
   }
 

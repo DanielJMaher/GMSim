@@ -14,6 +14,40 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Fixed
 
+- **Cap realism — contract evaporation booked no dead money at two exits,
+  a structural reason the league's dead-money-as-%-of-cap ran roughly a
+  third of real** (design of record `docs/design-docs/LIQUIDATOR_DEAD_MONEY.md`
+  §11.1, Opus-designed 2026-08-08, "Fix 1"). Every other departure route
+  (release, cap-cut, roster-floor cut, trade, natural expiration) already
+  charges a contract's unamortized signing bonus as dead money on exit;
+  retirement and `preseasonCuts` did not — `season/retirement.ts` and
+  `transactions/preseason-cuts.ts` both dropped the contract for free, the
+  latter's own comment admitting as much ("NO dead money charged ... that
+  nuance lands in a later slice"). Investigated before fixing (per the
+  design's own instruction) and found preseason cuts to be a **second,
+  larger** unbooked channel the design's own probe couldn't see (a
+  preseason-cut player survives as a free agent rather than vanishing from
+  `league.players`, the signal the original probe keyed on). Measured
+  counterfactuals: retirement $141.0M/league/season (+1.47pp), preseason
+  cuts $208.5M/league/season (+2.17pp) — both charged at both exits.
+  League-wide effect measured post-fix (`_cap_channels_postfix.mjs`, 3
+  seeds × 6 seasons): mean dead-money share 2.92%→**5.34%**, per-team
+  median 1.54%→**3.89%** (real NFL ~7-8% mean / ~6% median) — the combined
+  real-pipeline effect (+2.42pp) came in below the naive sum of the two
+  isolated counterfactuals (+3.64pp), the same trajectory-composition
+  effect observed in the FA-economy Fix A P2 result: fixing behavior early
+  in an offseason pipeline changes the whole downstream trajectory, so
+  isolated single-call counterfactuals don't add linearly. Gates: 9
+  targeted+neighbor files / 100 tests green (incl. `cash.test.ts` — dead
+  money correctly excluded from CBA cash-floor accounting — and
+  `roster-floor.test.ts` 18/18), Scorekeeper 21/21 in band, determinism
+  byte-identical, `roster-floor-violation` count **0** across 18
+  league-seasons despite the added cap pressure (Fix 5's territory
+  unaffected). **Known gap, not fixed here:** neither exit logs a
+  `Transaction` for its charge, unlike every other dead-money channel — an
+  inspector reading the transaction log would see dead money change with
+  no corresponding event. Scoped out deliberately to stay inside this
+  slice's literal charge-the-cap mandate; named as a follow-up.
 - **FA economy — `releaseSurplusStarters` releasing every starter-calibre
   FB/NT/P/LS in the league every offseason, a live regression already shipped
   in v0.190.0 and v0.191.0** (design of record
