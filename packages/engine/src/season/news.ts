@@ -137,6 +137,8 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
     case 'roster-floor-violation':
     case 'contract-id-collision':
     case 'emergency-qb-game':
+    case 'retirement-dead-money':
+    case 'preseason-cut-dead-money':
       // Intentionally not surfaced. IR moves and PS promotions happen
       // weekly across the league — routine roster bookkeeping rather
       // than news. Contract expirations are a calendar event, not a
@@ -150,7 +152,14 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       // (Roster Viability §4.1) IS plausibly narrative-worthy ("Team X
       // forced to start an emergency QB") but that's a deliberate future
       // News surfacing pass, not part of this slice's spec — logging the
-      // event is; do not invent the headline now.
+      // event is; do not invent the headline now. Same posture for
+      // retirement-dead-money / preseason-cut-dead-money
+      // (LIQUIDATOR_DEAD_MONEY.md §14.1, cap realism P0): the cap
+      // consequence is plausibly newsworthy for a cap-literate audience
+      // ("Team eats $12M in dead cap as veteran retires"), but this slice's
+      // scope is booking + logging the charge, not writing the headline —
+      // the raw transaction log (which the inspector already surfaces
+      // alongside News) makes the event visible today.
       return null;
   }
 }

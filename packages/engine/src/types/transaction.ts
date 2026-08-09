@@ -79,7 +79,9 @@ export type Transaction =
   | TransactionHcInterim
   | TransactionRosterFloorViolation
   | TransactionContractIdCollision
-  | TransactionEmergencyQbGame;
+  | TransactionEmergencyQbGame
+  | TransactionRetirementDeadMoney
+  | TransactionPreseasonCutDeadMoney;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -598,6 +600,41 @@ export interface TransactionEmergencyQbGame extends TransactionBase {
   /** True home team in the game this fired in — lets the census join back
    *  to the schedule without re-deriving home/away from the game id. */
   gameId: GameId;
+}
+
+/**
+ * A player retired (or washed out off-roster) while still holding a
+ * contract with unamortized signing-bonus proration — that money
+ * accelerates onto the team's cap the same way it would on a release
+ * (`LIQUIDATOR_DEAD_MONEY.md` §11.1/§14.1). Logged so the transaction feed
+ * — the engine's event history, and per `GAME_UI_FOUNDATION.md` what the
+ * alpha UI shows the player — explains a dead-money change instead of
+ * showing one with no cause. `playersRegraded`/`contractsAfterAdvance`
+ * (`season/lifecycle.ts`) is the source; the player id may no longer
+ * resolve in `league.players` by the time this is read (retirement removes
+ * the record), so this entry is the durable record of who it was.
+ */
+export interface TransactionRetirementDeadMoney extends TransactionBase {
+  kind: 'retirement-dead-money';
+  teamId: TeamId;
+  playerId: PlayerId;
+  contractId: ContractId;
+  deadMoney: number;
+}
+
+/**
+ * A preseason roster cutdown (`transactions/preseason-cuts.ts`,
+ * post-draft, over-53 trim) dropped a player's contract with unamortized
+ * signing-bonus proration still owed — same accounting rule as an ordinary
+ * release, applied at an exit that used to skip it
+ * (`LIQUIDATOR_DEAD_MONEY.md` §11.1/§14.1).
+ */
+export interface TransactionPreseasonCutDeadMoney extends TransactionBase {
+  kind: 'preseason-cut-dead-money';
+  teamId: TeamId;
+  playerId: PlayerId;
+  contractId: ContractId;
+  deadMoney: number;
 }
 
 export type LockerRoomIncidentFlavor =

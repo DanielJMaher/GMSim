@@ -110,12 +110,20 @@ A fresh clone has NO design docs on disk: pull authored docs from the Drive back
 
 ## Push gate
 
-**Never push to GitHub with any failing tests.** Run `pnpm test` from the
-repo root (or `pnpm test` inside the relevant workspace) and verify the
-vitest summary line shows zero failures BEFORE any `git push`. This
-applies whether the user says "fire it off," "push," or any other push
-trigger. If tests are failing — even unrelated to the slice — fix or
-revert until the suite is green, then push.
+**Never push to GitHub with any failing tests, and never push with a
+failing typecheck.** Run `pnpm test` AND `pnpm typecheck` from the repo
+root and verify both are clean BEFORE any `git push`. This applies whether
+the user says "fire it off," "push," or any other push trigger. If either
+is failing — even unrelated to the slice — fix or revert until both are
+clean, then push.
+
+**`pnpm test` alone is not sufficient.** `apps/web` (and any future
+`apps/game`) has no test files, so `pnpm test` silently skips typechecking
+it — `pnpm typecheck` is the only gate that catches a broken `App.tsx`. This
+is not theoretical: it's exactly how a broken `App.tsx` (exhaustive
+`Transaction['kind']` switches never updated for new kinds) reached `main`
+and killed the v0.191.0 Pages deploy on 2026-08-07, past every other gate.
+`pnpm typecheck` runs in seconds — there is no cost reason to skip it.
 
 ## Inspector refresh (after every slice)
 

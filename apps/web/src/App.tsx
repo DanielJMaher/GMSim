@@ -3730,6 +3730,8 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'roster-floor-violation':
     case 'contract-id-collision':
     case 'emergency-qb-game':
+    case 'retirement-dead-money':
+    case 'preseason-cut-dead-money':
       return [entry.teamId];
   }
 }
@@ -3754,6 +3756,8 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'trade-request':
     case 'contract-id-collision':
     case 'emergency-qb-game':
+    case 'retirement-dead-money':
+    case 'preseason-cut-dead-money':
       return [entry.playerId];
     case 'hc-fired':
     case 'gm-fired':
@@ -3776,6 +3780,8 @@ function transactionPrice(entry: Transaction): number | null {
     case 'trade':
       return Math.max(entry.deadMoneyTeamA, entry.deadMoneyTeamB);
     case 'release':
+    case 'retirement-dead-money':
+    case 'preseason-cut-dead-money':
       return entry.deadMoney;
     case 'cap-cut':
       return Math.max(entry.deadMoney, entry.capSaving);
@@ -4151,6 +4157,8 @@ function kindColor(kind: Transaction['kind']): string {
   switch (kind) {
     case 'release':
     case 'cap-cut':
+    case 'retirement-dead-money':
+    case 'preseason-cut-dead-money':
       return 'text-rose-400';
     case 'fa-sign':
     case 'ps-promotion':
@@ -4240,6 +4248,10 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `⚠ ${teamLabel(entry.teamId)} CONTRACT ID COLLISION · ${playerLabel(entry.playerId)} · ${entry.attemptedId} → ${entry.resolvedId} (uniquified)`;
     case 'emergency-qb-game':
       return `⚠ ${teamLabel(entry.teamId)} fielded ${playerLabel(entry.playerId)} as EMERGENCY QB (no available passer)`;
+    case 'retirement-dead-money':
+      return `${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} retired · dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
+    case 'preseason-cut-dead-money':
+      return `${teamLabel(entry.teamId)} cut ${playerLabel(entry.playerId)} in the preseason trim · dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
   }
 }
 

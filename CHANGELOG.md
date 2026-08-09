@@ -14,6 +14,32 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Fixed
 
+- **Push gate — `pnpm test` alone never typechecked `apps/web`.** `apps/web`
+  has zero test files, so `pnpm test` silently skipped its typecheck — this
+  is exactly how a broken `App.tsx` (exhaustive `Transaction['kind']`
+  switches never updated for new kinds) reached `main` and killed the
+  v0.191.0 Pages deploy on 2026-08-07. Wired `pnpm typecheck` into the
+  documented push gate (CLAUDE.md); it runs in ~7s across all workspaces.
+  This slice deliberately proved the gate's value the same day it shipped —
+  see the next entry.
+- **Dead-money transactions were silent for the two channels Fix 1 just
+  fixed** (`LIQUIDATOR_DEAD_MONEY.md` §14.1, Opus-ruled 2026-08-09).
+  Retirement and `preseasonCuts` charge dead money (previous entry) but
+  logged no event, unlike every other dead-money channel — a player-facing
+  legibility gap once the alpha UI shows a transaction feed ("my cap
+  dropped $16M and nothing says why"). Added `retirement-dead-money` and
+  `preseason-cut-dead-money` transaction kinds, logged per-player at both
+  charge sites. **Confirmed pure logging, zero behaviour change**: the
+  post-slice dead-money distribution (`_cap_channels_postfix.mjs`, 3 seeds
+  × 6 seasons) is byte-identical to pre-slice — mean 5.34%, median 3.89%,
+  p75/p90/p99/max and the >10%/>20% team counts all unchanged. Caught a
+  third exhaustive-switch site the design doc's App.tsx-focused list didn't
+  name (`season/news.ts`'s `newsItemFor`) — excluded both new kinds from
+  news surfacing with the same reasoning already established for
+  `emergency-qb-game` (booking + logging is this slice's scope; writing the
+  narrative headline is a deliberate future pass). Gates: 50/50 tests
+  across 5 targeted+neighbor files, full `pnpm typecheck` clean across all
+  4 workspace tasks.
 - **Cap realism — contract evaporation booked no dead money at two exits,
   a structural reason the league's dead-money-as-%-of-cap ran roughly a
   third of real** (design of record `docs/design-docs/LIQUIDATOR_DEAD_MONEY.md`

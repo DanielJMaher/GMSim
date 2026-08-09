@@ -976,22 +976,31 @@ function applyPostSeasonFinalize(
   // route (release, cap-cut, roster-floor, trade, natural expiration)
   // already applies. Without this, retirement was a free way to shed a
   // contract (LIQUIDATOR_DEAD_MONEY.md §11.1; measured $141.0M/league/season
-  // unbooked, ~+1.47pp on the league dead-money share).
+  // unbooked, ~+1.47pp on the league dead-money share). Logged per-player
+  // (`retirement-dead-money`, §14.1) -- like every other dead-money channel,
+  // not silently -- so the transaction feed explains the cap change instead
+  // of showing one with no cause.
   const contractsNext: Record<string, Contract> = {};
   const droppedSet = new Set<ContractIdType>(retirement.dropContractIds);
-  const retirementDeadByTeam = new Map<TeamId, number>();
+  const retirementCharges: { teamId: TeamId; playerId: PlayerId; contractId: ContractIdType; deadMoney: number }[] = [];
   for (const [id, contract] of Object.entries(contractsAfterAdvance)) {
     if (droppedSet.has(id as ContractIdType)) {
       const dead = unamortizedSigningBonus(contract);
       if (dead > 0) {
-        retirementDeadByTeam.set(
-          contract.teamId,
-          (retirementDeadByTeam.get(contract.teamId) ?? 0) + dead,
-        );
+        retirementCharges.push({
+          teamId: contract.teamId,
+          playerId: contract.playerId,
+          contractId: contract.id,
+          deadMoney: dead,
+        });
       }
       continue;
     }
     contractsNext[id] = contract;
+  }
+  const retirementDeadByTeam = new Map<TeamId, number>();
+  for (const c of retirementCharges) {
+    retirementDeadByTeam.set(c.teamId, (retirementDeadByTeam.get(c.teamId) ?? 0) + c.deadMoney);
   }
 
   for (const teamId of Object.keys(teamsNext)) {
@@ -1011,6 +1020,15 @@ function applyPostSeasonFinalize(
       deadMoneyByYear,
     };
   }
+  const retirementDeadMoneyEntries: Transaction[] = retirementCharges.map((c) => ({
+    kind: 'retirement-dead-money',
+    tick: nextTick,
+    seasonNumber: nextSeasonNumber,
+    teamId: c.teamId,
+    playerId: c.playerId,
+    contractId: c.contractId,
+    deadMoney: c.deadMoney,
+  }));
 
   // NOTE: `schedule` stays populated until COLLEGE_CYCLE — the DRAFT
   // phase needs it to compute slot order from the just-played
@@ -1036,6 +1054,7 @@ function applyPostSeasonFinalize(
     salaryCapBySeason: { ...league.salaryCapBySeason, [nextSeasonNumber]: nextSalaryCap },
     phase: 'OFFSEASON_PRE_FA',
     lifecyclePhase: 'POST_SEASON_FINALIZE',
+    transactionLog: [...league.transactionLog, ...retirementDeadMoneyEntries],
   };
 }
 

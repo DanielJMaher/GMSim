@@ -2,6 +2,7 @@ import type { LeagueState } from '../types/league.js';
 import type { Player, PlayerSkills } from '../types/player.js';
 import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
+import type { Transaction } from '../types/transaction.js';
 import type { PlayerId, TeamId } from '../types/ids.js';
 import { unamortizedSigningBonus } from '../contracts/cap.js';
 
@@ -59,6 +60,7 @@ export function preseasonCuts(
   const players: Record<string, Player> = { ...league.players };
   const contracts: Record<string, Contract> = { ...league.contracts };
   const teams: Record<string, TeamState> = { ...league.teams };
+  const logEntries: Transaction[] = [];
   let anyChange = false;
 
   for (const team of Object.values(league.teams)) {
@@ -95,7 +97,26 @@ export function preseasonCuts(
       if (!player) continue;
       if (player.contractId) {
         const contract = contracts[player.contractId];
-        if (contract) deadMoney += unamortizedSigningBonus(contract);
+        if (contract) {
+          const dead = unamortizedSigningBonus(contract);
+          deadMoney += dead;
+          // Logged per-player like every other dead-money channel
+          // (`preseason-cut-dead-money`, LIQUIDATOR_DEAD_MONEY.md §14.1) —
+          // even when dead is 0, most cuts are (rookie-pool/vet-min bodies
+          // with little-to-no bonus), so the log isn't spammed with
+          // zero-dollar noise.
+          if (dead > 0) {
+            logEntries.push({
+              kind: 'preseason-cut-dead-money',
+              tick: league.tick,
+              seasonNumber: league.seasonNumber,
+              teamId: team.identity.id,
+              playerId: pid,
+              contractId: contract.id,
+              deadMoney: dead,
+            });
+          }
+        }
         delete contracts[player.contractId];
       }
       players[pid] = { ...player, teamId: null, contractId: null };
@@ -118,6 +139,7 @@ export function preseasonCuts(
     teams: teams as Readonly<Record<TeamId, TeamState>>,
     players: players as typeof league.players,
     contracts: contracts as typeof league.contracts,
+    transactionLog: [...league.transactionLog, ...logEntries],
   };
 }
 
