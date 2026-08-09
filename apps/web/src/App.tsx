@@ -3732,6 +3732,7 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'emergency-qb-game':
     case 'retirement-dead-money':
     case 'preseason-cut-dead-money':
+    case 'franchise-tag':
       return [entry.teamId];
   }
 }
@@ -3758,6 +3759,7 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'emergency-qb-game':
     case 'retirement-dead-money':
     case 'preseason-cut-dead-money':
+    case 'franchise-tag':
       return [entry.playerId];
     case 'hc-fired':
     case 'gm-fired':
@@ -3787,6 +3789,8 @@ function transactionPrice(entry: Transaction): number | null {
       return Math.max(entry.deadMoney, entry.capSaving);
     case 'restructure':
       return entry.convertedAmount;
+    case 'franchise-tag':
+      return entry.tagNumber;
     default:
       return null;
   }
@@ -4164,6 +4168,7 @@ function kindColor(kind: Transaction['kind']): string {
     case 'ps-promotion':
       return 'text-emerald-400';
     case 're-sign':
+    case 'franchise-tag':
       return 'text-cyan-400';
     case 'restructure':
       return 'text-teal-400';
@@ -4252,6 +4257,8 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${teamLabel(entry.teamId)} · ${playerLabel(entry.playerId)} retired · dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
     case 'preseason-cut-dead-money':
       return `${teamLabel(entry.teamId)} cut ${playerLabel(entry.playerId)} in the preseason trim · dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
+    case 'franchise-tag':
+      return `${teamLabel(entry.teamId)} franchise-tagged ${playerLabel(entry.playerId)} · $${(entry.tagNumber / 1e6).toFixed(1)}M/1yr (${entry.formulaBranch === 'position-average' ? 'position market' : '120% prior salary'})`;
   }
 }
 

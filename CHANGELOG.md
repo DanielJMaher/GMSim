@@ -138,6 +138,55 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   releases/league/offseason and the function's dead-money blindness)
   remains deliberately unspecced, pending a Liquidator-anchored bar.
 
+### Added
+
+- **The franchise tag** (design of record `docs/design-docs/FRANCHISE_TAG.md`,
+  Opus-designed 2026-08-09). Ranked #1 by alpha-tester visibility
+  (`LIQUIDATOR_DEAD_MONEY.md` §12) — the single most visible offseason cap
+  mechanic in the real NFL, previously absent entirely. A team may retain
+  one expiring player per offseason on a one-year, fully-guaranteed
+  contract at a formula number: the greater of the league's own top-5
+  cap-hit average at that position, or 120% of the player's prior-year
+  salary — directly computable from league state, no new constant, and
+  self-calibrating as the league's own market moves. The 120%-floor rule
+  gives correct second/third-tag escalation with **no tag-history state at
+  all**: a re-tagged player's "prior salary" is simply his old tag number
+  (a 1-year deal's own base salary), so the escalator falls out for free.
+  Runs after the re-sign window and before contract expirations — the tag
+  catches exactly the players that window failed to retain, the real
+  relationship between the three outcomes. v1 deliberately excludes offer
+  sheets, the exclusive/non-exclusive distinction, and the transition tag
+  (the offer-sheet machinery they all depend on almost never fires in
+  reality; the design doc states this as an explicit scope boundary, not an
+  oversight). New `franchise-tag` transaction, logged with which formula
+  branch won for auditability; surfaced in the news feed.
+
+  **Pre-registered predictions T1-T4, reported in full including a miss**:
+  T2 (tag numbers track the league's own positional market) confirmed
+  broadly; T3 (the 120% floor binds on re-tags, rarely otherwise) confirmed
+  cleanly — every sampled re-tag escalated to exactly 120% of its prior
+  number; T4 (dead-money share materially unchanged — the tag creates cap
+  *pressure*, not dead money) confirmed almost exactly (5.25% with tags
+  live vs the 5.34% Fix-1 baseline without them). **T1 (3-10 tags/season
+  once mature) is FALSIFIED**: measured 29.22 tags/league-season — nearly
+  3× the ">15 = too loose" falsifier, functionally every team tagging
+  someone every year rather than the rare, dramatic decision it's meant to
+  represent. Carries the v0.172 restructure precedent (a mechanic that
+  fires at the wrong rate rather than the right one); per that precedent's
+  lesson, the NPC selection rule (§7) is **not** retuned in this slice
+  without a fresh measurement backing whatever it changes to — reported as
+  an open finding for a follow-up design pass, not patched blind.
+
+  Gates: `franchise-tag.test.ts` (new, 11 tests: the formula, the 120%
+  floor, the escalator, the one-per-team cap, the cap-room gate, the
+  one-year fully-guaranteed contract shape) + `re-sign.test.ts`,
+  `offseason.test.ts`, `season/advance.test.ts` (6-season trajectory),
+  `contracts/cap.test.ts`, `transaction-log.test.ts`, `news.test.ts` — 73
+  tests total, zero failures. Full `pnpm typecheck` clean. Scorekeeper (12
+  seeds × 10 seasons, cache cleared): all 21 checks in band, zero drift.
+  Determinism: byte-identical output across two independent probe runs
+  (pure function, no PRNG — selection ties break on `player.id`).
+
 ## [0.191.0] — 2026-08-07
 
 ### Fixed

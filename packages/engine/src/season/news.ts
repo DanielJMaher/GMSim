@@ -15,6 +15,7 @@ import type {
   TransactionHcHired,
   TransactionGmHired,
   TransactionHcInterim,
+  TransactionFranchiseTag,
   LockerRoomIncidentFlavor,
 } from '../types/transaction.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
@@ -120,6 +121,8 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       return newsFromResign(txn, league);
     case 'restructure':
       return newsFromRestructure(txn, league);
+    case 'franchise-tag':
+      return newsFromFranchiseTag(txn, league);
     case 'hc-fired':
       return newsFromHcFired(txn, league);
     case 'gm-fired':
@@ -525,6 +528,35 @@ function newsFromResign(txn: TransactionResign, league: LeagueState): NewsItem |
     body:
       `${nameOf(player)} stays with ${abbrOf(team)} on a ${txn.years}-year deal ` +
       `($${(txn.yearOneCapHit / 1e6).toFixed(1)}M Y1 cap hit) without reaching the market.`,
+    teamIds: [txn.teamId],
+    playerIds: [txn.playerId],
+  };
+}
+
+function newsFromFranchiseTag(
+  txn: TransactionFranchiseTag,
+  league: LeagueState,
+): NewsItem | null {
+  const player = league.players[txn.playerId];
+  if (!player) return null;
+  const team = league.teams[txn.teamId];
+  // The tag always fires on the team's best available retained candidate
+  // (STAR/STARTER by construction, franchise-tag.ts §7) -- unlike an
+  // ordinary re-sign it's a rarer, once-a-year-per-team event, so it reads
+  // a notch louder than the equivalent-tier re-sign headline.
+  const severity: NewsItem['severity'] = player.tier === 'STAR' ? 4 : 2;
+  const source: NewsSource = player.tier === 'STAR' ? 'national_insider' : 'beat_writer';
+  return {
+    tick: txn.tick,
+    seasonNumber: txn.seasonNumber,
+    severity,
+    source,
+    sourceKind: 'franchise-tag',
+    headline: `${abbrOf(team)} places the franchise tag on ${nameOf(player)}`,
+    body:
+      `${abbrOf(team)} tags ${nameOf(player)} to a one-year, fully-guaranteed ` +
+      `$${(txn.tagNumber / 1e6).toFixed(1)}M deal rather than let him reach the ` +
+      `market, unable to agree on a long-term contract.`,
     teamIds: [txn.teamId],
     playerIds: [txn.playerId],
   };

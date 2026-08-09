@@ -52,6 +52,7 @@ import {
   refillRosters,
 } from '../transactions/offseason.js';
 import { applyResigningWindow } from '../transactions/re-sign.js';
+import { applyFranchiseTags } from '../transactions/franchise-tag.js';
 import { applyCapFloorExtensions } from '../transactions/extensions.js';
 import { applyCapRestructures } from '../transactions/restructures.js';
 import { enforceRosterFloor } from '../transactions/roster-floor.js';
@@ -1081,6 +1082,12 @@ function applyOffseasonTransactions(
   // cash floor holds league spend near the cap.
   let offseason = applyCapRestructures(league, league.tick);
   offseason = applyResigningWindow(prng.fork('re-sign-window'), offseason, offseason.tick);
+  // Franchise tag (FRANCHISE_TAG.md) -- must run here: AFTER the re-sign
+  // window (it operates on exactly what that window failed to retain) and
+  // BEFORE contract expirations (which would otherwise let those same
+  // players walk). Not its own lifecycle phase (§5) -- a compliance/
+  // retention decision alongside its siblings in this same pass.
+  offseason = applyFranchiseTags(offseason, offseason.tick);
   offseason = applyContractExpirations(offseason);
   offseason = applyCapCuts(offseason);
   offseason = runProactiveTrades(

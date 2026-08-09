@@ -82,6 +82,18 @@ export {
   RESIGN_QB_BAD_TEAM_FACTOR,
 } from '../transactions/re-sign.js';
 
+// Franchise tag (v0.192, FRANCHISE_TAG.md) — one expiring player per team
+// retained on a one-year, fully-guaranteed deal at a formula derived from
+// the league's own top-5-at-position market, when the re-sign window
+// didn't keep him. No offer sheets / exclusive-vs-non / transition tag in
+// v1 — see the design doc for why each is a deliberate scope boundary.
+export {
+  applyFranchiseTags,
+  franchiseTagQuote,
+  topFiveAveragePositionCapHit,
+  FRANCHISE_TAG_PRIOR_SALARY_MULTIPLIER,
+} from '../transactions/franchise-tag.js';
+
 // Extensions (v0.170, cap-realism Slice 1) — teams below the spend floor
 // extend their own underpaid prime starters/stars up toward it (real front
 // offices redeploy freed cap on their own core, not just the FA market).

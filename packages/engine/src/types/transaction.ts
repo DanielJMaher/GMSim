@@ -81,7 +81,8 @@ export type Transaction =
   | TransactionContractIdCollision
   | TransactionEmergencyQbGame
   | TransactionRetirementDeadMoney
-  | TransactionPreseasonCutDeadMoney;
+  | TransactionPreseasonCutDeadMoney
+  | TransactionFranchiseTag;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -635,6 +636,27 @@ export interface TransactionPreseasonCutDeadMoney extends TransactionBase {
   playerId: PlayerId;
   contractId: ContractId;
   deadMoney: number;
+}
+
+/**
+ * A team retained an expiring player it didn't re-sign to a long-term deal
+ * on a one-year, fully-guaranteed franchise tag instead
+ * (`transactions/franchise-tag.ts`, `FRANCHISE_TAG.md`). Runs after the
+ * re-sign window and before contract expirations — the tag catches exactly
+ * the players that window failed to retain.
+ */
+export interface TransactionFranchiseTag extends TransactionBase {
+  kind: 'franchise-tag';
+  teamId: TeamId;
+  playerId: PlayerId;
+  /** The NEW one-year tag contract replacing the expiring one. */
+  contractId: ContractId;
+  tagNumber: number;
+  /**
+   * Which side of the formula's max() set the number (§2/§3) — the field
+   * that makes the mechanic auditable rather than a black box.
+   */
+  formulaBranch: 'position-average' | 'prior-salary-floor';
 }
 
 export type LockerRoomIncidentFlavor =
