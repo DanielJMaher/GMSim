@@ -270,15 +270,36 @@ describe('applyFranchiseTags', () => {
     const team = base.teams[teamId]!;
     let league = base;
     const targetIds: PlayerId[] = [];
-    // Three STARTER-tier expiring QBs on the same team -- only one may tag.
+    // Three STAR-tier expiring QBs on the same team -- only one may tag.
+    // (§13: eligibility is STAR-only, not STAR/STARTER as originally
+    // shipped -- see the STARTER exclusion test below for that boundary.)
     for (let i = 0; i < 3; i++) {
       const pid = team.rosterIds[i]!;
       targetIds.push(pid);
-      league = pinPlayer(league, teamId, pid, Position.QB, 'STARTER', dealAt(pid, teamId, 5_000_000, 0));
+      league = pinPlayer(league, teamId, pid, Position.QB, 'STAR', dealAt(pid, teamId, 5_000_000, 0));
     }
     const after = applyFranchiseTags(league, league.tick);
     const tags = after.transactionLog.filter((t) => t.kind === 'franchise-tag' && t.teamId === teamId);
     expect(tags.length).toBe(1);
+  });
+
+  it('§13: never tags a STARTER-tier player, even affordable and highest-value on his team', () => {
+    // The regression gate for §13's ruling. T1 measured 29.22
+    // tags/league-season against a predicted 3-10 because the shipped
+    // rule tagged any affordable STAR/STARTER candidate with no further
+    // threshold (§12: 74.7% of firings were STARTER-tier). §13 narrows
+    // eligibility to STAR alone -- this test is what stops a future "fix"
+    // from quietly re-widening it back to STARTER.
+    const base = createLeague({ seed: 'ft-starteronly' });
+    const teamId = (Object.keys(base.teams) as TeamId[])[0]!;
+    const team = base.teams[teamId]!;
+    const pid = team.rosterIds[0]!;
+    // Cheap and clearly affordable -- if eligibility were still
+    // STAR/STARTER this player would be the obvious, uncontested tag.
+    const league = pinPlayer(base, teamId, pid, Position.WR, 'STARTER', dealAt(pid, teamId, 2_000_000, 0));
+    const after = applyFranchiseTags(league, league.tick);
+    const tags = after.transactionLog.filter((t) => t.kind === 'franchise-tag' && t.teamId === teamId);
+    expect(tags.length).toBe(0);
   });
 
   it('produces a one-year, fully-guaranteed, zero-signing-bonus contract at the tag number', () => {

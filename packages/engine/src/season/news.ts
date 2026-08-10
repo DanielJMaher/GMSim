@@ -541,7 +541,7 @@ function newsFromFranchiseTag(
   if (!player) return null;
   const team = league.teams[txn.teamId];
   // The tag always fires on the team's best available retained candidate
-  // (STAR/STARTER by construction, franchise-tag.ts §7) -- unlike an
+  // (STAR-tier only by construction, franchise-tag.ts §7/§13) -- unlike an
   // ordinary re-sign it's a rarer, once-a-year-per-team event, so it reads
   // a notch louder than the equivalent-tier re-sign headline.
   const severity: NewsItem['severity'] = player.tier === 'STAR' ? 4 : 2;

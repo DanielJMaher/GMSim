@@ -187,6 +187,59 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   Determinism: byte-identical output across two independent probe runs
   (pure function, no PRNG — selection ties break on `player.id`).
 
+- **Franchise tag T1 fix — the STAR-only eligibility ruling**
+  (`FRANCHISE_TAG.md` §13, Opus-ruled 2026-08-10). Diagnosed in §12
+  (previous entry): the shipped NPC selection rule tagged any affordable
+  STAR/STARTER-tier candidate, no further threshold. §13 found the root
+  cause — the original design named a third condition ("the tag number is
+  not absurd relative to his value") that was **never implemented**,
+  because as specified it compares an abstract trade-value scale to
+  dollars with no conversion anywhere in the engine. Rather than invent
+  that constant, eligibility narrows to **STAR tier only** — one clause
+  (`if (p.tier !== 'STAR') return false;`), reusing this engine's own
+  existing "how badly do we want to keep him" classification
+  (`RESIGN_BASE_BY_TIER`) as a measured, zero-new-constant proxy for the
+  missing criterion. A stated proxy, not the real rule: real teams do
+  occasionally tag an exceptional non-star, and this gives that up in
+  exchange for closing a 74.7%-non-star-tags defect.
+
+  **T5-T8 measured, cross-validated by two independent seed sets, all
+  confirmed:** T5 (volume 6-12/league-season) — 9.33/season (diagnosis
+  probe) and 9.17/season (predictions probe), both comfortably in band,
+  both far from the original 29.22 and its own predecessor mechanism's
+  hypothesis floor of 7.28. T6 (team participation 20-35%) — measured
+  29.2% (mean 9.3/32 teams/season), landing near the middle of the band
+  and matching the real-NFL "roughly a third to half" reference. **T7 —
+  an expected drop that is NOT a regression** — cohort retention among
+  expiring STAR/STARTER players fell from 64.0% to 55.3% (51.4% re-sign +
+  3.9% tag) and the share genuinely reaching free agency rose from 32.3%
+  to 40.3%, both inside their predicted bands: the tag was doing
+  compensatory retention work it was never meant to do, and more quality
+  reaching the market is the point, not a cost — it's the market the
+  alpha player will bid into. T8 — tag tier mix is 100.0% STAR (168/168,
+  zero exceptions across an 18-league-season walk); T2 (positional
+  pattern) and T3 (120% floor binding on re-tags) hold in shape,
+  unchanged by an eligibility filter that never touches the quote
+  formula. **One honest secondary observation, not a falsifier: T4's
+  with-tags dead-money figure moved further from baseline than before**
+  (4.70% vs the unchanged 5.34% no-tag baseline, a larger gap than the
+  pre-fix 5.25%) — still a *decrease*, the opposite direction from T4's
+  actual falsifier (a jump), and most likely the same trajectory
+  composition effect this project has repeatedly measured elsewhere
+  (Fix 1's own post-fix number, FA-economy Fix A's P2) rather than a new
+  mechanism; not independently traced, reported plainly rather than
+  chased.
+
+  Gates: two existing tests updated by design (`franchise-tag.test.ts`'s
+  one-per-team test re-pinned STAR; a new regression test asserts a
+  STARTER-tier candidate, affordable and highest-value, is never tagged)
+  — 12 tests, zero failures. Neighbours (`re-sign`, `offseason`,
+  `season/advance`, `transaction-log`, `news`, `contracts/cap`) — 74
+  tests, zero failures. Full `pnpm typecheck` clean across all 4
+  workspaces. Scorekeeper (12 seeds × 10 seasons, caches cleared): all 21
+  checks in band, zero drift. Determinism unchanged by construction (pure
+  function, no new randomness) — confirmed by the existing unit test.
+
 ## [0.191.0] — 2026-08-07
 
 ### Fixed

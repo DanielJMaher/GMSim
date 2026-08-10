@@ -90,13 +90,28 @@ export function franchiseTagQuote(
 }
 
 /**
- * §7: the NPC decision rule. Deliberately simple — among a team's expiring
- * (post-re-sign-window) STAR/STARTER-tier players, tag the single
- * highest-value one it can afford. No competitive-window gate (§7): real
- * rebuilders tag star players constantly, to trade them or because losing
- * them for nothing is worse — asserting the intuitive gate without
- * measurement would be exactly the unmeasured behavioural claim law 3
- * exists to prevent.
+ * §7/§13: the NPC decision rule. Among a team's expiring
+ * (post-re-sign-window) STAR-tier players, tag the single highest-value one
+ * it can afford. No competitive-window gate (§7): real rebuilders tag star
+ * players constantly, to trade them or because losing them for nothing is
+ * worse — asserting the intuitive gate without measurement would be exactly
+ * the unmeasured behavioural claim law 3 exists to prevent.
+ *
+ * §13 RULING (2026-08-10): eligibility is STAR-tier ONLY, not
+ * STAR/STARTER as originally shipped. T1 measured 29.22 tags/league-season
+ * against a predicted 3-10 — §12 diagnosed it, §13 found the root cause:
+ * the original §7 named a third condition ("the tag number is not absurd
+ * relative to his value") that was never implemented, because as specified
+ * it compares an abstract trade-value scale to dollars with no conversion
+ * anywhere in the engine. Rather than invent that constant (law 3),
+ * eligibility is narrowed to STAR tier — this engine's own existing
+ * "how badly do we want to keep him" classification
+ * (`RESIGN_BASE_BY_TIER` makes the identical judgment one file away) — as
+ * a measured, zero-new-constant proxy for the missing criterion. This is a
+ * proxy, not the real rule: real teams do occasionally tag an exceptional
+ * STARTER. See `FRANCHISE_TAG.md` §13.3 for why that gap is accepted
+ * rather than closed with an invented constant, and §13.6 for what would
+ * justify revisiting it.
  *
  * Must run AFTER `applyResigningWindow` and BEFORE `applyContractExpirations`
  * (§5) — it operates on exactly the population the re-sign window failed to
@@ -135,7 +150,7 @@ export function applyFranchiseTags(league: LeagueState, tick: number): LeagueSta
       .map((id) => league.players[id])
       .filter((p): p is Player => {
         if (!p || !p.contractId) return false;
-        if (p.tier !== 'STAR' && p.tier !== 'STARTER') return false;
+        if (p.tier !== 'STAR') return false; // §13: STAR-only, was STAR/STARTER
         return expiringIds.has(p.contractId);
       })
       .sort(
