@@ -1,13 +1,16 @@
 import { readFile } from 'node:fs/promises';
-import { splitCsvLine, csvNum } from '../lib/csv.js';
+import { splitCsvLine, csvNum, csvRows } from '../lib/csv.js';
 import {
   ensureContractsCsv,
   CONTRACTS_CSV_PATH,
   OTC_BUCKET,
+  ensureDeadMoneyCsv,
+  DEAD_MONEY_CSV_PATH,
 } from '../lib/otc.js';
 import {
   loadLeagueContracts,
   loadFreeAgentSignings,
+  loadDeadMoneySample,
   type LeagueContractRow,
   type FreeAgentSigningRow,
 } from '../lib/engine-bridge.js';
@@ -421,11 +424,239 @@ async function reportFaGuarantees(seed: string): Promise<void> {
   console.log('');
 }
 
+/**
+ * Slice 4 — the dead-money bar (P1.3, `LIQUIDATOR_DEAD_MONEY.md` §16).
+ *
+ * "Is our cap too forgiving?" GMSim's dead money as % of the league cap,
+ * measured against real OTC 2026 figures. Unlike Slices 1-3, this compares
+ * an AGGREGATE league statistic, not a per-position benchmark — so it reads
+ * a materialized CSV (§15/§16 sourcing ruling) rather than the OTC contract
+ * corpus, and it forward-sims fresh every run rather than reading a cached
+ * seed (§16.3 — the sim side must never go stale silently after an engine
+ * change the way a cached real-world figure correctly can).
+ */
+
+/** Population stdev — the 32 real 2026 teams are treated as a full
+ *  cross-section, not a sample of a larger population. */
+function sd(values: number[]): number {
+  if (values.length === 0) return 0;
+  const mean = values.reduce((a, b) => a + b, 0) / values.length;
+  return Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length);
+}
+
+interface Real2026DeadMoney {
+  shares: number[]; // dead money as % of the league base cap, one per team
+  named: { team: string; sharePct: number }[]; // same shares, with team labels for outlier reporting
+  baseCap: number;
+  retrieved: string;
+}
+
+/** Read the cached OTC dead-money CSV, filter to the 2026 rows (§15.2 — use
+ *  2026 only, never pool 2027/2028), and express each team's dead money as
+ *  a % of the season's published base cap (§15.3 — same denominator on both
+ *  sides, never each team's own adjusted cap). */
+async function loadReal2026DeadMoney(): Promise<Real2026DeadMoney> {
+  await ensureDeadMoneyCsv();
+  const csv = await readFile(DEAD_MONEY_CSV_PATH, 'utf8');
+  const deadMoneys: number[] = [];
+  const named: { team: string; deadMoney: number }[] = [];
+  const baseCaps = new Set<number>();
+  let retrieved = '';
+  for (const rec of csvRows(csv)) {
+    if (csvNum(rec.get('season')) !== 2026) continue;
+    const dm = csvNum(rec.get('dead_money')) ?? 0;
+    deadMoneys.push(dm);
+    named.push({ team: rec.get('team') ?? '?', deadMoney: dm });
+    baseCaps.add(csvNum(rec.get('base_cap')) ?? 0);
+    retrieved = rec.get('retrieved') ?? retrieved;
+  }
+  if (deadMoneys.length === 0) {
+    throw new Error('No 2026 rows in otc_dead_money.csv — delete the file to re-fetch, or investigate the parse.');
+  }
+  if (baseCaps.size !== 1) {
+    throw new Error(
+      `otc_dead_money.csv: 2026 rows carry ${baseCaps.size} different base_cap values (expected 1, same season) — ` +
+        'the season/container association in the parser is likely broken.',
+    );
+  }
+  const baseCap = [...baseCaps][0]!;
+  return {
+    shares: deadMoneys.map((d) => (d / baseCap) * 100),
+    named: named.map((n) => ({ team: n.team, sharePct: (n.deadMoney / baseCap) * 100 })),
+    baseCap,
+    retrieved,
+  };
+}
+
+/** Default sim sample: 6 seeds × 10 seasons — DERIVED, not chosen, from the
+ *  measured per-seed sd of 0.266pp (P3.1 crash census, 2026-08-13): n=1
+ *  gives ±0.52pp, too coarse for §15.5's 5.5%/6.5% decision thresholds
+ *  (only 0.6pp apart); n=6 gives ±0.21pp. Deliberately breaks from the
+ *  other modes' single-seed idiom for this stated reason (§16.3). */
+const DEAD_MONEY_DEFAULT_SEEDS = 6;
+const DEAD_MONEY_DEFAULT_YEARS = 10;
+
+/** P3.1 crash-census reference: 60 seeds × 10 seasons, 19,200 team-seasons,
+ *  `_crash_census_census_60x10.json`. The L7 self-check target — if this
+ *  run's walk doesn't reproduce it, the walk (or the engine) moved. */
+const CENSUS_REFERENCE_MEAN_PCT = 4.9;
+const L7_TOLERANCE_PP = 0.25;
+
+async function reportDeadMoney(seedCount: number, years: number): Promise<void> {
+  console.log(`\nThe Liquidator — DEAD-MONEY BAR ("is our cap too forgiving?", real vs GMSim)`);
+  console.log(`  real side = OTC 2026 season only (current league year), n=32 teams, single season;`);
+  console.log(`  completed seasons are not exposed by the source; this is a current-year`);
+  console.log(`  settled-ish figure, not a multi-year average. (LIQUIDATOR_DEAD_MONEY.md §15)`);
+
+  const real = await loadReal2026DeadMoney();
+  const realMean = real.shares.reduce((a, b) => a + b, 0) / real.shares.length;
+  const realSd = sd(real.shares);
+  const realMedian = pct(real.shares, 0.5);
+  const realP75 = pct(real.shares, 0.75);
+  const realP90 = pct(real.shares, 0.9);
+  const realMax = pct(real.shares, 1);
+  console.log(`  real: OTC retrieved ${real.retrieved}, base cap $${real.baseCap.toLocaleString()}, n=${real.shares.length} teams\n`);
+
+  // Outlier-robustness check on the real side. 2026 is a single-season
+  // sample (§15.4 R3) — if one team's charge is doing most of the work on
+  // L1″'s verdict, that has to be visible, not buried in a mean.
+  const namedSorted = [...real.named].sort((a, b) => b.sharePct - a.sharePct);
+  console.log('  real-side top-3 outliers (context for L1″ — a single season, n=32):');
+  for (const t of namedSorted.slice(0, 3)) {
+    console.log(`    ${t.team.padEnd(14)} ${t.sharePct.toFixed(1)}% of cap`);
+  }
+  const withoutTop1 = real.shares.filter((_, i) => real.named[i]!.team !== namedSorted[0]!.team);
+  const meanWithoutTop1 = withoutTop1.reduce((a, b) => a + b, 0) / withoutTop1.length;
+  console.log(
+    `  real mean EXCLUDING the single largest outlier (${namedSorted[0]!.team}): ` +
+      `${meanWithoutTop1.toFixed(2)}% (vs ${realMean.toFixed(2)}% with it — ` +
+      `median is outlier-resistant by construction and needs no such check)\n`,
+  );
+
+  console.log(`  simulating ${seedCount} seeds x ${years} seasons (RECOMPUTED, never cached — §16.3)…`);
+  const sample = await loadDeadMoneySample(seedCount, years);
+  const simShares = sample.teamSeasons.map((t) => (t.salaryCap > 0 ? (t.deadMoney / t.salaryCap) * 100 : 0));
+  const simMean = simShares.reduce((a, b) => a + b, 0) / simShares.length;
+  const simMedian = pct(simShares, 0.5);
+  const simP75 = pct(simShares, 0.75);
+  const simP90 = pct(simShares, 0.9);
+  const simMax = pct(simShares, 1);
+  console.log(`  sim: ${sample.teamSeasons.length.toLocaleString()} team-seasons\n`);
+
+  // L7 self-check FIRST — everything downstream is meaningless if this fails.
+  const l7Gap = Math.abs(simMean - CENSUS_REFERENCE_MEAN_PCT);
+  const l7Pass = l7Gap <= L7_TOLERANCE_PP;
+  console.log('=== L7 SELF-CHECK (run before trusting anything below) ===');
+  console.log(`  this walk's GMSim mean : ${simMean.toFixed(2)}%`);
+  console.log(`  P3.1 census reference  : ${CENSUS_REFERENCE_MEAN_PCT.toFixed(2)}%  (n=60 seeds x 10 seasons)`);
+  console.log(`  gap                    : ${l7Gap.toFixed(3)}pp  (tolerance ±${L7_TOLERANCE_PP}pp)`);
+  console.log(
+    l7Pass
+      ? '  L7: PASS\n'
+      : '  L7: *** FAIL *** — this walk may be wrong, or the engine moved since 2026-08-13.\n' +
+          '       Diagnose before trusting anything below; the numbers still print for that purpose.\n',
+  );
+
+  // (a) Aggregate
+  const ciHalfWidth = (realSd / Math.sqrt(real.shares.length)) * 1.96;
+  const gap = simMean - realMean;
+  const drift = Math.abs(gap) > ciHalfWidth;
+  console.log('=== (a) Aggregate: league dead money as % of cap ===');
+  console.log(`  real mean  : ${realMean.toFixed(2)}%   (cross-team sd ${realSd.toFixed(2)}pp, 95% CI half-width ${ciHalfWidth.toFixed(2)}pp — the derived band)`);
+  console.log(`  GMSim mean : ${simMean.toFixed(2)}%`);
+  console.log(
+    `  raw gap    : ${gap >= 0 ? '+' : ''}${gap.toFixed(2)}pp` +
+      (drift ? '  <-- DRIFT (exceeds real mean’s 95% CI)' : '  (within real mean’s 95% CI, not flagged)') +
+      '\n',
+  );
+
+  // (b) Distribution
+  console.log('=== (b) Distribution: per-team dead money as % of cap ===');
+  console.log(`  ${'stat'.padEnd(6)} ${'real'.padStart(8)} ${'GMSim'.padStart(8)}`);
+  const distRow = (label: string, r: number, g: number): void =>
+    console.log(`  ${label.padEnd(6)} ${(r.toFixed(2) + '%').padStart(8)} ${(g.toFixed(2) + '%').padStart(8)}`);
+  distRow('p50', realMedian, simMedian);
+  distRow('p75', realP75, simP75);
+  distRow('p90', realP90, simP90);
+  distRow('max', realMax, simMax);
+  const medianGap = Math.abs(realMedian - simMedian);
+  const meanGap = Math.abs(gap);
+  console.log(
+    `\n  median gap: ${medianGap.toFixed(2)}pp   mean gap: ${meanGap.toFixed(2)}pp   ` +
+      `L2‴: median gap ${medianGap > meanGap ? 'IS' : 'is NOT'} larger than the mean gap\n`,
+  );
+
+  // (c) Channel decomposition — GMSim only, no real-side comparison possible.
+  const ch = sample.channels;
+  const channelList: [string, number][] = [
+    ['release', ch.release],
+    ['cap-cut', ch.capCut],
+    ['roster-floor', ch.rosterFloor],
+    ['void-years', ch.voidYears],
+    ['trade', ch.trade],
+    ['retirement', ch.retirement],
+    ['preseason-cut', ch.preseasonCut],
+  ];
+  const total = channelList.reduce((s, [, v]) => s + v, 0);
+  const sortedChannels = [...channelList].sort((a, b) => b[1] - a[1]);
+  console.log('=== (c) GMSim channel decomposition (diagnostic — no real-side comparison) ===');
+  console.log(`  ${'channel'.padEnd(14)} ${'$M'.padStart(10)}  ${'share'.padStart(7)}`);
+  for (const [name, v] of sortedChannels) {
+    const share = total > 0 ? (v / total) * 100 : 0;
+    console.log(`  ${name.padEnd(14)} ${(v / 1e6).toFixed(1).padStart(10)}  ${(share.toFixed(1) + '%').padStart(7)}`);
+  }
+  console.log(
+    `\n  (trade measured via deadMoneyTeamA+deadMoneyTeamB, not a $0-defaulting ` +
+      `'deadMoney' field — §14.4's binding item: never print trade as unmeasured $0.)\n`,
+  );
+
+  const newBooked = ch.retirement + ch.preseasonCut;
+
+  // Predictions
+  console.log('=== Predictions (LIQUIDATOR_DEAD_MONEY.md §16.5) ===');
+  if (realMean >= 6.5) {
+    console.log(`  L1″ CONFIRMED: real mean ${realMean.toFixed(2)}% >= 6.5%. GMSim's ${simMean.toFixed(2)}% is DRIFT.`);
+  } else if (realMean < 5.5) {
+    console.log(
+      `  L1″ FALSIFIED: real mean ${realMean.toFixed(2)}% < 5.5%. THE CAP-REALISM TRACK IS FINISHED — ` +
+        'report this as loudly as a drift finding; do not invent further fixes. Per §15.5, ' +
+        'Stage 2 (Wayback-sourced completed seasons) is REQUIRED before this ruling stands.',
+    );
+  } else {
+    console.log(
+      `  L1″ AMBIGUOUS: real mean ${realMean.toFixed(2)}% sits in the 5.5-6.5% band. ` +
+        'Per §15.5, Stage 2 (Wayback-sourced completed seasons) is REQUIRED before any ruling.',
+    );
+  }
+  console.log(
+    `  L2‴ ${medianGap > meanGap ? 'CONFIRMED' : 'FALSIFIED'}: median gap ${medianGap.toFixed(2)}pp ` +
+      `${medianGap > meanGap ? '>' : '<='} mean gap ${meanGap.toFixed(2)}pp.`,
+  );
+  console.log(
+    `  L3″ ${ch.retirement > 0 && ch.preseasonCut > 0 ? 'CONFIRMED' : 'FALSIFIED'}: retirement $${(ch.retirement / 1e6).toFixed(1)}M, ` +
+      `preseason-cut $${(ch.preseasonCut / 1e6).toFixed(1)}M — both ${ch.retirement > 0 && ch.preseasonCut > 0 ? 'material and non-zero' : 'NOT both non-zero'}.`,
+  );
+  const [largestName, largestValue] = sortedChannels[0]!;
+  const releaseIsLargest = largestName === 'release';
+  console.log(
+    `  L4″ ${releaseIsLargest && newBooked > ch.voidYears ? 'CONFIRMED' : 'FALSIFIED'}: ` +
+      `largest channel is ${largestName} $${(largestValue / 1e6).toFixed(1)}M (${total > 0 ? ((largestValue / total) * 100).toFixed(1) : '0.0'}%)` +
+      (releaseIsLargest
+        ? ''
+        : ` — NOT release (release is $${(ch.release / 1e6).toFixed(1)}M, ${total > 0 ? ((ch.release / total) * 100).toFixed(1) : '0.0'}%)`) +
+      `; retirement+preseason-cut $${(newBooked / 1e6).toFixed(1)}M ` +
+      `${newBooked > ch.voidYears ? '>' : '<='} void-years $${(ch.voidYears / 1e6).toFixed(1)}M.`,
+  );
+  console.log(`  L7  ${l7Pass ? 'CONFIRMED' : 'FALSIFIED'}: walk reproduced the n=60 reference within tolerance = ${l7Pass}.`);
+  console.log('');
+}
+
 async function main(): Promise<void> {
-  // `run liquidator [seed]`        → seed cap-structure report (Slice 1)
-  // `run liquidator fa [seed]`     → free-agency cap-structure report (Slice 2)
-  // `run liquidator gtd [seed]`    → seed guaranteed-money realism (Slice 3)
-  // `run liquidator gtd fa [seed]` → FA-signing guaranteed-money realism (Slice 3b)
+  // `run liquidator [seed]`             → seed cap-structure report (Slice 1)
+  // `run liquidator fa [seed]`          → free-agency cap-structure report (Slice 2)
+  // `run liquidator gtd [seed]`         → seed guaranteed-money realism (Slice 3)
+  // `run liquidator gtd fa [seed]`      → FA-signing guaranteed-money realism (Slice 3b)
+  // `run liquidator dead [seeds] [years]` → dead-money bar, P1.3 (Slice 4)
   const mode = process.argv[2];
   if (mode === 'fa') {
     await reportFreeAgency(process.argv[3] ?? 'liquidator');
@@ -435,6 +666,10 @@ async function main(): Promise<void> {
     } else {
       await reportGuarantees(process.argv[3] ?? 'liquidator');
     }
+  } else if (mode === 'dead') {
+    const seedCount = Number(process.argv[3]) || DEAD_MONEY_DEFAULT_SEEDS;
+    const years = Number(process.argv[4]) || DEAD_MONEY_DEFAULT_YEARS;
+    await reportDeadMoney(seedCount, years);
   } else {
     await reportSeeds(mode ?? 'liquidator');
   }

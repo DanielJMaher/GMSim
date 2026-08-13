@@ -470,6 +470,138 @@ interface LiquidatorLeague {
   contracts: Record<string, RawContract>;
 }
 
+// ── The Liquidator (P1.3): dead-money bar sim side ────────────────────────
+
+export interface DeadMoneyTeamSeason {
+  season: number;
+  teamId: string;
+  /** `deadMoneyByYear[0]` after `advanceSeason` — the correct OTC analogue
+   *  (LIQUIDATOR_DEAD_MONEY.md §3.2). */
+  deadMoney: number;
+  salaryCap: number;
+}
+
+/** GMSim-side dead-money channel totals ($), matching §3.3's channel
+ *  inventory plus the two P0.2 channels. `rosterFloor` is `cap-cut` split
+ *  by `forFloor` — Roster Floor fringe cuts reuse the cap-cut kind
+ *  (`roster-floor.ts` `applyFloorCut`), they are not a separate kind. */
+export interface DeadMoneyChannels {
+  release: number;
+  capCut: number;
+  rosterFloor: number;
+  voidYears: number;
+  trade: number;
+  retirement: number;
+  preseasonCut: number;
+}
+
+export interface DeadMoneySample {
+  teamSeasons: DeadMoneyTeamSeason[];
+  channels: DeadMoneyChannels;
+  seedCount: number;
+  years: number;
+}
+
+interface DeadMoneyTeam {
+  identity: { id: string };
+  deadMoneyByYear: readonly number[];
+}
+interface DeadMoneyTx {
+  kind: string;
+  deadMoney?: number;
+  forFloor?: true;
+  voidDeadMoney?: number;
+  deadMoneyTeamA?: number;
+  deadMoneyTeamB?: number;
+}
+interface DeadMoneyLeague {
+  salaryCap: number;
+  seasonNumber: number;
+  teams: Record<string, DeadMoneyTeam>;
+  transactionLog: readonly DeadMoneyTx[];
+}
+
+/**
+ * Forward-sim `seedCount` INDEPENDENT leagues (seeded `${seedPrefix}-1..N`)
+ * for `years` seasons each, recomputed fresh every call — NEVER cached
+ * (LIQUIDATOR_DEAD_MONEY.md §16.3: external data caches because it doesn't
+ * move when we edit the engine; this walk must NOT, or it goes stale
+ * silently on the next engine change). No settle-period exclusion —
+ * seasons 1..years are all recorded, matching the P3.1 crash-census
+ * methodology exactly (`_crash_census.mjs`) so its n=60 figures remain a
+ * valid L7 cross-check for a smaller default sample here.
+ *
+ * Collects, per league-season per team, `{ deadMoney, salaryCap }` read
+ * AFTER `advanceSeason` (§3.2), plus a running channel-decomposition tally
+ * over every newly-appended transaction each season.
+ */
+export async function loadDeadMoneySample(
+  seedCount: number,
+  years: number,
+  seedPrefix = 'liq-dead',
+): Promise<DeadMoneySample> {
+  const eng = await loadEngine();
+  const teamSeasons: DeadMoneyTeamSeason[] = [];
+  const channels: DeadMoneyChannels = {
+    release: 0,
+    capCut: 0,
+    rosterFloor: 0,
+    voidYears: 0,
+    trade: 0,
+    retirement: 0,
+    preseasonCut: 0,
+  };
+
+  for (let s = 1; s <= seedCount; s++) {
+    let league = eng.createLeague({ seed: `${seedPrefix}-${s}` }) as unknown as DeadMoneyLeague;
+    for (let y = 0; y < years; y++) {
+      const before = league.transactionLog.length;
+      league = eng.simulateSeason(league as unknown as EngineLeague) as unknown as DeadMoneyLeague;
+      league = eng.advanceSeason(league as unknown as EngineLeague) as unknown as DeadMoneyLeague;
+
+      for (const t of Object.values(league.teams)) {
+        teamSeasons.push({
+          season: league.seasonNumber,
+          teamId: t.identity.id,
+          deadMoney: t.deadMoneyByYear[0] ?? 0,
+          salaryCap: league.salaryCap,
+        });
+      }
+
+      for (let i = before; i < league.transactionLog.length; i++) {
+        const tx = league.transactionLog[i];
+        if (!tx) continue;
+        switch (tx.kind) {
+          case 'release':
+            channels.release += tx.deadMoney ?? 0;
+            break;
+          case 'cap-cut':
+            if (tx.forFloor) channels.rosterFloor += tx.deadMoney ?? 0;
+            else channels.capCut += tx.deadMoney ?? 0;
+            break;
+          case 'contract-expiration':
+            channels.voidYears += tx.voidDeadMoney ?? 0;
+            break;
+          case 'trade':
+            // §14.4's binding item: trade books via deadMoneyTeamA/B, NOT a
+            // `deadMoney` field — the pre-fix probe's `$0` reading was a key
+            // mismatch, not an absence. Both sides sum into one trade row.
+            channels.trade += (tx.deadMoneyTeamA ?? 0) + (tx.deadMoneyTeamB ?? 0);
+            break;
+          case 'retirement-dead-money':
+            channels.retirement += tx.deadMoney ?? 0;
+            break;
+          case 'preseason-cut-dead-money':
+            channels.preseasonCut += tx.deadMoney ?? 0;
+            break;
+        }
+      }
+    }
+  }
+
+  return { teamSeasons, channels, seedCount, years };
+}
+
 // ── The Headhunter: front-office firing/hiring ecology ───────────────────
 
 export interface HcFiringEvent {
