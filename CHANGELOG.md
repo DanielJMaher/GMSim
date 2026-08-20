@@ -14,6 +14,46 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Fixed
 
+- **Cap accounting silently dropped injured-reserve players from Team
+  Salary — three quarters of a chronic ~25%-of-cap underspend finding**
+  (design of record `docs/design-docs/CAP_UNDERSPEND_DIAGNOSIS.md`, Opus
+  diagnosis 2026-08-19, Sonnet execution "F1"). `teamCapUsage`
+  (`contracts/cap.ts`) summed `team.rosterIds` only; a player moved to
+  `injuredReserveIds` (`applyIrMoves`) kept his contract but his cap hit
+  silently left the books for the rest of the season. Not a calibration
+  call — the field's own doc comment says IR contracts "remain active,"
+  and the cash-side accounting (`contracts/cash.ts`) already counted them
+  correctly; `cap.ts` was the lone dissenter. Fix pools
+  `[...rosterIds, ...injuredReserveIds]` before the existing top-51
+  sort/truncation (the pool must form *before* the sort, not after, or an
+  IR player displaces a top-51 slot incorrectly) — zero new constants.
+  **Diagnosis found the finding's premise wrong**: it had been assumed to
+  re-confirm the known "restructure March-pinning thin" residual
+  (v0.172/v0.176); direct measurement retracted that — March pinning is
+  confirmed separate and untouched (57.6% of cap at the trigger point, 0
+  restructures fired, unmoved by this fix). The channel decomposition
+  closed to 0.01pp: IR (15.5pp) + practice squad (0.7pp, deliberately not
+  bundled, deferred) + the already-known dead-money shortfall (7.9pp) =
+  the whole gap, with live-player spend already *above* the real bar.
+  **Post-fix measured** (`_cap_rollover_baseline.mjs`, 6 seeds × 8
+  seasons, 1536 team-seasons): end-of-season unused cap **25.25% → 9.89%
+  mean / 9.52% median** (real 2025 bar: 4.53%/2.49%); offseason usage
+  unchanged (84.55%, was 84.52%); the true in-season over-cap tail is
+  0.3% (a *static* counterfactual predicted 10.4% — teams self-throttle
+  in-season signings almost completely). One falsifier tripped: 14.6% of
+  team-seasons now end with an active roster below 53 (as low as 48).
+  Traced rather than patched — the in-season compliance backstop this
+  would call for already exists (`enforceRosterFloor`, v0.186/v0.187.2)
+  and its cap-clearability ladder never once failed (zero
+  `roster-floor-violation`s across the walk); 100% of the shortfall traces
+  to that mechanism's own free-agent-supply guard, a genuinely separate
+  roster-construction/talent-pool question, not a cap defect. Recorded as
+  a named, non-blocking follow-up rather than built into this slice.
+  Gates: `contracts/cap.test.ts` 15/15 (2 new regression tests, incl. one
+  pinning that pooling happens *before* the top-51 sort) + 20 neighbour
+  files, 197/197 passed (4 pre-existing skips) + typecheck clean across
+  all 4 workspaces + Scorekeeper (12 seeds × 10 seasons, 65,280 sim
+  team-games, caches cleared) 21/21 checks in band, zero drift.
 - **Push gate — `pnpm test` alone never typechecked `apps/web`.** `apps/web`
   has zero test files, so `pnpm test` silently skipped its typecheck — this
   is exactly how a broken `App.tsx` (exhaustive `Transaction['kind']`

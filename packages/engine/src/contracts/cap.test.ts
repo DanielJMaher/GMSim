@@ -7,6 +7,7 @@ import {
   deadMoneyOnPreJune1Release,
 } from './cap.js';
 import type { Contract } from '../types/contract.js';
+import type { TeamState } from '../types/team.js';
 import { ContractId, PlayerId, TeamId } from '../types/ids.js';
 import { createLeague } from '../league/generate.js';
 
@@ -137,6 +138,52 @@ describe('teamCapUsage — top-51 vs all-53', () => {
 
     expect(teamCapUsage(teamWithDead, leagueOffseason)).toBe(baseOffseason + 5_000_000);
     expect(teamCapUsage(teamWithDead, leagueRegSeason)).toBe(baseRegSeason + 5_000_000);
+  });
+});
+
+describe('teamCapUsage — injured reserve (CAP_UNDERSPEND_DIAGNOSIS.md F1)', () => {
+  it("counts an IR player's cap hit", () => {
+    const base = createLeague({ seed: 'ir-basic' });
+    const team = Object.values(base.teams)[0]!;
+    const [irPlayerId, ...restRoster] = team.rosterIds;
+    const teamWithIr: TeamState = { ...team, rosterIds: restRoster, injuredReserveIds: [irPlayerId!] };
+    const teamNoIr: TeamState = { ...team, rosterIds: restRoster, injuredReserveIds: [] };
+    const leagueRegSeason = { ...base, phase: 'REGULAR_SEASON' as const };
+
+    const irPlayer = base.players[irPlayerId!]!;
+    const irContract = base.contracts[irPlayer.contractId!]!;
+
+    expect(teamCapUsage(teamWithIr, leagueRegSeason) - teamCapUsage(teamNoIr, leagueRegSeason)).toBe(
+      currentCapHit(irContract),
+    );
+  });
+
+  it('pools IR into the top-51 sort BEFORE truncating, not after', () => {
+    // Move the single most expensive rostered player to IR. Because he's
+    // the largest cap hit on the team, pooling him back in for the top-51
+    // sort must occupy a top-51 slot regardless of which list nominally
+    // holds him — so total usage is UNCHANGED. A naive implementation that
+    // summed the active roster's top-51 first and added IR hits after
+    // would move this total, because it wouldn't re-rank the pool.
+    const base = createLeague({ seed: 'ir-top51-pool' });
+    const team = Object.values(base.teams)[0]!;
+    expect(team.rosterIds.length).toBe(53);
+
+    const hits = team.rosterIds.map((id) => {
+      const player = base.players[id]!;
+      const contract = base.contracts[player.contractId!]!;
+      return { id, hit: currentCapHit(contract) };
+    });
+    hits.sort((a, b) => b.hit - a.hit);
+    const mostExpensiveId = hits[0]!.id;
+
+    const teamWithIr: TeamState = {
+      ...team,
+      rosterIds: team.rosterIds.filter((id) => id !== mostExpensiveId),
+      injuredReserveIds: [mostExpensiveId],
+    };
+
+    expect(teamCapUsage(teamWithIr, base)).toBe(teamCapUsage(team, base));
   });
 });
 

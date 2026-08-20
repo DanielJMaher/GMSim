@@ -51,6 +51,14 @@ export function currentCapHit(contract: Contract): number {
  * Sum the current-year cap hits for every contract on a team's roster,
  * plus the team's current-year dead-money charge.
  *
+ * Pools the active roster AND injured reserve — an IR contract "remains
+ * active" per its own field doc (types/team.ts) and the cash side already
+ * counts it (contracts/cash.ts); this function used to be the one
+ * dissenting consumer (CAP_UNDERSPEND_DIAGNOSIS.md §2). The pool must form
+ * BEFORE the top-51 sort: real Top-51 ranks every contracted player,
+ * reserve lists included, so an IR player can still occupy one of the 51
+ * counted slots.
+ *
  * NFL Top-51 rule: during the offseason (any phase other than
  * REGULAR_SEASON / PLAYOFFS), only the 51 largest cap hits count toward
  * the cap. The bottom 2 contracts on a 53-man roster are excluded.
@@ -58,7 +66,7 @@ export function currentCapHit(contract: Contract): number {
  */
 export function teamCapUsage(team: TeamState, league: LeagueState): number {
   const capHits: number[] = [];
-  for (const playerId of team.rosterIds) {
+  for (const playerId of [...team.rosterIds, ...team.injuredReserveIds]) {
     const player = league.players[playerId];
     if (!player || !player.contractId) continue;
     const contract = league.contracts[player.contractId];
