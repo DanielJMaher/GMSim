@@ -57,7 +57,7 @@ import { applyCapFloorExtensions } from '../transactions/extensions.js';
 import { applyCapRestructures } from '../transactions/restructures.js';
 import { enforceRosterFloor } from '../transactions/roster-floor.js';
 import { teamSeasonCash } from '../contracts/cash.js';
-import { unamortizedSigningBonus } from '../contracts/cap.js';
+import { unamortizedSigningBonus, addToYear } from '../contracts/cap.js';
 import { runProactiveTrades, releaseSurplusStarters } from '../transactions/proactive-trades.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
@@ -1009,10 +1009,14 @@ function applyPostSeasonFinalize(
     const postRetirementRoster = retirement.rosterIdsByTeam.get(teamId) ?? team.rosterIds;
     const restoredIr = team.injuredReserveIds.filter((id) => !retiredSet.has(id));
     const retirementDead = retirementDeadByTeam.get(teamId as TeamId) ?? 0;
+    // Not routed through splitDeadMoney/postJune1 (§18.5): league.phase still
+    // reads 'PLAYOFFS' here (this runs before the offseason phase stamp a
+    // few lines below in applyPostSeasonFinalize), and retirement is
+    // definitionally pre-June-1 regardless — deriving postJune1 dynamically
+    // at this specific call site would misread the stale phase, not extend
+    // the rule correctly. Always 100% current-year, as before.
     const deadMoneyByYear =
-      retirementDead > 0
-        ? [(team.deadMoneyByYear[0] ?? 0) + retirementDead, ...team.deadMoneyByYear.slice(1)]
-        : team.deadMoneyByYear;
+      retirementDead > 0 ? addToYear(team.deadMoneyByYear, 0, retirementDead) : team.deadMoneyByYear;
     teamsNext[teamId] = {
       ...team,
       rosterIds: [...postRetirementRoster, ...restoredIr],

@@ -12,6 +12,9 @@ import {
   deadMoneyOnPreJune1Release,
   teamCapUsage,
   unamortizedSigningBonus,
+  addToYear,
+  splitDeadMoney,
+  isOffseasonPhase,
 } from '../contracts/cap.js';
 import { makeFreeAgentContract } from './free-agency.js';
 import { auctionFreeAgent } from './fa-bidding.js';
@@ -139,6 +142,7 @@ export function applyCapCuts(league: LeagueState): LeagueState {
         teamId,
         candidate.playerId,
         candidate.deadMoney,
+        candidate.deadMoneyDeferred,
         candidate.saving,
       );
     }
@@ -181,6 +185,7 @@ export function applyMinimalCapCasualties(
         teamId,
         candidate.playerId,
         candidate.deadMoney,
+        candidate.deadMoneyDeferred,
         candidate.saving,
       );
     }
@@ -226,6 +231,11 @@ export function pickMinimalCasualty(
   // the count. Recomputing `teamCapUsage` on a hypothetical roster is
   // exact under whatever accounting the cap module applies.
   const usageNow = teamCapUsage(team, league);
+  // Shared everywhere this picker runs: the Week-1 boundary call is always
+  // pre-June-1, but roster-floor's mid-season fringe cut (rung 2) is not —
+  // deriving this from `league.phase` rather than hardcoding it is what
+  // makes that engagement split correctly with no separate code path (§18.5).
+  const postJune1 = !isOffseasonPhase(league.phase);
   let smallestSufficient: CutCandidate | null = null;
   let largest: CutCandidate | null = null;
   for (const playerId of team.rosterIds) {
@@ -234,15 +244,20 @@ export function pickMinimalCasualty(
     if (!player || !player.contractId) continue;
     const contract = league.contracts[player.contractId];
     if (!contract) continue;
-    const dead = deadMoneyOnPreJune1Release(contract);
+    const split = splitDeadMoney(contract, deadMoneyOnPreJune1Release(contract), postJune1);
     const hypo: TeamState = {
       ...team,
       rosterIds: team.rosterIds.filter((id) => id !== playerId),
-      deadMoneyByYear: addToYear(team.deadMoneyByYear, 0, dead),
+      deadMoneyByYear: addToYear(team.deadMoneyByYear, 0, split.currentYear),
     };
     const saving = usageNow - teamCapUsage(hypo, league);
     if (saving <= 0) continue;
-    const cand: CutCandidate = { playerId, deadMoney: dead, saving };
+    const cand: CutCandidate = {
+      playerId,
+      deadMoney: split.currentYear,
+      deadMoneyDeferred: split.nextYear,
+      saving,
+    };
     if (
       saving >= over &&
       (!smallestSufficient ||
@@ -264,22 +279,30 @@ export function pickMinimalCasualty(
 
 export interface CutCandidate {
   playerId: PlayerId;
+  /** Current-year dead money this cut charges. */
   deadMoney: number;
+  /**
+   * Post-June-1 rule (§18.5): the remainder deferred to next year's cap.
+   * Always 0 for the offseason candidates this file produces; roster-floor's
+   * mid-season fringe cut is the one caller that can see it non-zero.
+   */
+  deadMoneyDeferred: number;
   saving: number;
 }
 
 function pickCapCutCandidate(team: TeamState, league: LeagueState): CutCandidate | null {
+  const postJune1 = !isOffseasonPhase(league.phase);
   let best: CutCandidate | null = null;
   for (const playerId of team.rosterIds) {
     const player = league.players[playerId];
     if (!player || !player.contractId) continue;
     const contract = league.contracts[player.contractId];
     if (!contract) continue;
-    const dead = deadMoneyOnPreJune1Release(contract);
-    const saving = currentCapHit(contract) - dead;
+    const split = splitDeadMoney(contract, deadMoneyOnPreJune1Release(contract), postJune1);
+    const saving = currentCapHit(contract) - split.currentYear;
     if (saving <= 0) continue;
     if (!best || saving > best.saving || (saving === best.saving && playerId < best.playerId)) {
-      best = { playerId, deadMoney: dead, saving };
+      best = { playerId, deadMoney: split.currentYear, deadMoneyDeferred: split.nextYear, saving };
     }
   }
   return best;
@@ -294,6 +317,7 @@ function applyRelease(
   teamId: TeamId,
   playerId: PlayerId,
   deadMoney: number,
+  deadMoneyDeferred: number,
   saving: number,
 ): LeagueState {
   const team = league.teams[teamId]!;
@@ -305,7 +329,10 @@ function applyRelease(
     [teamId]: {
       ...team,
       rosterIds: team.rosterIds.filter((id) => id !== playerId),
-      deadMoneyByYear: addToYear(team.deadMoneyByYear, 0, deadMoney),
+      deadMoneyByYear:
+        deadMoneyDeferred > 0
+          ? addToYear(addToYear(team.deadMoneyByYear, 0, deadMoney), 1, deadMoneyDeferred)
+          : addToYear(team.deadMoneyByYear, 0, deadMoney),
     },
   } as Readonly<Record<TeamId, TeamState>>;
 
@@ -325,6 +352,7 @@ function applyRelease(
     playerId,
     contractId,
     deadMoney,
+    ...(deadMoneyDeferred > 0 ? { deadMoneyDeferred } : {}),
     capSaving: saving,
   };
 
@@ -335,17 +363,6 @@ function applyRelease(
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
     transactionLog: [...league.transactionLog, entry],
   };
-}
-
-function addToYear(
-  arr: readonly number[],
-  index: number,
-  amount: number,
-): readonly number[] {
-  const next = arr.slice();
-  while (next.length <= index) next.push(0);
-  next[index] = (next[index] ?? 0) + amount;
-  return next;
 }
 
 /**

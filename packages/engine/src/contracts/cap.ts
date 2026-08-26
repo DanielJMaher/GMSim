@@ -90,9 +90,67 @@ export function teamCapUsage(team: TeamState, league: LeagueState): number {
  * True for any phase where the top-51 cap rule applies. The all-53
  * accounting kicks in once the regular season opens and stays on
  * through the playoffs.
+ *
+ * Exported (LIQUIDATOR_DEAD_MONEY.md §18.5.2): the same partition is the
+ * CBA's June-1 boundary for dead-money timing — `!isOffseasonPhase(phase)`
+ * is "this transaction is happening after June 1." Both rules end at the
+ * same real-world moment (regular season kickoff), which is why one
+ * predicate serves both.
  */
-function isOffseasonPhase(phase: LeaguePhase): boolean {
+export function isOffseasonPhase(phase: LeaguePhase): boolean {
   return phase !== 'REGULAR_SEASON' && phase !== 'PLAYOFFS';
+}
+
+/**
+ * Shift `arr[index]` by `amount`, zero-filling any gap. The single home for
+ * what used to be four private copies (release/trade/offseason/roster-floor)
+ * — a precondition for anything ever writing to index >= 1
+ * (LIQUIDATOR_DEAD_MONEY.md §18.5.3 step 1).
+ */
+export function addToYear(
+  arr: readonly number[],
+  index: number,
+  amount: number,
+): readonly number[] {
+  const next = arr.slice();
+  while (next.length <= index) next.push(0);
+  next[index] = (next[index] ?? 0) + amount;
+  return next;
+}
+
+/** A dead-money charge split across the current and next league year. */
+export interface DeadMoneySplit {
+  currentYear: number;
+  nextYear: number;
+}
+
+/**
+ * CBA post-June-1 rule (LIQUIDATOR_DEAD_MONEY.md §18.5): a release, trade,
+ * or cut executed after June 1 charges only the CURRENT year's proration to
+ * this year's cap; the rest of the unamortized bonus becomes a charge on
+ * NEXT year's cap instead of accelerating in full. Pre-June-1, everything
+ * accelerates now, unchanged from the original rule.
+ *
+ * `postJune1` is a boolean, not a phase — `contracts/` must not import from
+ * `season/` (the reverse already happens), so callers derive the boundary
+ * themselves, typically via `!isOffseasonPhase(league.phase)`.
+ *
+ * `currentYear` keeps one year of proration plus any guaranteed-base
+ * component already folded into `totalDead` — owed where it's owed, and
+ * conservative (it does not defer). Invariant: `currentYear + nextYear ===
+ * totalDead` for every input.
+ */
+export function splitDeadMoney(
+  contract: Contract,
+  totalDead: number,
+  postJune1: boolean,
+): DeadMoneySplit {
+  if (!postJune1) return { currentYear: totalDead, nextYear: 0 };
+  const nextYear = Math.max(
+    0,
+    unamortizedSigningBonus(contract) - signingBonusProrationPerYear(contract),
+  );
+  return { currentYear: totalDead - nextYear, nextYear };
 }
 
 /**

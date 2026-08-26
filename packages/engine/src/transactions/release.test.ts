@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
 import { releasePlayer } from './release.js';
-import { deadMoneyOnPreJune1Release, teamCapUsage } from '../contracts/cap.js';
+import { deadMoneyOnPreJune1Release, teamCapUsage, splitDeadMoney } from '../contracts/cap.js';
 import type { PlayerId } from '../types/ids.js';
 
 function freshLeague() {
@@ -48,7 +48,10 @@ describe('releasePlayer', () => {
     expect(next.contracts[contractId]).toBeUndefined();
   });
 
-  it('accrues dead money to the team for the current year', () => {
+  it('accrues dead money to the team for the current year (pre-June-1 / offseason)', () => {
+    // freshLeague() doesn't override phase, so it keeps createLeague's
+    // default offseason phase — pre-June-1, everything accelerates now
+    // (LIQUIDATOR_DEAD_MONEY.md §18.5).
     const league = freshLeague();
     const { team, playerId } = pickAnyPlayerOnTeam(league);
     const contract = league.contracts[league.players[playerId]!.contractId!]!;
@@ -58,12 +61,30 @@ describe('releasePlayer', () => {
 
     const nextTeam = next.teams[team.identity.id]!;
     expect(nextTeam.deadMoneyByYear[0]).toBe(expectedDead);
+    expect(nextTeam.deadMoneyByYear[1] ?? 0).toBe(0);
+  });
+
+  it('splits dead money across years for a post-June-1 (in-season) release', () => {
+    const league = { ...freshLeague(), phase: 'REGULAR_SEASON' as const };
+    const { team, playerId } = pickAnyPlayerOnTeam(league);
+    const contract = league.contracts[league.players[playerId]!.contractId!]!;
+    const totalDead = deadMoneyOnPreJune1Release(contract);
+    const expectedSplit = splitDeadMoney(contract, totalDead, true);
+
+    const next = releasePlayer(league, playerId);
+
+    const nextTeam = next.teams[team.identity.id]!;
+    expect(nextTeam.deadMoneyByYear[0]).toBe(expectedSplit.currentYear);
+    expect(nextTeam.deadMoneyByYear[1] ?? 0).toBe(expectedSplit.nextYear);
+    expect(expectedSplit.currentYear + expectedSplit.nextYear).toBe(totalDead);
   });
 
   it('teamCapUsage reflects dead money + drops the contract', () => {
     // Use REGULAR_SEASON phase so all 53 contracts count toward the cap;
     // this lets the test compare delta cleanly against a single contract's
-    // cap hit. (Top-51 accounting kicks in during offseason phases.)
+    // cap hit. (Top-51 accounting kicks in during offseason phases.) This
+    // is ALSO a post-June-1 release (§18.5), so the current-year charge is
+    // the split's currentYear share, not the whole remaining proration.
     const league = { ...freshLeague(), phase: 'REGULAR_SEASON' as const };
     const { team, playerId } = pickAnyPlayerOnTeam(league);
     const contract = league.contracts[league.players[playerId]!.contractId!]!;
@@ -72,8 +93,9 @@ describe('releasePlayer', () => {
     const next = releasePlayer(league, playerId);
     const after = teamCapUsage(next.teams[team.identity.id]!, next);
 
-    // Cap delta = dead money - the contract's prior current-year cap hit.
-    const dead = deadMoneyOnPreJune1Release(contract);
+    // Cap delta = current-year dead money - the contract's prior current-year cap hit.
+    const totalDead = deadMoneyOnPreJune1Release(contract);
+    const split = splitDeadMoney(contract, totalDead, true);
     const yearOfDeal = contract.realYears - contract.yearsRemaining;
     const proration = Math.round(
       contract.signingBonus / Math.min(contract.realYears + contract.voidYears, 5),
@@ -83,7 +105,7 @@ describe('releasePlayer', () => {
       (contract.rosterBonuses[yearOfDeal] ?? 0) +
       (contract.workoutBonuses[yearOfDeal] ?? 0) +
       proration;
-    expect(after - before).toBe(dead - priorHit);
+    expect(after - before).toBe(split.currentYear - priorHit);
   });
 
   it('accumulates dead money across multiple releases on the same team', () => {

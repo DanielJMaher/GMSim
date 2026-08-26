@@ -9,10 +9,10 @@ import type {
 } from '../types/ids.js';
 import { ContractId } from '../types/ids.js';
 import type { Transaction } from '../types/transaction.js';
-import { currentCapHit, teamCapUsage } from '../contracts/cap.js';
+import { currentCapHit, teamCapUsage, addToYear } from '../contracts/cap.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
 import { restructureContract, MIN_CONVERTIBLE } from './restructures.js';
-import { pickMinimalCasualty, sortedFreeAgentPool } from './offseason.js';
+import { pickMinimalCasualty, sortedFreeAgentPool, type CutCandidate } from './offseason.js';
 import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
@@ -394,12 +394,12 @@ function applyFloorRestructure(
   };
 }
 
-/** Apply a floor fringe cut: release the vet, log a `forFloor` cap-cut. */
-function applyFloorCut(
-  league: LeagueState,
-  teamId: TeamId,
-  cut: { playerId: PlayerId; deadMoney: number; saving: number },
-): LeagueState {
+/**
+ * Apply a floor fringe cut: release the vet, log a `forFloor` cap-cut.
+ * The one caller of `pickMinimalCasualty` that can see `deadMoneyDeferred`
+ * non-zero — this engagement can fire mid-season, post-June-1 (§18.5).
+ */
+function applyFloorCut(league: LeagueState, teamId: TeamId, cut: CutCandidate): LeagueState {
   const team = league.teams[teamId]!;
   const player = league.players[cut.playerId]!;
   const contractId = player.contractId!;
@@ -409,7 +409,10 @@ function applyFloorCut(
     [teamId]: {
       ...team,
       rosterIds: team.rosterIds.filter((id) => id !== cut.playerId),
-      deadMoneyByYear: addToYear(team.deadMoneyByYear, 0, cut.deadMoney),
+      deadMoneyByYear:
+        cut.deadMoneyDeferred > 0
+          ? addToYear(addToYear(team.deadMoneyByYear, 0, cut.deadMoney), 1, cut.deadMoneyDeferred)
+          : addToYear(team.deadMoneyByYear, 0, cut.deadMoney),
     },
   } as Readonly<Record<TeamId, TeamState>>;
 
@@ -429,6 +432,7 @@ function applyFloorCut(
     playerId: cut.playerId,
     contractId,
     deadMoney: cut.deadMoney,
+    ...(cut.deadMoneyDeferred > 0 ? { deadMoneyDeferred: cut.deadMoneyDeferred } : {}),
     capSaving: cut.saving,
     forFloor: true,
   };
@@ -555,9 +559,3 @@ function countFreeAgents(league: LeagueState): number {
   return n;
 }
 
-function addToYear(arr: readonly number[], index: number, amount: number): readonly number[] {
-  const next = arr.slice();
-  while (next.length <= index) next.push(0);
-  next[index] = (next[index] ?? 0) + amount;
-  return next;
-}

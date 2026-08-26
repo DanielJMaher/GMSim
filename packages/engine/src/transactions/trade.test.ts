@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { createLeague } from '../league/generate.js';
 import { executeTrade } from './trade.js';
-import { teamCapUsage, signingBonusProrationPerYear } from '../contracts/cap.js';
+import {
+  teamCapUsage,
+  signingBonusProrationPerYear,
+  splitDeadMoney,
+  unamortizedSigningBonus,
+} from '../contracts/cap.js';
 import type { LeagueState } from '../types/league.js';
 import type { TeamId, PlayerId } from '../types/ids.js';
 
@@ -96,13 +101,40 @@ describe('executeTrade', () => {
     expect(newContract.signingBonus).toBe(0);
   });
 
-  it('accrues remaining proration as dead money on each trading team', () => {
+  it('splits remaining proration across years for a post-June-1 (in-season) trade', () => {
+    // freshLeague() stamps REGULAR_SEASON — i.e. every trade in this file is
+    // post-June-1 (LIQUIDATOR_DEAD_MONEY.md §18.5) — so the whole remaining
+    // proration no longer lands entirely in year 0; only the split's
+    // current-year share does, with the rest deferred to year 1.
     const league = freshLeague('trade-dead');
     const { teamA, teamB, aPlayer, bPlayer } = pickTwoTeamsAndPlayers(league);
     const aContract = league.contracts[league.players[aPlayer]!.contractId!]!;
     const bContract = league.contracts[league.players[bPlayer]!.contractId!]!;
-    const expectedDeadA = signingBonusProrationPerYear(aContract) * aContract.yearsRemaining;
-    const expectedDeadB = signingBonusProrationPerYear(bContract) * bContract.yearsRemaining;
+    const splitA = splitDeadMoney(aContract, unamortizedSigningBonus(aContract), true);
+    const splitB = splitDeadMoney(bContract, unamortizedSigningBonus(bContract), true);
+
+    const next = executeTrade(league, {
+      teamAId: teamA.identity.id,
+      teamBId: teamB.identity.id,
+      playersAToB: [aPlayer],
+      playersBToA: [bPlayer],
+    });
+
+    const newA = next.teams[teamA.identity.id]!;
+    const newB = next.teams[teamB.identity.id]!;
+    expect(newA.deadMoneyByYear[0] ?? 0).toBe(splitA.currentYear);
+    expect(newA.deadMoneyByYear[1] ?? 0).toBe(splitA.nextYear);
+    expect(newB.deadMoneyByYear[0] ?? 0).toBe(splitB.currentYear);
+    expect(newB.deadMoneyByYear[1] ?? 0).toBe(splitB.nextYear);
+  });
+
+  it('accelerates the whole remaining proration into year 0 for a pre-June-1 (offseason) trade', () => {
+    const league: LeagueState = { ...createLeague({ seed: 'trade-dead-offseason' }), phase: 'OFFSEASON_PRE_FA' };
+    const { teamA, teamB, aPlayer, bPlayer } = pickTwoTeamsAndPlayers(league);
+    const aContract = league.contracts[league.players[aPlayer]!.contractId!]!;
+    const bContract = league.contracts[league.players[bPlayer]!.contractId!]!;
+    const expectedDeadA = unamortizedSigningBonus(aContract);
+    const expectedDeadB = unamortizedSigningBonus(bContract);
 
     const next = executeTrade(league, {
       teamAId: teamA.identity.id,
@@ -114,7 +146,9 @@ describe('executeTrade', () => {
     const newA = next.teams[teamA.identity.id]!;
     const newB = next.teams[teamB.identity.id]!;
     expect(newA.deadMoneyByYear[0] ?? 0).toBe(expectedDeadA);
+    expect(newA.deadMoneyByYear[1] ?? 0).toBe(0);
     expect(newB.deadMoneyByYear[0] ?? 0).toBe(expectedDeadB);
+    expect(newB.deadMoneyByYear[1] ?? 0).toBe(0);
   });
 
   it('handles multi-player trades on each side', () => {

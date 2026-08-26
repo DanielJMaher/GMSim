@@ -14,6 +14,45 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Fixed
 
+- **Dead money from an in-season trade or cut was booked as if it happened
+  before June 1, even though most of it doesn't — a pure accounting-date
+  bug, not a stock/shape problem** (design of record
+  `docs/design-docs/LIQUIDATOR_DEAD_MONEY.md` §18.5, Opus-diagnosed
+  2026-08-25, Sonnet execution "Fix 2"). The CBA's actual rule: a release,
+  trade, or cut executed after June 1 charges only the current year's bonus
+  proration to the current cap; the remainder becomes next year's charge
+  instead of accelerating in full. GMSim charged 100% of every in-season
+  trade/cut to the current year regardless of date — traceable to
+  `deadMoneyByYear` never being written past index 0. Fix: a shared
+  `splitDeadMoney`/`addToYear` primitive in `contracts/cap.ts`, keyed off
+  `!isOffseasonPhase(league.phase)` (the same boundary the offseason Top-51
+  rule already computes), wired through release/trade/offseason/
+  preseason-cuts/roster-floor — zero new constants, the boundary is derived
+  from the engine's own calendar, not invented. One finding beyond the
+  design's own scope table: `enforceRosterFloor`'s mid-season affordability
+  fallback also stamps `REGULAR_SEASON`, so its rung-2 fringe cut now splits
+  too — this fell out correctly from applying the shared predicate
+  faithfully everywhere rather than special-casing `trade.ts` alone.
+  Retirement dead money is deliberately NOT wired dynamically:
+  `league.phase` still reads `'PLAYOFFS'` at the point its charge is
+  computed inside `applyPostSeasonFinalize` (the offseason phase stamp
+  happens later in the same tick), so deriving the split there would
+  misread a stale value. **Measured** (`liquidator dead`, 6 seeds × 10
+  seasons): league mean dead money **5.02% → 5.89% of cap** (predicted
+  band 5.6–6.4%, dead-center), median rose far less than the mean (as
+  predicted, directionally). **Correctness fix that happens to help, not
+  the cure**: real dead money is 14.48% of cap — the gap moved from
+  -9.46pp to -8.59pp, essentially unchanged in kind. Channel
+  decomposition: preseason-cut 31.4%, release 30.7%, trade 23.0% (fell
+  from ~35% pre-fix because more trade dead money now correctly sits in
+  next year's ledger, invisible to this snapshot until it rolls forward),
+  retirement 11.2%, void-years 3.5%. Gates: `cap.test.ts` 15/15,
+  `release.test.ts` 9/9 (2 new), `trade.test.ts` 16/16 (1 rewritten + 1
+  new), `offseason.test.ts`/`preseason-cuts.test.ts`/`roster-floor.test.ts`/
+  `retirement.test.ts`/`cash.test.ts` all green, 153/153 neighbour files on
+  first pass. Full engine suite 1208/12 (was 1206/12). Scorekeeper (12
+  seeds × 10 seasons) 20/20 in band, zero drift — confirms this is a pure
+  accounting relocation with no football-outcome effect.
 - **Cap accounting silently dropped injured-reserve players from Team
   Salary — three quarters of a chronic ~25%-of-cap underspend finding**
   (design of record `docs/design-docs/CAP_UNDERSPEND_DIAGNOSIS.md`, Opus

@@ -11,7 +11,13 @@ import type {
   ContractId as ContractIdType,
 } from '../types/ids.js';
 import { ContractId } from '../types/ids.js';
-import { unamortizedSigningBonus } from '../contracts/cap.js';
+import {
+  unamortizedSigningBonus,
+  addToYear,
+  splitDeadMoney,
+  isOffseasonPhase,
+  type DeadMoneySplit,
+} from '../contracts/cap.js';
 import { mintContractId, contractIdCollisionEntry } from '../contracts/mint.js';
 
 /**
@@ -84,8 +90,10 @@ export interface TradeMetadata {
  *   - Both rosters spliced — players removed from origin, added to
  *     destination. (PS / IR lists are not eligible to trade in this
  *     MVP — only active rosterIds.)
- *   - Each trading team accrues remaining-proration dead money for
- *     the players they traded away into `team.deadMoneyByYear[0]`.
+ *   - Each trading team accrues remaining-proration dead money for the
+ *     players they traded away into `team.deadMoneyByYear`, split across
+ *     the current and next year if the trade is happening post-June-1
+ *     (LIQUIDATOR_DEAD_MONEY.md §18.5).
  *
  * Throws if a listed player is not on the listed team's active roster
  * or has a no-trade clause without override.
@@ -106,9 +114,12 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
   validatePickOwnership(league, payload.teamAId, picksAToB);
   validatePickOwnership(league, payload.teamBId, picksBToA);
 
-  // Collect per-side dead money from trade-away proration acceleration.
-  const deadA = sumRemainingProration(league, payload.playersAToB);
-  const deadB = sumRemainingProration(league, payload.playersBToA);
+  // Collect per-side dead money from trade-away proration acceleration,
+  // split across years if this trade is happening post-June-1 (§18.5) —
+  // 87% of GMSim's trades fire in-season, which is exactly that case.
+  const postJune1 = !isOffseasonPhase(league.phase);
+  const deadA = sumRemainingProration(league, payload.playersAToB, postJune1);
+  const deadB = sumRemainingProration(league, payload.playersBToA, postJune1);
 
   // Build new contracts on receiving teams.
   const replacements: { player: Player; contract: Contract; oldContractId: ContractIdType }[] = [];
@@ -160,7 +171,10 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
       ...teamA.rosterIds.filter((id) => !aMovingOut.has(id)),
       ...payload.playersBToA,
     ],
-    deadMoneyByYear: addToYear(teamA.deadMoneyByYear, 0, deadA),
+    deadMoneyByYear:
+      deadA.nextYear > 0
+        ? addToYear(addToYear(teamA.deadMoneyByYear, 0, deadA.currentYear), 1, deadA.nextYear)
+        : addToYear(teamA.deadMoneyByYear, 0, deadA.currentYear),
   };
   const teamBNext: TeamState = {
     ...teamB,
@@ -168,7 +182,10 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
       ...teamB.rosterIds.filter((id) => !bMovingOut.has(id)),
       ...payload.playersAToB,
     ],
-    deadMoneyByYear: addToYear(teamB.deadMoneyByYear, 0, deadB),
+    deadMoneyByYear:
+      deadB.nextYear > 0
+        ? addToYear(addToYear(teamB.deadMoneyByYear, 0, deadB.currentYear), 1, deadB.nextYear)
+        : addToYear(teamB.deadMoneyByYear, 0, deadB.currentYear),
   };
 
   // Apply pick ownership flips. Same-id pick stays in the asset list
@@ -193,8 +210,10 @@ export function executeTrade(league: LeagueState, payload: TradePayload): League
     teamBId: payload.teamBId,
     playersAToB: [...payload.playersAToB],
     playersBToA: [...payload.playersBToA],
-    deadMoneyTeamA: deadA,
-    deadMoneyTeamB: deadB,
+    deadMoneyTeamA: deadA.currentYear,
+    deadMoneyTeamB: deadB.currentYear,
+    ...(deadA.nextYear > 0 ? { deadMoneyDeferredTeamA: deadA.nextYear } : {}),
+    ...(deadB.nextYear > 0 ? { deadMoneyDeferredTeamB: deadB.nextYear } : {}),
     ...(picksAToB.length > 0 ? { picksAToB: [...picksAToB] } : {}),
     ...(picksBToA.length > 0 ? { picksBToA: [...picksBToA] } : {}),
     ...(meta?.initiatorTeamId ? { initiatorTeamId: meta.initiatorTeamId } : {}),
@@ -273,16 +292,28 @@ function validateTradeSide(
   }
 }
 
-function sumRemainingProration(league: LeagueState, playerIds: readonly PlayerId[]): number {
-  let total = 0;
+/**
+ * Sum per-player unamortized proration (real + void years — a traded
+ * void-year deal's whole remaining proration accelerates onto the trading
+ * team, v0.176), split per-contract by `postJune1` and summed across both
+ * halves. Per-contract, not pooled-then-split: each traded player's own
+ * proration rate determines their own next-year share (§18.5.3).
+ */
+function sumRemainingProration(
+  league: LeagueState,
+  playerIds: readonly PlayerId[],
+  postJune1: boolean,
+): DeadMoneySplit {
+  let currentYear = 0;
+  let nextYear = 0;
   for (const playerId of playerIds) {
     const player = league.players[playerId]!;
     const contract = league.contracts[player.contractId!]!;
-    // Unamortized (real + void years) — a traded void-year deal's whole
-    // remaining proration accelerates onto the trading team (v0.176).
-    total += unamortizedSigningBonus(contract);
+    const split = splitDeadMoney(contract, unamortizedSigningBonus(contract), postJune1);
+    currentYear += split.currentYear;
+    nextYear += split.nextYear;
   }
-  return total;
+  return { currentYear, nextYear };
 }
 
 /**
@@ -328,15 +359,4 @@ function buildTradeContract(
     contract: newContract,
     oldContractId: oldContract.id,
   };
-}
-
-function addToYear(
-  arr: readonly number[],
-  index: number,
-  amount: number,
-): readonly number[] {
-  const next = arr.slice();
-  while (next.length <= index) next.push(0);
-  next[index] = (next[index] ?? 0) + amount;
-  return next;
 }

@@ -4,7 +4,7 @@ import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
 import type { Transaction } from '../types/transaction.js';
 import type { PlayerId, TeamId } from '../types/ids.js';
-import { unamortizedSigningBonus } from '../contracts/cap.js';
+import { unamortizedSigningBonus, addToYear, splitDeadMoney, isOffseasonPhase } from '../contracts/cap.js';
 
 const ACTIVE_ROSTER_LIMIT = 53;
 
@@ -91,21 +91,29 @@ export function preseasonCuts(
     if (cutSet.size === 0) continue;
     anyChange = true;
 
-    let deadMoney = 0;
+    // Dynamic, not hardcoded (LIQUIDATOR_DEAD_MONEY.md §18.5.1): under
+    // today's calendar POST_DRAFT_ROSTER (where this pass runs) is
+    // pre-June-1, so this is always false in practice — but deriving it
+    // from `league.phase` means a future re-dating of that phase to the
+    // real August cutdown window starts splitting automatically.
+    const postJune1 = !isOffseasonPhase(league.phase);
+    let deadMoneyCurrent = 0;
+    let deadMoneyNext = 0;
     for (const pid of cutSet) {
       const player = players[pid];
       if (!player) continue;
       if (player.contractId) {
         const contract = contracts[player.contractId];
         if (contract) {
-          const dead = unamortizedSigningBonus(contract);
-          deadMoney += dead;
+          const split = splitDeadMoney(contract, unamortizedSigningBonus(contract), postJune1);
+          deadMoneyCurrent += split.currentYear;
+          deadMoneyNext += split.nextYear;
           // Logged per-player like every other dead-money channel
           // (`preseason-cut-dead-money`, LIQUIDATOR_DEAD_MONEY.md §14.1) —
           // even when dead is 0, most cuts are (rookie-pool/vet-min bodies
           // with little-to-no bonus), so the log isn't spammed with
           // zero-dollar noise.
-          if (dead > 0) {
+          if (split.currentYear > 0 || split.nextYear > 0) {
             logEntries.push({
               kind: 'preseason-cut-dead-money',
               tick: league.tick,
@@ -113,7 +121,8 @@ export function preseasonCuts(
               teamId: team.identity.id,
               playerId: pid,
               contractId: contract.id,
-              deadMoney: dead,
+              deadMoney: split.currentYear,
+              ...(split.nextYear > 0 ? { deadMoneyDeferred: split.nextYear } : {}),
             });
           }
         }
@@ -123,9 +132,11 @@ export function preseasonCuts(
     }
 
     const deadMoneyByYear =
-      deadMoney > 0
-        ? [(team.deadMoneyByYear[0] ?? 0) + deadMoney, ...team.deadMoneyByYear.slice(1)]
-        : team.deadMoneyByYear;
+      deadMoneyNext > 0
+        ? addToYear(addToYear(team.deadMoneyByYear, 0, deadMoneyCurrent), 1, deadMoneyNext)
+        : deadMoneyCurrent > 0
+          ? addToYear(team.deadMoneyByYear, 0, deadMoneyCurrent)
+          : team.deadMoneyByYear;
     teams[team.identity.id] = {
       ...team,
       rosterIds: team.rosterIds.filter((id) => !cutSet.has(id)),

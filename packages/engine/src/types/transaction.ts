@@ -112,6 +112,13 @@ export interface TransactionRelease extends TransactionBase {
   contractId: ContractId;
   /** Dead money charged to the team's current-year cap from this release. */
   deadMoney: number;
+  /**
+   * Post-June-1 rule (LIQUIDATOR_DEAD_MONEY.md §18.5): the remainder of the
+   * unamortized bonus, deferred to NEXT year's cap instead of accelerating
+   * now. Absent (not zero) for a pre-June-1 release, where everything
+   * accelerates into `deadMoney`.
+   */
+  deadMoneyDeferred?: number;
 }
 
 export interface TransactionFreeAgentSign extends TransactionBase {
@@ -218,10 +225,18 @@ export interface TransactionTrade extends TransactionBase {
   picksAToB?: readonly DraftPickId[];
   /** Draft picks moving from team B to team A (v0.47.0+). */
   picksBToA?: readonly DraftPickId[];
-  /** Dead money accrued to team A from accelerated proration on traded-away players. */
+  /** Current-year dead money accrued to team A from traded-away players. */
   deadMoneyTeamA: number;
-  /** Dead money accrued to team B from accelerated proration on traded-away players. */
+  /** Current-year dead money accrued to team B from traded-away players. */
   deadMoneyTeamB: number;
+  /**
+   * Post-June-1 rule (LIQUIDATOR_DEAD_MONEY.md §18.5): team A's share of
+   * proration deferred to NEXT year's cap. Absent when the trade is
+   * pre-June-1 (everything lands in `deadMoneyTeamA`).
+   */
+  deadMoneyDeferredTeamA?: number;
+  /** Team B's deferred share — see `deadMoneyDeferredTeamA`. */
+  deadMoneyDeferredTeamB?: number;
   /**
    * Team that initiated the trade conversation. Optional — manual /
    * pre-v0.24 trades omit it. For proactive trades the initiator is
@@ -379,7 +394,14 @@ export interface TransactionCapCut extends TransactionBase {
   playerId: PlayerId;
   contractId: ContractId;
   deadMoney: number;
-  /** Cap saving (cap-hit minus dead money) the cut produced. */
+  /**
+   * Post-June-1 rule (LIQUIDATOR_DEAD_MONEY.md §18.5): the remainder
+   * deferred to NEXT year's cap. Absent for a pre-June-1 cut — the only
+   * case that can defer today is a mid-season Roster Floor fringe cut
+   * (`forFloor`, rung 2); ordinary offseason compliance cuts never do.
+   */
+  deadMoneyDeferred?: number;
+  /** Cap saving (cap-hit minus current-year dead money) the cut produced. */
   capSaving: number;
   /**
    * True when the cut was a Roster Floor fringe cut (`enforceRosterFloor`,
@@ -636,6 +658,15 @@ export interface TransactionPreseasonCutDeadMoney extends TransactionBase {
   playerId: PlayerId;
   contractId: ContractId;
   deadMoney: number;
+  /**
+   * Post-June-1 rule (LIQUIDATOR_DEAD_MONEY.md §18.5): under today's
+   * calendar `POST_DRAFT_ROSTER` (where preseason cuts run) is pre-June-1,
+   * so this is always absent — but the field is wired dynamically off
+   * `league.phase` rather than hardcoded off, so a future re-dating of that
+   * phase to the real August cutdown window starts populating it with no
+   * further code change.
+   */
+  deadMoneyDeferred?: number;
 }
 
 /**

@@ -8,7 +8,7 @@ import type {
   TeamId,
   ContractId as ContractIdType,
 } from '../types/ids.js';
-import { deadMoneyOnPreJune1Release } from '../contracts/cap.js';
+import { deadMoneyOnPreJune1Release, addToYear, splitDeadMoney, isOffseasonPhase } from '../contracts/cap.js';
 
 /**
  * Release a player from their team. Returns a new LeagueState with:
@@ -17,11 +17,9 @@ import { deadMoneyOnPreJune1Release } from '../contracts/cap.js';
  *   - Player.teamId / contractId cleared (player becomes a free agent).
  *   - The player's contract removed from league.contracts.
  *   - Resulting dead money accrued to the team's current-year
- *     deadMoneyByYear[0] charge.
- *
- * Dead money uses the pre-June-1 model — the entire remaining proration
- * accelerates onto the current year, plus any guaranteed remaining base.
- * The post-June-1 split (current year + next year) is a follow-up.
+ *     deadMoneyByYear[0] charge, split across years if `league.phase`
+ *     says this release is happening post-June-1 (LIQUIDATOR_DEAD_MONEY.md
+ *     §18.5).
  *
  * Throws if the player is not on the given player's team or has no
  * contract — releasing a free agent is a no-op the caller should catch.
@@ -51,12 +49,16 @@ export function releasePlayer(league: LeagueState, playerId: PlayerId): LeagueSt
     );
   }
 
-  const dead = deadMoneyOnPreJune1Release(contract);
+  const totalDead = deadMoneyOnPreJune1Release(contract);
+  const split = splitDeadMoney(contract, totalDead, !isOffseasonPhase(league.phase));
 
   const updatedTeam: TeamState = {
     ...team,
     rosterIds: team.rosterIds.filter((id) => id !== playerId),
-    deadMoneyByYear: addToYear(team.deadMoneyByYear, 0, dead),
+    deadMoneyByYear:
+      split.nextYear > 0
+        ? addToYear(addToYear(team.deadMoneyByYear, 0, split.currentYear), 1, split.nextYear)
+        : addToYear(team.deadMoneyByYear, 0, split.currentYear),
   };
 
   const updatedPlayer: Player = {
@@ -81,7 +83,8 @@ export function releasePlayer(league: LeagueState, playerId: PlayerId): LeagueSt
     teamId: team.identity.id,
     playerId,
     contractId: contract.id,
-    deadMoney: dead,
+    deadMoney: split.currentYear,
+    ...(split.nextYear > 0 ? { deadMoneyDeferred: split.nextYear } : {}),
   };
 
   return {
@@ -91,15 +94,4 @@ export function releasePlayer(league: LeagueState, playerId: PlayerId): LeagueSt
     contracts: contractsNext as Readonly<Record<ContractIdType, Contract>>,
     transactionLog: [...league.transactionLog, entry],
   };
-}
-
-function addToYear(
-  arr: readonly number[],
-  index: number,
-  amount: number,
-): readonly number[] {
-  const next = arr.slice();
-  while (next.length <= index) next.push(0);
-  next[index] = (next[index] ?? 0) + amount;
-  return next;
 }
