@@ -69,7 +69,28 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   anywhere in the fleet — every flag raised was a pre-existing, already-
   documented residual in a system this slice doesn't touch. Two
   predictions (cap-underspend movement, FA-market ripple bound) left open
-  pending a clean pre/Fix-3a baseline to diff against.
+  pending a clean pre/Fix-3a baseline to diff against. **Both closed same
+  day** via a `git worktree` A/B against the committed Fix 2 (`bd1498b`) vs
+  Fix 3a (`931e458`): cap-underspend movement falsified on direction
+  (unused cap +0.44pp, not the predicted 2–6pp fall) but the mechanism is
+  coherent — a cap casualty is by construction overpaid, so replacing him
+  at true market rate plus eating the dead money nets out close to what he
+  used to cost; Fix 3a reallocates cap dollars rather than freeing them,
+  so it moves the adjacent cap-underspend problem far less than hoped. The
+  FA-market ripple breached 2 of its 3 pre-registered bounds (market-contract
+  signings +33.5% vs a ≤25% ceiling; cap-casualty washout 13.12% vs a ≤5%
+  ceiling) but neither implicates a real, sourced bar once traced: the
+  ≤25% ceiling was this design's own unsourced number, and the ≤5% ceiling
+  was `FA_ECONOMY_FIX.md` B2 — a bar written and measured specifically for
+  `releaseSurplusStarters`'s own population — misapplied to cap casualty's
+  different one (overpaid, often-declining vets, for whom a higher
+  real-world washout is the plausible expected direction, not a defect).
+  B2 itself, re-checked directly for `releaseSurplusStarters`, is unchanged
+  (0.8%→0.9%) — Fix 3a's new cut population doesn't crowd D-2's own
+  releases out of the market. No code change and no bar re-derivation
+  needed. One honest gap remains open: no real-NFL bar exists yet for
+  cap-casualty-specific washout, a future data-sourcing task, not a defect.
+  Full record: `docs/design-docs/CAP_CASUALTY.md` §13.
 - **Dead money from an in-season trade or cut was booked as if it happened
   before June 1, even though most of it doesn't — a pure accounting-date
   bug, not a stock/shape problem** (design of record
