@@ -596,6 +596,7 @@ async function reportDeadMoney(seedCount: number, years: number): Promise<void> 
     ['trade', ch.trade],
     ['retirement', ch.retirement],
     ['preseason-cut', ch.preseasonCut],
+    ['cap-casualty', ch.capCasualty],
   ];
   const total = channelList.reduce((s, [, v]) => s + v, 0);
   const sortedChannels = [...channelList].sort((a, b) => b[1] - a[1]);

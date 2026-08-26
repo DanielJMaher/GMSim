@@ -142,6 +142,15 @@ export { runWeeklyPoaching } from '../transactions/poach.js';
 // Roster — the post-draft UDFA scramble.
 export { runUdfaPromotion } from '../draft/udfa.js';
 
+// Cap casualties (CAP_CASUALTY.md; LIQUIDATOR_DEAD_MONEY.md §18.7.4 "Fix 3a")
+// — the decision the engine did not have: escape a contract that stopped
+// earning its number, comparing the cap hit to the player's own open-market
+// APY. Fires regardless of cap compliance. Real bars: R2 (43 eight-figure
+// dead-money charges league-wide) and R5 (19 of 32 teams carry one).
+export { applyCapCasualties, evaluateCapCasualty } from './cap-casualty.js';
+export type { CapCasualtyEvaluation } from './cap-casualty.js';
+export { positionScaledStandardY1, BID_MULTIPLIER_CEIL } from '../transactions/fa-bidding.js';
+
 // Front office — Black Monday owner evaluations, the firing ladder, and
 // the Dec–Jan hiring window (GM hire/fire design doc, S1).
 export {

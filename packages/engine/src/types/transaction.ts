@@ -410,6 +410,13 @@ export interface TransactionCapCut extends TransactionBase {
    * compliance cuts.
    */
   forFloor?: true;
+  /**
+   * True when the cut was a value-driven CAP CASUALTY (`npc-ai/cap-casualty.ts`,
+   * CAP_CASUALTY.md) rather than a cap-compliance or roster-floor cut — the
+   * contract cost more than the player's own open-market price and escaping it
+   * freed cap. Absent on every other cut.
+   */
+  capCasualty?: true;
 }
 
 /**

@@ -136,7 +136,7 @@ export function signFreeAgent(
  * per team), with STARs taking a modest discount vs. their multi-year
  * extension value.
  */
-interface FreeAgentDealShape {
+export interface FreeAgentDealShape {
   realYears: number;
   baseSalary: number;
   signingBonus: number;
@@ -176,7 +176,10 @@ interface FreeAgentDealShape {
 // reasons); lifting the headline restores the calibrated realized spend.
 // TIER_STANDARD_Y1 (fa-bidding.ts) moves in lockstep — the auction divisor
 // and the deal shape must share an anchor or the multiplier double-counts.
-const FA_DEAL_BY_TIER: Record<TalentTier, FreeAgentDealShape> = {
+// Exported (v0.193, `CAP_CASUALTY.md` §9.1 test 9) so `npc-ai/cap-casualty.test.ts`
+// can assert the `TIER_STANDARD_Y1` APY identity directly against this table
+// instead of duplicating its four values.
+export const FA_DEAL_BY_TIER: Record<TalentTier, FreeAgentDealShape> = {
   STAR: {
     realYears: 4,
     baseSalary: 9_900_000,

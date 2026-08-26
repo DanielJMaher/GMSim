@@ -493,6 +493,9 @@ export interface DeadMoneyChannels {
   trade: number;
   retirement: number;
   preseasonCut: number;
+  /** Value-driven cuts (`npc-ai/cap-casualty.ts`, `CAP_CASUALTY.md`) — a
+   *  `cap-cut` flagged `capCasualty` rather than `forFloor`. */
+  capCasualty: number;
 }
 
 export interface DeadMoneySample {
@@ -510,6 +513,7 @@ interface DeadMoneyTx {
   kind: string;
   deadMoney?: number;
   forFloor?: true;
+  capCasualty?: true;
   voidDeadMoney?: number;
   deadMoneyTeamA?: number;
   deadMoneyTeamB?: number;
@@ -550,6 +554,7 @@ export async function loadDeadMoneySample(
     trade: 0,
     retirement: 0,
     preseasonCut: 0,
+    capCasualty: 0,
   };
 
   for (let s = 1; s <= seedCount; s++) {
@@ -577,6 +582,7 @@ export async function loadDeadMoneySample(
             break;
           case 'cap-cut':
             if (tx.forFloor) channels.rosterFloor += tx.deadMoney ?? 0;
+            else if (tx.capCasualty) channels.capCasualty += tx.deadMoney ?? 0;
             else channels.capCut += tx.deadMoney ?? 0;
             break;
           case 'contract-expiration':

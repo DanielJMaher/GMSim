@@ -14,6 +14,62 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Fixed
 
+- **The engine had no decision anywhere that compared a contract's cap hit
+  to the player's value — the real NFL's defining March event (eat the
+  dead money, escape a deal that stopped earning its number) was not
+  mis-tuned, it was absent** (design of record `docs/design-docs/
+  CAP_CASUALTY.md`, Opus-designed 2026-08-26, Sonnet execution "Fix 3a",
+  LIQUIDATOR Fix 3). Root cause, traced: every cap-cut/restructure path in
+  the engine is gated on cap PRESSURE (`usage > salaryCap` or `> 92%`), but
+  GMSim teams sit ~10% under the cap on average, so those gates almost
+  never fire; the one path that fires in volume
+  (`releaseSurplusStarters`) is a position-count decision that never reads
+  a cap hit. New NPC decision module `npc-ai/cap-casualty.ts`:
+  `applyCapCasualties` fires regardless of cap compliance, comparing a
+  contract's `currentCapHit` against `positionScaledStandardY1` — the
+  open-market APY the engine's own FA auction would price that player at
+  today, at his *current* tier and position. Introduces zero new tunables:
+  every term is already derived from real OTC data or already calibrated
+  against it. Deliberately avoids `evaluatePlayerValue` (the abstract
+  trade-value scale) for the comparison — that is the exact wall
+  `FRANCHISE_TAG.md` §13.1 hit and correctly refused to climb by inventing
+  a value→dollars conversion constant; this design compares dollars to
+  dollars instead. Runs first in `applyOffseasonTransactions`, ahead of
+  restructures (restructure-then-cut accelerates an artificially enlarged
+  bonus — a sequence a real front office never runs), and reuses
+  `TransactionCapCut` with a new `capCasualty?: true` flag rather than a
+  new `Transaction['kind']` — no `App.tsx`/`news.ts` exhaustive-switch
+  changes, avoiding the exact defect class that broke the v0.191.0 Pages
+  deploy. Along the way, corrected a falsified provenance comment on
+  `TIER_STANDARD_Y1` (documented as a "Year-1 cap hit"; it is arithmetically
+  the tier's APY, proven exactly against `FA_DEAL_BY_TIER` — value
+  unchanged, only the label was wrong since v0.176). **Measured**
+  (`liquidator dead` 6×10 + an independent `_cap_casualty_post.mjs` 3×10
+  walk): league mean dead money **5.89% → 13.07–13.10% of cap**, closing
+  the -8.59pp gap to real (14.48%) down to **~-1.4pp**. Eight-figure
+  (≥$10M) dead-money charges **8.1 → 31.4/league-season** (real 43); 55.6%
+  of team-seasons carry ≥1 (real 59.4%). The rule's own pre-registered
+  severity stop-ship check (charges must skew mid-tier, not grow) initially
+  read as failed when measured in raw dollars averaged across the
+  10-season walk — a methodology artifact of 6%/yr cap growth blending
+  different cap eras into one mean, not a real defect — and passed cleanly
+  once corrected to cap-relative terms (5.63% of cap per charge, flat
+  across seasons, between this design's own 5.38% point prediction and the
+  real bar's 6.22%). Named residual: mean age at cut (26.5) undershoots the
+  real ~29–31 mark, attributed to the position-relative re-grade sliding
+  players out of tier younger than real careers age out — not closed this
+  slice (would need an invented age-gate constant). Gates: new
+  `cap-casualty.test.ts` 10/10, 12 flagged neighbour files 138/141 (3
+  pre-existing skips, 0 failures, none needed adjustment), full monorepo
+  typecheck clean. Scorekeeper 20/20 in band, zero drift — the standing
+  accepted residuals (W-L pass/rush delta, season-wins-sd) moved within
+  their existing bands, confirming no football-level regression despite
+  this changing roster composition. A full `gates full` sweep plus
+  Goatinator (12×20) and the Barterer swept clean of any *new* drift
+  anywhere in the fleet — every flag raised was a pre-existing, already-
+  documented residual in a system this slice doesn't touch. Two
+  predictions (cap-underspend movement, FA-market ripple bound) left open
+  pending a clean pre/Fix-3a baseline to diff against.
 - **Dead money from an in-season trade or cut was booked as if it happened
   before June 1, even though most of it doesn't — a pure accounting-date
   bug, not a stock/shape problem** (design of record

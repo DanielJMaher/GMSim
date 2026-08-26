@@ -134,18 +134,31 @@ export interface PreferenceFactors {
 }
 
 /**
- * Standard Year-1 cap hit for each tier — the anchor the auction
- * scales around. Tier separation is deliberately steep (a STAR anchor
- * ~15× a FRINGE one) so the position-scaled top-of-market (a STAR QB)
- * reaches real OTC territory while the common STARTER/BACKUP churn stays
- * cheap — the two tells The Liquidator's `run liquidator fa` flagged.
- * Per-FA prices vary inside a bounded window (see `BID_MULTIPLIER_FLOOR`
- * / `BID_MULTIPLIER_CEIL`) rather than letting fit × need × cap
- * composition push individual bids unbounded above the anchor.
+ * Standard tier ANCHOR — the dollar reference the auction scales around.
+ * Tier separation is deliberately steep (a STAR anchor ~15× a FRINGE one)
+ * so the position-scaled top-of-market (a STAR QB) reaches real OTC
+ * territory while the common STARTER/BACKUP churn stays cheap — the two
+ * tells The Liquidator's `run liquidator fa` flagged. Per-FA prices vary
+ * inside a bounded window (see `BID_MULTIPLIER_FLOOR` / `BID_MULTIPLIER_CEIL`)
+ * rather than letting fit × need × cap composition push individual bids
+ * unbounded above the anchor.
+ *
+ * ⚠️ **Despite the name, this is each tier's APY, not a Year-1 cap hit**
+ * (`CAP_CASUALTY.md` §4.2 — the name and this comment have been wrong since
+ * v0.176). It reproduces `FA_DEAL_BY_TIER`'s `(baseSalary × realYears +
+ * signingBonus) / realYears` exactly for all four tiers; the *realized*
+ * Year-1 cap hit runs below it (the escalating `baseShape` front-loads
+ * less than the flat APY). This is why `positionScaledStandardY1` is a
+ * valid open-market APY unit to compare a `currentCapHit` against
+ * (`npc-ai/cap-casualty.ts`) — no rename in this slice, the value is used
+ * consistently (`auctionFreeAgent`'s divisor and `makeFreeAgentContract`
+ * both act on APY), only the label lied.
  */
 // v0.176: lifted +10% in lockstep with `FA_DEAL_BY_TIER` (see the anchor-lift
 // note there) — the divisor and the deal shape must share an anchor.
-const TIER_STANDARD_Y1: Record<Player['tier'], number> = {
+// Exported (v0.193) so `npc-ai/cap-casualty.test.ts` can assert the §4.2 APY
+// identity against `FA_DEAL_BY_TIER` directly rather than duplicating values.
+export const TIER_STANDARD_Y1: Record<Player['tier'], number> = {
   STAR: 16_500_000,
   STARTER: 3_520_000,
   BACKUP: 1_100_000,
@@ -163,7 +176,13 @@ const TIER_STANDARD_Y1: Record<Player['tier'], number> = {
  * cap band tracks the v0.18.x baseline.
  */
 const BID_MULTIPLIER_FLOOR = 0.7;
-const BID_MULTIPLIER_CEIL = 1.2;
+/**
+ * Also reused, unchanged, as `npc-ai/cap-casualty.ts`'s "most a replacement
+ * can cost" bound (`CAP_CASUALTY.md` §4.2, condition C1): a contract only
+ * qualifies as a cap casualty when it costs more than the TOP of what the
+ * live auction would pay for a player of his current tier and position.
+ */
+export const BID_MULTIPLIER_CEIL = 1.2;
 /**
  * Minimum cap factor for a team behind the cash-floor pace (cap-realism
  * Slice 3) — floor-squeezed teams bid near tier-standard instead of
@@ -195,8 +214,15 @@ export const CASH_LAG_OVERPAY_SLOPE = 3.0;
  * UNSCALED `TIER_STANDARD_Y1` on purpose — that lets the position premium
  * flow through into the contract that `makeFreeAgentContract` scales from
  * the tier shape, rather than cancelling out.
+ *
+ * Exported (v0.193, `CAP_CASUALTY.md` §4.2/§7.2) as the dollar market unit
+ * `npc-ai/cap-casualty.ts` compares a contract's `currentCapHit` against —
+ * the open-market APY for this player at his CURRENT tier and position,
+ * today's cap. No new constant: every term here is already derived from
+ * real OTC data (`positionSalaryFactor`) or already calibrated against it
+ * (`TIER_STANDARD_Y1`, `FA_PREMIUM_DAMPEN`).
  */
-function positionScaledStandardY1(player: Player, league: LeagueState): number {
+export function positionScaledStandardY1(player: Player, league: LeagueState): number {
   // Anchored dollars × current-cap ratio (v0.176): the auction's dollar
   // reference tracks the growing ceiling, so the veteran market re-prices
   // endogenously instead of decaying as a share of cap.

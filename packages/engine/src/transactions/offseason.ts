@@ -137,7 +137,7 @@ export function applyCapCuts(league: LeagueState): LeagueState {
       const candidate = pickCapCutCandidate(team, working);
       if (!candidate) break;
 
-      working = applyRelease(
+      working = applyCapCutRelease(
         working,
         teamId,
         candidate.playerId,
@@ -158,6 +158,13 @@ export function applyCapCuts(league: LeagueState): LeagueState {
  * change. Real cutdown casualties are the cheapest sufficient vet: cut
  * the SMALLEST positive saving that clears the overage alone, falling
  * back to the largest when no single cut suffices.
+ *
+ * ⚠️ NOT TO BE CONFUSED with `npc-ai/cap-casualty.ts`'s `applyCapCasualties`
+ * (`CAP_CASUALTY.md`) — that is a VALUE decision (is this contract worth its
+ * price, evaluated regardless of cap room) that runs first, every offseason.
+ * This is a cap-PRESSURE compliance backstop (is this team over the cap right
+ * now) that only fires when `applyCapCuts` already left a team over. Adjacent
+ * names, different mechanics: this one is always cap-gated; the other never is.
  */
 export function applyMinimalCapCasualties(
   league: LeagueState,
@@ -180,7 +187,7 @@ export function applyMinimalCapCasualties(
       const target = over + shortAfterCut * leagueMinimumSalary(working.salaryCap);
       const candidate = pickMinimalCasualty(team, working, target, protectedPlayerIds);
       if (!candidate) break;
-      working = applyRelease(
+      working = applyCapCutRelease(
         working,
         teamId,
         candidate.playerId,
@@ -309,16 +316,21 @@ function pickCapCutCandidate(team: TeamState, league: LeagueState): CutCandidate
 }
 
 /**
- * Inline release primitive used by cap-cuts. Mirrors transactions/release.ts
- * but precomputes the dead money so the candidate-picker isn't recomputing.
+ * Release primitive shared by every cap-cut caller in this file, and (v0.193,
+ * `CAP_CASUALTY.md` §7.2) by `npc-ai/cap-casualty.ts`. Mirrors
+ * transactions/release.ts but precomputes the dead money so the
+ * candidate-picker isn't recomputing. `flags` is spread into the logged
+ * `cap-cut` transaction (`forFloor`/`capCasualty`) — bit-identical to the
+ * prior `applyRelease` when omitted.
  */
-function applyRelease(
+export function applyCapCutRelease(
   league: LeagueState,
   teamId: TeamId,
   playerId: PlayerId,
   deadMoney: number,
   deadMoneyDeferred: number,
   saving: number,
+  flags?: { forFloor?: true; capCasualty?: true },
 ): LeagueState {
   const team = league.teams[teamId]!;
   const player = league.players[playerId]!;
@@ -354,6 +366,7 @@ function applyRelease(
     deadMoney,
     ...(deadMoneyDeferred > 0 ? { deadMoneyDeferred } : {}),
     capSaving: saving,
+    ...flags,
   };
 
   return {

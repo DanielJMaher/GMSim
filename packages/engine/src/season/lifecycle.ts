@@ -136,6 +136,7 @@ import {
   runPostSeasonFrontOffice,
   runInSeasonFirings,
 } from '../npc-ai/front-office.js';
+import { applyCapCasualties } from '../npc-ai/cap-casualty.js';
 import { generateHotSeatReports } from '../media/hot-seat.js';
 
 const SECONDS_PER_LEAGUE_YEAR = WEEKS_PER_LEAGUE_YEAR;
@@ -1065,14 +1066,24 @@ function applyPostSeasonFinalize(
 
 // ─── Phase 2: OFFSEASON_TRANSACTIONS ────────────────────────────────────
 //
-// Re-sign window → contract expirations → cap cuts → proactive trades →
-// NFL scouting cycle → FA refill → practice squad → mood drift → final
-// watch lists.
+// Cap casualties → restructures → re-sign window → franchise tag →
+// contract expirations → cap cuts → proactive trades → NFL scouting cycle →
+// FA refill → practice squad → mood drift → final watch lists.
 
 function applyOffseasonTransactions(
   league: LeagueState,
   prng: PrngClass,
 ): LeagueState {
+  // Cap casualties FIRST (CAP_CASUALTY.md; LIQUIDATOR_DEAD_MONEY.md §18.7.4).
+  // The real February/March order: a team identifies the contracts that stopped
+  // earning their number and eats the dead money BEFORE it budgets for its own
+  // re-signs, its tag and the market. Ahead of restructures on purpose —
+  // converting a player's base into prorated bonus and then cutting him
+  // accelerates the enlarged bonus, which is the one sequence a real front
+  // office never runs. Unlike every other cut path in the engine this one is
+  // NOT gated on cap pressure (§18.7.4's named law-3 trap): a team $50M under
+  // the cap still cuts a player whose deal is above his market.
+  let offseason = applyCapCasualties(league);
   // Teams keep their own expiring players BEFORE the market opens
   // (v0.148): tier/age/mood-driven desire + cap gate, franchise QBs
   // floored — only what they don't (or can't) keep reaches the auction.
@@ -1084,7 +1095,7 @@ function applyOffseasonTransactions(
   // throttle can spend. In the current underspent equilibrium most teams sit
   // far below the trigger; the pass becomes load-bearing when the Slice 3
   // cash floor holds league spend near the cap.
-  let offseason = applyCapRestructures(league, league.tick);
+  offseason = applyCapRestructures(offseason, league.tick);
   offseason = applyResigningWindow(prng.fork('re-sign-window'), offseason, offseason.tick);
   // Franchise tag (FRANCHISE_TAG.md) -- must run here: AFTER the re-sign
   // window (it operates on exactly what that window failed to retain) and
