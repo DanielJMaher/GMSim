@@ -11,6 +11,7 @@ import type {
 import type { Prng } from '../prng/index.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { ROSTER_BLUEPRINT_53, QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
+import { computeStarterCaliberIds } from '../players/starter-caliber.js';
 import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { executeTrade } from './trade.js';
@@ -89,11 +90,14 @@ export function runProactiveTrades(
 
   const blueprintByPos = new Map<Position, number>();
   for (const slot of ROSTER_BLUEPRINT_53) blueprintByPos.set(slot.position, slot.count);
+  // Track 1 (2026-08-04/05): computed ONCE per call, not per-team-per-position
+  // — see starter-caliber.ts's PERF note.
+  const starterCaliberIds = computeStarterCaliberIds(Object.values(league.players));
 
   const candidates: TradeCandidate[] = [
-    ...collectPositionalNeedCandidates(league, blueprintByPos),
+    ...collectPositionalNeedCandidates(league, blueprintByPos, starterCaliberIds),
     ...collectSchemeFitSwapCandidates(league),
-    ...collectRebuilderFireSaleCandidates(league, blueprintByPos),
+    ...collectRebuilderFireSaleCandidates(league, blueprintByPos, starterCaliberIds),
   ];
 
   // Highest priority first; deterministic tiebreak.
@@ -197,9 +201,28 @@ export function runProactiveTrades(
  * existing `applyMinimalCapCasualties` pass later in the same offseason
  * pipeline (`season/lifecycle.ts`) is the established backstop for the rare
  * case a release itself tips a team over for its current year.
+ *
+ * Track 1 (2026-08-04/05, `docs/design-docs/TALENT_ALLOCATION.md` §10.3/§12):
+ * "starter-calibre" is now `computeStarterCaliberIds` (fine-position,
+ * league-relative), not `player.tier` — see `starter-caliber.ts` for why the
+ * tier gate under-counted the marginal 2nd-best player at every position.
+ *
+ * Rookie-contract exemption (§10.2's NFL-feel constraint): real two-starter
+ * rooms are overwhelmingly the SUCCESSION pattern (Love behind Rodgers,
+ * Mahomes behind Smith) — releasing a young drafted player sitting behind a
+ * starter is viscerally wrong, even when he is technically surplus. Players
+ * still on their rookie contract (`draftRound !== null`, `experienceYears <
+ * 4` — the real 4-year rookie wage scale) are excluded from the release
+ * pool; if every surplus player at a position happens to be rookie-exempt,
+ * nobody is released there this pass (a team may legitimately be sitting on
+ * multiple young players competing for a job).
  */
 export function releaseSurplusStarters(league: LeagueState): LeagueState {
   let working = league;
+  // Track 1: computed ONCE per call, not per-team-per-position.
+  const starterCaliberIds = computeStarterCaliberIds(Object.values(league.players));
+  const isRookieExempt = (p: Player): boolean =>
+    p.draftRound !== null && p.experienceYears < 4;
 
   for (const teamId of Object.keys(league.teams) as TeamId[]) {
     const team = working.teams[teamId];
@@ -209,7 +232,7 @@ export function releaseSurplusStarters(league: LeagueState): LeagueState {
     for (const playerId of team.rosterIds) {
       const player = working.players[playerId];
       if (!player) continue;
-      if (player.tier !== 'STAR' && player.tier !== 'STARTER') continue;
+      if (!starterCaliberIds.has(player.id)) continue;
       const arr = byPosition.get(player.position) ?? [];
       arr.push(player);
       byPosition.set(player.position, arr);
@@ -233,7 +256,12 @@ export function releaseSurplusStarters(league: LeagueState): LeagueState {
       const surplusCount = players.length - target;
       if (surplusCount <= 0) continue;
 
-      const ranked = [...players].sort(
+      // Surplus is counted over the WHOLE starter-calibre group (a young
+      // rookie-contract QB still occupies a real supply slot); the release
+      // pool below excludes rookie-exempt players, so the actual release
+      // may fall short of `surplusCount` — that's correct, not a bug.
+      const releasable = players.filter((p) => !isRookieExempt(p));
+      const ranked = [...releasable].sort(
         (a, b) =>
           evaluatePlayerValue(team, a, working).total -
           evaluatePlayerValue(team, b, working).total,
@@ -382,6 +410,7 @@ const TIER_RANK: Record<Player['tier'], number> = {
 function collectPositionalNeedCandidates(
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
+  starterCaliberIds: ReadonlySet<PlayerId>,
 ): TradeCandidate[] {
   const out: TradeCandidate[] = [];
   const teamIds = (Object.keys(league.teams) as TeamId[]).sort();
@@ -390,7 +419,7 @@ function collectPositionalNeedCandidates(
     const buyer = league.teams[buyerId]!;
     if (!BUYER_WINDOWS.has(buyer.competitiveWindow)) continue;
 
-    const buyerNeeds = positionDeficits(buyer, league, blueprintByPos);
+    const buyerNeeds = positionDeficits(buyer, league, blueprintByPos, starterCaliberIds);
     if (buyerNeeds.size === 0) continue;
 
     for (const [needPos] of buyerNeeds) {
@@ -398,8 +427,8 @@ function collectPositionalNeedCandidates(
         if (sellerId === buyerId) continue;
         const seller = league.teams[sellerId]!;
 
-        const sellerStarsAndStarters = playersAtPosition(seller, league, needPos).filter(
-          (p) => p.tier === 'STAR' || p.tier === 'STARTER',
+        const sellerStarsAndStarters = playersAtPosition(seller, league, needPos).filter((p) =>
+          starterCaliberIds.has(p.id),
         );
         if (sellerStarsAndStarters.length === 0) continue;
 
@@ -445,7 +474,13 @@ function collectPositionalNeedCandidates(
         // Return piece — buyer's lowest-tier player at one of the
         // seller's hole positions, falling back to a body at any
         // position if the seller has no holes.
-        const returnPiece = pickReturnPiece(buyer, seller, league, blueprintByPos);
+        const returnPiece = pickReturnPiece(
+          buyer,
+          seller,
+          league,
+          blueprintByPos,
+          starterCaliberIds,
+        );
         if (!returnPiece) continue;
 
         // 5-factor gate: both teams must perceive a positive net.
@@ -619,6 +654,7 @@ const FIRESALE_BUYER_WINDOWS: ReadonlySet<CompetitiveWindow> = new Set([
 function collectRebuilderFireSaleCandidates(
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
+  starterCaliberIds: ReadonlySet<PlayerId>,
 ): TradeCandidate[] {
   const out: TradeCandidate[] = [];
   const teamIds = (Object.keys(league.teams) as TeamId[]).sort();
@@ -664,7 +700,7 @@ function collectRebuilderFireSaleCandidates(
         if (!FIRESALE_BUYER_WINDOWS.has(buyer.competitiveWindow)) continue;
 
         // Buyer must have a positional hole at the vet's position.
-        const buyerNeeds = positionDeficits(buyer, league, blueprintByPos);
+        const buyerNeeds = positionDeficits(buyer, league, blueprintByPos, starterCaliberIds);
         if (!buyerNeeds.has(acquire.position)) continue;
 
         // Buyer cap room for the vet's current hit + safety.
@@ -783,12 +819,13 @@ function positionDeficits(
   team: TeamState,
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
+  starterCaliberIds: ReadonlySet<PlayerId>,
 ): Map<Position, number> {
   const counts = new Map<Position, number>();
   for (const playerId of team.rosterIds) {
     const player = league.players[playerId];
     if (!player) continue;
-    if (player.tier !== 'STAR' && player.tier !== 'STARTER') continue;
+    if (!starterCaliberIds.has(player.id)) continue;
     counts.set(player.position, (counts.get(player.position) ?? 0) + 1);
   }
   const deficits = new Map<Position, number>();
@@ -873,8 +910,9 @@ function pickReturnPiece(
   seller: TeamState,
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
+  starterCaliberIds: ReadonlySet<PlayerId>,
 ): Player | null {
-  const sellerHoles = positionDeficits(seller, league, blueprintByPos);
+  const sellerHoles = positionDeficits(seller, league, blueprintByPos, starterCaliberIds);
 
   // Build the buyer's candidate return pool — BACKUP/FRINGE only,
   // contracted, no NTC. STARs/STARTERs aren't sent back in the MVP;

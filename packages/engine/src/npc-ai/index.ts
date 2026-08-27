@@ -63,6 +63,12 @@ export { qbUpgradeDesire } from '../draft/team-needs.js';
 // every position and letting talent pile up where it landed.
 export { QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
 
+// Track 1 (2026-08-04/05, `TALENT_ALLOCATION.md` §10.3/§12): who actually
+// COUNTS as starter-calibre for the quality-depth decisions above — a
+// fine-position, league-relative percentile rank, not `player.tier` (which
+// under-counted the marginal 2nd-best player at every position by design).
+export { computeStarterCaliberIds } from '../players/starter-caliber.js';
+
 // Trades — in-season weekly trade matching + the deadline/proactive lane
 // (fire-sales, contender consolidation).
 export { runWeeklyNpcTrades } from '../transactions/npc-trade.js';

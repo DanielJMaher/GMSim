@@ -145,10 +145,37 @@ describe('applyCapFloorExtensions', () => {
           contracts: { ...raw.contracts, [c.id]: cheapened } as LeagueState['contracts'],
         };
         const frac = teamCapUsage(team, league) / league.salaryCap;
-        if (frac >= 0.885 && frac <= 0.915) {
-          fixture = { league, teamId: team.identity.id, playerId: pid };
-          break;
-        }
+        if (frac < 0.885 || frac > 0.915) continue;
+
+        // The cap-fraction window is a proxy, not a guarantee: whichever
+        // team/player it matches also needs the OTHER underpaid-player
+        // pool on that roster to stay quiet at the compliant floor (a
+        // generation-order-sensitive fact — any upstream roster-shape
+        // change, e.g. the Talent Allocation Track 2 blueprint edit,
+        // 2026-08-05, can shift which team/player this loop finds first).
+        // Verify the actual invariant the test needs before accepting the
+        // fixture, rather than assuming the proxy window is sufficient.
+        const candTeamId = team.identity.id;
+        const candResigns = (l: LeagueState) =>
+          l.transactionLog.filter((t) => t.kind === 're-sign' && t.teamId === candTeamId).length;
+        const candTeam = league.teams[candTeamId as keyof typeof league.teams]!;
+        const candCompliant = applyCapFloorExtensions(
+          {
+            ...league,
+            teams: {
+              ...league.teams,
+              [candTeamId]: {
+                ...candTeam,
+                cashSpentBySeason: { 1: 0.92 * league.salaryCap, 2: 0.92 * league.salaryCap },
+              },
+            } as LeagueState['teams'],
+          },
+          1000,
+        );
+        if (candResigns(candCompliant) !== candResigns(league)) continue;
+
+        fixture = { league, teamId: candTeamId, playerId: pid };
+        break;
       }
       if (fixture) break;
     }

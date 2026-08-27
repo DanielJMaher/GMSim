@@ -141,8 +141,14 @@ describe('shape modifiers shape the curve', () => {
 describe('ceiling dynamics', () => {
   it('breakout seasons can bump young tech/mental ceilings; quiet seasons never do', () => {
     const league = createLeague({ seed: 'ceil-bump' });
+    const base = Object.values(league.players).find((p) => p.position === 'WR')!;
+    // The bump only has anywhere to go if ceiling > current on the technical/
+    // mental skills it targets — force a clean gap rather than depending on
+    // whichever specific WR generation happens to land first for this seed
+    // (that identity shifts with any upstream roster-shape change, e.g. the
+    // Talent Allocation Track 2 blueprint edit, 2026-08-05).
     const young = atAge(
-      Object.values(league.players).find((p) => p.position === 'WR')!,
+      { ...base, current: { ...base.current, technicalSkill: 60 }, ceiling: { ...base.ceiling, technicalSkill: 85 } },
       23,
     );
     let bumped = 0;

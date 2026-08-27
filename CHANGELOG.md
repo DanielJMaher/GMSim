@@ -14,6 +14,71 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Fixed
 
+- **Talent Allocation Track 1 + Track 2 — the tier gate under-counted the
+  marginal 2nd-best QB at every position, and the roster carried 38% more
+  QBs than the real NFL** (design of record `docs/design-docs/
+  TALENT_ALLOCATION.md` §10.3/§12, diagnosed by Opus 2026-08-04/05, executed
+  by Sonnet 2026-08-27). **Track 2** (`players/roster-blueprint.ts`):
+  `QB 3→2`, `OLB 3→4` (net zero) — the Madden corpus carries ~65
+  players/team, not 53, so the 2.74-QBs/team real bar counts active +
+  practice squad while the engine's blueprint is active-53 only; corrected
+  to the real active-53 band (2.1-2.5, mean 2.23-2.4). **Track 1** (new
+  module `players/starter-caliber.ts`): every quality-depth decision
+  (`proactive-trades.ts`'s need/surplus counting and `releaseSurplusStarters`,
+  `fa-bidding.ts`'s need factor and starting-opportunity guard — 5 call
+  sites total) gated on `player.tier === 'STAR'|'STARTER'`, but
+  `QUALITY_DEPTH_TARGET` (what those mechanisms target) is itself a
+  top-30.1%-selectivity count — a 15x enrichment between the two partitions
+  at the position level, D8 measured, with the marginal 2nd-best player
+  exactly where they disagree. `computeStarterCaliberIds` replaces the tier
+  gate with a fine-position, league-relative percentile rank (the
+  `withinPositionPercentiles` sibling `talent-score.ts` already had pools at
+  the coarser `AgingBucket` group, which would silently misapply at roughly
+  half the league's positions). Added a rookie-contract exemption to
+  `releaseSurplusStarters` (`draftRound !== null && experienceYears < 4`) so
+  a young drafted backup sitting behind a starter — the real-world
+  succession pattern (Love/Rodgers, Mahomes/Smith) — is never released;
+  the blocked veteran is the intended target instead.
+
+  Measured (`_track12_measure.mjs`, 8×14, steady-state seasons 8-13):
+  QBs-per-active-53-roster **3.12 → 2.43**, inside the corrected real band.
+  **Named residual:** Track 1's own numeric effect (ladder ratio, clustering)
+  could not be cleanly isolated this slice — the ladder ratio is invalidated
+  by Track 2's room-size shift shrinking the QB3 population to a
+  selection-effect artifact (the same trap `TALENT_ALLOCATION.md` §11 caught
+  for blueprint-2's ladder cratering), and raw clustering needs the
+  supply-normalized ratio-to-random restatement (§12) that wasn't computed
+  this session. Track 1's mechanism is implemented and tested correctly;
+  its standalone numeric confirmation is a follow-up measurement, not an
+  open correctness question.
+
+  **Hard flag, Daniel-reviewed and accepted (2026-08-27):** the pre-existing
+  cap-floor spiral disease (`ROSTER_FLOOR.md` §14/§15, Fix 4 explicitly
+  deferred as its own future investigation) is more reachable now that
+  Track 1 makes surplus-starter churn correctly aggressive — that's the
+  intended fix, and more churn is what feeds the disease. Measured on a
+  matched 20-seed A/B census: **0/20 → 3/20 seeds** hit the disease, ranging
+  from a small ($2.7M, 0.67%) cap-band overage up to a full
+  `roster-floor-violation` roster collapse (one team, one seed: 39/53,
+  $240M dead money). The ladder still degrades LOUDLY (a logged violation),
+  never silently — per Daniel's explicit call, shipped with two regression
+  tests (`advance.test.ts`, `roster-floor.test.ts`) updated to tolerate the
+  documented, bounded escape hatch rather than reverting the fix. This is
+  concrete new evidence that Fix 4 (the actual disease) should move up the
+  queue, not a reason to hold Track 1/2.
+
+  Gates: full engine suite green (841 passed, 12 skipped, 0 failed) after
+  three test-fixture fixes unrelated to correctness (`career-shapes.test.ts`
+  and `extensions.test.ts` picked a different specific player/team once
+  upstream generation order shifted — hardened to not depend on it;
+  `stats-coherence.test.ts`'s QB-passing-share sanity check now excludes
+  teams that had a genuine emergency-QB game, which Track 2 makes
+  marginally more reachable — an honest realism gain, not a mis-attribution
+  bug) and one direct fixture fix (`proactive-trades.test.ts`'s target-0
+  exemption test set `tier: 'STAR'` expecting the old tier gate; now
+  maxes out skills so the fixture is genuinely starter-caliber under the
+  new percentile gate).
+
 - **The engine had no decision anywhere that compared a contract's cap hit
   to the player's value — the real NFL's defining March event (eat the
   dead money, escape a deal that stopped earning its number) was not

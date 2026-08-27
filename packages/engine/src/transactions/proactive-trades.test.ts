@@ -957,9 +957,23 @@ describe('releaseSurplusStarters — target-0 exemption (FA_ECONOMY_FIX.md Fix A
     const target0 = [fb, nt, punter, ls];
     const qbSurplus = qbs.slice(0, 2);
 
+    // Talent Allocation Track 1 (2026-08-05, `TALENT_ALLOCATION.md`
+    // §10.3/§12): `releaseSurplusStarters` now gates on
+    // `computeStarterCaliberIds` (a league-wide, position-relative
+    // `keySkillAverage` rank), not `player.tier` — setting tier alone no
+    // longer guarantees these specific players land in the top
+    // `32 * QUALITY_DEPTH_TARGET[position]` at their position. Max out
+    // every skill so they rank at the top of their position regardless of
+    // archetype-specific weighting, matching the old test's "these are the
+    // best players at their spot" intent.
+    const maxSkills = <T extends Record<string, number>>(skills: T): T => {
+      const boosted = { ...skills };
+      for (const key of Object.keys(boosted) as (keyof T)[]) boosted[key] = 99 as T[keyof T];
+      return boosted;
+    };
     const playersNext = { ...league.players };
     for (const p of [...target0, ...qbSurplus]) {
-      playersNext[p.id] = { ...p, tier: 'STAR' };
+      playersNext[p.id] = { ...p, tier: 'STAR', current: maxSkills(p.current) };
     }
     league = { ...league, players: playersNext as LeagueState['players'] };
 

@@ -19,6 +19,7 @@ import {
 import { makeFreeAgentContract } from './free-agency.js';
 import { auctionFreeAgent } from './fa-bidding.js';
 import type { FaBidderDetail } from './fa-bidding.js';
+import { computeStarterCaliberIds } from '../players/starter-caliber.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
 import { ContractId } from '../types/ids.js';
 import type { Transaction, FaSignBidder } from '../types/transaction.js';
@@ -397,6 +398,12 @@ export function applyCapCutRelease(
  */
 export function refillRosters(league: LeagueState, signedOnTick: number): LeagueState {
   const orderedPool = sortedFreeAgentPool(league);
+  // Talent Allocation Track 1 (2026-08-04/05): computed ONCE for the whole
+  // FA period, not per free agent — see starter-caliber.ts's PERF note.
+  // Reflects the roster census entering FA (post-trades/cuts); it does not
+  // update as players sign during this loop, same convention as the
+  // blueprint-count maps computed once per offseason elsewhere.
+  const starterCaliberIds = computeStarterCaliberIds(Object.values(league.players));
 
   let working = league;
   let signCounter = 0;
@@ -406,7 +413,7 @@ export function refillRosters(league: LeagueState, signedOnTick: number): League
     const player = working.players[playerId];
     if (!player || player.teamId !== null) continue;
 
-    const auction = auctionFreeAgent(working, player);
+    const auction = auctionFreeAgent(working, player, starterCaliberIds);
     if (auction.winnerTeamId) {
       const team = working.teams[auction.winnerTeamId]!;
       const idSuffix = `${team.identity.abbreviation}_FA${working.seasonNumber}_${signCounter++}`;

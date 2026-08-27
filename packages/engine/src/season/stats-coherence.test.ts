@@ -135,8 +135,19 @@ describe('seasonStatsForTeam', () => {
   it('QB-room passing for a stable roster is the lion\'s share of team passing', () => {
     // Sanity: on rosters with no churn, the current QBs really did the throwing
     // (catches mis-stamped teamIds that would scatter passing across teams).
+    // A genuine emergency-QB game (Injury Stage I's named "both QBs down"
+    // path — more reachable since Talent Allocation Track 2, 2026-08-05,
+    // trimmed the blueprint to 2 QBs/roster) is a real, honest source of
+    // non-QB passing yards, not a mis-attribution bug — exclude it from this
+    // check the same way the loop already excludes midseason churn below.
+    const emergencyQbTeams = new Set(
+      league.transactionLog
+        .filter((t) => t.kind === 'emergency-qb-game')
+        .map((t) => t.teamId),
+    );
     let teamsChecked = 0;
     for (const team of Object.values(league.teams)) {
+      if (emergencyQbTeams.has(team.identity.id)) continue;
       const stats = seasonStatsForTeam(league, team.identity.id);
       const qbIds = new Set(
         team.rosterIds.filter((id) => league.players[id]?.position === Position.QB),

@@ -14,9 +14,24 @@ export interface RosterPositionSlot {
   count: number;
 }
 
+/**
+ * Talent Allocation Track 2 (2026-08-05, `docs/design-docs/TALENT_ALLOCATION.md`
+ * §12). QB 3->2, OLB 3->4 (net zero). The Madden corpus carries ~65
+ * players/team, not 53 — the QB real bar (2.74/team) counts active +
+ * practice squad, while this blueprint is active-53 only. Corrected
+ * active-53 target from 288 real team-years: mean 2.23-2.4, band 2.1-2.5
+ * (§12's own re-derivation; NOT the 2.6-2.9 band an earlier session measured
+ * against the wrong denominator). The engine already has MORE team-to-team
+ * QB-count variance than real (sd 0.90-0.92 vs 0.761) — the defect was the
+ * MEAN only, so a flat constant edit is correct; no conditional roster-carry
+ * rule is needed (one was designed, then retired before implementation once
+ * this was found). Freed slot -> LB, the largest corpus-verified deficit
+ * (6.62 measured vs 6 carried) — NOT DL, which was already correct at
+ * 8.16 vs 8 (a prior guess to bump DL was independently disproven twice).
+ */
 export const ROSTER_BLUEPRINT_53: readonly RosterPositionSlot[] = [
-  // Skill positions (16)
-  { position: Position.QB, count: 3 },
+  // Skill positions (15)
+  { position: Position.QB, count: 2 },
   { position: Position.RB, count: 3 },
   { position: Position.FB, count: 1 },
   { position: Position.WR, count: 6 },
@@ -31,9 +46,9 @@ export const ROSTER_BLUEPRINT_53: readonly RosterPositionSlot[] = [
   { position: Position.EDGE, count: 4 },
   { position: Position.DT, count: 3 },
   { position: Position.NT, count: 1 },
-  // LB (6)
+  // LB (7)
   { position: Position.ILB, count: 3 },
-  { position: Position.OLB, count: 3 },
+  { position: Position.OLB, count: 4 },
   // DB (10)
   { position: Position.CB, count: 5 },
   { position: Position.S, count: 4 },

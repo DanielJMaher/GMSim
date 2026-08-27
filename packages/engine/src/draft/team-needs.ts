@@ -36,7 +36,7 @@ import { POSITION_DRAFT_VALUE } from './position-value.js';
  *
  * `starterSlots` is a hand-tuned table of "how many starter-grade
  * players you ideally have at this position." It is *not* the
- * blueprint depth count — blueprint says "3 QBs on the 53," but
+ * blueprint depth count — blueprint says "2 QBs on the 53," but
  * starter slots says "you need 1 starter-quality QB."
  *
  * ## Positional value (v0.91)

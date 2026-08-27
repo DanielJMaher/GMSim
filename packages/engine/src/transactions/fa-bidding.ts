@@ -6,6 +6,7 @@ import type { Position } from '../types/enums.js';
 import { MarketSize } from '../types/enums.js';
 import type { WatchListReason } from '../types/scout.js';
 import { ROSTER_BLUEPRINT_53, QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
+import { computeStarterCaliberIds } from '../players/starter-caliber.js';
 import { teamCapUsage } from '../contracts/cap.js';
 import { teamCashFloorStatus } from '../contracts/cash.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
@@ -277,11 +278,17 @@ function rookiePoolReserve(league: LeagueState, teamId: TeamId): number {
 export function auctionFreeAgent(
   league: LeagueState,
   player: Player,
+  starterCaliberIds?: ReadonlySet<PlayerId>,
 ): FaAuctionResult {
   const blueprintByPos = new Map<Position, number>();
   for (const slot of ROSTER_BLUEPRINT_53) blueprintByPos.set(slot.position, slot.count);
+  // Track 1 (2026-08-04/05): the caller (`refillRosters`, called once per FA
+  // in the pool) should compute this ONCE per offseason and pass it in —
+  // see starter-caliber.ts's PERF note. Falls back to a fresh computation
+  // for standalone/test callers that don't have one handy.
+  const ids = starterCaliberIds ?? computeStarterCaliberIds(Object.values(league.players));
 
-  const bids = collectBids(league, player, blueprintByPos);
+  const bids = collectBids(league, player, blueprintByPos, ids);
   if (bids.length === 0) {
     return {
       winnerTeamId: null,
@@ -381,6 +388,7 @@ function collectBids(
   league: LeagueState,
   player: Player,
   blueprintByPos: Map<Position, number>,
+  starterCaliberIds: ReadonlySet<PlayerId>,
 ): Bid[] {
   const standardY1 = positionScaledStandardY1(player, league);
   const bids: Bid[] = [];
@@ -423,14 +431,19 @@ function collectBids(
     // legitimately costs more, and that conviction shows up as real
     // dollars (and a higher second-price for the winner) rather than
     // a free sort-order kick. Cap room remains the natural ceiling.
-    const baselineCash = computeTeamCashBid(team, player, league, blueprintByPos);
+    const baselineCash = computeTeamCashBid(team, player, league, blueprintByPos, starterCaliberIds);
     const watch = watchListBoost(league, team.identity.id, player.id);
     const boostedCash = baselineCash * watch.multiplier;
     // Cap at the rookie-reserved cap room (not the gross) so a qualifying
     // team can't bid into the room it must keep for its draft class.
     const cash = Math.min(boostedCash, effectiveCapRoom);
 
-    const preferenceFactors = computePlayerPreferenceBreakdown(team, player, league);
+    const preferenceFactors = computePlayerPreferenceBreakdown(
+      team,
+      player,
+      league,
+      starterCaliberIds,
+    );
     bids.push({
       teamId: team.identity.id,
       cash,
@@ -457,11 +470,15 @@ export function computeTeamCashBid(
   player: Player,
   league: LeagueState,
   blueprintByPos: Map<Position, number>,
+  starterCaliberIds?: ReadonlySet<PlayerId>,
 ): number {
   // Kept in the signature for public-API stability (exported via index.ts /
   // npc-ai/index.ts) though no longer consumed here — the shape number no
   // longer drives cash pricing as of D-1b. See the needFactor comment below.
   void blueprintByPos;
+  // Track 1: see auctionFreeAgent's PERF note — standalone/test callers
+  // without a precomputed set get a fresh (slower) one.
+  const ids = starterCaliberIds ?? computeStarterCaliberIds(Object.values(league.players));
   const standard = positionScaledStandardY1(player, league);
 
   const hc = league.coaches[team.headCoachId];
@@ -487,7 +504,7 @@ export function computeTeamCashBid(
   // another body at all, a different question from how much a team should
   // pay once it's bidding.
   const qualityTarget = QUALITY_DEPTH_TARGET[player.position] ?? 0;
-  const haveQuality = countStarterCaliberAtPosition(team, league, player.position);
+  const haveQuality = countStarterCaliberAtPosition(team, league, player.position, ids);
   const deficit = Math.max(0, qualityTarget - haveQuality);
   const needFactor =
     qualityTarget > 0 ? 1.0 + Math.min(0.25, (deficit / qualityTarget) * 0.5) : 1.0;
@@ -583,7 +600,10 @@ export function computePlayerPreferenceBreakdown(
   team: TeamState,
   player: Player,
   league: LeagueState,
+  starterCaliberIds?: ReadonlySet<PlayerId>,
 ): PreferenceFactors {
+  // Track 1: see auctionFreeAgent's PERF note.
+  const ids = starterCaliberIds ?? computeStarterCaliberIds(Object.values(league.players));
   const owner = league.owners[team.ownerId];
   const hc = league.coaches[team.headCoachId];
 
@@ -682,11 +702,14 @@ export function computePlayerPreferenceBreakdown(
   // on short deals leaving for starting jobs). Nothing in the engine
   // modeled that preference before this; a starter-calibre FA only cared
   // about scheme fit, cap, and personality quirks, identically to a
-  // FRINGE roster-filler. Scoped to STAR/STARTER tier only — a
-  // BACKUP/FRINGE signing has no real "wants to start" pull at anywhere
-  // near this strength, and this whole diagnosis + its downstream gates
-  // (Goatinator QB dual-gate, the QB1-QB2 facet bars) are about the
-  // starter-calibre population specifically.
+  // FRINGE roster-filler. Scoped to starter-calibre players only —
+  // Track 1 (2026-08-04/05, `TALENT_ALLOCATION.md` §10.3/§12) swapped the
+  // original `player.tier === 'STAR'|'STARTER'` gate for
+  // `computeStarterCaliberIds` (fine-position, league-relative; see
+  // `starter-caliber.ts`) — a BACKUP/FRINGE-tier signing has no real "wants
+  // to start" pull at anywhere near this strength, and this whole diagnosis
+  // + its downstream gates (Goatinator QB dual-gate, the QB1-QB2 facet bars)
+  // are about the starter-calibre population specifically.
   //
   // MAGNITUDE — unlike `QUALITY_DEPTH_TARGET` (a direct Madden real-bar
   // count), there is no equivalent direct real-data number for HOW STRONGLY
@@ -709,10 +732,10 @@ export function computePlayerPreferenceBreakdown(
   // trying a different value here.
   let startingOpportunity = 0;
   let startingOpportunityLabel: string | null = null;
-  if (player.tier === 'STAR' || player.tier === 'STARTER') {
+  if (ids.has(player.id)) {
     const qualityTarget = QUALITY_DEPTH_TARGET[player.position] ?? 0;
     if (qualityTarget > 0) {
-      const haveQuality = countStarterCaliberAtPosition(team, league, player.position);
+      const haveQuality = countStarterCaliberAtPosition(team, league, player.position, ids);
       if (haveQuality < qualityTarget) {
         startingOpportunity = STARTING_OPPORTUNITY_MAGNITUDE;
         startingOpportunityLabel = 'open starting opportunity';
@@ -765,11 +788,12 @@ function countStarterCaliberAtPosition(
   team: TeamState,
   league: LeagueState,
   position: Position,
+  starterCaliberIds: ReadonlySet<PlayerId>,
 ): number {
   let n = 0;
   for (const playerId of team.rosterIds) {
     const p = league.players[playerId];
-    if (p && p.position === position && (p.tier === 'STAR' || p.tier === 'STARTER')) n++;
+    if (p && p.position === position && starterCaliberIds.has(playerId)) n++;
   }
   return n;
 }
