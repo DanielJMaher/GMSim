@@ -90,6 +90,18 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   releases out of the market. No code change and no bar re-derivation
   needed. One honest gap remains open: no real-NFL bar exists yet for
   cap-casualty-specific washout, a future data-sourcing task, not a defect.
+  **That gap closed same day.** Scraped `profootballrumors.com/transactions`
+  (3 years, robots.txt-clean, 627 pages/6,270 articles), classified releases
+  as cap-driven via an embedding few-shot classifier (`nomic-embed-text`,
+  the only Ollama model installed) against two hand-written exemplar sets,
+  and determined post-release employment via "any later transaction-category
+  mention except retirement" — a first pass regexing signing-verb phrasing
+  read 32.20% before two real bugs (a missed-phrasing undercount on "Agree
+  To Deal"/"To Join [Team]" signings, and a "Pay Cut" literal-string false
+  positive on the release-verb regex) were caught by spot-checking
+  implausible washouts (Tyreek Hill, Garrett Bradbury, Aaron Donald) and
+  fixed. **Real bar: 16.52% (n=115 resolved), 95% CI [9.8%, 23.3%] — the
+  sim's 13.12% sits inside it.** No code change indicated.
   Full record: `docs/design-docs/CAP_CASUALTY.md` §13.
 - **Dead money from an in-season trade or cut was booked as if it happened
   before June 1, even though most of it doesn't — a pure accounting-date
