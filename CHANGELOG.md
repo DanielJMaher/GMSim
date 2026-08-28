@@ -421,6 +421,55 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Added
 
+- **The Barterer Slice 3 — GMSim's own simulated trades now compare against
+  the real-NFL trade bar, wired into `run gates`.** New `engine-bridge.ts`
+  export `simulateLeagueTrades(seeds, years)` forward-sims N leagues,
+  extracts every `trade` transaction from a per-season `transactionLog`
+  diff, and resolves both sides' player/pick assets to ground truth (no
+  join needed — GMSim's own state IS the truth, unlike the real-trade
+  path's nflverse/OTC join). `barterer.ts` values each trade with the SAME
+  primitives and the ALREADY-FITTED real-market exchange rate, and reports
+  volume/shape/age/envelope-percentile drift against the real bar (which
+  `reportBar` now also RETURNS as a `StructuralBar`, not just prints — the
+  comparison reads the same computed numbers rather than a second,
+  hand-copied literal). New CLI mode `barterer sim <seeds> <years>`; new
+  `gates.ts` entry (`quickArgs: ['sim','2','6']`, `fullArgs: ['sim','4','12']`).
+
+  **A same-season traded pick can't be resolved** (drafted before this
+  slice's per-season snapshot runs) — those trades are marked `unresolved`
+  and excluded from valuation, matching the real-trade path's own
+  `excluded` discipline (measured: ~57% of sim trades, stable across a
+  1×2 and a 3×8 run, concentrated in `proactive-rebuild-firesale` deals for
+  near-term picks). **Bug caught mid-slice by the first real run:**
+  `resolveAll` silently dropped an unresolved pick from its side's asset
+  list entirely, which corrupted deal-SHAPE classification (not just
+  valuation) — a real `player-for-picks` trade with an unresolvable pick
+  read as a picks-less, player-only side and misclassified as `'other'`
+  (9-13% of sim trades, real bar 0%). Fixed by giving `SimTradedAsset` a
+  `resolved: boolean` flag: an unresolved asset is still emitted as a
+  placeholder so shape classification stays correct from presence alone,
+  while valuation continues to gate strictly on `resolved`/`unresolved`
+  before trusting any tier/age/round value. Confirmed by rerun: `'other'`
+  share dropped to the expected 0% after the fix.
+
+  **Measured (3 seeds × 8 seasons, 1320 sim trades, 573 eligible):**
+  volume sim 55/yr vs real 77/yr modern-era (no drift flag, within
+  tolerance but light); mean traded-player age sim 29.1 vs real 26.5 (GMSim
+  trades meaningfully older players); deal shape `player-for-picks` sim 72%
+  vs real 53% and `player-for-player` sim 28% vs real 9% — both flagged.
+  **The cleanest finding: `picks-only` sim 0% vs real 38%** — GMSim's
+  NPC trade AI (`proactive-trades.ts`) has no draft-day pick-swap mechanism
+  at all; every simulated trade involves at least one player. Envelope
+  fairness: median residual ratio close (sim 1.53x vs real 1.33x) but the
+  tail explodes (p90 sim 111x vs real 3.6x, p95 sim 124x vs real 6.8x) —
+  GMSim occasionally accepts trades an order of magnitude more lopsided
+  than any real deal in the 2015+ corpus. **Named follow-ups, not fixed
+  here:** a picks-only/draft-day-swap trade generator (currently absent
+  entirely); the extreme-tail fairness gap (likely the same
+  under-calibrated player↔pick exchange rate Slice 2 already flagged,
+  compounding on GMSim's own trade selection rather than pricing a real
+  trade after the fact).
+
 - **The franchise tag** (design of record `docs/design-docs/FRANCHISE_TAG.md`,
   Opus-designed 2026-08-09). Ranked #1 by alpha-tester visibility
   (`LIQUIDATOR_DEAD_MONEY.md` §12) — the single most visible offseason cap

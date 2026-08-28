@@ -931,6 +931,162 @@ export async function tradeValuePrimitives(): Promise<TradeValuePrimitives> {
   };
 }
 
+// ── The Barterer (Slice 3): GMSim's own simulated trades ────────────────────
+
+/** One traded asset, already resolved to ground truth at trade time (no join
+ *  needed — unlike the real-trade path, GMSim's own state IS the truth).
+ *  `resolved: false` means the id existed in the transaction but its value
+ *  couldn't be looked up (see `SimTrade.unresolved`) — the asset is still
+ *  emitted with placeholder values so callers can tell a pick/player WAS
+ *  present on this side (correct deal-SHAPE classification) even though its
+ *  value can't be trusted for valuation (callers must gate on `resolved`,
+ *  or on the trade-level `unresolved` flag, before using tier/age/round). */
+export type SimTradedAsset =
+  | { kind: 'player'; tier: string; position: string; age: number; yearsRemaining: number | undefined; resolved: boolean }
+  | { kind: 'pick'; round: number; yearsOut: number; resolved: boolean };
+
+export interface SimTrade {
+  seed: string;
+  season: number;
+  source: string | undefined;
+  /** Assets team A received (i.e. playersBToA/picksBToA). */
+  sideA: SimTradedAsset[];
+  /** Assets team B received (i.e. playersAToB/picksAToB). */
+  sideB: SimTradedAsset[];
+  /** True if any asset couldn't be resolved (player gone, pick already
+   *  consumed by a same-season draft) — the caller should exclude these
+   *  from valuation rather than guess, matching the real-trade path's own
+   *  `excluded` discipline. */
+  unresolved: boolean;
+}
+
+interface RawTradeTx {
+  kind: string;
+  seasonNumber: number;
+  teamAId?: string;
+  teamBId?: string;
+  playersAToB?: readonly string[];
+  playersBToA?: readonly string[];
+  picksAToB?: readonly string[];
+  picksBToA?: readonly string[];
+  source?: string;
+}
+interface RawDraftPick {
+  id: string;
+  round: number;
+  seasonNumber: number;
+}
+
+/**
+ * Forward-simulate `seeds.length` independent leagues `years` seasons each
+ * and extract every `trade` transaction, with both sides' assets resolved
+ * to ground truth (tier/position/age/contract-years-remaining for players;
+ * round/years-out for picks) AT THE SEASON THE TRADE FIRED — snapshotted
+ * per-season (not per-tick), so a player's exact same-season development is
+ * folded in but this is not tick-precise; treated as an acceptable
+ * approximation, same tolerance the real-trade path already accepts
+ * elsewhere (e.g. age-estimated fallback).
+ *
+ * A traded pick already consumed by that season's OWN draft (current-year
+ * picks trade-then-draft within the same offseason pass) can no longer be
+ * resolved from `league.draftPicks` by the time this snapshot runs — those
+ * assets are still emitted (as `resolved: false` placeholders, so deal-SHAPE
+ * classification stays correct) and the trade is marked `unresolved` so
+ * VALUATION excludes it rather than guessing at a value.
+ */
+export async function simulateLeagueTrades(
+  seeds: readonly string[],
+  years: number,
+): Promise<SimTrade[]> {
+  const eng = await loadEngine();
+  const out: SimTrade[] = [];
+  for (const seed of seeds) {
+    let league = eng.createLeague({ seed }) as unknown as {
+      players: Record<
+        string,
+        { id: string; contractId: string | null; tier: string; position: string; birthDate: string }
+      >;
+      contracts: Record<string, { yearsRemaining: number }>;
+      draftPicks: readonly RawDraftPick[];
+      transactionLog: readonly RawTradeTx[];
+    };
+    let prevLen = league.transactionLog.length;
+    for (let y = 0; y < years; y++) {
+      league = eng.simulateSeason(league as never) as never;
+      league = eng.advanceSeason(league as never) as never;
+      const newTx = league.transactionLog.slice(prevLen);
+      prevLen = league.transactionLog.length;
+
+      for (const tx of newTx) {
+        if (tx.kind !== 'trade') continue;
+        let unresolved = false;
+        const resolvePlayer = (pid: string): SimTradedAsset | null => {
+          const p = league.players[pid];
+          if (!p) return null;
+          const contract = p.contractId ? league.contracts[p.contractId] : undefined;
+          const birthYear = Number((p.birthDate ?? '').slice(0, 4));
+          if (!Number.isFinite(birthYear)) return null;
+          const age = 2026 + (tx.seasonNumber - 1) - birthYear;
+          return {
+            kind: 'player',
+            tier: p.tier,
+            position: p.position,
+            age,
+            yearsRemaining: contract?.yearsRemaining,
+            resolved: true,
+          };
+        };
+        const resolvePick = (pid: string): SimTradedAsset | null => {
+          const pick = league.draftPicks.find((d) => d.id === pid);
+          if (!pick) return null;
+          return {
+            kind: 'pick',
+            round: pick.round,
+            yearsOut: Math.max(0, pick.seasonNumber - tx.seasonNumber),
+            resolved: true,
+          };
+        };
+        const resolveAll = (
+          ids: readonly string[] | undefined,
+          fn: (id: string) => SimTradedAsset | null,
+          placeholder: SimTradedAsset,
+        ): SimTradedAsset[] => {
+          const res: SimTradedAsset[] = [];
+          for (const id of ids ?? []) {
+            const a = fn(id);
+            if (a) {
+              res.push(a);
+            } else {
+              unresolved = true;
+              res.push(placeholder);
+            }
+          }
+          return res;
+        };
+        const unresolvedPlayer: SimTradedAsset = {
+          kind: 'player',
+          tier: '',
+          position: '',
+          age: 0,
+          yearsRemaining: undefined,
+          resolved: false,
+        };
+        const unresolvedPick: SimTradedAsset = { kind: 'pick', round: 0, yearsOut: 0, resolved: false };
+        const sideA = [
+          ...resolveAll(tx.playersBToA, resolvePlayer, unresolvedPlayer),
+          ...resolveAll(tx.picksBToA, resolvePick, unresolvedPick),
+        ];
+        const sideB = [
+          ...resolveAll(tx.playersAToB, resolvePlayer, unresolvedPlayer),
+          ...resolveAll(tx.picksAToB, resolvePick, unresolvedPick),
+        ];
+        out.push({ seed, season: tx.seasonNumber, source: tx.source, sideA, sideB, unresolved });
+      }
+    }
+  }
+  return out;
+}
+
 let cached: EngineModule | null = null;
 async function loadEngine(): Promise<EngineModule> {
   if (cached) return cached;

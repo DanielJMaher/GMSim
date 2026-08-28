@@ -20,9 +20,8 @@ import { dirname, resolve } from 'node:path';
  * sit in a script chain without false-failing on a known residual.
  *
  * Deliberately NOT wired: the Goatinator (25-40 min even at modest sizes —
- * run it detached when a slice touches the draft), the Barterer (gates
- * wiring is its open slice 3), and the voice agents (scribe/narrator are
- * qualitative calibration lenses, not pass/fail gates).
+ * run it detached when a slice touches the draft) and the voice agents
+ * (scribe/narrator are qualitative calibration lenses, not pass/fail gates).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -100,6 +99,13 @@ const GATES: readonly Gate[] = [
     quickArgs: [],
     fullArgs: ['star-2'],
     checks: 'individual stat LEADERS vs real single-season ceilings (sacks/INT/yards)',
+  },
+  {
+    name: 'barterer',
+    entry: 'sim/barterer.js',
+    quickArgs: ['sim', '2', '6'],
+    fullArgs: ['sim', '4', '12'],
+    checks: "GMSim's own simulated trades — volume/shape/age/envelope vs the real trade bar",
   },
 ];
 

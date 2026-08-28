@@ -6,7 +6,10 @@ import { ensureContractsCsv, CONTRACTS_CSV_PATH, OTC_BUCKET } from '../lib/otc.j
 import {
   loadLeagueContracts,
   tradeValuePrimitives,
+  simulateLeagueTrades,
   type TradeValuePrimitives,
+  type SimTrade,
+  type SimTradedAsset,
 } from '../lib/engine-bridge.js';
 
 /**
@@ -49,8 +52,15 @@ import {
  *
  *   pnpm --filter @gmsim/truth-arbiter run barterer [startSeason endSeason]
  *
- * Slice 3 (next): read GMSim's simulated trades from the engine transaction
- * log and compare them to this bar + envelope in `run gates`.
+ * Slice 3 (2026-08-28): `sim <seeds> <years>` additionally forward-simulates
+ * GMSim, extracts every `trade` transaction with both sides resolved to
+ * ground truth (no join needed — unlike real trades, GMSim's own player/
+ * pick state IS the truth), values them with the SAME primitives + the
+ * SAME market exchange rate fitted on real trades above, and compares
+ * shape/volume/age/envelope percentiles against this real bar. Wired into
+ * `run gates`.
+ *
+ *   pnpm --filter @gmsim/truth-arbiter run barterer sim [seeds years]
  */
 
 const TRADES_URL = 'https://github.com/nflverse/nfldata/raw/master/data/trades.csv';
@@ -774,8 +784,18 @@ function reportIngest(trades: RealTrade[], stats: JoinStats, start: number, end:
   );
 }
 
-/** Slice-1 structural bar, recomputed on the full multi-year source. */
-function reportBar(trades: RealTrade[], master: Map<string, MasterPlayer>): void {
+export interface StructuralBar {
+  seasons: number;
+  perYearModern: number;
+  shapeSharePct: Map<Shape, number>;
+  meanAge: number;
+  totalTrades: number;
+}
+
+/** Slice-1 structural bar, recomputed on the full multi-year source. Returns
+ *  the numbers alongside printing them, so Slice 3's sim comparison reads
+ *  the SAME computed values rather than a second, hand-copied literal. */
+function reportBar(trades: RealTrade[], master: Map<string, MasterPlayer>): StructuralBar {
   const seasons = new Set(trades.map((t) => t.season));
   const shapes = new Map<Shape, number>();
   const ages: number[] = [];
@@ -842,6 +862,35 @@ function reportBar(trades: RealTrade[], master: Map<string, MasterPlayer>): void
   console.log(
     `  pick packages: mean ${mean(pickPkgSizes).toFixed(1)} picks/side  ·  trades incl. a 1st: ${pctStr(tradesWithR1, trades.length)}`,
   );
+
+  // Modern-era (ERA_SPLIT+) only, for apples-to-apples with the envelope
+  // (also modern-only) and with GMSim's own current-league sim run.
+  const modernTrades = trades.filter((t) => t.season >= ERA_SPLIT);
+  const modernYears = new Set(modernTrades.map((t) => t.season)).size;
+  const modernShapes = new Map<Shape, number>();
+  const modernAges: number[] = [];
+  for (const t of modernTrades) {
+    modernShapes.set(classify(t), (modernShapes.get(classify(t)) ?? 0) + 1);
+    for (const assets of t.received.values()) {
+      for (const a of assets) {
+        if (a.kind !== 'player') continue;
+        const m = master.get(a.pfrId);
+        const age = m?.birthDate ? ageAt(m.birthDate, t.date) : null;
+        if (age !== null) modernAges.push(age);
+      }
+    }
+  }
+  const shapeSharePct = new Map<Shape, number>();
+  for (const k of ['player-for-picks', 'player-for-player', 'picks-only', 'other'] as Shape[]) {
+    shapeSharePct.set(k, (100 * (modernShapes.get(k) ?? 0)) / Math.max(1, modernTrades.length));
+  }
+  return {
+    seasons: seasons.size,
+    perYearModern: modernYears ? modernTrades.length / modernYears : 0,
+    shapeSharePct,
+    meanAge: mean(modernAges),
+    totalTrades: trades.length,
+  };
 }
 
 function envelopeLine(label: string, ratios: number[]): void {
@@ -985,11 +1034,158 @@ async function writeLedger(valued: ValuedTrade[], start: number, end: number): P
   console.log(`\n→ wrote data/barterer-trades.json (${trades.length} trades — the valued ledger)`);
 }
 
+// ── Slice 3: GMSim's own simulated trades vs the real bar ──────────────────
+
+interface ValuedSimTrade {
+  trade: SimTrade;
+  shape: Shape;
+  ratio: number | null;
+  residualRatio: number | null;
+  excluded: string | null;
+}
+
+/** Mirrors `classify()` for a `SimTrade`'s side-A/side-B asset lists. */
+function classifySim(t: SimTrade): Shape {
+  const withPlayersA = t.sideA.some((a) => a.kind === 'player');
+  const withPlayersB = t.sideB.some((a) => a.kind === 'player');
+  const withPicksA = t.sideA.some((a) => a.kind === 'pick');
+  const withPicksB = t.sideB.some((a) => a.kind === 'pick');
+  const totalPlayers = t.sideA.filter((a) => a.kind === 'player').length +
+    t.sideB.filter((a) => a.kind === 'player').length;
+  if (totalPlayers === 0) return 'picks-only';
+  const sidesWithPlayers = (withPlayersA ? 1 : 0) + (withPlayersB ? 1 : 0);
+  if (sidesWithPlayers >= 2) return 'player-for-player';
+  if (sidesWithPlayers === 1 && (withPicksA || withPicksB)) return 'player-for-picks';
+  return 'other';
+}
+
+function assetPoints(a: SimTradedAsset, tv: TradeValuePrimitives): number | null {
+  if (a.kind === 'pick') {
+    const overall = ROUND_MIDPOINT[Math.min(a.round, 7)] ?? 224;
+    return tv.pickValue(overall, a.yearsOut);
+  }
+  const millions = tv.neutralPlayerValueMillions(a.tier, a.position, a.age, a.yearsRemaining);
+  return (millions * 1e6) / tv.chartPointToDollars;
+}
+
+/** Same two-pass valuation as `valueTrades`/`applyExchangeRates`, for one
+ *  GMSim trade: raw chart-fair ratio, then the residual after converting
+ *  player points at the REAL market's fitted exchange rate (not re-fit on
+ *  GMSim's own trades — the whole point is to price GMSim's dealmaking
+ *  through the real market's own currency and see where it lands). */
+function valueSimTrade(
+  t: SimTrade,
+  tv: TradeValuePrimitives,
+  er: ExchangeRates,
+): ValuedSimTrade {
+  const shape = classifySim(t);
+  if (t.unresolved) return { trade: t, shape, ratio: null, residualRatio: null, excluded: 'unresolved-asset' };
+  if (t.sideA.length === 0 || t.sideB.length === 0) {
+    return { trade: t, shape, ratio: null, residualRatio: null, excluded: 'empty-side' };
+  }
+  const rawA = t.sideA.reduce((s, a) => s + (assetPoints(a, tv) ?? 0), 0);
+  const rawB = t.sideB.reduce((s, a) => s + (assetPoints(a, tv) ?? 0), 0);
+  if (rawA <= 0 || rawB <= 0) return { trade: t, shape, ratio: null, residualRatio: null, excluded: 'zero-side' };
+  const ratio = Math.max(rawA, rawB) / Math.min(rawA, rawB);
+
+  const residual = (side: SimTradedAsset[]): number =>
+    side.reduce((s, a) => {
+      const pts = assetPoints(a, tv) ?? 0;
+      if (a.kind === 'pick') return s + pts;
+      return s + pts * er.rate(a.tier as Tier, bandOf(a.age));
+    }, 0);
+  const resA = residual(t.sideA);
+  const resB = residual(t.sideB);
+  const residualRatio = resA > 0 && resB > 0 ? Math.max(resA, resB) / Math.min(resA, resB) : null;
+
+  return { trade: t, shape, ratio, residualRatio, excluded: null };
+}
+
+/** `<-- DRIFT` markers on a first-pass, deliberately coarse tolerance — this
+ *  is the FIRST time GMSim's own trades are measured against this bar, so
+ *  precise bands are not yet earned (law 3: no invented tunable without a
+ *  validated real bar behind it). Flag only large, unambiguous misses;
+ *  refine the tolerance once a real baseline run exists to refine it from. */
+function pctPointDiff(simPct: number, realPct: number): string {
+  const diff = simPct - realPct;
+  const flag = Math.abs(diff) > 15 ? '  <-- DRIFT' : '';
+  return `sim ${simPct.toFixed(0)}% vs real ${realPct.toFixed(0)}%${flag}`;
+}
+
+function ratioCompare(label: string, simVal: number, realVal: number, tolerance = 2): void {
+  const rel = realVal > 0 ? simVal / realVal : Infinity;
+  const flag = rel > tolerance || rel < 1 / tolerance ? '  <-- DRIFT' : '';
+  console.log(`  ${label.padEnd(28)} sim ${simVal.toFixed(2)}  vs  real ${realVal.toFixed(2)}${flag}`);
+}
+
+async function runSimComparison(
+  seeds: number,
+  years: number,
+  tv: TradeValuePrimitives,
+  er: ExchangeRates,
+  realBar: StructuralBar,
+  realModernRatios: number[],
+): Promise<void> {
+  console.log(`\n${'='.repeat(72)}`);
+  console.log(`=== SLICE 3 — GMSim's own simulated trades vs the real bar ===`);
+  console.log(`sim: ${seeds} seeds × ${years} seasons`);
+
+  const seedList = Array.from({ length: seeds }, (_, i) => `barterer-sim-${i}`);
+  const raw = await simulateLeagueTrades(seedList, years);
+  const valued = raw.map((t) => valueSimTrade(t, tv, er));
+  const excludedWhy = new Map<string, number>();
+  for (const v of valued) if (v.excluded) excludedWhy.set(v.excluded, (excludedWhy.get(v.excluded) ?? 0) + 1);
+
+  console.log(
+    `total trades: ${valued.length}  ·  eligible: ${valued.filter((v) => v.residualRatio !== null).length}  ` +
+      `(excluded: ${[...excludedWhy.entries()].map(([k, c]) => `${k} ${c}`).join(' · ') || 'none'})`,
+  );
+
+  // Volume — GMSim's own team count matches the real NFL's 32, so trades/
+  // team-season is directly comparable without a scale correction.
+  const simPerYear = valued.length / (seeds * years);
+  console.log('\nvolume:');
+  ratioCompare('trades/year', simPerYear, realBar.perYearModern, 2);
+
+  // Shape mix — real shares are the FULL-corpus (all-era) share from
+  // reportBar's own output above, computed once, not re-derived here.
+  console.log('\ndeal shape:');
+  const shapeCounts = new Map<Shape, number>();
+  for (const v of valued) shapeCounts.set(v.shape, (shapeCounts.get(v.shape) ?? 0) + 1);
+  for (const k of ['player-for-picks', 'player-for-player', 'picks-only', 'other'] as Shape[]) {
+    const simPct = (100 * (shapeCounts.get(k) ?? 0)) / Math.max(1, valued.length);
+    const realPct = realBar.shapeSharePct.get(k) ?? 0;
+    console.log(`  ${k.padEnd(20)} ${pctPointDiff(simPct, realPct)}`);
+  }
+
+  // Age
+  const simAges = raw
+    .flatMap((t) => [...t.sideA, ...t.sideB])
+    .filter((a): a is Extract<SimTradedAsset, { kind: 'player' }> => a.kind === 'player' && a.resolved)
+    .map((a) => a.age);
+  console.log('\ntraded-player age:');
+  ratioCompare('mean age', mean(simAges), realBar.meanAge, 1.3);
+
+  // Envelope
+  console.log('\nenvelope (residual ratio at the real market exchange rate):');
+  const simRatios = valued.filter((v) => v.residualRatio !== null).map((v) => v.residualRatio!).sort((a, b) => a - b);
+  if (simRatios.length < 10) {
+    console.log(`  too few eligible sim trades (${simRatios.length}) for a percentile read — widen seeds/years.`);
+    return;
+  }
+  const realSorted = [...realModernRatios].sort((a, b) => a - b);
+  console.log(`  ${'percentile'.padEnd(28)} sim      real`);
+  for (const p of [0.5, 0.9, 0.95]) {
+    ratioCompare(`p${Math.round(p * 100)}`, quantile(simRatios, p), quantile(realSorted, p), 1.75);
+  }
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const start = Number(process.argv[2]) || 2002;
-  const end = Number(process.argv[3]) || 2026;
+  const simMode = process.argv[2] === 'sim';
+  const start = simMode ? 2002 : Number(process.argv[2]) || 2002;
+  const end = simMode ? 2026 : Number(process.argv[3]) || 2026;
   console.log(`\nIngesting real NFL trades ${start}-${end} (nflverse nfldata)…`);
   const trades = await loadRealTrades(start, end);
   const master = await loadPlayersMaster();
@@ -1024,10 +1220,20 @@ async function main(): Promise<void> {
   applyExchangeRates(valued, er);
 
   reportIngest(trades, stats, start, end);
-  reportBar(trades, master);
+  const realBar = reportBar(trades, master);
   reportExchangeRates(er);
   reportEnvelope(valued);
   await writeLedger(valued, start, end);
+
+  if (simMode) {
+    const seeds = Number(process.argv[3]) || 2;
+    const years = Number(process.argv[4]) || 6;
+    const modern = (v: ValuedTrade): boolean => v.trade.season >= ERA_SPLIT;
+    const realModernRatios = valued
+      .filter((v) => v.residualRatio !== null && modern(v))
+      .map((v) => v.residualRatio!);
+    await runSimComparison(seeds, years, tv, er, realBar, realModernRatios);
+  }
 }
 
 main().catch((err) => {
