@@ -243,6 +243,21 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
     // verified; far short of a genuine spiral) — once exhausted without
     // reaching 53, fall through to rung 4 exactly as if no candidate existed.
     const restructuredThisEngagement = new Set<PlayerId>();
+    // Fix 4 diagnostic (§16, 2026-08-27): a player just signed via
+    // `signFloorMinimum` is, BY CONSTRUCTION, the cheapest possible contract
+    // on the roster (zero bonus, 1yr, exact league minimum) — the instant
+    // he's signed he becomes `pickMinimalCasualty`'s structurally-guaranteed
+    // top pick the next time rung 2 needs a cut, while `sortedFreeAgentPool`
+    // (tier+skill only) can just as easily hand him right back as the best
+    // body left in a depleted pool. Nothing previously stopped those two
+    // selections from converging on the same player and thrashing —
+    // measured on seed `adv-trajectory` team NYJ: one player signed then
+    // immediately cut 169 times in direct succession at a single tick, zero
+    // net roster/cap progress each cycle, burning the cut/iteration budget
+    // real distress-clearing needs. Mirrors `restructuredThisEngagement`'s
+    // existing exclusion-set pattern exactly (v0.187.2): once signed THIS
+    // engagement, never eligible to be the fringe cut for the rest of it.
+    const signedThisEngagement = new Set<PlayerId>();
     const maxCuts = Math.max(5, deficitStart * 3);
     let cutsUsed = 0;
     // §15.2 (2026-08-06): the iteration bound must be derived from the same
@@ -286,7 +301,8 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
         const idSuffix = `${team.identity.abbreviation}_FLR${signedOnTick}_${counter++}`;
         const filled = signFloorMinimum(working, teamId, idSuffix, signedOnTick);
         if (!filled) break; // FA pool exhausted — not a cap failure; rung 4
-        working = filled;
+        working = filled.league;
+        signedThisEngagement.add(filled.playerId);
         continue;
       }
 
@@ -307,8 +323,10 @@ export function enforceRosterFloor(league: LeagueState, signedOnTick: number): L
       // Rung 2 exhausted its cut budget — fall to rung 4 rather than keep
       // trading fringe vets for a hole that isn't closing.
       if (cutsUsed >= maxCuts) break;
-      // Rung 2 — fringe cut (target need + one min salary; the cut opens a slot).
-      const cut = pickMinimalCasualty(team, working, need + minSalary);
+      // Rung 2 — fringe cut (target need + one min salary; the cut opens a
+      // slot). `signedThisEngagement` excludes anyone rung 1 already signed
+      // THIS engagement — see the exclusion-set comment above.
+      const cut = pickMinimalCasualty(team, working, need + minSalary, signedThisEngagement);
       if (cut) {
         cutsUsed++;
         working = applyFloorCut(working, teamId, cut);
@@ -450,14 +468,16 @@ function applyFloorCut(league: LeagueState, teamId: TeamId, cut: CutCandidate): 
  * Sign the best available free agent to a 1-year league-minimum deal at
  * `teamId`, logged as a `forFloor` fa-sign. Returns null if the FA pool is
  * empty (rung-4 territory). Same tier/skill pool ordering as the offseason
- * vet-min fill (`applyVetMinFillUp`).
+ * vet-min fill (`applyVetMinFillUp`). Returns the signed player's id
+ * alongside the league (Fix 4, §16) so the caller can exclude him from a
+ * same-engagement fringe cut — see `signedThisEngagement`.
  */
 function signFloorMinimum(
   league: LeagueState,
   teamId: TeamId,
   idSuffix: string,
   signedOnTick: number,
-): LeagueState | null {
+): { league: LeagueState; playerId: PlayerId } | null {
   let chosen: PlayerId | null = null;
   for (const pid of sortedFreeAgentPool(league)) {
     const player = league.players[pid];
@@ -510,22 +530,25 @@ function signFloorMinimum(
   });
 
   return {
-    ...league,
-    teams: {
-      ...league.teams,
-      [teamId]: { ...team, rosterIds: [...team.rosterIds, chosen] },
-    } as Readonly<Record<TeamId, TeamState>>,
-    players: {
-      ...league.players,
-      [chosen]: { ...player, teamId, contractId: contract.id },
-    } as Readonly<Record<PlayerId, Player>>,
-    contracts: {
-      ...league.contracts,
-      [contract.id]: contract,
-    } as Readonly<Record<ContractIdType, Contract>>,
-    transactionLog: collisionEntry
-      ? [...league.transactionLog, entry, collisionEntry]
-      : [...league.transactionLog, entry],
+    league: {
+      ...league,
+      teams: {
+        ...league.teams,
+        [teamId]: { ...team, rosterIds: [...team.rosterIds, chosen] },
+      } as Readonly<Record<TeamId, TeamState>>,
+      players: {
+        ...league.players,
+        [chosen]: { ...player, teamId, contractId: contract.id },
+      } as Readonly<Record<PlayerId, Player>>,
+      contracts: {
+        ...league.contracts,
+        [contract.id]: contract,
+      } as Readonly<Record<ContractIdType, Contract>>,
+      transactionLog: collisionEntry
+        ? [...league.transactionLog, entry, collisionEntry]
+        : [...league.transactionLog, entry],
+    },
+    playerId: chosen,
   };
 }
 

@@ -14,6 +14,54 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ### Fixed
 
+- **Roster Floor's cap-spiral disease had a real, code-verified mechanism —
+  a same-player sign/cut thrash loop, not the restructure cascade the
+  design doc had hypothesized.** Diagnosed using a fresh repro from Talent
+  Allocation Track 1+2's own hard flag (the disease's violation rate rose
+  0/20→3/20 once Track 1 made surplus-starter churn correctly aggressive).
+  Per `ROSTER_FLOOR.md` §15.9's own prescribed check — trace `forFloor`
+  restructures against cap-cut dead money — the restructure-cascade
+  hypothesis did NOT hold: only 2 of 1080 cap-cuts on the failing team
+  (NYJ, seed `adv-trajectory`) traced to a prior restructure. The actual
+  mechanism, verified by reading `roster-floor.ts` + `offseason.ts`
+  directly: `signFloorMinimum` always mints the cheapest possible contract
+  (zero bonus, 1 year, exact league minimum), which makes that player
+  structurally `pickMinimalCasualty`'s top pick the instant he's signed,
+  while `sortedFreeAgentPool` (tier+skill only) can hand him right back as
+  best-available in a depleted pool — the two selection criteria converge
+  on one player with nothing to stop them (measured: one player signed
+  then immediately cut 169 times in direct succession at a single tick,
+  zero net progress each cycle, burning the cut/iteration budget real
+  distress-clearing needs).
+
+  **Fix (Daniel's design call, "yup, lets add in that safeguard"):** a new
+  `signedThisEngagement: Set<PlayerId>` excludes a player signed via
+  `signFloorMinimum` from being the fringe cut for the rest of the same
+  `enforceRosterFloor` engagement — mirrors the file's own existing
+  `restructuredThisEngagement` pattern (v0.187.2) exactly. New regression
+  test hand-reproduces the mechanism at deterministic scale (confirmed RED
+  pre-fix: 28 signs/27 cuts all on one player; GREEN post-fix: 1 sign, 0
+  cuts). A pre-existing test was silently asserting the SAME oscillation as
+  "expected" behavior (Fix 5, 2026-08-06, explicitly deferred fixing it to
+  Fix 4) — updated to assert the corrected outcome.
+
+  **Measured:** the real NYJ repro's total cap-cuts fell 1080→537 (roughly
+  halved). The matched 20-seed census still shows 3/20 seeds violating
+  (same three seeds, unchanged rate) — **this fix does not reduce how
+  often a team fails to reach 53** (that's the team's genuine underlying
+  cap distress, untouched by design); it removes the WASTED churn a
+  distressed team generates on the way to that still-honest violation.
+
+  **Named follow-ups, not fixed here:** a related but distinct pattern
+  where the same player cycles across SEPARATE weekly engagements (not
+  within one call) — `signedThisEngagement` is correctly scoped to a
+  single `enforceRosterFloor` call and can't see across calls; fixing this
+  needs persisting exclusion state, a bigger change needing its own design
+  pass. The actual disease (why a team gets this cap-distressed at all,
+  "Fix 4 proper") remains open and unscoped.
+
+  Full writeup: `docs/design-docs/ROSTER_FLOOR.md` §16.
+
 - **Talent Allocation Track 1 + Track 2 — the tier gate under-counted the
   marginal 2nd-best QB at every position, and the roster carried 38% more
   QBs than the real NFL** (design of record `docs/design-docs/

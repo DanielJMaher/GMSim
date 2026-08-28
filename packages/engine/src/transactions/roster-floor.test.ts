@@ -283,18 +283,26 @@ describe('enforceRosterFloor — iteration-bound derivation (§15, Fix 5)', () =
   // sliver (~$1.02M) — real but modest savings, exactly the
   // `pickMinimalCasualty` "largest available, even if insufficient" fallback
   // case (`smallestSufficient ?? largest`, offseason.ts:262), never a clean
-  // restructure-away. Once those 10 are exhausted, the only remaining cut
-  // candidates are freshly-signed (fully unguaranteed) floor players, whose
-  // full-base saving roughly equals one minSalary sign — so the ladder
-  // oscillates cut-a-floor-player / sign-a-replacement with near-zero net
-  // roster progress until the cut budget (`maxCuts = max(5, 3*43) = 129`)
-  // exhausts. On today's bound (60) this throws well before the budget
-  // exhausts; corrected (§15.6) it must run the full ladder, fall through to
-  // rung 4, and log a `roster-floor-violation` rather than reaching 53 —
-  // never a silent sub-53, never an abort. Measured against the corrected
-  // bound (patched scratch build, confirming this fixture behaves as
-  // designed): 129 cuts (10 of the original kept + 119 floor-signed), 130
-  // signs, final roster 11, exactly 1 violation logged.
+  // restructure-away. On today's bound (60) this throws well before the
+  // 129-cut budget (`maxCuts = max(5, 3*43)`) exhausts; corrected (§15.6) it
+  // must run the full ladder, fall through to rung 4, and log a
+  // `roster-floor-violation` rather than reaching 53 — never a silent
+  // sub-53, never an abort.
+  //
+  // UPDATED (Fix 4, §16, 2026-08-28): pre-Fix-4, once the 10 original kept
+  // players were exhausted the only remaining cut candidates were
+  // freshly-signed (fully unguaranteed) floor players, whose full-base
+  // saving roughly equals one minSalary sign — so the ladder oscillated
+  // cut-a-floor-player / sign-a-replacement with near-zero net roster
+  // progress (measured then: 129 cuts — 10 original + 119 floor-signed —
+  // 130 signs, final roster 11). Fix 4 excludes a player signed THIS
+  // engagement from ever being the fringe cut in it (mirrors the existing
+  // `restructuredThisEngagement` pattern) — the oscillation is gone: only
+  // the 10 original kept players are ever cuttable, no floor-signed
+  // replacement is ever re-cut. Measured post-fix: exactly 10 cuts, all of
+  // the original kept players, final roster 11, still exactly 1 violation
+  // logged (the team's underlying cap shape is unchanged — Fix 4 removes
+  // the wasted churn, not the genuine distress).
   it('a hopeless team degrades gracefully (logs a violation) instead of aborting the sim', () => {
     const { league, teamId } = pinFirstTeam('floor-boundfix', {
       keep: 10,
@@ -339,15 +347,14 @@ describe('enforceRosterFloor — iteration-bound derivation (§15, Fix 5)', () =
 
     // Confirms the mechanism, not just the outcome: all 10 original kept
     // players get cut eventually (their partial guarantee makes them
-    // eligible, just not free), and MORE cuts land on floor-signed
-    // replacements than on the original 10 — the oscillation phase.
+    // eligible, just not free) — and, post-Fix-4, NO floor-signed
+    // replacement is ever re-cut (the oscillation phase is gone).
     const cuts = floorTxns(after, 'cap-cut');
-    expect(cuts.length).toBeGreaterThan(10);
+    expect(cuts.length).toBe(10);
     const cutsOfOriginal = cuts.filter((c) =>
       originalRosterIds.has((c as { playerId: PlayerId }).playerId),
     ).length;
-    expect(cutsOfOriginal).toBeGreaterThan(0);
-    expect(cutsOfOriginal).toBeLessThan(cuts.length);
+    expect(cutsOfOriginal).toBe(cuts.length);
   });
 });
 
@@ -575,6 +582,67 @@ describe('enforceRosterFloor — body-supply gap (v0.186.1 net-zero cut/re-sign 
     expect(after.teams[teamId]!.rosterIds.length).toBe(53);
     expect(teamCapUsage(after.teams[teamId]!, after)).toBeLessThanOrEqual(after.salaryCap);
     expect(after.transactionLog.filter((t) => t.kind === 'roster-floor-violation').length).toBe(0);
+  });
+});
+
+describe('enforceRosterFloor — same-engagement sign/cut thrash (Fix 4, §16)', () => {
+  it('never cuts a player it just signed this engagement — falls through to a violation instead of thrashing', () => {
+    // The NYJ / adv-trajectory mechanism, hand-pinned: one restructurable
+    // veteran (relief sized to fall well short of the 9-slot need) plus a
+    // block of FULLY-GUARANTEED 1-year vets (saving <= 0 on a cut — never
+    // eligible). Once the one restructure is used, the ONLY player
+    // `pickMinimalCasualty` could ever pick is whoever rung 1 just signed —
+    // a zero-bonus, zero-dead-money floor-minimum deal is structurally the
+    // cheapest cut on the roster the instant he's rostered, and
+    // `sortedFreeAgentPool` can hand the SAME player right back as
+    // best-available. Confirmed pre-fix on this exact fixture: 28 signs / 27
+    // cuts, all on ONE player, before the ladder gave up — reproducing the
+    // measured NYJ pathology (169 cycles on one player in the real seed) at
+    // a smaller, deterministic scale. Post-fix must fall through to a
+    // violation on the first unaffordable slot instead: the team's cap
+    // shape doesn't change (still genuinely short past the one
+    // restructure), only the wasted churn goes.
+    const { league, teamId } = pinFirstTeam('floor-thrash', {
+      keep: 44, // deficit 9
+      roomDollars: -800_000, // deeply pinned even after the restructure below
+      phase: 'OFFSEASON_TRANSACTIONS',
+      makeContract: (pid, i) =>
+        i === 0
+          ? megaDeal(pid, 3_000_000) // restructurable, but relief << the 9-slot need
+          : oneYearDeal(pid, 4_000_000, true), // guaranteed — saving <= 0, never cuttable
+    });
+
+    const after = enforceRosterFloor(league, 200);
+    const team = after.teams[teamId]!;
+
+    const signs = floorTxns(after, 'fa-sign').filter(
+      (t) => (t as { teamId: TeamId }).teamId === teamId,
+    );
+    const cuts = floorTxns(after, 'cap-cut').filter(
+      (t) => (t as { teamId: TeamId }).teamId === teamId,
+    );
+    const signedIds = new Set(signs.map((t) => (t as { playerId: PlayerId }).playerId));
+    const cutIds = cuts.map((t) => (t as { playerId: PlayerId }).playerId);
+
+    // THE core invariant: nobody signed this engagement was later cut in it.
+    for (const cutId of cutIds) {
+      expect(signedIds.has(cutId), `${cutId} was signed AND cut in the same engagement`).toBe(
+        false,
+      );
+    }
+    // No wasted churn on this fixture: the one restructure covers the first
+    // slot, nothing else is ever affordable or cuttable — zero cuts, zero
+    // repeat signs.
+    expect(cuts.length).toBe(0);
+    expect(signedIds.size).toBe(signs.length);
+
+    // The team's cap shape didn't magically improve — it's still genuinely
+    // short and logs the honest violation, exactly as it should.
+    expect(team.rosterIds.length).toBeLessThan(53);
+    const violations = after.transactionLog.filter(
+      (t) => t.kind === 'roster-floor-violation' && (t as { teamId: TeamId }).teamId === teamId,
+    );
+    expect(violations.length).toBe(1);
   });
 });
 
