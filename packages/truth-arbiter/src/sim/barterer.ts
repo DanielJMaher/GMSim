@@ -1125,6 +1125,7 @@ async function runSimComparison(
   er: ExchangeRates,
   realBar: StructuralBar,
   realModernRatios: number[],
+  realRatiosByShape: Map<Shape, number[]>,
 ): Promise<void> {
   console.log(`\n${'='.repeat(72)}`);
   console.log(`=== SLICE 3 — GMSim's own simulated trades vs the real bar ===`);
@@ -1177,6 +1178,42 @@ async function runSimComparison(
   console.log(`  ${'percentile'.padEnd(28)} sim      real`);
   for (const p of [0.5, 0.9, 0.95]) {
     ratioCompare(`p${Math.round(p * 100)}`, quantile(simRatios, p), quantile(realSorted, p), 1.75);
+  }
+
+  // Segmented by shape — the ALL-population read above compares an
+  // unsegmented sim distribution against the real bar's shape-BLENDED
+  // percentiles, which is apples-to-oranges once sim and real shape MIX
+  // differ (they do — see "deal shape" above). Real trades are already
+  // segmented by shape in reportEnvelope's own report; segment sim the
+  // same way so each shape is judged against its own real population.
+  console.log('\nenvelope by shape (sim vs real, matched populations):');
+  console.log(
+    `  ${'segment'.padEnd(26)}    n     p25    p50    p75    p90    p95   ≤1.10   >2:1`,
+  );
+  for (const k of ['player-for-picks', 'player-for-player', 'picks-only', 'other'] as Shape[]) {
+    const simShapeRatios = valued
+      .filter((v) => v.shape === k && v.residualRatio !== null)
+      .map((v) => v.residualRatio!);
+    envelopeLine(`sim ${k}`, simShapeRatios);
+    envelopeLine(`real ${k}`, realRatiosByShape.get(k) ?? []);
+  }
+
+  // Segmented by GMSim's own trade source — no real analog (this dimension
+  // doesn't exist in the real-trade data), purely diagnostic: names WHICH
+  // NPC trade generator drives any envelope drift, rather than leaving it
+  // diffused across an unsegmented sim population.
+  console.log('\nenvelope by GMSim trade source (diagnostic only, no real bar):');
+  console.log(`  ${'source'.padEnd(26)}    n     p25    p50    p75    p90    p95   ≤1.10   >2:1`);
+  const bySource = new Map<string, number[]>();
+  for (const v of valued) {
+    if (v.residualRatio === null) continue;
+    const key = v.trade.source ?? 'unknown';
+    const list = bySource.get(key);
+    if (list) list.push(v.residualRatio);
+    else bySource.set(key, [v.residualRatio]);
+  }
+  for (const [src, ratios] of [...bySource.entries()].sort((a, b) => b[1].length - a[1].length)) {
+    envelopeLine(src, ratios);
   }
 }
 
@@ -1232,7 +1269,16 @@ async function main(): Promise<void> {
     const realModernRatios = valued
       .filter((v) => v.residualRatio !== null && modern(v))
       .map((v) => v.residualRatio!);
-    await runSimComparison(seeds, years, tv, er, realBar, realModernRatios);
+    const realRatiosByShape = new Map<Shape, number[]>();
+    for (const k of ['player-for-picks', 'player-for-player', 'picks-only', 'other'] as Shape[]) {
+      realRatiosByShape.set(
+        k,
+        valued
+          .filter((v) => v.residualRatio !== null && modern(v) && classify(v.trade) === k)
+          .map((v) => v.residualRatio!),
+      );
+    }
+    await runSimComparison(seeds, years, tv, er, realBar, realModernRatios, realRatiosByShape);
   }
 }
 

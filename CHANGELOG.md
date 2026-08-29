@@ -461,14 +461,47 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   NPC trade AI (`proactive-trades.ts`) has no draft-day pick-swap mechanism
   at all; every simulated trade involves at least one player. Envelope
   fairness: median residual ratio close (sim 1.53x vs real 1.33x) but the
-  tail explodes (p90 sim 111x vs real 3.6x, p95 sim 124x vs real 6.8x) —
-  GMSim occasionally accepts trades an order of magnitude more lopsided
-  than any real deal in the 2015+ corpus. **Named follow-ups, not fixed
-  here:** a picks-only/draft-day-swap trade generator (currently absent
-  entirely); the extreme-tail fairness gap (likely the same
-  under-calibrated player↔pick exchange rate Slice 2 already flagged,
-  compounding on GMSim's own trade selection rather than pricing a real
-  trade after the fact).
+  unsegmented tail explodes (p90 sim 111x vs real 3.6x, p95 sim 124x vs
+  real 6.8x).
+
+  **Same-session follow-up diagnostic (a dedicated agent, not this slice's
+  author) isolated the tail finding precisely — NOT a broad "GMSim accepts
+  absurd trades" defect.** The raw chart-fair ratio never exceeds 36x
+  across the eligible sample; the 100x+ tail exists ONLY after the
+  real-market exchange-rate conversion, and is 100% concentrated in one
+  NPC generator producing one trade shape: `proactive-rebuild-firesale`'s
+  "single aging STARTER/BACKUP vet alone for pure future 1st-round picks"
+  (229/229 sim `player-for-picks` trades trace to this one source; 100% of
+  them exceed 2:1, median residualRatio 95x). The other two generators —
+  `request-driven` and `proactive-need`, all `player-for-player` shape —
+  sit right on the real bar (p50 1.25x, p90 1.62x). Mechanism: the fitted
+  real-market rate is *smallest* for STARTER/STAR (0.01) and *largest* for
+  FRINGE (0.10) — real GMs pay almost no draft capital for a good-not-elite
+  veteran, so a STARTER's chart points get crushed 100x on conversion while
+  the picks on the other side keep full chart value; the same rate applied
+  to BOTH sides of a player-for-player trade mostly cancels instead
+  (confirmed directly: the highest-raw-ratio trades in the sample are
+  FRINGE-vs-STAR swaps, and the exchange rate correctly shrinks their
+  ratio, not inflates it). `proactive-trades.ts`'s fire-sale generator is a
+  deliberate v0.48+ feature using asymmetric buyer/seller timing modifiers
+  by design, so its elevated RAW ratios (1.4x-5.65x) are largely
+  intentional — the 100x+ tail is the exchange-rate step, not the trade
+  selection, misreading that intentional asymmetry.
+
+  **`runSimComparison`'s envelope report now segments by shape AND by
+  GMSim trade source** (matching how `reportEnvelope` already segments the
+  real side by shape) so the drift is attributed honestly instead of
+  diffused across the whole population: `sim player-for-picks` (=100%
+  `rebuild-firesale`) reads p50 95x vs real (shape-matched) p50 1.61x —
+  still a large, real, and now correctly-attributed gap — while `sim
+  player-for-player` (`request-driven`+`proactive-need`) reads p50 1.25x
+  vs real p50 1.70x, healthy. **Named follow-ups, not fixed here:** a
+  picks-only/draft-day-swap trade generator (currently absent entirely,
+  unchanged from the original finding); whether `rebuild-firesale`'s pick
+  package should key off the real-market exchange rate rather than the
+  engine's neutral $-chart (the same "player↔pick exchange rate" defect
+  Slice 2 already named as a follow-up, now isolated to exactly one call
+  site instead of the whole trade system).
 
 - **The franchise tag** (design of record `docs/design-docs/FRANCHISE_TAG.md`,
   Opus-designed 2026-08-09). Ranked #1 by alpha-tester visibility
