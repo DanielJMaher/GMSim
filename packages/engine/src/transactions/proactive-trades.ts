@@ -12,7 +12,13 @@ import type { Prng } from '../prng/index.js';
 import { CompetitiveWindow } from '../types/enums.js';
 import { ROSTER_BLUEPRINT_53, QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
 import { computeStarterCaliberIds } from '../players/starter-caliber.js';
-import { teamCapUsage, currentCapHit } from '../contracts/cap.js';
+import {
+  teamCapUsage,
+  currentCapHit,
+  deadMoneyOnPreJune1Release,
+  splitDeadMoney,
+  isOffseasonPhase,
+} from '../contracts/cap.js';
 import { schemeFitForPlayer } from '../scheme/fit.js';
 import { executeTrade } from './trade.js';
 import { releasePlayer } from './release.js';
@@ -195,12 +201,17 @@ export function runProactiveTrades(
  * target` is required to release anything, so the team's actual starter(s)
  * are never at risk.
  *
- * No extra cap gate: `releasePlayer` accrues dead money to the CURRENT year
- * only (accelerated bonus proration, not remaining base), so a release is
- * typically cap-NEUTRAL-OR-POSITIVE across the life of the deal; the
- * existing `applyMinimalCapCasualties` pass later in the same offseason
- * pipeline (`season/lifecycle.ts`) is the established backstop for the rare
- * case a release itself tips a team over for its current year.
+ * Fix A (ROSTER_FLOOR.md §17.4/§17.15, 2026-09-03): a release only fires if
+ * `currentCapHit − dead money on release > 0` — the C2 guard `evaluateCapCasualty`
+ * (`npc-ai/cap-casualty.ts`) already enforces. The premise this comment
+ * previously rested on ("not remaining base", "cap-NEUTRAL-OR-POSITIVE") was
+ * factually wrong about the function it calls (`deadMoneyOnPreJune1Release`
+ * DOES include guaranteed remaining base) and reasoned over the wrong
+ * accounting period (lifetime neutrality isn't the constraint; cap
+ * compliance and the 53-man floor are current-year). Measured: a single
+ * un-gated release could book 62–77% of an entire cap in one transaction,
+ * and `applyMinimalCapCasualties` is structurally not a backstop for a
+ * charge that size (§17.7).
  *
  * Track 1 (2026-08-04/05, `docs/design-docs/TALENT_ALLOCATION.md` §10.3/§12):
  * "starter-calibre" is now `computeStarterCaliberIds` (fine-position,
@@ -271,6 +282,17 @@ export function releaseSurplusStarters(
 
       for (const player of toRelease) {
         if (!player.contractId) continue;
+        const contract = working.contracts[player.contractId];
+        if (!contract) continue;
+        // Fix A (ROSTER_FLOOR.md §17.4/§17.15): C2 guard, mirroring
+        // `evaluateCapCasualty`'s (`npc-ai/cap-casualty.ts`) — a release
+        // only fires if it actually frees current-year cap. The surplus is
+        // still reported; a player who fails this guard simply stays
+        // rostered, still visible to any allocation instrument.
+        const postJune1 = !isOffseasonPhase(working.phase);
+        const dead = deadMoneyOnPreJune1Release(contract);
+        const saving = currentCapHit(contract) - splitDeadMoney(contract, dead, postJune1).currentYear;
+        if (!(saving > 0)) continue;
         working = releasePlayer(working, player.id);
       }
     }
