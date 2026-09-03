@@ -49,7 +49,12 @@ describe('preseasonCuts — contract evaporation must book dead money (LIQUIDATO
       voidYears: 0,
       yearsRemaining: 5, // fresh deal -- zero years charged, full bonus unamortized
       baseSalaries: [4_000_000, 4_000_000, 4_000_000, 4_000_000, 4_000_000],
-      signingBonus: 15_000_000,
+      // ROSTER_FLOOR.md §17 follow-up: the swap fix below spares a selected
+      // cut whose dead money would exceed the cap hit it frees, in favor of
+      // a cheaper-to-cut alternative -- so this bonus must stay small enough
+      // that cutting `target` is itself cap-safe (dead <= hit), or he'd be
+      // swapped out and this fixture would no longer isolate a single event.
+      signingBonus: 2_000_000,
       rosterBonuses: [0, 0, 0, 0, 0],
       workoutBonuses: [0, 0, 0, 0, 0],
       guarantees: [
@@ -63,7 +68,7 @@ describe('preseasonCuts — contract evaporation must book dead money (LIQUIDATO
       noTradeClause: false,
     };
     const expectedUnamortized = unamortizedSigningBonus(contract);
-    expect(expectedUnamortized).toBe(15_000_000); // sanity: fresh deal, full bonus
+    expect(expectedUnamortized).toBe(2_000_000); // sanity: fresh deal, full bonus
 
     const playersNext = {
       ...base.players,
@@ -96,6 +101,106 @@ describe('preseasonCuts — contract evaporation must book dead money (LIQUIDATO
       afterDead - beforeDead,
       'preseasonCuts must book the unamortized signing bonus as dead money',
     ).toBe(expectedUnamortized);
+  });
+});
+
+describe('preseasonCuts — Fix 4 PROPER follow-up (ROSTER_FLOOR.md §17): a mandatory cutdown must not cut a player whose dead money exceeds the cap hit it frees when a cheaper alternative exists', () => {
+  it('spares the worst-skill player with a catastrophic fresh-deal bonus and cuts the next-worst, cap-safe player instead', () => {
+    const base = createLeague({ seed: 'pcuts-swap' });
+    const teamIds = Object.keys(base.teams) as TeamId[];
+    const teamId = teamIds[0]!;
+    const team = base.teams[teamId]!;
+    const catastrophicId = team.rosterIds[0]!;
+    const catastrophic = base.players[catastrophicId]!;
+    const cheapId = team.rosterIds[1]!;
+    const cheap = base.players[cheapId]!;
+
+    const otherTeamId = teamIds.find((id) => id !== teamId)!;
+    const donor = base.players[base.teams[otherTeamId]!.rosterIds[0]!]!;
+    const paddingId = PlayerId('P_PRESEASON_SWAP_PADDING');
+    const padding: Player = {
+      ...donor,
+      id: paddingId,
+      teamId,
+      contractId: null,
+      current: mapSkills(donor.current, 99),
+    };
+
+    // Worst skill in the room (skill=1), but a fresh deal with a bonus
+    // dwarfing its own cap hit -- cutting him would cost far more room
+    // than it frees.
+    const catastrophicContract: Contract = {
+      id: ContractId('C_PRESEASON_SWAP_CATASTROPHIC'),
+      playerId: catastrophicId,
+      teamId,
+      signedOnTick: base.tick,
+      realYears: 5,
+      voidYears: 0,
+      yearsRemaining: 5,
+      baseSalaries: [4_000_000, 4_000_000, 4_000_000, 4_000_000, 4_000_000],
+      signingBonus: 15_000_000,
+      rosterBonuses: [0, 0, 0, 0, 0],
+      workoutBonuses: [0, 0, 0, 0, 0],
+      guarantees: Array(5).fill({ baseGuaranteedPct: 0, type: 'NONE' as const }),
+      incentives: [],
+      noTradeClause: false,
+    };
+    // Second-worst skill (skill=2), plain vet-min-shaped deal -- cutting
+    // him is pure savings.
+    const cheapContract: Contract = {
+      id: ContractId('C_PRESEASON_SWAP_CHEAP'),
+      playerId: cheapId,
+      teamId,
+      signedOnTick: base.tick,
+      realYears: 1,
+      voidYears: 0,
+      yearsRemaining: 1,
+      baseSalaries: [1_200_000],
+      signingBonus: 0,
+      rosterBonuses: [0],
+      workoutBonuses: [0],
+      guarantees: [{ baseGuaranteedPct: 0, type: 'NONE' }],
+      incentives: [],
+      noTradeClause: false,
+    };
+
+    const playersNext = {
+      ...base.players,
+      [catastrophicId]: {
+        ...catastrophic,
+        contractId: catastrophicContract.id,
+        current: mapSkills(catastrophic.current, 1),
+      },
+      [cheapId]: { ...cheap, contractId: cheapContract.id, current: mapSkills(cheap.current, 2) },
+      [paddingId]: padding,
+    };
+    const contractsNext = {
+      ...base.contracts,
+      [catastrophicContract.id]: catastrophicContract,
+      [cheapContract.id]: cheapContract,
+    };
+    const teamNext = { ...team, rosterIds: [...team.rosterIds, paddingId] };
+
+    const league: LeagueState = {
+      ...base,
+      players: playersNext as LeagueState['players'],
+      contracts: contractsNext as LeagueState['contracts'],
+      teams: { ...base.teams, [teamId]: teamNext } as LeagueState['teams'],
+    };
+    expect(league.teams[teamId]!.rosterIds.length).toBe(54); // fixture check: surplus of exactly 1
+
+    const after = preseasonCuts(league, { protectedPlayerIds: new Set() });
+
+    expect(
+      after.players[catastrophicId]!.contractId,
+      'the catastrophic-dead-money player must be spared, not cut',
+    ).not.toBeNull();
+    expect(
+      after.players[cheapId]!.contractId,
+      'the cap-safe next-worst-skill player must be cut instead',
+    ).toBeNull();
+    expect(after.players[paddingId]!.teamId, 'the maxed-skill padding body must survive').toBe(teamId);
+    expect(after.teams[teamId]!.rosterIds.length).toBe(53);
   });
 });
 

@@ -4,7 +4,13 @@ import type { Contract } from '../types/contract.js';
 import type { TeamState } from '../types/team.js';
 import type { Transaction } from '../types/transaction.js';
 import type { PlayerId, TeamId } from '../types/ids.js';
-import { unamortizedSigningBonus, addToYear, splitDeadMoney, isOffseasonPhase } from '../contracts/cap.js';
+import {
+  unamortizedSigningBonus,
+  addToYear,
+  splitDeadMoney,
+  isOffseasonPhase,
+  currentCapHit,
+} from '../contracts/cap.js';
 
 const ACTIVE_ROSTER_LIMIT = 53;
 
@@ -46,8 +52,17 @@ export interface PreseasonCutsOptions {
  *      team's dead money (LIQUIDATOR_DEAD_MONEY.md §11.1) — the same rule
  *      every other departure route already applies. Most preseason cuts
  *      are still cost-free in practice (rookie-pool/vet-min bodies with
- *      little-to-no bonus), but a cut veteran on a real deal is not free,
- *      and wasn't being charged.
+ *      little-to-no bonus), but a cut veteran on a real deal is not free.
+ *
+ * ROSTER_FLOOR.md §17 "Fix 4 PROPER" follow-up (2026-09-03): this trim is
+ * MANDATORY (a team cannot carry 54+), so it cannot simply decline a
+ * cap-negative cut the way `releaseSurplusStarters`' discretionary Fix A
+ * does — someone in the bottom `surplus` has to go. Instead, a bounded
+ * swap: any selected cut whose dead money would exceed the cap hit it
+ * frees is swapped for the next-best-skill unprotected player who IS
+ * cap-safe to cut, if one exists (same real-NFL logic as a team carrying
+ * a slightly worse player over eating a cap bomb). Same headcount, skill
+ * ranking stays primary, zero new tunables.
  *
  * Idempotent — running again on a roster already at 53 is a no-op.
  * Pure function — no PRNG.
@@ -63,6 +78,26 @@ export function preseasonCuts(
   const logEntries: Transaction[] = [];
   let anyChange = false;
 
+  // Dynamic, not hardcoded (LIQUIDATOR_DEAD_MONEY.md §18.5.1): under
+  // today's calendar POST_DRAFT_ROSTER (where this pass runs) is
+  // pre-June-1, so this is always false in practice — but deriving it
+  // from `league.phase` means a future re-dating of that phase to the
+  // real August cutdown window starts splitting automatically. League-wide,
+  // not team-specific — computed once.
+  const postJune1 = !isOffseasonPhase(league.phase);
+
+  // True if cutting `p` does not book more dead money than it frees this
+  // year — mirrors `evaluateCapCasualty`'s C2 guard (`npc-ai/cap-casualty.ts`)
+  // and `releaseSurplusStarters`' Fix A, applied here as a swap preference
+  // rather than a skip (§17 follow-up: this trim can't decline to cut).
+  const cutSaves = (p: Player): boolean => {
+    if (!p.contractId) return true;
+    const contract = league.contracts[p.contractId];
+    if (!contract) return true;
+    const split = splitDeadMoney(contract, unamortizedSigningBonus(contract), postJune1);
+    return split.currentYear <= currentCapHit(contract);
+  };
+
   for (const team of Object.values(league.teams)) {
     if (team.rosterIds.length <= ACTIVE_ROSTER_LIMIT) continue;
 
@@ -73,10 +108,20 @@ export function preseasonCuts(
     const unprotected = rostered.filter((p) => !protectedIds.has(p.id));
     unprotected.sort((a, b) => skillMean(a.current) - skillMean(b.current));
     const surplus = team.rosterIds.length - ACTIVE_ROSTER_LIMIT;
-    const cutSet = new Set<PlayerId>();
-    for (let i = 0; i < surplus && i < unprotected.length; i++) {
-      cutSet.add(unprotected[i]!.id);
+    const selected = unprotected.slice(0, surplus);
+    const alternatives = unprotected.slice(surplus);
+    // Bounded swap: a selected (worst-skill) cut whose dead money exceeds
+    // the cap hit it frees is swapped for the closest-skill unprotected
+    // player who IS cap-safe to cut, if one exists. Same headcount, same
+    // pool — just which `surplus` bodies within it.
+    for (let i = 0; i < selected.length; i++) {
+      if (cutSaves(selected[i]!)) continue;
+      const swapIdx = alternatives.findIndex((p) => cutSaves(p));
+      if (swapIdx === -1) continue;
+      const [replacement] = alternatives.splice(swapIdx, 1);
+      selected[i] = replacement!;
     }
+    const cutSet = new Set<PlayerId>(selected.map((p) => p.id));
     // Fallback: if we still haven't cut enough (entire surplus is
     // protected, somehow), cut bottom-up across protected too so the
     // roster invariant holds.
@@ -91,12 +136,6 @@ export function preseasonCuts(
     if (cutSet.size === 0) continue;
     anyChange = true;
 
-    // Dynamic, not hardcoded (LIQUIDATOR_DEAD_MONEY.md §18.5.1): under
-    // today's calendar POST_DRAFT_ROSTER (where this pass runs) is
-    // pre-June-1, so this is always false in practice — but deriving it
-    // from `league.phase` means a future re-dating of that phase to the
-    // real August cutdown window starts splitting automatically.
-    const postJune1 = !isOffseasonPhase(league.phase);
     let deadMoneyCurrent = 0;
     let deadMoneyNext = 0;
     for (const pid of cutSet) {
