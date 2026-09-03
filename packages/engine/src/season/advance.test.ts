@@ -74,28 +74,14 @@ describe('advanceSeason', () => {
       // (a compliant-but-cap-strapped team frees room for its 53rd body), the
       // over-53 half by the POST_DRAFT_ROSTER cutdown.
       //
-      // Escape-hatch tolerance (Talent Allocation Track 1, 2026-08-05,
-      // `TALENT_ALLOCATION.md` §10.3/§12): the pre-existing, still-unfixed
-      // cap-spiral disease (`ROSTER_FLOOR.md` §14/§15, Fix 4 explicitly
-      // deferred) is more reachable now that Track 1 makes surplus-starter
-      // churn correctly aggressive — measured A/B on 20 matched seeds: 0/20
-      // hit it before, 3/20 after. The ladder still logs the loud
-      // `roster-floor-violation` rather than silently stranding a team (the
-      // documented, accepted degrade-gracefully behavior), so a violated
-      // team is exempted from the exact-53 assertion for that season; any
-      // team NOT at 53 with no matching violation logged still fails below.
-      // Cumulative (not per-season) on purpose: `roster-floor-violation` is
-      // stamped with the POST-increment seasonNumber (advanceSeason logs it
-      // after bumping league.seasonNumber for the upcoming year), so matching
-      // this loop's pre-increment `season` counter exactly would be an
-      // off-by-one; a violated team may also take a season or two to recover.
-      const everViolated = new Set(
-        league.transactionLog
-          .filter((t) => t.kind === 'roster-floor-violation')
-          .map((t) => t.teamId),
-      );
+      // Re-tightened (ROSTER_FLOOR.md §17.17 gate 4, 2026-09-03): the
+      // Talent-Allocation-Track-1-era escape hatch this assertion used to
+      // carry (0/20 -> 3/20 matched-seed cap-spiral reachability) is gone —
+      // Fix D (starter-calibre denominator computed pre-expiration) + Fix A
+      // (a release only fires if it actually frees current-year cap) closed
+      // the matched 20-seed census back to 0/20, unconditionally, no
+      // exemption needed.
       for (const team of Object.values(league.teams)) {
-        if (everViolated.has(team.identity.id)) continue;
         expect(team.rosterIds.length, `season ${season}: ${team.identity.id}`).toBe(53);
         for (const playerId of team.rosterIds) {
           const player = league.players[playerId]!;
@@ -108,12 +94,20 @@ describe('advanceSeason', () => {
 
       // Average cap usage in a plausible cap-relative band (the cap grows
       // ~6%/yr — v0.176). Wide: catches catastrophic drift, not exact values.
+      // Per-team compliance (ROSTER_FLOOR.md §17.17 gate 4, 2026-09-03):
+      // the second half of INV-FLOOR (`teamCapUsage <= salaryCap`) was
+      // unguarded at this Week-1 boundary past season 3 — tightened from a
+      // loose `< 2x cap` bound to real compliance now that Fix D + Fix A
+      // close the matched census to 0/20.
       let totalUsage = 0;
       for (const team of Object.values(league.teams)) {
         const summary = summarizeTeamCap(team, league);
         totalUsage += summary.capUsed;
         expect(summary.capUsed).toBeGreaterThan(20_000_000);
-        expect(summary.capUsed).toBeLessThan(league.salaryCap * 2);
+        expect(
+          summary.capUsed,
+          `season ${season}: ${team.identity.id} cap compliance`,
+        ).toBeLessThanOrEqual(league.salaryCap);
       }
       const avg = totalUsage / Object.values(league.teams).length;
       expect(avg / league.salaryCap, `season ${season}: cap usage`).toBeGreaterThan(0.55);
