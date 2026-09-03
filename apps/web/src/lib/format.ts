@@ -346,6 +346,7 @@ export const SKILL_LABELS: Record<keyof PlayerSkills, string> = {
   kickAccuracy: 'Kick accuracy',
   puntPower: 'Punt power',
   puntAccuracy: 'Punt accuracy',
+  specialTeams: 'Coverage craft',
 };
 
 export const WATCH_LIST_REASON: Record<WatchListReason, { label: string; description: string; className: string }> = {
