@@ -12,12 +12,14 @@ import {
 } from '../trade/value.js';
 import type { DraftPickAsset } from '../types/college.js';
 import { QUALITY_DEPTH_TARGET } from '../players/roster-blueprint.js';
+import { computeStarterCaliberIds } from '../players/starter-caliber.js';
 import { Prng } from '../prng/index.js';
 import { CompetitiveWindow, Position } from '../types/enums.js';
-import { teamCapUsage } from '../contracts/cap.js';
 import type { LeagueState } from '../types/league.js';
 import type { Player } from '../types/player.js';
-import type { TeamId } from '../types/ids.js';
+import type { Contract } from '../types/contract.js';
+import { ContractId } from '../types/ids.js';
+import type { PlayerId, TeamId } from '../types/ids.js';
 
 describe('runProactiveTrades', () => {
   it('is a no-op when no team is in a buyer window and no scheme-fit swaps exist', () => {
@@ -977,7 +979,7 @@ describe('releaseSurplusStarters — target-0 exemption (FA_ECONOMY_FIX.md Fix A
     }
     league = { ...league, players: playersNext as LeagueState['players'] };
 
-    const after = releaseSurplusStarters(league);
+    const after = releaseSurplusStarters(league, computeStarterCaliberIds(Object.values(league.players)));
     const afterRoster = after.teams[teamId]!.rosterIds;
 
     for (const p of target0) {
@@ -992,5 +994,274 @@ describe('releaseSurplusStarters — target-0 exemption (FA_ECONOMY_FIX.md Fix A
       survivingQbs,
       'genuine surplus (2 STAR QBs vs target 1) must still shed exactly one',
     ).toBe(1);
+  });
+});
+
+// ROSTER_FLOOR.md §17 "Fix 4 PROPER" — two unit regressions (§17.17 gates
+// 5/6), written and confirmed RED before either fix landed. Fix D (landed)
+// threads an externally-computed `starterCaliberIds` set through
+// `releaseSurplusStarters` instead of it computing one internally from
+// whatever league it's handed; Fix A (below, still pending at write time)
+// adds the C2 solvency guard.
+
+function uniformSkills<T extends Record<string, number>>(skills: T, value: number): T {
+  const out = { ...skills };
+  for (const key of Object.keys(out) as (keyof T)[]) out[key] = value as T[keyof T];
+  return out;
+}
+
+function flatContract(
+  id: string,
+  playerId: PlayerId,
+  teamId: TeamId,
+  realYears: number,
+  yearsRemaining: number,
+  baseSalary: number,
+  signingBonus: number,
+  guaranteeFromYear: number | null,
+): Contract {
+  const yearOfDeal = realYears - yearsRemaining;
+  return {
+    id: ContractId(id),
+    playerId,
+    teamId,
+    signedOnTick: 0,
+    realYears,
+    voidYears: 0,
+    yearsRemaining,
+    baseSalaries: Array(realYears).fill(baseSalary) as number[],
+    signingBonus,
+    rosterBonuses: Array(realYears).fill(0) as number[],
+    workoutBonuses: Array(realYears).fill(0) as number[],
+    guarantees: Array.from({ length: realYears }, (_, y) =>
+      guaranteeFromYear !== null && y >= Math.max(guaranteeFromYear, yearOfDeal)
+        ? { baseGuaranteedPct: 100, type: 'FULLY_GUARANTEED' as const }
+        : { baseGuaranteedPct: 0, type: 'NONE' as const },
+    ),
+    incentives: [],
+    noTradeClause: false,
+  };
+}
+
+describe('releaseSurplusStarters — Fix A (ROSTER_FLOOR.md §17.15): a release must actually free current-year cap', () => {
+  it('does not release a surplus QB whose dead money on release exceeds the cap hit it would free', () => {
+    // §17.4: `releaseSurplusStarters` had NO cap gate at all -- its own doc
+    // comment's premise ("not remaining base") is factually false about the
+    // callee. Mirrors `evaluateCapCasualty`'s C2 guard (`npc-ai/cap-casualty.ts`):
+    // a release only fires if `currentCapHit - deadMoney > 0`.
+    const base = createLeague({ seed: 'fix4a-c2-bad' });
+    const teamId = (Object.keys(base.teams) as TeamId[])[0]!;
+    const roster = base.teams[teamId]!.rosterIds
+      .map((id) => base.players[id])
+      .filter((p): p is Player => Boolean(p) && p.contractId !== null);
+    const anchor = roster[0]!;
+    const target = roster[1]!;
+
+    let players = { ...base.players };
+    let contracts = { ...base.contracts };
+    // Anchor: best skill in the room -- never the release candidate.
+    players[anchor.id] = {
+      ...players[anchor.id]!,
+      position: Position.QB,
+      tier: 'STAR',
+      draftRound: null,
+      current: uniformSkills(anchor.current, 99),
+    };
+    // Target: clearly the worse fit (skill 70 vs anchor's 99) -- huge signing
+    // bonus, every remaining year fully guaranteed, so releasing him books
+    // far more dead money than the cap hit it frees.
+    const badContract = flatContract(
+      'c-fix4a-bad',
+      target.id,
+      teamId,
+      4,
+      3,
+      30_000_000,
+      120_000_000,
+      0,
+    );
+    players[target.id] = {
+      ...players[target.id]!,
+      position: Position.QB,
+      tier: 'STAR',
+      draftRound: null,
+      current: uniformSkills(target.current, 70),
+      contractId: badContract.id,
+    };
+    contracts[badContract.id] = badContract;
+
+    const league: LeagueState = {
+      ...base,
+      players: players as LeagueState['players'],
+      contracts: contracts as LeagueState['contracts'],
+    };
+
+    const after = releaseSurplusStarters(league, computeStarterCaliberIds(Object.values(league.players)));
+    const afterRoster = after.teams[teamId]!.rosterIds;
+    expect(
+      afterRoster.includes(target.id),
+      'a release that books more dead money than the cap hit it frees must not fire',
+    ).toBe(true);
+  });
+
+  it('still releases a surplus QB whose dead money on release is small (non-regression)', () => {
+    const base = createLeague({ seed: 'fix4a-c2-good' });
+    const teamId = (Object.keys(base.teams) as TeamId[])[0]!;
+    const roster = base.teams[teamId]!.rosterIds
+      .map((id) => base.players[id])
+      .filter((p): p is Player => Boolean(p) && p.contractId !== null);
+    const anchor = roster[0]!;
+    const target = roster[1]!;
+
+    let players = { ...base.players };
+    let contracts = { ...base.contracts };
+    players[anchor.id] = {
+      ...players[anchor.id]!,
+      position: Position.QB,
+      tier: 'STAR',
+      draftRound: null,
+      current: uniformSkills(anchor.current, 99),
+    };
+    // Target: same skill gap, but no signing bonus and no guarantee -- the
+    // release is pure savings, dead money is zero.
+    const goodContract = flatContract(
+      'c-fix4a-good',
+      target.id,
+      teamId,
+      4,
+      3,
+      8_000_000,
+      0,
+      null,
+    );
+    players[target.id] = {
+      ...players[target.id]!,
+      position: Position.QB,
+      tier: 'STAR',
+      draftRound: null,
+      current: uniformSkills(target.current, 70),
+      contractId: goodContract.id,
+    };
+    contracts[goodContract.id] = goodContract;
+
+    const league: LeagueState = {
+      ...base,
+      players: players as LeagueState['players'],
+      contracts: contracts as LeagueState['contracts'],
+    };
+
+    const after = releaseSurplusStarters(league, computeStarterCaliberIds(Object.values(league.players)));
+    const afterRoster = after.teams[teamId]!.rosterIds;
+    expect(
+      afterRoster.includes(target.id),
+      'a release with negligible dead money should still fire to resolve genuine surplus',
+    ).toBe(false);
+  });
+});
+
+describe('releaseSurplusStarters — Fix D (ROSTER_FLOOR.md §17.15): the starter-calibre denominator must not be computed on a transiently depleted roster', () => {
+  it('does not release a QB who is "starter-calibre" only because higher-ranked QBs are mid-expiration', () => {
+    // §17.5: `releaseSurplusStarters` runs 14 lines after `applyContractExpirations`
+    // and computes `computeStarterCaliberIds` from whatever `league` it's
+    // handed -- in production that's the POST-expiration roster, with ~52%
+    // of the league's rostered players temporarily walked. This constructs
+    // both snapshots by hand: 40 QBs rank above `riser` in the full league,
+    // 15 of them mid-expiration (rostered pre-, unrostered post-). Riser
+    // is outside the top-32 cutoff pre-expiration and inside it post --
+    // exactly the artifact §17.5 measured.
+    const base = createLeague({ seed: 'fix4d-denom' });
+    const teamIds = Object.keys(base.teams) as TeamId[];
+    const teamT = teamIds[0]!;
+    const otherTeamIds = teamIds.slice(1);
+
+    let players = { ...base.players };
+
+    const teamTRoster = base.teams[teamT]!.rosterIds
+      .map((id) => players[id]!)
+      .filter((p) => p.contractId !== null);
+    const anchor = teamTRoster[0]!;
+    const riser = teamTRoster[1]!;
+    players[anchor.id] = {
+      ...players[anchor.id]!,
+      position: Position.QB,
+      current: uniformSkills(anchor.current, 99),
+    };
+    players[riser.id] = {
+      ...players[riser.id]!,
+      position: Position.QB,
+      draftRound: null,
+      experienceYears: 5,
+      current: uniformSkills(riser.current, 65),
+    };
+    // Flatten team T's OTHER natural QBs so they can't confound the count.
+    for (const p of teamTRoster.slice(2)) {
+      if (p.position === Position.QB) players[p.id] = { ...players[p.id]!, current: uniformSkills(p.current, 5) };
+    }
+
+    // 40 players on OTHER teams, reassigned to QB at skill 90 -- all rank
+    // above riser (65). The first 15 are "blockers": rostered pre-expiration,
+    // unrostered post-. The other 25 are permanent (never removed) so
+    // riser's post-expiration rank still needs exactly 15 fewer players
+    // above him to cross the top-32 cutoff.
+    const candidateIds: PlayerId[] = [];
+    for (const tid of otherTeamIds) {
+      for (const pid of base.teams[tid]!.rosterIds) {
+        const p = players[pid];
+        if (!p || p.contractId === null) continue;
+        candidateIds.push(pid);
+      }
+      if (candidateIds.length >= 40) break;
+    }
+    expect(candidateIds.length).toBeGreaterThanOrEqual(40);
+    const blockerIds = candidateIds.slice(0, 15);
+    const permanentIds = candidateIds.slice(15, 40);
+    for (const pid of [...blockerIds, ...permanentIds]) {
+      players[pid] = { ...players[pid]!, position: Position.QB, current: uniformSkills(players[pid]!.current, 90) };
+    }
+
+    // Flatten every other rostered QB in the league so nothing else lands
+    // above riser by accident.
+    const controlled = new Set<string>([anchor.id, riser.id, ...blockerIds, ...permanentIds]);
+    for (const p of Object.values(players)) {
+      if (p.position === Position.QB && p.teamId !== null && !controlled.has(p.id)) {
+        players[p.id] = { ...players[p.id]!, current: uniformSkills(p.current, 5) };
+      }
+    }
+
+    const preExpiration: LeagueState = { ...base, players: players as LeagueState['players'] };
+
+    // The post-expiration snapshot: the 15 blockers walk (unrostered) --
+    // exactly what `applyContractExpirations` does to an expiring contract.
+    const postPlayers = { ...players };
+    const postTeams = { ...base.teams };
+    for (const bid of blockerIds) {
+      const p = postPlayers[bid]!;
+      const tid = p.teamId!;
+      postPlayers[bid] = { ...p, teamId: null, contractId: null };
+      postTeams[tid] = {
+        ...postTeams[tid]!,
+        rosterIds: postTeams[tid]!.rosterIds.filter((id) => id !== bid),
+      };
+    }
+    const postExpiration: LeagueState = {
+      ...base,
+      players: postPlayers as LeagueState['players'],
+      teams: postTeams as LeagueState['teams'],
+    };
+
+    // Sanity: the artifact is real for this construction.
+    const idsPre = computeStarterCaliberIds(Object.values(preExpiration.players));
+    const idsPost = computeStarterCaliberIds(Object.values(postExpiration.players));
+    expect(idsPre.has(riser.id), 'riser must be excluded under the full, pre-expiration population').toBe(false);
+    expect(idsPost.has(riser.id), 'riser must be included once 15 higher-ranked QBs are unrostered').toBe(true);
+
+    // The fixed pipeline's actual call shape: the POST-expiration roster,
+    // with a starter-calibre set computed on the PRE-expiration population.
+    const after = releaseSurplusStarters(postExpiration, idsPre);
+    const afterRoster = after.teams[teamT]!.rosterIds;
+    expect(
+      afterRoster.includes(riser.id),
+      'riser is only "starter-calibre" because of a transiently depleted denominator -- must not be released',
+    ).toBe(true);
   });
 });

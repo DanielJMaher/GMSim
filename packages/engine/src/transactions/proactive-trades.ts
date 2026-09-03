@@ -217,10 +217,11 @@ export function runProactiveTrades(
  * nobody is released there this pass (a team may legitimately be sitting on
  * multiple young players competing for a job).
  */
-export function releaseSurplusStarters(league: LeagueState): LeagueState {
+export function releaseSurplusStarters(
+  league: LeagueState,
+  starterCaliberIds: ReadonlySet<PlayerId>,
+): LeagueState {
   let working = league;
-  // Track 1: computed ONCE per call, not per-team-per-position.
-  const starterCaliberIds = computeStarterCaliberIds(Object.values(league.players));
   const isRookieExempt = (p: Player): boolean =>
     p.draftRound !== null && p.experienceYears < 4;
 

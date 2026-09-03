@@ -59,6 +59,7 @@ import { enforceRosterFloor } from '../transactions/roster-floor.js';
 import { teamSeasonCash } from '../contracts/cash.js';
 import { unamortizedSigningBonus, addToYear } from '../contracts/cap.js';
 import { runProactiveTrades, releaseSurplusStarters } from '../transactions/proactive-trades.js';
+import { computeStarterCaliberIds } from '../players/starter-caliber.js';
 import { refillPracticeSquad } from '../transactions/practice-squad.js';
 import { advanceScoutingCycle, regenerateWatchLists } from '../scouting/index.js';
 import { advanceCollegePool } from '../draft/pool.js';
@@ -1074,6 +1075,13 @@ function applyOffseasonTransactions(
   league: LeagueState,
   prng: PrngClass,
 ): LeagueState {
+  // Fix D (ROSTER_FLOOR.md §17.5/§17.15 D1): computed HERE, on the roster as
+  // it actually is at phase entry -- not inside `releaseSurplusStarters`,
+  // which used to compute it from whatever league it was handed, i.e. the
+  // POST-expiration roster 6 lines below (~52% of the league's rostered
+  // players temporarily walked, inflating QB selectivity 40% -> 71%+). The
+  // definition (`starter-caliber.ts`) is unchanged; only the timing moves.
+  const preExpirationStarterCaliberIds = computeStarterCaliberIds(Object.values(league.players));
   // Cap casualties FIRST (CAP_CASUALTY.md; LIQUIDATOR_DEAD_MONEY.md §18.7.4).
   // The real February/March order: a team identifies the contracts that stopped
   // earning their number and eats the dead money BEFORE it budgets for its own
@@ -1117,7 +1125,7 @@ function applyOffseasonTransactions(
   // re-enters this same offseason's FA pool via `refillRosters` below, where
   // D-3's starting-opportunity preference can weight him toward a team where
   // he'd actually start.
-  offseason = releaseSurplusStarters(offseason);
+  offseason = releaseSurplusStarters(offseason, preExpirationStarterCaliberIds);
   offseason = advanceScoutingCycle(
     prng.fork('scouting-cycle'),
     offseason,
