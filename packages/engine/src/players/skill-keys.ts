@@ -132,6 +132,16 @@ export const GRANULAR_PARENT: Readonly<Record<string, SkillKey>> = {
   kickAccuracy: 'technicalSkill',
   puntPower: 'technicalSkill',
   puntAccuracy: 'technicalSkill',
+  // Special-teams coverage craft (W5). Parent membership ONLY puts it in
+  // ALL_SKILL_KEYS (rolled + developed) and gives it category `technical` —
+  // the parent's archetype weight never applies (players/skills.ts's
+  // `ST_BASELINED_SKILLS` branch overrides the mean before
+  // `effectiveSkillWeight` is consulted). No archetype may ever declare an
+  // explicit `specialTeams` weight >= 1.2: `keySkillAverage`
+  // (archetypes/key-skill.ts) reads `archetype.skillWeights` directly, and
+  // an elite gunner becoming "starter-calibre" would leak into the cap, the
+  // draft, and free agency (SPECIAL_TEAMS_COVERAGE.md §4).
+  specialTeams: 'technicalSkill',
 };
 
 export const GRANULAR_KEYS: readonly SkillKey[] = Object.keys(GRANULAR_PARENT) as SkillKey[];

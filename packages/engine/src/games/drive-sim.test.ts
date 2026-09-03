@@ -11,6 +11,8 @@ import {
 import { matchupFacets } from './strength.js';
 import { simulateGame } from './outcome.js';
 import { deriveGamePlayerStats } from './stats.js';
+import { PLAYER_ARCHETYPES } from '../archetypes/index.js';
+import type { Player } from '../types/player.js';
 
 describe('drive sim (bottom-up)', () => {
   it('is deterministic for the facet-only path', () => {
@@ -178,5 +180,135 @@ describe('buildTeamPersonnel — emergency passer (Roster Viability §4.1)', () 
     expect(pers.emergencyQbId).toBeNull();
     const chosen = players.find((p) => p.id === pers.qb);
     expect(chosen?.position).toBe('QB');
+  });
+});
+
+describe('special-teams coverage (W5, SPECIAL_TEAMS_COVERAGE.md)', () => {
+  // Positions the coverage unit ever draws from (COVERAGE_POS_FACTOR) — the
+  // real bar exercise, not touching punter/returner-eligible skills, so
+  // punterRating/returnerRating stay identical between the two rosters and
+  // only the coverage channel differs.
+  const COVERAGE_ELIGIBLE = new Set([
+    'ILB', 'OLB', 'S', 'CB', 'NICKEL', 'WR', 'RB', 'TE', 'FB', 'EDGE', 'LS',
+  ]);
+
+  function withSpecialTeams(players: Player[], value: number): Player[] {
+    return players.map((p) =>
+      COVERAGE_ELIGIBLE.has(p.position)
+        ? { ...p, current: { ...p.current, specialTeams: value } }
+        : p,
+    );
+  }
+
+  it('an elite coverage unit rates meaningfully higher than a replacement one, punt and kickoff both', () => {
+    const league = createLeague({ seed: 'st-elite-v-replacement' });
+    const teamId = Object.keys(league.teams)[0]!;
+    const base = league.teams[teamId as keyof typeof league.teams]!.rosterIds.map(
+      (id) => league.players[id]!,
+    );
+
+    const elite = buildTeamPersonnel(withSpecialTeams(base, 95));
+    const replacement = buildTeamPersonnel(withSpecialTeams(base, 20));
+
+    // Directional + a real gap, both channels.
+    expect(elite.puntCoverRating).toBeGreaterThan(replacement.puntCoverRating);
+    expect(elite.koCoverRating).toBeGreaterThan(replacement.koCoverRating);
+    expect(elite.puntCoverRating - replacement.puntCoverRating).toBeGreaterThan(10);
+    expect(elite.koCoverRating - replacement.koCoverRating).toBeGreaterThan(10);
+
+    // Punter/returner selection must be untouched — only coverage varies.
+    expect(elite.punterRating).toBe(replacement.punterRating);
+    expect(elite.returnerRating).toBe(replacement.returnerRating);
+    expect(elite.punter).toBe(replacement.punter);
+    expect(elite.returner).toBe(replacement.returner);
+  });
+
+  it('an elite coverage unit allows shorter opponent drive starts on punts than a replacement one (directional, real-game outcome)', () => {
+    // Small-N directional check — the calibrated MAGNITUDE (drive starts
+    // ~2.9yd apart, mean unmoved) is probe-validated
+    // (`_st_verify.mjs`/`_st_measure_neutrals.mjs`, doc results section);
+    // per-punt noise (sd ~9.5yd) makes the exact figure too noisy to assert
+    // at unit-test-friendly N. This asserts the WIRING moves outcomes in the
+    // right direction, end to end through `simulateGameWithDrives`.
+    const league = createLeague({ seed: 'st-outcome-directional' });
+    const ids = Object.keys(league.teams);
+    const eliteTeamId = ids[0]!;
+    const replacementTeamId = ids[1]!;
+    const eliteRoster = withSpecialTeams(
+      league.teams[eliteTeamId as keyof typeof league.teams]!.rosterIds.map((id) => league.players[id]!),
+      95,
+    );
+    const replacementRoster = withSpecialTeams(
+      league.teams[replacementTeamId as keyof typeof league.teams]!.rosterIds.map((id) => league.players[id]!),
+      20,
+    );
+    const eliteTeam = {
+      ...league.teams[eliteTeamId as keyof typeof league.teams]!,
+      rosterIds: eliteRoster.map((p) => p.id),
+    };
+    const replacementTeam = {
+      ...league.teams[replacementTeamId as keyof typeof league.teams]!,
+      rosterIds: replacementRoster.map((p) => p.id),
+    };
+    const players = { ...league.players };
+    for (const p of eliteRoster) players[p.id] = p;
+    for (const p of replacementRoster) players[p.id] = p;
+    const modLeague = { ...league, players };
+
+    let eliteAllowedSum = 0;
+    let eliteAllowedN = 0;
+    let replacementAllowedSum = 0;
+    let replacementAllowedN = 0;
+    const GAMES = 60;
+    for (let g = 0; g < GAMES; g++) {
+      // Alternate home/away so each team kicks and receives.
+      const [home, away] = g % 2 === 0 ? [eliteTeam, replacementTeam] : [replacementTeam, eliteTeam];
+      const res = simulateGameWithDrives(new Prng(`st-outcome:${g}`), home, away, modLeague, {
+        resolveTie: true,
+      });
+      let prev: string | null = null;
+      for (const d of res.driveLog) {
+        if (d.result === 'END_HALF') {
+          prev = null;
+          continue;
+        }
+        if (prev === 'PUNT') {
+          // Kicking team is whichever side is NOT on offense for this drive.
+          const kickingIsHome = d.offense === 'away';
+          const kickingIsElite = kickingIsHome ? home === eliteTeam : away === eliteTeam;
+          if (kickingIsElite) {
+            eliteAllowedSum += d.start;
+            eliteAllowedN++;
+          } else {
+            replacementAllowedSum += d.start;
+            replacementAllowedN++;
+          }
+        }
+        prev = d.result;
+      }
+    }
+    expect(eliteAllowedN).toBeGreaterThan(20);
+    expect(replacementAllowedN).toBeGreaterThan(20);
+    const eliteAvg = eliteAllowedSum / eliteAllowedN;
+    const replacementAvg = replacementAllowedSum / replacementAllowedN;
+    // Elite coverage gives up a SHORTER opponent start than replacement.
+    expect(eliteAvg).toBeLessThan(replacementAvg);
+  });
+});
+
+describe('specialTeams — keySkillAverage contamination guard (SPECIAL_TEAMS_COVERAGE.md §4)', () => {
+  it('no archetype declares an explicit specialTeams weight >= 1.2', () => {
+    // If any archetype did, an elite gunner would become "starter-calibre"
+    // via computeStarterCaliberIds/keySkillAverage and leak into the cap,
+    // the draft, and free agency — specialTeams must stay talent-independent
+    // by construction (ST_BASELINED_SKILLS in players/skills.ts already
+    // guarantees generation is; this guards the OTHER half of the contract).
+    for (const archetype of PLAYER_ARCHETYPES) {
+      const weight = archetype.skillWeights.specialTeams;
+      expect(
+        weight === undefined || weight < 1.2,
+        `archetype ${archetype.id} must not declare an explicit specialTeams weight >= 1.2 (got ${weight})`,
+      ).toBe(true);
+    }
   });
 });

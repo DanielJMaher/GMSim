@@ -7,6 +7,7 @@ import type { LeagueState } from '../types/league.js';
 import type { HeadCoach } from '../types/personnel.js';
 import { Position } from '../types/enums.js';
 import { teamChemistry } from '../season/chemistry.js';
+import { keySkillAverage } from '../archetypes/key-skill.js';
 
 /**
  * Matchup-driven (bottom-up) game simulation — tier 2, drive-based (v0.105+).
@@ -643,6 +644,11 @@ export interface TeamPersonnel {
   kickerRating: number;
   punterRating: number;
   returnerRating: number;
+  /** Leader-weighted coverage-unit ratings (W5). Same 10-man unit, two
+   *  temperatures — punt coverage is more gunner-concentrated than kickoff
+   *  coverage (real top-3 tackle share 45.7% vs 40.1%). */
+  puntCoverRating: number;
+  koCoverRating: number;
 }
 
 const RECV_KEYS: (keyof PlayerSkills)[] = ['routeShort', 'routeMedium', 'routeDeep', 'releaseVsOff', 'catching', 'catchInTraffic'];
@@ -702,6 +708,120 @@ const QB_TIER_RANK: Record<string, number> = { STAR: 4, STARTER: 3, BACKUP: 2, F
  *  starter near ~92%, so the league passing leader lands in the realistic range
  *  instead of posting 100% of a high-volume team's yards. */
 const BACKUP_QB_SHARE = 0.08;
+
+// ── Special-teams coverage unit (W5, SPECIAL_TEAMS_COVERAGE.md) ─────────────
+//
+// Real bars: nflverse pbp 2015-25 (`_st_coverage_spread.mjs` /
+// `_st_softmax_solve.mjs`, doc §2/§6.3). Punt coverage is the bigger, more
+// leader-concentrated channel (true drive-start spread ±1.46yd, top-3 tackle
+// share 45.7%); modern-kickoff coverage is smaller and flatter (±0.66yd,
+// top-3 35.6%... measured 40.1%). Two temperatures, one blend shape.
+
+/** Per-player coverage score (§6.1) — same 0-100 scale as the skills
+ *  themselves. `specialTeams` dominates because the craft IS the job. */
+function covScore(p: Player): number {
+  return (
+    0.45 * p.current.specialTeams +
+    0.25 * p.current.speed +
+    0.2 * ((p.current.tackle + p.current.tacklingTechnique) / 2) +
+    0.1 * p.current.playRecognition
+  );
+}
+
+/** Position eligibility + weight for the coverage unit (§6.2) — LB/DB core,
+ *  skill-position and fringe participants behind them. Absent ⇒ ineligible
+ *  (OL, DT/NT, QB, K, P never cover). */
+const COVERAGE_POS_FACTOR: Partial<Record<Position, number>> = {
+  [Position.ILB]: 1.0,
+  [Position.OLB]: 0.95,
+  [Position.S]: 0.95,
+  [Position.CB]: 0.85,
+  [Position.NICKEL]: 0.85,
+  [Position.WR]: 0.7,
+  [Position.RB]: 0.7,
+  [Position.TE]: 0.55,
+  [Position.FB]: 0.55,
+  [Position.EDGE]: 0.35,
+  [Position.LS]: 0.3,
+};
+/** A starter can appear on the unit, but rarely leads it (§2.5: gunners are
+ *  the backup tier — 53% UDFA, 1% first-round). */
+const ST_STARTER_DISCOUNT = 0.25;
+/** Men covering a kick. */
+const COVERAGE_UNIT_SIZE = 10;
+
+/** Team-local starter counts for the coverage-unit's starter discount (§6.2).
+ *  Deliberately its OWN table, not `depth-chart.ts`'s `BASE_STARTER_COUNTS`
+ *  (11-personnel/nickel) — this is "who plausibly starts at all" across a
+ *  base 2-deep front, the wider net the starter-discount needs. */
+const ST_STARTER_SLOTS: Partial<Record<Position, number>> = {
+  [Position.QB]: 1,
+  [Position.RB]: 1,
+  [Position.WR]: 3,
+  [Position.TE]: 1,
+  [Position.LT]: 1,
+  [Position.LG]: 1,
+  [Position.C]: 1,
+  [Position.RG]: 1,
+  [Position.RT]: 1,
+  [Position.EDGE]: 2,
+  [Position.DT]: 2,
+  [Position.NT]: 1,
+  [Position.ILB]: 2,
+  [Position.OLB]: 2,
+  [Position.CB]: 3,
+  [Position.S]: 2,
+  [Position.NICKEL]: 1,
+};
+
+/** Is `p` within his team's projected starting group at his position?
+ *  `buildTeamPersonnel` receives one roster with no league context, so this
+ *  ranks locally by `keySkillAverage` — same composite `depth-chart.ts` uses
+ *  — rather than the league-wide `computeStarterCaliberIds`. */
+function isTeamStarter(p: Player, players: Player[]): boolean {
+  const slots = ST_STARTER_SLOTS[p.position] ?? 0;
+  if (slots <= 0) return false;
+  let rank = 0;
+  for (const other of players) {
+    if (other.position !== p.position) continue;
+    if (keySkillAverage(other.current, other.archetype) > keySkillAverage(p.current, p.archetype)) rank++;
+  }
+  return rank < slots;
+}
+
+/** Select the 10-man coverage unit: eligible-position players ranked by
+ *  `selectionScore` (role/availability), highest first. */
+function selectCoverageUnit(players: Player[]): Player[] {
+  const scored: { p: Player; score: number }[] = [];
+  for (const p of players) {
+    const posFactor = COVERAGE_POS_FACTOR[p.position];
+    if (!posFactor) continue;
+    const starterFactor = isTeamStarter(p, players) ? ST_STARTER_DISCOUNT : 1;
+    scored.push({ p, score: covScore(p) * posFactor * starterFactor });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, COVERAGE_UNIT_SIZE).map((s) => s.p);
+}
+
+/** Leader-weighted softmax blend (§6.3) — solved from the real top-3
+ *  coverage-tackle share (doc §6.3's Monte Carlo `_st_softmax_solve.mjs`).
+ *  θ scale-free (normalized by the unit's own σ) so it doesn't silently
+ *  change meaning if `ST_SKILL_SD` or the blend weights are ever edited. */
+const MIN_SIGMA = 1.0;
+const THETA_PUNT = 2.53;
+const THETA_KO = 3.81;
+
+function softMean(scores: number[], theta: number): number {
+  if (scores.length === 0) return 0;
+  const mean = scores.reduce((s, c) => s + c, 0) / scores.length;
+  const variance = scores.reduce((s, c) => s + (c - mean) ** 2, 0) / scores.length;
+  const sigmaU = Math.sqrt(variance);
+  const tau = theta * Math.max(sigmaU, MIN_SIGMA);
+  const m = Math.max(...scores);
+  const weights = scores.map((c) => Math.exp((c - m) / tau));
+  const total = weights.reduce((s, w) => s + w, 0);
+  return scores.reduce((s, c, i) => s + (weights[i]! / total) * c, 0);
+}
 
 export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
   // Pick the starter the way the rest of the engine identifies QB1 — tier
@@ -805,6 +925,13 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
     }
   }
 
+  // Coverage unit (W5): selected once, blended twice — punt coverage is more
+  // leader-concentrated than kickoff coverage (§6.3).
+  const coverageUnit = selectCoverageUnit(players);
+  const coverageScores = coverageUnit.map(covScore);
+  const puntCoverRating = softMean(coverageScores, THETA_PUNT);
+  const koCoverRating = softMean(coverageScores, THETA_KO);
+
   return {
     qb: qb?.id ?? null,
     qb2: qb2?.id ?? null,
@@ -820,6 +947,8 @@ export function buildTeamPersonnel(players: Player[]): TeamPersonnel {
     kickerRating: kickerP ? meanKeys(kickerP, ['kickPower', 'kickAccuracy']) : KICKER_NEUTRAL,
     punterRating: punterP ? meanKeys(punterP, ['puntPower', 'puntAccuracy']) : PUNTER_NEUTRAL,
     returnerRating: returnerP ? (returnerP.current.speed + returnerP.current.elusiveness) / 2 : RETURNER_NEUTRAL,
+    puntCoverRating,
+    koCoverRating,
   };
 }
 
@@ -1062,7 +1191,6 @@ interface GameOpts {
 // up from the OLD 2015-23 own-25.4 (see kickoffReturn). Punt/turnover/downs/
 // missed-FG spots are rules-STABLE and keep the large 2015-24 window.
 const NET_PUNT = 44; // gross ~45 − return, tuned to receiving start own ~24.4
-const NET_PUNT_SD = 8;
 const FREE_KICK_START = 42; // safety free-kick receiving start (rare)
 const TURNOVER_SPOT_OFFSET = 8; // INT-downfield / fumble mix → receiving own ~49
 const MISSED_FG_SPOT_OFFSET = 3; // opponent takes over ~ the kick spot
@@ -1080,38 +1208,99 @@ const KICKER_NEUTRAL = 65;
 const PUNTER_NEUTRAL = 65;
 const RETURNER_NEUTRAL = 87;
 const FG_KICKER_K = 0.004; // FG make-rate per kicker-point over neutral (most at range)
-const PUNT_NET_K = 0.15; // net-punt yards per punter-point over neutral
 const RETURN_NET_K = 0.13; // net-punt yards shaved per returner-point over neutral
 const KO_RETURN_K = 0.1; // kickoff-return start yards per returner-point over neutral
+
+// ── Special-teams COVERAGE (W5, SPECIAL_TEAMS_COVERAGE.md §7-8) ─────────────
+//
+// PUNT_COVER_NEUTRAL / KO_COVER_NEUTRAL and the two K's are MEASURED, not
+// predicted (`_st_measure_neutrals.mjs`, 8 seeds x 32 teams = 256
+// team-samples), per the doc's §8 "predict-then-measure" procedure — the
+// predictions recorded there (sd_team ~1.60/1.54, K ~0.48/0.74) were
+// falsified by the sim's actual generated spread and are superseded here.
+const PUNT_COVER_NEUTRAL = 64.62; // measured league mean of puntCoverRating
+const KO_COVER_NEUTRAL = 63.71; // measured league mean of koCoverRating
+const PUNT_COVER_K = 0.32; // return yds saved per coverage point over neutral: 0.771 / sd_team(puntCoverRating)=2.41
+const KO_COVER_K = 0.4753; // start-yards saved per coverage point over neutral: 1.136 / sd_team(koCoverRating)=2.39
 
 // MODERN dynamic-kickoff model (2024-25, W1 2026-07-13, Daniel-approved). Replaces
 // the OLD 2015-23 model (70% TB to own-25, mean own-25.3). The 2024-25 dynamic
 // kickoff moved returns to the fore: touchback rate 60%→42.5%, touchback spot to
 // ~own-31, and the mean receiving start own-25.4→own-30.2 (`_w1_kickoff_era.mjs`).
 // Calibrated to the own-30.2 blend: 42% touchback to own-31, else a return centered
-// own-29 (+ the ~1.5% long-return tail) → overall mean ≈own-30.2.
-function kickoffReturn(prng: Prng, returnerRating = RETURNER_NEUTRAL): number {
-  if (prng.next() < 0.42) return KICKOFF_TOUCHBACK; // touchback (returner irrelevant)
-  const ret = Math.round(23 + prng.normal(6, 7) + (returnerRating - RETURNER_NEUTRAL) * KO_RETURN_K);
+// own-29 (+ the ~1.5% long-return tail) → overall mean ≈own-30.2. W5: coverage
+// shifts the non-touchback return the same way the returner does — touchbacks are
+// untouched by construction (coverage never affects a ball that never comes out),
+// which is why the kickoff coverage channel is structurally the smaller of the two
+// (SPECIAL_TEAMS_COVERAGE.md §7.3).
+function kickoffReturn(prng: Prng, returnerRating = RETURNER_NEUTRAL, coverRating = KO_COVER_NEUTRAL): number {
+  if (prng.next() < 0.42) return KICKOFF_TOUCHBACK; // touchback (returner/coverage irrelevant)
+  const ret = Math.round(
+    23 +
+      prng.normal(6, 7) +
+      (returnerRating - RETURNER_NEUTRAL) * KO_RETURN_K -
+      (coverRating - KO_COVER_NEUTRAL) * KO_COVER_K,
+  );
   return clamp(ret + (prng.next() < 0.015 ? prng.nextRange(25, 60) : 0), 1, 99);
 }
-function puntReturn(fromPos: number, prng: Prng, punterRating = PUNTER_NEUTRAL, returnerRating = RETURNER_NEUTRAL): number {
-  const net = prng.normal(NET_PUNT, NET_PUNT_SD) + (punterRating - PUNTER_NEUTRAL) * PUNT_NET_K - (returnerRating - RETURNER_NEUTRAL) * RETURN_NET_K;
+
+// Punt, restructured gross → return → net (W5, §7.2) so the real +0.47
+// correlation between gross punt distance and return yards allowed (a big leg
+// buys return yards back) emerges structurally instead of the two channels
+// double-counting. RET_BASE/GROSS_PUNT_TO_RET/GROSS_PUNT_SD/RET_NOISE_SD are
+// closed-form from the real noise-corrected variances (§2.2); GROSS_PUNT_K is
+// RE-SOLVED from the real gross-punt TRUEsd against the sim's OWN measured
+// `sd_team(punterRating)` (14.46 — well above the doc's own "if 13+, re-solve"
+// threshold, §8), not the doc's predicted 0.15 (which assumed sd_team≈9 and
+// would have overshot the real bar by 55%).
+const RET_BASE = 3.73; // real return yds allowed per punt, 2015-24
+const GROSS_PUNT = NET_PUNT + RET_BASE; // 47.73 — mean-neutrality: split, not re-derived
+const GROSS_PUNT_K = 0.0965; // 1.395 (real gross TRUEsd) / 14.46 (measured sd_team(punterRating))
+const GROSS_PUNT_TO_RET = 0.29; // extra return yds allowed per extra gross yard (real Cov/Var)
+const GROSS_PUNT_SD = 9.5; // per-punt noise (near the real per-punt gross sd)
+const RET_NOISE_SD = 4.3; // solved so Var(net) = 8² given the terms above
+
+function puntReturn(
+  fromPos: number,
+  prng: Prng,
+  punterRating = PUNTER_NEUTRAL,
+  returnerRating = RETURNER_NEUTRAL,
+  coverRating = PUNT_COVER_NEUTRAL,
+): number {
+  const gross = prng.normal(GROSS_PUNT, GROSS_PUNT_SD) + (punterRating - PUNTER_NEUTRAL) * GROSS_PUNT_K;
+  const retAllowed =
+    RET_BASE +
+    GROSS_PUNT_TO_RET * (gross - GROSS_PUNT) -
+    (coverRating - PUNT_COVER_NEUTRAL) * PUNT_COVER_K +
+    (returnerRating - RETURNER_NEUTRAL) * RETURN_NET_K +
+    prng.normal(0, RET_NOISE_SD);
+  const net = gross - Math.max(0, retAllowed);
   const landing = fromPos + net;
   if (landing >= 100) return 20; // punted into the end zone → touchback
   return clamp(Math.round(100 - landing), 1, 99);
 }
 /** Where the OPPONENT starts (own-yards 0-100), given how this drive ended. The
- *  kicking team's punter and the receiving team's returner shape the punt/KO. */
-function nextStart(result: DriveResult, endBallOn: number, prng: Prng, punterRating = PUNTER_NEUTRAL, returnerRating = RETURNER_NEUTRAL): number {
+ *  kicking team's punter/coverage and the receiving team's returner shape the
+ *  punt/KO. Punt and kickoff coverage are DIFFERENT ratings (two temperatures,
+ *  §6.3) — both are threaded through since which branch fires depends on
+ *  `result`. */
+function nextStart(
+  result: DriveResult,
+  endBallOn: number,
+  prng: Prng,
+  punterRating = PUNTER_NEUTRAL,
+  returnerRating = RETURNER_NEUTRAL,
+  puntCoverRating = PUNT_COVER_NEUTRAL,
+  koCoverRating = KO_COVER_NEUTRAL,
+): number {
   switch (result) {
     case 'TD':
     case 'FG':
-      return kickoffReturn(prng, returnerRating);
+      return kickoffReturn(prng, returnerRating, koCoverRating);
     case 'SAFETY':
       return clamp(Math.round(prng.normal(FREE_KICK_START, 8)), 20, 60);
     case 'PUNT':
-      return puntReturn(endBallOn, prng, punterRating, returnerRating);
+      return puntReturn(endBallOn, prng, punterRating, returnerRating, puntCoverRating);
     case 'MISSED_FG':
       return clamp(Math.round(100 - endBallOn + MISSED_FG_SPOT_OFFSET), 1, 99);
     case 'TURNOVER':
@@ -1138,6 +1327,13 @@ function runGame(
   // the punter the net punt. ST_NEUTRAL on the facet path (no personnel).
   const returnerOf = (side: 'home' | 'away'): number => (side === 'home' ? home : away).pers?.returnerRating ?? RETURNER_NEUTRAL;
   const punterOf = (side: 'home' | 'away'): number => (side === 'home' ? home : away).pers?.punterRating ?? PUNTER_NEUTRAL;
+  // W5: the KICKING team's coverage rating — punt and kickoff use different
+  // blends (two temperatures, §6.3).
+  const puntCoverOf = (side: 'home' | 'away'): number =>
+    (side === 'home' ? home : away).pers?.puntCoverRating ?? PUNT_COVER_NEUTRAL;
+  const koCoverOf = (side: 'home' | 'away'): number =>
+    (side === 'home' ? home : away).pers?.koCoverRating ?? KO_COVER_NEUTRAL;
+  const otherSide = (side: 'home' | 'away'): 'home' | 'away' => (side === 'home' ? 'away' : 'home');
 
   // Play one drive starting at `startPos` (own-yards). Returns the raw drive so
   // the caller can chain field position off its ending spot.
@@ -1181,7 +1377,7 @@ function runGame(
   const homeReceivesH1 = prng.fork('toss').next() < 0.5;
   for (let half = 0; half < 2; half++) {
     offense = half === 0 ? (homeReceivesH1 ? 'home' : 'away') : homeReceivesH1 ? 'away' : 'home';
-    let startPos = kickoffReturn(prng.fork(`open:${half}`), returnerOf(offense)); // opening kickoff
+    let startPos = kickoffReturn(prng.fork(`open:${half}`), returnerOf(offense), koCoverOf(otherSide(offense))); // opening kickoff
     let halfClock = 0;
     const timeouts = { home: HALF_TIMEOUTS, away: HALF_TIMEOUTS };
     for (;;) {
@@ -1210,7 +1406,15 @@ function runGame(
       const endBallOn = startPos + drive.yards; // where the drive ended (own-yards)
       const kicking = offense; // team that just kicked / punted
       offense = offense === 'home' ? 'away' : 'home'; // receiving team
-      startPos = nextStart(drive.result, endBallOn, prng.fork(`fp:${driveIdx}`), punterOf(kicking), returnerOf(offense));
+      startPos = nextStart(
+        drive.result,
+        endBallOn,
+        prng.fork(`fp:${driveIdx}`),
+        punterOf(kicking),
+        returnerOf(offense),
+        puntCoverOf(kicking),
+        koCoverOf(kicking),
+      );
       if (drive.result === 'PUNT' && stats) {
         // Punter stat line (P4b): net punt = how far the ball moved to the
         // receiving team's new start (receiving own `startPos` → kicking-frame
@@ -1237,10 +1441,10 @@ function runGame(
     const otSecond: 'home' | 'away' = otFirst === 'home' ? 'away' : 'home';
     for (let round = 0; round < 8 && homeScore === awayScore; round++) {
       offense = otFirst;
-      const yFirst = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:1`), returnerOf(offense))).yards);
+      const yFirst = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:1`), returnerOf(offense), koCoverOf(otherSide(offense)))).yards);
       driveIdx++;
       offense = otSecond;
-      const ySecond = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:2`), returnerOf(offense))).yards);
+      const ySecond = Math.max(0, playDriveAt(kickoffReturn(prng.fork(`otko:${round}:2`), returnerOf(offense), koCoverOf(otherSide(offense)))).yards);
       driveIdx++;
       if (otFirst === 'home') { otYardsHome += yFirst; otYardsAway += ySecond; }
       else { otYardsAway += yFirst; otYardsHome += ySecond; }

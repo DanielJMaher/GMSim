@@ -418,6 +418,29 @@ export function softCap(x: number): number {
 const BACKUP_QB_CEILING_DISCOUNT = 24;
 
 /**
+ * SPECIAL_TEAMS_COVERAGE.md §5.2 (W5): `specialTeams` craft is baselined off
+ * POSITION only, with NO grade/archetype term — the real NFL's punt gunners
+ * are 53% undrafted and 1% first-round (nflverse pbp 2015-24), so routing
+ * this through the normal grade-anchored branch would make the best TEAMS
+ * the best cover units and the best gunners the starters, who in reality
+ * never play the unit. `ST_BASE` is the flat "could this man plausibly be
+ * on the unit" prior. `ST_SKILL_SD` (vs `SKILL_SD = 7`) is a presentation
+ * parameter, not identified by any real bar — only the PRODUCT
+ * `K × sd_team(coverageRating)` is pinned by the field-position spread
+ * (games/drive-sim.ts), so widening this sd and shrinking `K` is the same
+ * model; 12 is chosen so an elite gunner is legible in the inspector.
+ */
+const ST_BASELINED_SKILLS: ReadonlySet<string> = new Set(['specialTeams']);
+const ST_SKILL_SD = 12;
+const ST_BASE: Readonly<Record<Position, number>> = {
+  ILB: 64, OLB: 64, S: 64, CB: 62, NICKEL: 62, // the core of the unit
+  WR: 60, RB: 60, TE: 58, FB: 58, // skill-player coverage men
+  EDGE: 52, LS: 52, K: 46, P: 46, // fringe participants
+  QB: 28, // never
+  LT: 36, LG: 36, C: 36, RG: 36, RT: 36, DT: 36, NT: 36,
+};
+
+/**
  * Roll current and ceiling skill ratings for a player.
  *
  * Factor model (2026-06-02): per-player cluster latents + a small idiosyncratic
@@ -465,24 +488,30 @@ export function rollSkills(
   const current = {} as PlayerSkills;
 
   for (const key of ALL_SKILL_KEYS) {
-    // Physical attrs: position baseline + small grade lift. Everything else:
-    // grade baseline + archetype weight bias (each weight unit ≈ ±7 points,
-    // preserving tier separation while letting archetype priorities show).
+    // Physical attrs: position baseline + small grade lift. ST coverage
+    // craft: flat position baseline, no grade/archetype term (see
+    // `ST_BASELINED_SKILLS` above). Everything else: grade baseline +
+    // archetype weight bias (each weight unit ≈ ±7 points, preserving tier
+    // separation while letting archetype priorities show).
     let mean: number;
     if (POSITION_BASELINED_SKILLS.has(key)) {
       mean = athBase[key as keyof AthleticBaseline] + physLift;
+    } else if (ST_BASELINED_SKILLS.has(key)) {
+      mean = ST_BASE[position];
     } else {
       const weight = effectiveSkillWeight(archetype.skillWeights, key);
       mean = clamp(ceilingBaseline + (weight - 1) * 7, 25, 99);
     }
 
     // Variance split: shared cluster component (a_c·Z) + idiosyncratic
-    // perturbation (b_c·E). a_c² + b_c² = SKILL_SD² preserves the marginal
-    // spread; a_c²/SKILL_SD² = ρ_c sets the within-grade cluster correlation.
+    // perturbation (b_c·E). a_c² + b_c² = sd² preserves the marginal
+    // spread; a_c²/sd² = ρ_c sets the within-grade cluster correlation. ST
+    // craft uses the wider `ST_SKILL_SD` and has no cluster (ρ = 0).
     const cluster = SKILL_CLUSTER[key];
     const rho = cluster ? CLUSTER_RHO[cluster] : 0;
-    const a = SKILL_SD * Math.sqrt(rho);
-    const b = SKILL_SD * Math.sqrt(1 - rho);
+    const sd = ST_BASELINED_SKILLS.has(key) ? ST_SKILL_SD : SKILL_SD;
+    const a = sd * Math.sqrt(rho);
+    const b = sd * Math.sqrt(1 - rho);
     const z = cluster ? clusterLatent[cluster]! : 0;
     const e = latentDraw(prng);
     const raw = mean + a * z + b * e;

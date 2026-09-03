@@ -368,6 +368,18 @@ export interface PlayerSkills {
   kickAccuracy: number;
   puntPower: number;
   puntAccuracy: number;
+  /**
+   * Special-teams craft on the COVERAGE units — lane discipline and leverage
+   * on the way down, block-shedding through the wedge, vice technique and
+   * release as a gunner, closing under the ball to force a fair catch.
+   *
+   * Deliberately INDEPENDENT of talent grade (see `ST_BASELINED_SKILLS` in
+   * `players/skills.ts`): the real NFL's gunners are 53% undrafted and 1%
+   * first-round (nflverse pbp 2015-24), because starters do not cover kicks.
+   * A FRINGE-grade backup safety must be able to carry a 90 here while a
+   * STAR corner sits at 55.
+   */
+  specialTeams: number;
 }
 
 /**
