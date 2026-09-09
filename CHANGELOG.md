@@ -12,6 +12,8 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.192.0] — 2026-09-09
+
 ### Fixed
 
 - **Roster Floor's cap-spiral disease had a real, code-verified mechanism —
@@ -419,6 +421,68 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   releases/league/offseason and the function's dead-money blindness)
   remains deliberately unspecced, pending a Liquidator-anchored bar.
 
+- **Roster Floor's cap-spiral disease had a root cause beyond the
+  same-player thrash loop fixed above — "Fix 4 proper" (`ROSTER_FLOOR.md`
+  §17): a single catastrophic transaction, not accumulation.**
+  `releaseSurplusStarters` (`transactions/proactive-trades.ts`, Talent
+  Allocation Track 1's own code) had two independent defects that
+  compose: (1) it ran between `applyContractExpirations` and
+  `refillRosters` — the one instant per league-year when ~52% of the
+  league's rostered players have temporarily walked, inflating QB
+  selectivity from its designed ~30% to 71%+ at exactly the moment the
+  surplus-release decision reads it; (2) it had no cap gate at all, and
+  its own doc comment's premise was factually wrong
+  (`deadMoneyOnPreJune1Release` DOES include guaranteed remaining base,
+  not just proration). Traced on a real case (seed `rfcensus-3`, HOU): a
+  single release booked a $239.2M dead-money charge to escape a $77.1M
+  cap hit — net $162M WORSE than doing nothing — cascading the team from
+  62 healthy players to 5 players $40.5M over cap in one offseason tick.
+
+  **Two co-primary fixes, landed as separate commits per the design
+  doc's own execution order:** Fix D computes the starter-calibre set
+  once, before `applyContractExpirations` runs, and threads it through
+  as a parameter instead of `releaseSurplusStarters` recomputing it
+  against a temporarily-depleted roster. Fix A gives `releaseSurplusStarters`
+  the same C2 solvency guard its sibling `evaluateCapCasualty` already
+  has (`if (!(saving > 0)) return null`) — zero new tunables, exact
+  in-repo precedent.
+
+  **Measured (20-seed matched census, rfcensus-0..19, 6 seasons):** Fix D
+  alone: violating seeds 3/20→1/20 (rfcensus-11/MIN persisted — the exact
+  P1b falsifier the design doc pre-registered: "genuine surpluses also
+  detonate, Fix A is doing the load-bearing work"), catastrophic events
+  (≥25% of cap in one transaction) 12→4, release volume 4.27→1.97/team-
+  season (real drop, short of the "well under 1" P0 prediction — recorded
+  honestly). Fix D + Fix A: 1/20→**0/20**, catastrophic events 4→**0**,
+  release-channel dead money −24% while release VOLUME stayed flat (P4
+  confirmed exactly: cheap ordinary releases untouched, only the
+  dead>hit tail blocked).
+
+  **Unplanned sibling defect found and fixed along the way:** landing
+  Fix D newly broke `offseason.test.ts`'s cap-compliance test — traced
+  (not to the first-hypothesized `applyCapFloorExtensions` under-reserve,
+  which was wrong) to the MANDATORY 60→53 `preseasonCuts` cutdown itself,
+  which had the identical "cutting can book more dead money than it
+  frees" defect at a different site, pure lowest-skill-first selection
+  with zero dead-money awareness. Fixed with a bounded swap: skill
+  ranking stays primary, a cap-negative selected cut is swapped for the
+  closest-skill cap-safe alternative — same headcount, zero new tunables.
+
+  **Gate 4:** `advance.test.ts`'s Track-1-era violated-team exemption
+  removed unconditionally (0/20 census makes it unneeded); its 6-season
+  cap-usage bound tightened from `<2× cap` to real `<=cap` compliance.
+
+  **Deferred, Daniel's explicit call:** three smaller proposed fixes (A2
+  team-level solvency check, B unclearable-overage bail-out, C broader
+  phase reorder) are fully written up in `ROSTER_FLOOR.md` §17.19 as an
+  "in case of emergency" break-glass plan with named trigger conditions —
+  not implemented speculatively. Also open: a same-player cycling
+  pattern across separate weekly engagements (named follow-up from the
+  prior safeguard fix, still not fixed — needs exclusion state that
+  persists beyond one call).
+
+  Full writeup: `docs/design-docs/ROSTER_FLOOR.md` §17.
+
 ### Added
 
 - **The Barterer Slice 3 — GMSim's own simulated trades now compare against
@@ -602,6 +666,69 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   workspaces. Scorekeeper (12 seeds × 10 seasons, caches cleared): all 21
   checks in band, zero drift. Determinism unchanged by construction (pure
   function, no new randomness) — confirmed by the existing unit test.
+
+- **Special teams coverage (W5) — kickoffs and punts stop being a
+  one-sided contest.** Previously returner-vs-nobody and
+  punter-vs-returner, with no way for a team to be good or bad at
+  COVERING a kick. New `specialTeams` skill, talent-INDEPENDENT by
+  construction (real punt gunners are 53% undrafted, 1% first-round, so
+  deriving coverage craft from overall talent would make starters the
+  best gunners — backwards), feeds a leader-weighted softmax
+  coverage-unit blend (`covScore = 0.45·specialTeams + 0.25·speed +
+  0.20·tackling + 0.10·playRecognition`; unit rating leader-weighted by a
+  temperature solved against the real top-3 coverage-tackle
+  concentration, θ_punt=2.53, θ_ko=3.81 — punt coverage is genuinely more
+  gunner-concentrated than kickoff). Kickoff gets a single additive
+  coverage term; punt is restructured gross→return→net (a bolt-on
+  independent channel would have overshot the real net-punt spread by
+  31%, since gross distance and return-yards-allowed correlate +0.47 in
+  real data).
+
+  **The design doc's own pre-registered falsifier fired mid-
+  implementation:** Step 0 measurement found `sd_team(punterRating) =
+  14.46`, above the "if 13+, re-solve" threshold (predicted ~9.0).
+  Re-solved `PUNT_GROSS_K` from the real gross-punt bar ÷ the measured
+  spread — **0.0965, not the doc's predicted 0.15** — per the doc's own
+  contingency plan, not a solo judgment call. Side effect: proves the
+  EXISTING, already-shipped punt-return model had been overshooting the
+  real net-punt spread by ~73% the whole time, unmeasured until now; this
+  slice fixes that as a byproduct.
+
+  **Measured:** both punt and kickoff mean drive-start land within
+  0.03yd of the real bars (mean-neutral by construction), while both
+  between-team spreads are now genuinely nonzero where they were
+  structurally zero before this slice — punt 1.288 vs real 1.464 TRUEsd,
+  kickoff 0.627 vs real 0.658.
+
+  **Gates:** `games/drive-sim.test.ts` 12/12 (new elite-vs-replacement
+  coverage tests + a `keySkillAverage`-contamination guard) ·
+  `league-tick-benchmark.test.ts` 1/1, no perf regression · Magistrate
+  `sim 400` in band · Scorekeeper `sim 10 12` every band holds · a
+  949-test regression sweep: 935 passed, 2 failed, **neither a W5
+  defect** (one CPU-contention timeout; one pre-existing
+  `applyMinimalCapCasualties` gap confirmed via `git stash` to predate
+  this slice, newly exposed because the new skill's extra PRNG draw per
+  player cascades through the shared league-generation stream — recorded
+  as a second independent trigger for the Roster Floor "Fix B"
+  break-glass plan above, not fixed, per Daniel's standing deferral).
+
+  Full results: `docs/design-docs/SPECIAL_TEAMS_COVERAGE.md` §11.
+
+### Changed
+
+- **`apps/web/src/App.tsx` split into per-tab modules (W3), zero behavior
+  change.** The inspector's single-file App.tsx had grown to 10,902
+  lines — every tab's rendering, state, and helpers inlined. Split
+  per-tab into `apps/web/src/tabs/*.tsx` (LeagueTab, DraftTab, NewsTab,
+  LifecycleTab, ScoutReportsTab, DraftAuditTab, CollegeGamesTab,
+  DraftShiftTab, FreeAgencyTab) plus shared helpers into
+  `apps/web/src/lib/` (format.ts, cells.tsx), mirroring the existing
+  GameLab.tsx split — App.tsx now holds only top-level state, the
+  seed/voice/tick/simulate/advance handlers, header chrome, and TabNav
+  (10,902→566 lines). Pure code motion: total lines across the new files
+  (11,009) match the original within a ~107-line delta of new per-file
+  doc comments and imports; a duplicate `MeasureCell` definition was
+  caught and removed during the split. web typecheck clean.
 
 ## [0.191.0] — 2026-08-07
 
