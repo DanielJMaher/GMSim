@@ -53,8 +53,11 @@ describe('buildNflPlayerTake', () => {
       expect(r.subjectIsCollegeProspect).toBe(false);
       expect(r.subjectPlayerId).toBe(highPick.id);
       expect(r.scoutReport).toBeDefined();
+      // SPOTLIGHT's headline pool has a name-less variant by design ("The
+      // {pos} {team} bet on delivered again...") -- summary is the field
+      // guaranteed to name the player for a non-STRUGGLING angle.
+      expect(r.scoutReport.summary).toContain(highPick.lastName);
     }
-    expect(r.headline).toContain(highPick.lastName);
   });
 
   it('is deterministic for the same prng + args', () => {
