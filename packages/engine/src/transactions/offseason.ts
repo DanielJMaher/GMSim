@@ -173,10 +173,44 @@ export function applyMinimalCapCasualties(
 ): LeagueState {
   let working = league;
   for (const teamId of Object.keys(league.teams) as TeamId[]) {
+    // Fix B guard 2 (below) only needs to run once per team, against the
+    // pre-cut roster — not re-checked after every cut.
+    let checkedBound = false;
     while (true) {
       const team = working.teams[teamId]!;
       const over = teamCapUsage(team, working) - working.salaryCap;
       if (over <= 0) break;
+
+      // Fix B guard 1 (ROSTER_FLOOR.md §17.7/§17.15, Sonnet 2026-09-09):
+      // never strip a roster below the 53-man floor for partial credit —
+      // a compliance pass that fields fewer than 53 has traded one
+      // league-rule breach for a worse one. The team is left over cap;
+      // logged loudly rather than silently continuing.
+      if (team.rosterIds.length <= 53) {
+        working = logCapComplianceUnclearable(working, teamId, over, 'floor');
+        break;
+      }
+
+      // Fix B guard 2: the sum of every remaining candidate's individually-
+      // hypothesized positive saving is an upper bound on what ANY cut
+      // sequence can ever recover (not exact after real sequential cuts —
+      // Top-51 promotion can shift a later candidate's true saving — which
+      // is exactly why it's used only to detect "definitely doomed," never
+      // to predict the actual recovered total). Below the overage, the
+      // whole sequence is guaranteed-partial credit — stop before the
+      // first cut instead of stripping the roster to get there anyway.
+      if (!checkedBound) {
+        checkedBound = true;
+        const bound = positiveSavingCandidates(team, working, protectedPlayerIds).reduce(
+          (sum, c) => sum + c.saving,
+          0,
+        );
+        if (bound < over) {
+          working = logCapComplianceUnclearable(working, teamId, over, 'bound');
+          break;
+        }
+      }
+
       // Roster-aware target (v0.178.1, the adv-trajectory full-gate find):
       // a compliance cut that leaves the team short of 53 must ALSO free
       // room for the vet-minimum backfill(s), or the roster strands below
@@ -199,6 +233,26 @@ export function applyMinimalCapCasualties(
     }
   }
   return working;
+}
+
+/** Record Fix B's loud bail (ROSTER_FLOOR.md §17.15/§17.19). */
+function logCapComplianceUnclearable(
+  league: LeagueState,
+  teamId: TeamId,
+  overage: number,
+  reason: 'bound' | 'floor',
+): LeagueState {
+  const team = league.teams[teamId]!;
+  const entry: Transaction = {
+    kind: 'cap-compliance-unclearable',
+    tick: league.tick,
+    seasonNumber: league.seasonNumber,
+    teamId,
+    rosterSize: team.rosterIds.length,
+    overage,
+    reason,
+  };
+  return { ...league, transactionLog: [...league.transactionLog, entry] };
 }
 
 /**
@@ -226,26 +280,27 @@ export function applyVetMinFillUp(league: LeagueState, signedOnTick: number): Le
   return working;
 }
 
-export function pickMinimalCasualty(
+/**
+ * Every roster member whose hypothetical cut shows a positive TRUE saving
+ * (recomputed via `teamCapUsage` on a hypothetical roster, not `hit − dead`
+ * — the naive form is wrong under the offseason Top-51 rule: cutting a
+ * below-the-line contract saves nothing while ADDING dead money, and
+ * cutting a counted contract promotes the 52nd hit into the count). Shared
+ * by `pickMinimalCasualty` (pick one) and Fix B's unclearable-overage bound
+ * (`ROSTER_FLOOR.md` §17.15/§17.19 — sum all of them).
+ */
+function positiveSavingCandidates(
   team: TeamState,
   league: LeagueState,
-  over: number,
   protectedPlayerIds?: ReadonlySet<PlayerId>,
-): CutCandidate | null {
-  // TRUE saving per candidate via hypothetical-cut recompute. The naive
-  // `hit − dead` is wrong under the offseason Top-51 rule: cutting a
-  // below-the-line contract saves nothing (it wasn't counted) while ADDING
-  // dead money, and cutting a counted contract promotes the 52nd hit into
-  // the count. Recomputing `teamCapUsage` on a hypothetical roster is
-  // exact under whatever accounting the cap module applies.
+): CutCandidate[] {
   const usageNow = teamCapUsage(team, league);
-  // Shared everywhere this picker runs: the Week-1 boundary call is always
+  // Shared everywhere this runs: the Week-1 boundary call is always
   // pre-June-1, but roster-floor's mid-season fringe cut (rung 2) is not —
   // deriving this from `league.phase` rather than hardcoding it is what
   // makes that engagement split correctly with no separate code path (§18.5).
   const postJune1 = !isOffseasonPhase(league.phase);
-  let smallestSufficient: CutCandidate | null = null;
-  let largest: CutCandidate | null = null;
+  const candidates: CutCandidate[] = [];
   for (const playerId of team.rosterIds) {
     if (protectedPlayerIds?.has(playerId)) continue;
     const player = league.players[playerId];
@@ -260,24 +315,37 @@ export function pickMinimalCasualty(
     };
     const saving = usageNow - teamCapUsage(hypo, league);
     if (saving <= 0) continue;
-    const cand: CutCandidate = {
+    candidates.push({
       playerId,
       deadMoney: split.currentYear,
       deadMoneyDeferred: split.nextYear,
       saving,
-    };
+    });
+  }
+  return candidates;
+}
+
+export function pickMinimalCasualty(
+  team: TeamState,
+  league: LeagueState,
+  over: number,
+  protectedPlayerIds?: ReadonlySet<PlayerId>,
+): CutCandidate | null {
+  let smallestSufficient: CutCandidate | null = null;
+  let largest: CutCandidate | null = null;
+  for (const cand of positiveSavingCandidates(team, league, protectedPlayerIds)) {
     if (
-      saving >= over &&
+      cand.saving >= over &&
       (!smallestSufficient ||
-        saving < smallestSufficient.saving ||
-        (saving === smallestSufficient.saving && playerId < smallestSufficient.playerId))
+        cand.saving < smallestSufficient.saving ||
+        (cand.saving === smallestSufficient.saving && cand.playerId < smallestSufficient.playerId))
     ) {
       smallestSufficient = cand;
     }
     if (
       !largest ||
-      saving > largest.saving ||
-      (saving === largest.saving && playerId < largest.playerId)
+      cand.saving > largest.saving ||
+      (cand.saving === largest.saving && cand.playerId < largest.playerId)
     ) {
       largest = cand;
     }

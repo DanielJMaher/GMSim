@@ -142,6 +142,7 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
     case 'emergency-qb-game':
     case 'retirement-dead-money':
     case 'preseason-cut-dead-money':
+    case 'cap-compliance-unclearable':
       // Intentionally not surfaced. IR moves and PS promotions happen
       // weekly across the league — routine roster bookkeeping rather
       // than news. Contract expirations are a calendar event, not a
@@ -162,7 +163,10 @@ function newsItemFor(txn: Transaction, league: LeagueState): NewsItem | null {
       // ("Team eats $12M in dead cap as veteran retires"), but this slice's
       // scope is booking + logging the charge, not writing the headline —
       // the raw transaction log (which the inspector already surfaces
-      // alongside News) makes the event visible today.
+      // alongside News) makes the event visible today. Same posture as
+      // roster-floor-violation for cap-compliance-unclearable
+      // (ROSTER_FLOOR.md §17.15/§17.19 Fix B): a loud internal alarm for
+      // the cap-compliance census, not a player-facing beat.
       return null;
   }
 }

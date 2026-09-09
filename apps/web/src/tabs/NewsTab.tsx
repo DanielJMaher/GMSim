@@ -227,6 +227,7 @@ function transactionTeams(entry: Transaction): TeamId[] {
     case 'retirement-dead-money':
     case 'preseason-cut-dead-money':
     case 'franchise-tag':
+    case 'cap-compliance-unclearable':
       return [entry.teamId];
   }
 }
@@ -261,6 +262,7 @@ function transactionPlayers(entry: Transaction): PlayerId[] {
     case 'gm-hired':
     case 'hc-interim':
     case 'roster-floor-violation':
+    case 'cap-compliance-unclearable':
       return [];
   }
 }
@@ -689,6 +691,7 @@ function kindColor(kind: Transaction['kind']): string {
     case 'roster-floor-violation':
     case 'contract-id-collision':
     case 'emergency-qb-game':
+    case 'cap-compliance-unclearable':
       return 'text-red-500';
   }
 }
@@ -753,6 +756,8 @@ function summarizeTransaction(entry: Transaction, league: LeagueState): string {
       return `${teamLabel(entry.teamId)} cut ${playerLabel(entry.playerId)} in the preseason trim · dead $${(entry.deadMoney / 1e6).toFixed(1)}M`;
     case 'franchise-tag':
       return `${teamLabel(entry.teamId)} franchise-tagged ${playerLabel(entry.playerId)} · $${(entry.tagNumber / 1e6).toFixed(1)}M/1yr (${entry.formulaBranch === 'position-average' ? 'position market' : '120% prior salary'})`;
+    case 'cap-compliance-unclearable':
+      return `⚠ ${teamLabel(entry.teamId)} CAP COMPLIANCE GAVE UP (${entry.reason === 'floor' ? 'at 53-man floor' : 'unclearable'}) · ${entry.rosterSize} players, $${(entry.overage / 1e6).toFixed(2)}M over`;
   }
 }
 

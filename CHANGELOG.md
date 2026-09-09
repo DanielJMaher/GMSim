@@ -472,14 +472,45 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   removed unconditionally (0/20 census makes it unneeded); its 6-season
   cap-usage bound tightened from `<2× cap` to real `<=cap` compliance.
 
-  **Deferred, Daniel's explicit call:** three smaller proposed fixes (A2
-  team-level solvency check, B unclearable-overage bail-out, C broader
-  phase reorder) are fully written up in `ROSTER_FLOOR.md` §17.19 as an
-  "in case of emergency" break-glass plan with named trigger conditions —
-  not implemented speculatively. Also open: a same-player cycling
-  pattern across separate weekly engagements (named follow-up from the
-  prior safeguard fix, still not fixed — needs exclusion state that
-  persists beyond one call).
+  **Fix B shipped same release (§17.20), triggered by the push gate
+  itself.** A2/B/C had been deferred as an "in case of emergency"
+  break-glass plan — but the first full `pnpm test` run since W5 hit
+  `offseason.test.ts`'s `fa-market-cap` cap-compliance test directly (the
+  exact "second independent trigger" already on record), so Fix B moved
+  off the shelf rather than block the push. Two derived, non-tunable
+  guards on `applyMinimalCapCasualties`: never cut below the 53-man floor
+  for partial credit, and bail before the first cut if the sum of every
+  remaining candidate's positive saving can't reach the overage. Both log
+  a new loud `cap-compliance-unclearable` transaction (same posture as
+  `roster-floor-violation`) rather than silently continuing. **Verified
+  on the actual triggering case:** traced `fa-market-cap`/CHI/season 4
+  phase-by-phase — `applyMinimalCapCasualties` now closes the post-draft
+  $345,878 overage to −$18,372 (essentially compliant), exactly as
+  designed.
+
+  **But the test still failed — a genuinely different, out-of-scope
+  mechanism found by tracing further.** The very next pass,
+  `preseasonCuts` (the MANDATORY 61→53 cutdown — cannot decline a cut the
+  way Fix B's site can), pushes CHI from −$18,372 back to +$492,628: the
+  same "cuts can net-increase cap usage" disease as this release's
+  `preseasonCuts` sibling fix above, just deeper — every remaining
+  candidate is cap-negative by this point, so that fix's bounded swap has
+  no cap-safe alternative to offer. Not fixed here (needs its own design —
+  the shape differs: "minimize the increase" under a MANDATORY cutdown,
+  not "block" a discretionary one). Daniel's call: ship Fix B (real,
+  correct, closes 4 of 5 seasons' worth of margin in this walk alone), add
+  a narrow measured tolerance (0.2% of cap, comfortably above the one
+  measured $492,628 instance) to this one test for the named residual,
+  and open a Fix B2 follow-up rather than delay the push to design a fix
+  for a different pass's mandatory-cutdown behavior.
+
+  **Deferred, Daniel's explicit call:** A2 (team-level solvency check) and
+  C (broader phase reorder) are still written up in `ROSTER_FLOOR.md`
+  §17.19 as break-glass, not implemented speculatively. Also open: a
+  same-player cycling pattern across separate weekly engagements (named
+  follow-up from the prior safeguard fix, still not fixed — needs
+  exclusion state that persists beyond one call); the new Fix B2 residual
+  above.
 
   Full writeup: `docs/design-docs/ROSTER_FLOOR.md` §17.
 

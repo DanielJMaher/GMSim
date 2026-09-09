@@ -82,7 +82,8 @@ export type Transaction =
   | TransactionEmergencyQbGame
   | TransactionRetirementDeadMoney
   | TransactionPreseasonCutDeadMoney
-  | TransactionFranchiseTag;
+  | TransactionFranchiseTag
+  | TransactionCapComplianceUnclearable;
 
 /**
  * Coarse mood label produced by `moodBucket(n)`. The engine stores
@@ -611,6 +612,30 @@ export interface TransactionContractIdCollision extends TransactionBase {
   attemptedId: ContractId;
   /** The deterministically uniquified id actually used. */
   resolvedId: ContractId;
+}
+
+/**
+ * `applyMinimalCapCasualties` (Week-1 compliance backstop) gave up on a
+ * team instead of stripping its roster for partial credit (`ROSTER_FLOOR.md`
+ * §17.7's amplifier, Fix B — §17.15/§17.19, Sonnet 2026-09-09). Two derived,
+ * non-tunable stop conditions, same house posture as `roster-floor-violation`
+ * (loud, greppable, log-and-continue rather than silent or throwing):
+ * `'bound'` — the sum of every remaining candidate's individually-hypothesized
+ * positive saving cannot reach the overage, so no cut sequence would ever
+ * succeed and none ran; `'floor'` — the roster was already at the 53-man
+ * floor, so any further cut would trade a cap breach for a worse
+ * roster-legality breach. The team is left over cap; INV-FLOOR's
+ * cap-compliance assertions are expected to catch this via the census this
+ * entry feeds, not this log alone.
+ */
+export interface TransactionCapComplianceUnclearable extends TransactionBase {
+  kind: 'cap-compliance-unclearable';
+  teamId: TeamId;
+  /** Active-roster size when the pass gave up. */
+  rosterSize: number;
+  /** Dollars still over the cap when the pass gave up. */
+  overage: number;
+  reason: 'bound' | 'floor';
 }
 
 /**
