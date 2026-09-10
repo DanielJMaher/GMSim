@@ -141,6 +141,48 @@ describe('teamCapUsage — top-51 vs all-53', () => {
   });
 });
 
+describe('teamCapUsage — memoization (W2 perf pass, 2026-09-09)', () => {
+  it('a repeated call on the identical (team, league) pair returns the cached value unchanged', () => {
+    const league = createLeague({ seed: 'memo-repeat' });
+    const team = Object.values(league.teams)[0]!;
+    const first = teamCapUsage(team, league);
+    const second = teamCapUsage(team, league);
+    expect(second).toBe(first);
+  });
+
+  it('a NEW league object for the same team recomputes rather than returning a stale cache hit', () => {
+    const league = createLeague({ seed: 'memo-league-change' });
+    const team = Object.values(league.teams)[0]!;
+    const before = teamCapUsage(team, league);
+    // Restructure-shaped bump: same team object, a spread-new league whose
+    // contracts differ for this team's own contract -- the cache key
+    // (team, league) must miss and recompute, not reuse `before`.
+    const playerId = team.rosterIds[0]!;
+    const player = league.players[playerId]!;
+    const contractId = player.contractId!;
+    const contract = league.contracts[contractId]!;
+    const bumped = { ...contract, baseSalaries: [...contract.baseSalaries] };
+    bumped.baseSalaries[0] = (bumped.baseSalaries[0] ?? 0) + 1_000_000;
+    const bumpedLeague = { ...league, contracts: { ...league.contracts, [contractId]: bumped } };
+
+    expect(teamCapUsage(team, bumpedLeague)).toBe(before + 1_000_000);
+    // The original (team, league) pair is unaffected by the bumped clone.
+    expect(teamCapUsage(team, league)).toBe(before);
+  });
+
+  it('a NEW team object for the same league recomputes rather than returning a stale cache hit', () => {
+    const league = createLeague({ seed: 'memo-team-change' });
+    const team = Object.values(league.teams)[0]!;
+    const before = teamCapUsage(team, league);
+    const shrunkTeam: TeamState = { ...team, rosterIds: team.rosterIds.slice(1) };
+
+    const after = teamCapUsage(shrunkTeam, league);
+    expect(after).not.toBe(before);
+    // The original (team, league) pair is unaffected by the derived team.
+    expect(teamCapUsage(team, league)).toBe(before);
+  });
+});
+
 describe('teamCapUsage — injured reserve (CAP_UNDERSPEND_DIAGNOSIS.md F1)', () => {
   it("counts an IR player's cap hit", () => {
     const base = createLeague({ seed: 'ir-basic' });

@@ -174,8 +174,13 @@ export function applyMinimalCapCasualties(
   let working = league;
   for (const teamId of Object.keys(league.teams) as TeamId[]) {
     // Fix B guard 2 (below) only needs to run once per team, against the
-    // pre-cut roster — not re-checked after every cut.
+    // pre-cut roster — not re-checked after every cut. Its candidate list
+    // is reused for that same iteration's pick (perf, W2 2026-09-09): the
+    // state hasn't changed since the guard computed it, so recomputing
+    // would be an exact duplicate. Cleared after use — every later
+    // iteration's state has changed and must recompute fresh.
     let checkedBound = false;
+    let unspentBoundCandidates: readonly CutCandidate[] | null = null;
     while (true) {
       const team = working.teams[teamId]!;
       const over = teamCapUsage(team, working) - working.salaryCap;
@@ -201,14 +206,13 @@ export function applyMinimalCapCasualties(
       // first cut instead of stripping the roster to get there anyway.
       if (!checkedBound) {
         checkedBound = true;
-        const bound = positiveSavingCandidates(team, working, protectedPlayerIds).reduce(
-          (sum, c) => sum + c.saving,
-          0,
-        );
+        const candidates = positiveSavingCandidates(team, working, protectedPlayerIds);
+        const bound = candidates.reduce((sum, c) => sum + c.saving, 0);
         if (bound < over) {
           working = logCapComplianceUnclearable(working, teamId, over, 'bound');
           break;
         }
+        unspentBoundCandidates = candidates;
       }
 
       // Roster-aware target (v0.178.1, the adv-trajectory full-gate find):
@@ -220,7 +224,10 @@ export function applyMinimalCapCasualties(
       // after the post-draft compliance pass without this).
       const shortAfterCut = Math.max(0, 53 - (team.rosterIds.length - 1));
       const target = over + shortAfterCut * leagueMinimumSalary(working.salaryCap);
-      const candidate = pickMinimalCasualty(team, working, target, protectedPlayerIds);
+      const candidate = unspentBoundCandidates
+        ? selectFromCandidates(unspentBoundCandidates, target)
+        : pickMinimalCasualty(team, working, target, protectedPlayerIds);
+      unspentBoundCandidates = null;
       if (!candidate) break;
       working = applyCapCutRelease(
         working,
@@ -331,9 +338,17 @@ export function pickMinimalCasualty(
   over: number,
   protectedPlayerIds?: ReadonlySet<PlayerId>,
 ): CutCandidate | null {
+  return selectFromCandidates(positiveSavingCandidates(team, league, protectedPlayerIds), over);
+}
+
+/** The smallest-sufficient-or-largest pick, over an already-computed candidate list. */
+function selectFromCandidates(
+  candidates: readonly CutCandidate[],
+  over: number,
+): CutCandidate | null {
   let smallestSufficient: CutCandidate | null = null;
   let largest: CutCandidate | null = null;
-  for (const cand of positiveSavingCandidates(team, league, protectedPlayerIds)) {
+  for (const cand of candidates) {
     if (
       cand.saving >= over &&
       (!smallestSufficient ||

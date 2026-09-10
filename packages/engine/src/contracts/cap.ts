@@ -63,8 +63,37 @@ export function currentCapHit(contract: Contract): number {
  * REGULAR_SEASON / PLAYOFFS), only the 51 largest cap hits count toward
  * the cap. The bottom 2 contracts on a 53-man roster are excluded.
  * Dead money is always counted regardless of phase.
+ *
+ * Memoized (W2 perf pass, 2026-09-09): `--prof` on a full league-year
+ * showed this among the top named costs, called from dozens of sites
+ * (cap-cut selection, restructures, FA bidding, roster-floor, the Fix B
+ * guards) often several times against the SAME (team, league) pair before
+ * either changes. `team` and `league` are both replaced wholesale on every
+ * mutation under this engine's immutable-update convention, so a
+ * WeakMap-keyed-by-reference cache is exact by construction — no manual
+ * dependency list to keep in sync, and no PRNG involvement to worry about
+ * (this function is pure arithmetic over already-generated state). A cache
+ * hit is only possible when both objects are reference-identical to a
+ * prior call, so a stale read is structurally impossible: any real state
+ * change already produced new objects.
  */
 export function teamCapUsage(team: TeamState, league: LeagueState): number {
+  let leagueCache = capUsageCache.get(team);
+  if (leagueCache) {
+    const cached = leagueCache.get(league);
+    if (cached !== undefined) return cached;
+  } else {
+    leagueCache = new WeakMap();
+    capUsageCache.set(team, leagueCache);
+  }
+  const usage = computeTeamCapUsage(team, league);
+  leagueCache.set(league, usage);
+  return usage;
+}
+
+const capUsageCache = new WeakMap<TeamState, WeakMap<LeagueState, number>>();
+
+function computeTeamCapUsage(team: TeamState, league: LeagueState): number {
   const capHits: number[] = [];
   for (const playerId of [...team.rosterIds, ...team.injuredReserveIds]) {
     const player = league.players[playerId];

@@ -12,6 +12,66 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Changed
+
+- **Engine performance pass (W2), measurement-first.** `node --prof` on the
+  league-tick benchmark path (a full `createLeague → simulateSeason →
+  advanceSeason` year, and a 10-year single-seed walk shaped like a
+  Scorekeeper run) produced a real cost table instead of guessing — the
+  named suspects in the original work order (`simulateGameWithDrives`/
+  `buildTeamPersonnel` rebuilds) barely showed up in either profile.
+  Measured top three: (1) megamorphic property access
+  (`KeyedLoadIC`/`KeyedStoreIC`) at ~54% of JS-attributed CPU time —
+  structural, high blast-radius, not touched this slice; (2) the weekly
+  draft-board regeneration chain (`draft/board.ts`'s
+  `regenerateDraftBoardsInternal` → `buildMediaAggregateForGm` →
+  `aggregateCollegeObservations`) — read the code before assuming
+  anything: this is genuine, intentional per-GM personalization (each
+  GM's *perceived* outlet reliability differs), not redundant work,
+  so not touched this slice either; (3) `teamCapUsage` (`contracts/
+  cap.ts`) — no memoization at all, called from dozens of sites including
+  tight loops, the cleanest low-risk target.
+
+  **Shipped `teamCapUsage` memoization.** A `WeakMap<TeamState,
+  WeakMap<LeagueState, number>>` cache keyed on object reference identity
+  — safe by construction under this engine's immutable-update convention
+  (verified: no in-place mutation of `TeamState`/`LeagueState` fields
+  anywhere in the engine), so a cache hit is only possible when both
+  objects are reference-identical to a prior call, meaning a stale read
+  is structurally impossible. Zero PRNG involvement (pure arithmetic over
+  already-generated state), so determinism is untouched by construction,
+  not just by testing. 3 new regression tests assert the cache never
+  returns stale data across a changed team OR a changed league object.
+  Measured (10-year probe): **184.8s → 176.1s (−4.7%)** — real but modest,
+  since most call sites query genuinely distinct (team, league) pairs
+  rather than exact repeats.
+
+  **Bonus find while reading the memoized call sites: this session's own
+  Fix B guard (`applyMinimalCapCasualties`) computed the same candidate
+  list twice per team on its first loop iteration** — once for the
+  unclearable-overage bound check, once again inside the immediately
+  following `pickMinimalCasualty` call, against unchanged state. Fixed by
+  extracting the shared selection logic (`selectFromCandidates`) and
+  reusing the already-computed list for that one iteration's pick,
+  invalidating it before the next (state has changed by then and must
+  recompute fresh). Provably equivalent, not just empirically consistent
+  — same function, same inputs, same logical point in the loop, called
+  once instead of twice.
+
+  **Gates:** `cap.test.ts` 18/18 (incl. the 3 new memoization tests) ·
+  `league-tick-benchmark.test.ts` 1/1 (16.9s, well under the 240s budget)
+  · a broad sweep across every `teamCapUsage` consumer
+  (`contracts/`+`transactions/`+`npc-ai/`+`season/`): 467/477 passed, 10
+  pre-existing skips, 0 failures · Fix B's own targeted gates
+  (`offseason`/`proactive-trades`/`roster-floor`/`cap-casualty`/
+  `preseason-cuts`/`advance`) re-run against the reuse fix: 68/68 passed,
+  3 pre-existing skips, 0 failures. `pnpm typecheck` clean. Not pushed —
+  full suite + Daniel's call still gates that, per law 1.
+
+  **Deliberately not touched, named for a future slice:** the megamorphic-
+  shape issue (#1) and the draft-board regen cadence (#2) — both need
+  their own scoped investigation, not a quick fix bundled here.
+
 ## [0.192.0] — 2026-09-09
 
 ### Fixed
