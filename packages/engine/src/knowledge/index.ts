@@ -68,3 +68,13 @@ export {
   type CoachLetterGrade,
   type ExposureTier,
 } from './roster-view.js';
+
+// The league feed: published media + the public transaction wire. Outlet
+// reliability (accuracySpectrum/hypeSpectrum) never crosses -- the player earns
+// that read by watching, per the North Star.
+export {
+  newsView,
+  type NewsItemView,
+  type NewsSourceView,
+  type NewsViewOptions,
+} from './news-view.js';

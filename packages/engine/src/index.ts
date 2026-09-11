@@ -494,7 +494,7 @@ export type { ProspectSnapshot, AttributedRemark, ConfidenceLabel } from './know
 // `@gmsim/engine/knowledge` subpath, never through this root export — see
 // apps/game/src/boundary/engine-imports.test.ts. They ship here too so the
 // inspector and engine-internal callers can use them without a subpath import.
-export { leagueView, rosterView, playerCard, exposureOf, skillPhrase } from './knowledge/index.js';
+export { leagueView, rosterView, playerCard, exposureOf, skillPhrase, newsView } from './knowledge/index.js';
 export type {
   LeagueView,
   TeamIdentityView,
