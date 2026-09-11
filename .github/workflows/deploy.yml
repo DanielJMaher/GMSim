@@ -1,4 +1,4 @@
-name: Deploy inspector to GitHub Pages
+name: Deploy inspector + game to GitHub Pages
 
 on:
   push:
@@ -43,13 +43,28 @@ jobs:
         # emitted yet.
         run: pnpm --filter @gmsim/web... build
 
+      - name: Build game
+        # Same `...` requirement as the inspector above.
+        run: pnpm --filter @gmsim/game... build
+
+      - name: Assemble Pages site
+        # The inspector keeps the root URL it has always had; the game is
+        # served from /game/ (GAME_UI_FOUNDATION.md D3/D5 — "a second Pages
+        # entry (or a subpath build)"). Both apps build with `base: './'`,
+        # so relative asset paths resolve correctly under either prefix.
+        run: |
+          rm -rf _site
+          mkdir -p _site/game
+          cp -r apps/web/dist/. _site/
+          cp -r apps/game/dist/. _site/game/
+
       - name: Setup Pages
         uses: actions/configure-pages@v6
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          path: apps/web/dist
+          path: _site
 
   deploy:
     needs: build

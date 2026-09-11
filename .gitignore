@@ -20,3 +20,4 @@ vitest-report*.json
 # backups live in Google Drive; only the index is published.
 docs/design-docs/*.md
 !docs/design-docs/README.md
+_site/
