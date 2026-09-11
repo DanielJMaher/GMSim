@@ -490,6 +490,26 @@ export type { CareerShape, PositionAgingCurve } from './players/index.js';
 export { prospectSnapshot, confidenceLabel } from './knowledge/index.js';
 export type { ProspectSnapshot, AttributedRemark, ConfidenceLabel } from './knowledge/index.js';
 
+// Game-UI view projections (W4 step 2). `apps/game` reaches these through the
+// `@gmsim/engine/knowledge` subpath, never through this root export — see
+// apps/game/src/boundary/engine-imports.test.ts. They ship here too so the
+// inspector and engine-internal callers can use them without a subpath import.
+export { leagueView, rosterView, playerCard, exposureOf, skillPhrase } from './knowledge/index.js';
+export type {
+  LeagueView,
+  TeamIdentityView,
+  TeamRecordView,
+  DivisionStandingsView,
+  ConferenceSeedsView,
+  GameResultView,
+  ScheduledGameView,
+  PlayoffBracketView,
+  RosterView,
+  RosterPlayerView,
+  CoachLetterGrade,
+  ExposureTier,
+} from './knowledge/index.js';
+
 // Static reference content (32 NFL teams + name pools)
 export { NFL_TEAMS, getTeamByAbbreviation, getTeamsByDivision, getTeamsByConference } from './data/team-base/index.js';
 export { FIRST_NAMES, LAST_NAMES } from './data/name-pools/index.js';

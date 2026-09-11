@@ -38,3 +38,33 @@ export {
 // The viewer concept (a team's scouting department, or a media outlet) is
 // shared with the dossier assembly.
 export type { DossierViewer } from '../draft/dossier.js';
+
+// View projections for the game UI (W4 step 2, GAME_UI_FOUNDATION.md D1).
+// `apps/game` imports this module and nothing else from the engine; the
+// boundary is enforced mechanically by apps/game/src/boundary/engine-imports.test.ts.
+
+// Public world facts: standings, schedule, results, the bracket.
+export {
+  leagueView,
+  type LeagueView,
+  type TeamIdentityView,
+  type TeamRecordView,
+  type DivisionStandingsView,
+  type ConferenceSeedsView,
+  type GameResultView,
+  type ScheduledGameView,
+  type PlayoffBracketView,
+} from './league-view.js';
+
+// The D2b coach's card: exposure-scaled, letter-banded, never numeric.
+export {
+  rosterView,
+  playerCard,
+  exposureOf,
+  skillPhrase,
+  VETERAN_SERVICE_YEARS,
+  type RosterView,
+  type RosterPlayerView,
+  type CoachLetterGrade,
+  type ExposureTier,
+} from './roster-view.js';
