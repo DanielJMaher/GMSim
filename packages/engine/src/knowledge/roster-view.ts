@@ -102,7 +102,29 @@ const EXPOSURE_TENURE_SATURATION_YEARS = 4;
  */
 const MAX_PERCEPTION_ERROR_SD = 9;
 
-const WEEKS_PER_SEASON = 18;
+/**
+ * The perception error splits into a SHARED bias and per-skill noise, by
+ * variance: 60% bias, 40% idiosyncratic (the two weights sum to 1, so total
+ * per-skill error still has sd `MAX_PERCEPTION_ERROR_SD` at zero exposure).
+ *
+ * The split exists to keep the card internally COHERENT. Drawing the overall
+ * grade independently of the per-skill reads let a rival's card come back
+ * graded B+ with an empty strengths list and every defining skill filed as a
+ * concern — two unrelated draws describing the same man. With a shared bias the
+ * overall is literally the mean of the perceived key skills, so grade and prose
+ * can never contradict each other, and the bias term is what a scout's read
+ * actually looks like: he is high or low on the guy as a whole, then noisy
+ * about the details.
+ */
+const PERCEPTION_BIAS_VARIANCE_SHARE = 0.6;
+
+/**
+ * `league.tick` is weeks since league epoch and advances a FULL CALENDAR YEAR
+ * per league year — verified against `dist`: createLeague → 0, then 52, 104.
+ * It is emphatically NOT the 18-week regular season; dividing by 18 overstates
+ * tenure by ~2.9× and saturates the tenure term in ~1.4 real years.
+ */
+const TICKS_PER_LEAGUE_YEAR = 52;
 
 /** Tenure with the current club, in seasons, from the active contract.
  *
@@ -110,14 +132,16 @@ const WEEKS_PER_SEASON = 18;
  * `signedOnTick`, so a re-signed veteran's tenure reads low until the new deal
  * ages. This is a FLOOR on true tenure, never an overstatement — it can make
  * the club know a player slightly less well than it should, never more. The
- * safe direction for a knowledge boundary to err. */
+ * safe direction for a knowledge boundary to err. (That argument only holds
+ * with the correct divisor above; with the wrong one the error ran the other
+ * way, which is precisely why the constant carries its own provenance note.) */
 function tenureSeasons(league: LeagueState, player: Player): number {
   if (!player.contractId) return 0;
   const contract = league.contracts[player.contractId];
   if (!contract) return 0;
   const weeks = league.tick - contract.signedOnTick;
   if (weeks <= 0) return 0;
-  return weeks / WEEKS_PER_SEASON;
+  return weeks / TICKS_PER_LEAGUE_YEAR;
 }
 
 /**
@@ -272,14 +296,30 @@ export function playerCard(
   const prng = perceptionPrng(league, viewerTeamId, player.id);
   const errorSd = MAX_PERCEPTION_ERROR_SD * (1 - exposure);
 
-  const perceive = (trueValue: number): number =>
-    errorSd <= 0 ? trueValue : prng.normal(trueValue, errorSd, { min: 0, max: 100 });
+  // One shared bias for the whole read, then per-skill noise around it. See
+  // PERCEPTION_BIAS_VARIANCE_SHARE — this is what keeps grade and prose from
+  // describing two different players.
+  const biasSd = errorSd * Math.sqrt(PERCEPTION_BIAS_VARIANCE_SHARE);
+  const skillSd = errorSd * Math.sqrt(1 - PERCEPTION_BIAS_VARIANCE_SHARE);
+  const bias = errorSd <= 0 ? 0 : prng.normal(0, biasSd);
 
-  const perceivedOverall = perceive(keySkillAverage(player.current, player.archetype));
+  const perceive = (trueValue: number): number => {
+    if (errorSd <= 0) return trueValue;
+    const raw = prng.normal(trueValue + bias, skillSd);
+    return Math.max(0, Math.min(100, raw));
+  };
 
   const perceivedKeys = keySkillsOf(player)
     .map((key) => ({ key, value: perceive(player.current[key]) }))
     .sort((a, b) => b.value - a.value);
+
+  // The overall IS the mean of the perceived key skills — the same construction
+  // `keySkillAverage` uses on the true values — so the letter grade and the
+  // strengths/concerns prose are two views of one read, never two draws.
+  const perceivedOverall =
+    perceivedKeys.length > 0
+      ? perceivedKeys.reduce((s, k) => s + k.value, 0) / perceivedKeys.length
+      : keySkillAverage(player.current, player.archetype);
 
   const strengths = perceivedKeys
     .filter((k) => k.value >= 72)

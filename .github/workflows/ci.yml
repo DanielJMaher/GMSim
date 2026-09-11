@@ -59,6 +59,40 @@ jobs:
       - name: Build inspector
         run: pnpm --filter @gmsim/web... build
 
+  # apps/game carries the knowledge-boundary gate (invariant #3, enforced
+  # mechanically rather than by discipline) and its own vite build. Neither ran
+  # in CI when the app first landed: engine-tests only shards @gmsim/engine and
+  # build-web only builds the inspector, so a game file importing the engine
+  # directly, or a broken game bundle, would have gone green here and failed
+  # first in deploy.yml on main -- the exact post-merge Pages-deploy failure
+  # CLAUDE.md records from v0.191.0.
+  game:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Knowledge-boundary gate
+        run: pnpm --filter @gmsim/game test
+
+      - name: Build game
+        run: pnpm --filter @gmsim/game... build
+
   engine-tests:
     runs-on: ubuntu-latest
     # Shard 2 of the old 4-way split outgrew the 45-minute cap on 2026-06-11,
@@ -144,7 +178,7 @@ jobs:
   # unless every job above actually succeeded.
   ci-green:
     runs-on: ubuntu-latest
-    needs: [typecheck, build-web, engine-tests]
+    needs: [typecheck, build-web, game, engine-tests]
     if: always()
     steps:
       - name: All jobs succeeded

@@ -193,6 +193,72 @@ describe('stepped draft driver', () => {
     expect(normalize(finishDraft(session))).toBe(normalize(batch));
   });
 
+  /**
+   * Regression: the trade-up evaluator swept every later slot as a trading-up
+   * candidate without consulting `externallyControlled`, so a supplied-decision
+   * team could have its current slot, sweeteners and future picks spent on a
+   * deal the NPC AI computed and auto-accepted on its behalf — flatly against
+   * `DraftSessionOptions`' own contract.
+   *
+   * The reverse (an NPC trading INTO the controlled team's slot) stays allowed:
+   * that is ordinary draft-day misfortune, and realistic.
+   */
+  it('never computes a trade-up FOR an externally-controlled team', () => {
+    const seed = 'step-external-noautotrade';
+    const league = makeLeague(seed);
+    const draftOrder = Object.keys(league.teams).slice(0, 32) as TeamId[];
+    // Control a broad slice so the evaluator has ample chance to pick one.
+    const controlled = draftOrder.slice(4, 20);
+
+    const session = beginDraft(new Prng('r4'), league, {
+      draftOrder,
+      pickedOnTick: 100,
+      seasonNumber: 2,
+      pickAssets: pickAssetsFor(seed, draftOrder),
+      externallyControlledTeamIds: controlled,
+    });
+
+    const controlledSet = new Set(controlled.map(String));
+    while (!isDraftComplete(session)) {
+      const step = stepDraft(session);
+      if (step.kind === 'complete') break;
+      if (step.kind === 'on-the-clock') autoPick(session);
+    }
+
+    const offenders = finishDraft(session)
+      .tradeUps.filter((t) => controlledSet.has(String(t.tradingUpTeamId)))
+      .map((t) => `${String(t.tradingUpTeamId)} @ pick ${t.overallPick}`);
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * Regression: `finishDraft` handed back the session's live collections, so a
+   * stepped UI calling it mid-draft got arrays that grew underneath it with
+   * unchanged identity — invisible to React, and not the snapshot the name
+   * promises.
+   */
+  it('returns a snapshot, not the session’s live collections', () => {
+    const league = makeLeague('step-snapshot');
+    const draftOrder = Object.keys(league.teams).slice(0, 32) as TeamId[];
+    const session = beginDraft(new Prng('r'), league, {
+      draftOrder,
+      pickedOnTick: 100,
+      seasonNumber: 2,
+    });
+
+    stepDraft(session);
+    stepDraft(session);
+    const midDraft = finishDraft(session);
+    const countAtSnapshot = midDraft.picks.length;
+    expect(countAtSnapshot).toBeGreaterThan(0);
+
+    stepDraft(session);
+    stepDraft(session);
+
+    expect(midDraft.picks.length, 'snapshot grew after more picks fired').toBe(countAtSnapshot);
+    expect(finishDraft(session).picks.length).toBeGreaterThan(countAtSnapshot);
+  });
+
   it('records an off-board supplied pick with a null board rank', () => {
     const league = makeLeague('step-offboard');
     const draftOrder = Object.keys(league.teams).slice(0, 32) as TeamId[];

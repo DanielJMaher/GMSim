@@ -128,6 +128,65 @@ describe('knowledge/rosterView (the D2b coach’s card)', () => {
     expect(otherYoung).toBeGreaterThanOrEqual(0);
   });
 
+  /**
+   * Regression: `tenureSeasons` divided ticks by 18 (the regular-season length)
+   * when `league.tick` actually advances 52 per league year — verified against
+   * dist: createLeague → 0, then 52, 104. Tenure was overstated ~2.9× and the
+   * 4-year saturation was reached in ~1.4 real years, flipping confidence
+   * labels and zeroing perception error far too broadly.
+   *
+   * The D2b ordering test above cannot catch this (the ordering survives either
+   * divisor), so the tenure RAMP is gated directly: under the old divisor
+   * 2 league years and 4 league years both saturate and read identical.
+   */
+  it('scales tenure on a 52-tick league year, not the 18-week season', () => {
+    const player = Object.values(league.players).find(
+      (p) => p.teamId === ownTeamId && p.contractId !== null,
+    )!;
+    const signedOn = league.contracts[player.contractId!]!.signedOnTick;
+
+    const atTick = (tick: number): number =>
+      exposureOf({ ...league, tick }, ownTeamId, player);
+
+    const oneYear = atTick(signedOn + 52);
+    const twoYears = atTick(signedOn + 104);
+    const fourYears = atTick(signedOn + 208);
+
+    // Still climbing at two years — the old divisor had saturated by ~1.4.
+    expect(twoYears).toBeGreaterThan(oneYear);
+    expect(fourYears).toBeGreaterThan(twoYears);
+
+    // One league year is a quarter of the way up a 4-year tenure ramp worth
+    // 0.20 of exposure, so it contributes ~0.05, not the ~0.144 that 52/18 gave.
+    expect(fourYears - oneYear).toBeCloseTo(0.15, 2);
+  });
+
+  /**
+   * Regression: the letter grade and the prose were drawn from INDEPENDENT
+   * noise, so a card could read B+ with an empty strengths list and every
+   * defining skill filed as a concern — two unrelated draws describing one man.
+   * The overall is now the mean of the perceived key skills, which makes these
+   * two invariants hold by construction.
+   */
+  it('never contradicts its own grade with its prose', () => {
+    for (const subject of [ownTeamId, rivalTeamId]) {
+      for (const p of rosterView(league, ownTeamId, subject)!.players) {
+        if (['A+', 'A', 'B+'].includes(p.grade)) {
+          expect(
+            p.strengths.length,
+            `${p.firstName} ${p.lastName} graded ${p.grade} with no strengths listed`,
+          ).toBeGreaterThan(0);
+        }
+        if (p.grade === 'F') {
+          expect(
+            p.concerns.length,
+            `${p.firstName} ${p.lastName} graded F with no concerns listed`,
+          ).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
   it('labels the exposure tier consistently with the service-year cut', () => {
     const view = rosterView(league, ownTeamId, ownTeamId);
     for (const p of view!.players) {

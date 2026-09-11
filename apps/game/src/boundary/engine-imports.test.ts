@@ -54,8 +54,11 @@ function collectSourceFiles(dir: string, out: string[] = []): string[] {
  * path, with whether the statement was `import type` / `export type`.
  */
 function collectEngineImports(file: string): EngineImport[] {
-  const text = readFileSync(file, 'utf-8');
-  const rel = relative(SRC_ROOT, file).split(sep).join('/');
+  return collectEngineImportsFromText(readFileSync(file, 'utf-8'), relative(SRC_ROOT, file).split(sep).join('/'));
+}
+
+/** The parser proper, over text, so it can be unit-tested on synthetic cases. */
+function collectEngineImportsFromText(text: string, rel: string): EngineImport[] {
   const found: EngineImport[] = [];
 
   const lineOf = (index: number): number => text.slice(0, index).split('\n').length;
@@ -64,19 +67,41 @@ function collectEngineImports(file: string): EngineImport[] {
     found.push({ file: rel, specifier, typeOnly, line: lineOf(index) });
   };
 
-  // `import ... from 'x'` / `export ... from 'x'`, capturing a leading `type`.
-  const fromRe = /\b(import|export)\s+(type\s+)?[\s\S]*?\bfrom\s*['"]([^'"]+)['"]/g;
-  for (let m = fromRe.exec(text); m !== null; m = fromRe.exec(text)) {
-    record(m[3] ?? '', Boolean(m[2]), m.index);
+  // Statement-anchored scan. An earlier version used one lazy regex spanning
+  // from an `import`/`export` keyword to the next `from '...'`, which let the
+  // captured `type` modifier belong to a DIFFERENT statement than the captured
+  // specifier — wrong in both directions, and both were reproduced:
+  //   - `export type Mode = 'a' | 'b';` above a runtime
+  //     `import { Player } from '@gmsim/engine/types';` read as type-only, so a
+  //     real ground-truth import passed the gate.
+  //   - a bare `import './index.css';` above a legal `import type { ... } from
+  //     '@gmsim/engine/types';` read as runtime, failing compliant code.
+  // Statements are therefore isolated FIRST (keyword → terminating semicolon),
+  // and the modifier is read from the statement that owns it.
+  const statementStart = /^[ \t]*(?:import|export)\b/gm;
+  for (let m = statementStart.exec(text); m !== null; m = statementStart.exec(text)) {
+    const start = m.index;
+    const semi = text.indexOf(';', start);
+    const newline = text.indexOf('\n', start);
+    // Prefer the semicolon (multi-line imports are normal); fall back to the
+    // line end when a statement is unterminated.
+    const end = semi === -1 ? (newline === -1 ? text.length : newline) : semi;
+    const stmt = text.slice(start, end);
+
+    const typeOnly = /^[ \t]*(?:import|export)\s+type\b/.test(stmt);
+
+    const fromMatch = /\bfrom\s*['"]([^'"]+)['"]/.exec(stmt);
+    if (fromMatch) {
+      record(fromMatch[1] ?? '', typeOnly, start);
+      continue;
+    }
+    // Bare side-effect import: `import 'x';` (no `from`). Never type-only.
+    const bareMatch = /^[ \t]*import\s*['"]([^'"]+)['"]/.exec(stmt);
+    if (bareMatch) record(bareMatch[1] ?? '', false, start);
   }
 
-  // Bare side-effect import: `import 'x';` (no `from`).
-  const bareRe = /\bimport\s*['"]([^'"]+)['"]/g;
-  for (let m = bareRe.exec(text); m !== null; m = bareRe.exec(text)) {
-    record(m[1] ?? '', false, m.index);
-  }
-
-  // Dynamic `import('x')` — a runtime load, never type-only.
+  // Dynamic `import('x')` — a runtime load, never type-only. Scanned separately
+  // because it can appear anywhere in an expression, not at a statement head.
   const dynamicRe = /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   for (let m = dynamicRe.exec(text); m !== null; m = dynamicRe.exec(text)) {
     record(m[1] ?? '', false, m.index);
@@ -117,5 +142,49 @@ describe('apps/game engine-import boundary', () => {
         'Use `import type { ... }` (also the repo-wide rule under ' +
         'verbatimModuleSyntax).',
     ).toEqual([]);
+  });
+});
+
+/**
+ * The parser's own gates. A boundary check is only as good as its ability to
+ * tell a type-only import from a runtime one, and the first implementation
+ * could not: a single lazy regex spanning statements attached the `type`
+ * modifier to whichever statement happened to precede the specifier. Both
+ * directions of that failure are pinned here, because both are silent — one
+ * waves a real leak through, the other fails compliant code.
+ */
+describe('engine-import parser (the gate must actually be able to bite)', () => {
+  const scan = (text: string) => collectEngineImportsFromText(text, 'synthetic.ts');
+
+  it('does not let a preceding `export type` alias disguise a runtime import', () => {
+    const src = ["export type Mode = 'a' | 'b';", "import { Player } from '@gmsim/engine/types';", ''].join('\n');
+    const [found] = scan(src);
+    expect(found?.specifier).toBe('@gmsim/engine/types');
+    expect(found?.typeOnly, 'a runtime import of /types must NOT read as type-only').toBe(false);
+  });
+
+  it('does not let a preceding bare import make a real `import type` look runtime', () => {
+    const src = ["import './index.css';", "import type { LeagueState } from '@gmsim/engine/types';", ''].join('\n');
+    const engineImports = scan(src);
+    expect(engineImports).toHaveLength(1);
+    expect(engineImports[0]?.typeOnly, 'a genuine `import type` must read as type-only').toBe(true);
+  });
+
+  it('handles multi-line import statements', () => {
+    const src = ['import type {', '  LeagueView,', '  RosterView,', "} from '@gmsim/engine/knowledge';", ''].join('\n');
+    const [found] = scan(src);
+    expect(found?.specifier).toBe('@gmsim/engine/knowledge');
+    expect(found?.typeOnly).toBe(true);
+  });
+
+  it('catches dynamic imports and re-exports', () => {
+    const src = [
+      "const m = await import('@gmsim/engine/season');",
+      "export { leagueView } from '@gmsim/engine/knowledge';",
+      '',
+    ].join('\n');
+    const specs = scan(src).map((i) => i.specifier);
+    expect(specs).toContain('@gmsim/engine/season');
+    expect(specs).toContain('@gmsim/engine/knowledge');
   });
 });

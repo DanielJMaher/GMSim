@@ -295,6 +295,18 @@ export interface EvaluateTradeUpArgs {
    */
   qbSettledTeams?: ReadonlySet<TeamId>;
   /**
+   * Teams whose draft decisions are SUPPLIED from outside rather than computed
+   * by the NPC AI (the D7 seam, GAME_UI_FOUNDATION.md §8.2). They are excluded
+   * as trading-UP candidates: the evaluator would otherwise spend a human GM's
+   * current slot, sweeteners and future picks on a deal they never authorized,
+   * which contradicts the seam's own contract. An NPC trading INTO such a
+   * team's slot is untouched — that is ordinary draft-day misfortune and
+   * realistic; auto-accepting an offer ON ITS BEHALF is not.
+   *
+   * Empty in batch `runDraft`, so NPC-only drafts are bit-identical.
+   */
+  externallyControlledTeams?: ReadonlySet<TeamId>;
+  /**
    * Pick asset ids already committed as swap/sweetener in EARLIER
    * trade-ups this same round (v0.160). `fullDraftPicks` is a snapshot
    * that isn't updated mid-round, so without this an aggressive team
@@ -389,6 +401,8 @@ export function evaluateTradeUpForPick(args: EvaluateTradeUpArgs): TradeUpPropos
     // the swapped/sweetener picks never actually move and can be re-offered
     // (a phantom double-spend). Skip self as a candidate.
     if (candidateTeamId === onClockTeamId) continue;
+    // A supplied-decision team never has a trade-up computed FOR it.
+    if (args.externallyControlledTeams?.has(candidateTeamId)) continue;
     if (
       args.tradeUpsByTeamSoFar &&
       (args.tradeUpsByTeamSoFar.get(candidateTeamId) ?? 0) >= MAX_TRADE_UPS_PER_TEAM

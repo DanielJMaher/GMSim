@@ -32,6 +32,24 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   `apps/web`'s zero-test blind spot (`GAME_UI_FOUNDATION.md` §8.7); Pages now
   publishes both, inspector at the root URL and game at `/game/`.
 
+  A review pass found the gate's parser could not reliably tell a type-only
+  import from a runtime one: a single lazy regex spanning statements attached
+  the `type` modifier to whichever statement happened to precede the specifier.
+  Both directions were reproduced — an `export type` alias above a runtime
+  `@gmsim/engine/types` import made a **real leak pass**, and a bare
+  `import './index.css'` above a legal `import type` **failed compliant code**.
+  The scan is now statement-anchored, and the parser has its own gates for both
+  cases. The earlier "verified to bite" check was sound but incomplete: it used
+  a file layout the broken regex happened to handle.
+
+  The same pass found that **neither the boundary gate nor the game build ran in
+  CI** — `engine-tests` shards only `@gmsim/engine`, `build-web` builds only the
+  inspector, and `ci-green` depended on neither for the game. An illegal import
+  or a broken game bundle would have gone green and failed first in `deploy.yml`
+  on `main`, which is precisely the post-merge Pages failure mode this repo
+  already suffered at v0.191.0. A `game` job now runs both and `ci-green`
+  depends on it.
+
 - **Knowledge-layer view projections: `leagueView` and the D2b coach's card
   (W4 step 2).** Both follow `snapshot.ts`'s pattern — a typed projection plus
   a recursive leak gate.
@@ -63,6 +81,18 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   game *has* `variance` before asserting the projection does not, and
   `rosterView`'s recursive scan was confirmed to fail on an injected
   `current: player.current`.
+
+  A review pass caught two real defects in this projection before it shipped.
+  **Tenure divided ticks by 18** (the regular-season length) when `league.tick`
+  advances **52 per league year** — verified against `dist` — overstating tenure
+  ~2.9×, saturating the 4-year ramp in ~1.4 years, and flipping confidence
+  labels. The D2b ordering gate could not catch it because the ordering survives
+  either divisor, so the tenure *ramp* is now gated directly. And the letter
+  grade was drawn **independently of** the per-skill prose, so a card could read
+  B+ with an empty strengths list and every defining skill filed as a concern.
+  The perception error now splits into a shared bias plus per-skill noise, which
+  makes the overall literally the mean of the perceived key skills — grade and
+  prose are two views of one read, and cannot contradict each other.
 
 ### Changed
 
@@ -97,6 +127,19 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   directly, since `apps/game` may only import `@gmsim/engine/knowledge`. Per
   D1's growing rule the knowledge layer gets a draft-session facade alongside
   `draftRoomView`; that lands with the remaining step-2 projections.
+
+  A review pass found the seam was **only half-honoured**: the trade-up
+  evaluator swept every later slot as a trading-up candidate without consulting
+  the externally-controlled set, so a supplied-decision team could have its
+  slot, sweeteners and future picks spent on a deal the NPC AI computed and
+  auto-accepted for it — against the seam's own contract. Reproduced concretely
+  (two teams, picks 13 and 15) and gated. The reverse case, an NPC trading
+  *into* a controlled team's slot, stays allowed: that is ordinary draft-day
+  misfortune. `finishDraft` also now returns a snapshot rather than the
+  session's live collections, which a stepped UI calling it mid-draft would
+  otherwise watch grow underneath it with unchanged identity. Both changes are
+  behaviour-neutral for NPC-only drafts — the batch-equivalence hash still
+  matches (`ef7b764b…`).
 
 
 ## [0.192.1] — 2026-09-11

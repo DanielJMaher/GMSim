@@ -366,6 +366,9 @@ function evaluateTradeUpAtSlot(session: DraftSession): TradeUpRecord | null {
     teamContexts: session.teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
     qbSettledTeams: session.qbSettledTeams,
     committedSweetenerIds: session.committedSweetenerIds,
+    // The D7 seam: never compute a trade-up FOR a supplied-decision team.
+    // Empty in batch mode, so NPC-only drafts are unaffected.
+    externallyControlledTeams: session.externallyControlled,
   });
   if (!proposal) return null;
 
@@ -776,16 +779,27 @@ export function autoPick(session: DraftSession): { pick: DraftPickRecord; player
   );
 }
 
-/** Collect the session's accumulated result in the batch-mode shape. */
+/**
+ * Collect the session's accumulated result in the batch-mode shape.
+ *
+ * Returns a SNAPSHOT, not the session's live collections. `runDraft` returns
+ * immediately so it cannot tell the difference, but a stepped UI may call this
+ * mid-draft to render pick history — and handing back the live arrays would
+ * give it collections that keep growing underneath it with unchanged identity,
+ * which React cannot see as a change and which makes "result" a lie about what
+ * the caller is holding.
+ */
 export function finishDraft(session: DraftSession): DraftRunResult {
   return {
-    picks: session.picks,
-    newPlayers: session.newPlayers,
-    newContracts: session.newContracts,
-    rosterAdditionsByTeam: session.rosterAdditions,
-    removedFromCollegePool: session.removed,
-    consumedPickIds: session.consumedPickIds,
-    tradeUps: session.tradeUps,
+    picks: [...session.picks],
+    newPlayers: [...session.newPlayers],
+    newContracts: [...session.newContracts],
+    rosterAdditionsByTeam: new Map(
+      [...session.rosterAdditions].map(([teamId, ids]) => [teamId, [...ids]]),
+    ),
+    removedFromCollegePool: new Set(session.removed),
+    consumedPickIds: new Set(session.consumedPickIds),
+    tradeUps: [...session.tradeUps],
   };
 }
 

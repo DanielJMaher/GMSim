@@ -33,6 +33,7 @@ import type { TeamId, GameId, PlayerId } from '../types/ids.js';
 import type { Conference, Division } from '../types/enums.js';
 import type { GameKind, ScheduledGame, TeamGameStats, GameInjury } from '../types/game.js';
 import type { PlayerGameStats } from '../types/stats.js';
+import type { LifecyclePhase } from '../season/lifecycle.js';
 import { computeRecords, divisionStandings, playoffSeeds, winPct } from '../season/standings.js';
 
 /** Public identity of a club — the part of `TeamState` anyone may see. */
@@ -106,8 +107,10 @@ export interface PlayoffBracketView {
 
 export interface LeagueView {
   seasonNumber: number;
-  /** Where the league year currently sits. */
-  lifecyclePhase: string;
+  /** Where the league year currently sits. Kept as the UNION, not widened to
+   *  string: game code must be able to switch exhaustively on it, and this repo
+   *  has already lost a Pages deploy to an exhaustive switch that went stale. */
+  lifecyclePhase: LifecyclePhase;
   /** In-season week, or null outside the regular season. */
   currentWeek: number | null;
   standings: readonly DivisionStandingsView[];

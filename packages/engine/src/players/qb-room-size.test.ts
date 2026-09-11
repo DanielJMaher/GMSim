@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 import { createLeague } from '../league/generate.js';
 import { simulateSeason } from '../season/runner.js';
@@ -126,9 +126,20 @@ const mean = (xs: readonly number[]): number => xs.reduce((a, b) => a + b, 0) / 
 
 describe('QB room-size distribution (TALENT_EROSION S2-Q0)', () => {
   const seeds = ['erosion-s2q0-gate-a', 'erosion-s2q0-gate-b'];
-  const samples = seeds.map(walkSteadyState);
-  const withPs = samples.flatMap((s) => s.withPs);
-  const activeOnly = samples.flatMap((s) => s.activeOnly);
+
+  // The walk runs in beforeAll, NOT in the describe body. At collection time it
+  // would execute even when these tests are filtered out (`pnpm test -t ...`),
+  // a throw would surface as a collection error rather than a test failure, and
+  // the ~160s would be booked as collect time with per-test durations of ~4ms —
+  // misreporting this file's real cost to scripts/test-timing-audit.mjs.
+  let withPs: number[] = [];
+  let activeOnly: number[] = [];
+
+  beforeAll(() => {
+    const samples = seeds.map(walkSteadyState);
+    withPs = samples.flatMap((s) => s.withPs);
+    activeOnly = samples.flatMap((s) => s.activeOnly);
+  }, 600_000);
 
   it('does not let the 3+-QB room supply collapse (active + practice squad)', () => {
     const observed = mean(withPs);
