@@ -114,6 +114,20 @@ export { computeDraftOrder } from './draft-order.js';
 export { promoteProspectToPlayer, promoteProspectToFreeAgent } from './promote.js';
 export type { PromoteOptions, PromoteResult } from './promote.js';
 export { runDraft, applyDraftResult } from './event.js';
+// Pick-stepped draft driver (W4 keystone) — one pick per step, yielding at an
+// externally-controlled team's slot. `runDraft` is a thin loop over these, so
+// batch and stepped mode share one implementation of the pick logic.
+export {
+  beginDraft,
+  stepDraft,
+  submitPick,
+  autoPick,
+  finishDraft,
+  isDraftComplete,
+  type DraftSession,
+  type DraftSessionOptions,
+  type DraftStep,
+} from './event.js';
 export type { RunDraftOptions, DraftRunResult } from './event.js';
 
 // Slice 5c (UDFA): undrafted-rookie-FA pipeline

@@ -1,6 +1,11 @@
 import type { Prng } from '../prng/index.js';
 import type { LeagueState } from '../types/league.js';
-import type { CollegePlayer, DraftPickRecord, DraftPickAsset } from '../types/college.js';
+import type {
+  CollegePlayer,
+  DraftPickRecord,
+  DraftPickAsset,
+  DraftBoardEntry,
+} from '../types/college.js';
 import type { TeamId, PlayerId, ContractId, DraftPickId } from '../types/ids.js';
 import type { TeamState } from '../types/team.js';
 import type { Player } from '../types/player.js';
@@ -122,31 +127,111 @@ export interface DraftRunResult {
    */
   tradeUps: readonly TradeUpRecord[];
 }
+/**
+ * Options for a stepped draft session. Extends the batch options with the D7
+ * seam (GAME_UI_FOUNDATION.md §8.2).
+ */
+export interface DraftSessionOptions extends RunDraftOptions {
+  /**
+   * Teams whose picks are SUPPLIED from outside rather than COMPUTED by the
+   * NPC AI. Per D7 the engine gains no concept of a *player* — only of a
+   * decision that arrives from elsewhere. These teams get no advantage, no
+   * extra information, and no different rules; the session simply stops at
+   * their slot and waits. That generalises invariant #4 rather than excepting
+   * it, and extends for free to multiple human GMs.
+   */
+  externallyControlledTeamIds?: readonly TeamId[];
+}
+
+/** What one `stepDraft` call produced. */
+export type DraftStep =
+  | {
+      /** An NPC team made its selection. */
+      kind: 'pick';
+      pick: DraftPickRecord;
+      player: Player;
+    }
+  | {
+      /** A trade-up fired before the slot resolved. The step yields so a UI
+       *  can show it landing; call `stepDraft` again to resolve the pick. */
+      kind: 'trade-up';
+      tradeUp: TradeUpRecord;
+    }
+  | {
+      /** An externally-controlled team is on the clock. The session will not
+       *  advance until `submitPick` or `autoPick` resolves this slot. */
+      kind: 'on-the-clock';
+      teamId: TeamId;
+      overallPick: number;
+      /** Prospect ids still available, in this team's board order first. */
+      availableProspectIds: readonly PlayerId[];
+    }
+  | { kind: 'complete' };
 
 /**
- * Run a draft over the supplied order. Each team makes ONE pick in the
- * order given; if `draftOrder` has 32 entries, this fires 32 picks
- * (slice 5a's single round). Multi-round drafts will be modeled in
- * slice 5b by calling this repeatedly with re-ordered orders.
+ * A draft in progress. Mutable by design — the batch and stepped paths share
+ * one instance and one loop body, which is what makes their results identical
+ * by CONSTRUCTION rather than by coincidence that a test has to police.
  *
- * Selection logic (slice 5a):
- *   - Picking team consults its `draftBoards[teamId]` entries.
- *   - Walks the board top→bottom and picks the highest-priority
- *     entry whose prospect is still available (eligible + declared +
- *     not yet picked).
- *   - If the entire board is exhausted of available prospects, the
- *     team falls back to "BPA across the full pool" — picking the
- *     highest-tier eligible declared prospect not yet selected. This
- *     is a degenerate case for round 1 (boards are 50-deep, only 32
- *     picks fire) but matters when multi-round drafts arrive.
- *
- * Deterministic for a given (prng, league, options) tuple.
+ * Treat as opaque: `beginDraft`/`stepDraft`/`submitPick`/`finishDraft` are the
+ * API. The fields mirror exactly the loop-carried state the original single
+ * `for` loop held in local variables.
  */
-export function runDraft(
+export interface DraftSession {
+  readonly prng: Prng;
+  readonly league: LeagueState;
+  readonly options: DraftSessionOptions;
+  readonly round: number;
+  readonly startingOverallPick: number;
+  readonly externallyControlled: ReadonlySet<TeamId>;
+
+  /** Index into `draftOrder` of the slot currently resolving. */
+  index: number;
+  /**
+   * Highest slot index whose trade-up check has already fired. The batch loop
+   * evaluated trade-ups exactly once per slot; because `stepDraft` YIELDS when
+   * a trade-up lands, re-entering would otherwise re-evaluate the same slot and
+   * let a second deal fire where the original allowed one. Caught by the
+   * batch-equivalence hash, not by reasoning — worth the field and this comment.
+   */
+  tradeUpCheckedIndex: number;
+  /** Set once the pool is exhausted or every slot has fired. */
+  complete: boolean;
+  /**
+   * Slot waiting on an externally-supplied decision. While set, `stepDraft`
+   * refuses to advance — the trade-up check for this slot has already fired
+   * and must not fire twice.
+   */
+  pending: { index: number; teamId: TeamId; overallPick: number } | null;
+
+  readonly availableById: Map<PlayerId, CollegePlayer>;
+  readonly picks: DraftPickRecord[];
+  readonly newPlayers: Player[];
+  readonly newContracts: Contract[];
+  readonly rosterAdditions: Map<TeamId, PlayerId[]>;
+  readonly removed: Set<PlayerId>;
+  readonly consumedPickIds: Set<DraftPickId>;
+  readonly tradeUps: TradeUpRecord[];
+  readonly workingRoundAssets: DraftPickAsset[] | null;
+  readonly teamContexts: Record<string, TeamChartContext>;
+  readonly qbDesire: Map<TeamId, number>;
+  qbSettledTeams: Set<TeamId>;
+  readonly qbTakenTeams: Set<TeamId>;
+  readonly needsMemo: Map<TeamId, readonly Position[]>;
+  readonly tradeUpsByTeam: Map<TeamId, number>;
+  readonly committedSweetenerIds: Set<DraftPickId>;
+}
+
+/**
+ * Open a draft session. This is everything the original `runDraft` did BEFORE
+ * its pick loop — pool indexing, chart contexts, QB-desire priors, trade-up
+ * counters seeded from prior rounds.
+ */
+export function beginDraft(
   prng: Prng,
   league: LeagueState,
-  options: RunDraftOptions,
-): DraftRunResult {
+  options: DraftSessionOptions,
+): DraftSession {
   const round = options.round ?? 1;
   const startingOverallPick = options.startingOverallPick ?? 1;
 
@@ -158,14 +243,6 @@ export function runDraft(
       availableById.set(cp.id, cp);
     }
   }
-
-  const picks: DraftPickRecord[] = [];
-  const newPlayers: Player[] = [];
-  const newContracts: Contract[] = [];
-  const rosterAdditions = new Map<TeamId, PlayerId[]>();
-  const removed = new Set<PlayerId>();
-  const consumedPickIds = new Set<DraftPickId>();
-  const tradeUps: TradeUpRecord[] = [];
 
   // Working copy of this round's pick assets — trade-ups mutate
   // currentTeamId on the slots that get swapped. The picking team at
@@ -201,28 +278,6 @@ export function runDraft(
   for (const team of Object.values(league.teams)) {
     qbDesire.set(team.identity.id, qbUpgradeDesire(team, league));
   }
-  // The Rosen-aware premier desire (v0.154; slot-graded v0.166) is computed at
-  // the PICK from the team's actual slot, so the franchise-dev abandon floor
-  // decays #1→#3 — see `qbUpgradeDesire`'s `premierPick`. (The league is frozen
-  // for the round, so a per-pick call equals the old precompute, with the slot.)
-  // Teams settled enough that they won't trade UP into the GOAT window for
-  // a QB. Rebuilt when a QB pick zeroes a team's desire (32 entries; cheap).
-  const buildQbSettledSet = (): Set<TeamId> => {
-    const s = new Set<TeamId>();
-    for (const [tid, d] of qbDesire) {
-      if (d < QB_HUNT_DESIRE_MIN) s.add(tid);
-    }
-    return s;
-  };
-  let qbSettledTeams = buildQbSettledSet();
-  // Teams that already drafted a QB this round (no double-dipping at a 2nd pick).
-  const qbTakenTeams = new Set<TeamId>();
-
-  // Pick-time needs snapshot (v0.147): each record stores the top of the
-  // picking team's need list over the SAME league state the pick logic
-  // consulted — live-computed needs are wrong the moment the rookie lands.
-  // Memoized per team; rosters are frozen for the duration of the round.
-  const needsMemo = new Map<TeamId, readonly Position[]>();
 
   // Per-team trade-up counter (v0.52). Tracks how many times each
   // team has initiated as the trading-up side so the evaluator can
@@ -240,243 +295,536 @@ export function runDraft(
     }
   }
 
-  // Pick ids already committed (swap + sweeteners) in trade-ups THIS round.
-  // `fullDraftPicks` (league.draftPicks) is a snapshot that isn't updated
-  // until applyDraftResult after the round, so without this a team trading
-  // up twice in one round could re-offer the same sweetener (double-spend).
-  const committedSweetenerIds = new Set<DraftPickId>();
+  const session: DraftSession = {
+    prng,
+    league,
+    options,
+    round,
+    startingOverallPick,
+    externallyControlled: new Set(options.externallyControlledTeamIds ?? []),
+    index: 0,
+    tradeUpCheckedIndex: -1,
+    complete: false,
+    pending: null,
+    availableById,
+    picks: [],
+    newPlayers: [],
+    newContracts: [],
+    rosterAdditions: new Map<TeamId, PlayerId[]>(),
+    removed: new Set<PlayerId>(),
+    consumedPickIds: new Set<DraftPickId>(),
+    tradeUps: [],
+    workingRoundAssets,
+    teamContexts,
+    qbDesire,
+    qbSettledTeams: new Set<TeamId>(),
+    qbTakenTeams: new Set<TeamId>(),
+    needsMemo: new Map<TeamId, readonly Position[]>(),
+    tradeUpsByTeam,
+    committedSweetenerIds: new Set<DraftPickId>(),
+  };
+  session.qbSettledTeams = buildQbSettledSet(session);
+  return session;
+}
 
-  for (let i = 0; i < options.draftOrder.length; i++) {
-    // Trade-up check fires BEFORE the pick so the picking team
-    // reflects any same-round ownership flip. Only runs when the
-    // caller provided `pickAssets` (the evaluator mutates the
-    // working list).
-    if (workingRoundAssets) {
-      const overallPickAtSlot = startingOverallPick + i;
-      const proposal = evaluateTradeUpForPick({
-        onClockIndex: i,
-        overallPick: overallPickAtSlot,
-        round,
-        seasonNumber: options.seasonNumber,
-        workingRoundAssets,
-        draftBoards: league.draftBoards,
-        availableById,
-        fullDraftPicks: league.draftPicks,
-        tradeUpsFiredSoFar: tradeUps.length,
-        tradeUpsByTeamSoFar: tradeUpsByTeam,
-        teamContexts: teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
-        qbSettledTeams,
-        committedSweetenerIds,
-      });
-      if (proposal) {
-        applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
-        tradeUpsByTeam.set(
-          proposal.tradingUpTeamId,
-          (tradeUpsByTeam.get(proposal.tradingUpTeamId) ?? 0) + 1,
-        );
-        // Lock this deal's assets so a later same-round trade-up can't
-        // re-offer them off the stale snapshot.
-        committedSweetenerIds.add(proposal.swapAssetId);
-        for (const id of proposal.currentDraftPickIds) committedSweetenerIds.add(id);
-        for (const id of proposal.futurePickIds) committedSweetenerIds.add(id);
-        tradeUps.push({
-          seasonNumber: options.seasonNumber,
-          round,
-          overallPick: overallPickAtSlot,
-          onClockTeamId: proposal.onClockTeamId,
-          onClockAssetId: proposal.onClockAssetId,
-          tradingUpTeamId: proposal.tradingUpTeamId,
-          swapAssetId: proposal.swapAssetId,
-          currentDraftPickIds: proposal.currentDraftPickIds,
-          futurePickIds: proposal.futurePickIds,
-          targetCollegePlayerId: proposal.targetCollegePlayerId,
-          ratio: proposal.ratio,
-        });
-      }
-    }
+/** Teams settled enough that they won't trade UP into the GOAT window for a QB. */
+function buildQbSettledSet(session: DraftSession): Set<TeamId> {
+  const s = new Set<TeamId>();
+  for (const [tid, d] of session.qbDesire) {
+    if (d < QB_HUNT_DESIRE_MIN) s.add(tid);
+  }
+  return s;
+}
 
-    const pickAsset = workingRoundAssets ? workingRoundAssets[i] : undefined;
-    const teamId = pickAsset?.currentTeamId ?? options.draftOrder[i]!;
-    const team = league.teams[teamId];
-    if (!team) continue;
+/** True once every slot has fired or the prospect pool ran dry. */
+export function isDraftComplete(session: DraftSession): boolean {
+  return session.complete || session.index >= session.options.draftOrder.length;
+}
 
-    const overallPick = startingOverallPick + i;
-    const board = league.draftBoards[teamId] ?? [];
+/**
+ * The trade-up check that fires BEFORE a pick so the picking team reflects any
+ * same-round ownership flip. Returns the record if one landed.
+ */
+function evaluateTradeUpAtSlot(session: DraftSession): TradeUpRecord | null {
+  const { workingRoundAssets, league, options } = session;
+  if (!workingRoundAssets) return null;
+  if (session.tradeUpCheckedIndex === session.index) return null;
+  session.tradeUpCheckedIndex = session.index;
 
-    // Captured BEFORE this pick mutates the desire maps — what the war room
-    // acted on when it went on the clock (v0.147 snapshot). Inside the
-    // premier window the Rosen-aware desire applies (a bust-grading dev QB
-    // no longer settles the room).
-    const rawQbDesire = qbDesire.get(teamId) ?? 0;
-    const teamQbDesire =
-      overallPick <= QB_ROSEN_MAX_PICK && !qbTakenTeams.has(teamId)
-        ? Math.max(rawQbDesire, qbUpgradeDesire(team, league, { premierPick: overallPick }))
-        : rawQbDesire;
-    const qbDesperateAtPick = rawQbDesire >= 1;
-    let needsAtPick = needsMemo.get(teamId);
-    if (!needsAtPick) {
-      needsAtPick = computeTeamNeeds(team, league).slice(0, 5).map((n) => n.position);
-      needsMemo.set(teamId, needsAtPick);
-    }
+  const overallPickAtSlot = session.startingOverallPick + session.index;
+  const proposal = evaluateTradeUpForPick({
+    onClockIndex: session.index,
+    overallPick: overallPickAtSlot,
+    round: session.round,
+    seasonNumber: options.seasonNumber,
+    workingRoundAssets,
+    draftBoards: league.draftBoards,
+    availableById: session.availableById,
+    fullDraftPicks: league.draftPicks,
+    tradeUpsFiredSoFar: session.tradeUps.length,
+    tradeUpsByTeamSoFar: session.tradeUpsByTeam,
+    teamContexts: session.teamContexts as Readonly<Record<TeamId, TeamChartContext>>,
+    qbSettledTeams: session.qbSettledTeams,
+    committedSweetenerIds: session.committedSweetenerIds,
+  });
+  if (!proposal) return null;
 
-    // Walk the team's own board for the strongest available pick. At premier
-    // slots the pick is a SURPLUS decision, not raw board order (v0.143 — the
-    // Goatinator finding): the top remaining entries are re-weighted by the
-    // slot-aware positional premium — full strength at #1 overall, decayed
-    // back to plain board order by pick ~40 — so a board-topping guard no
-    // longer goes #1 over a near-equal QB/EDGE. Ties (and every pick past the
-    // decay window, where the boost is 1.0 everywhere) resolve to board order.
-    let chosen: CollegePlayer | null = null;
-    let boardRank: number | null = null;
-    let boardEntry: (typeof board)[number] | null = null;
-    {
-      let bestWeighted = -Infinity;
-      let considered = 0;
-      for (let r = 0; r < board.length && considered < SLOT_RERANK_DEPTH; r++) {
-        const entry = board[r]!;
-        const cp = availableById.get(entry.collegePlayerId);
-        if (!cp) continue;
-        considered++;
-        const position = entry.assignedPosition ?? cp.nflProjectedPosition;
-        // Need-aware QB surplus (v0.145, graded v0.150, revealed v0.152,
-        // premier-slot binary v0.154): INSIDE the premier window a team is
-        // either out of the QB market (settled room → dampen) or fully in
-        // it at the revealed value — holding a top-8 pick is itself the
-        // evidence your QB isn't the answer (Tennessee/Ward over a median
-        // Levis; nobody half-drafts a QB at #3). Beyond the window, the
-        // graded desire scales the surplus premium as before.
-        const boost =
-          position === 'QB'
-            ? teamQbDesire < QB_HUNT_DESIRE_MIN
-              ? qbSettledPickFactor(overallPick)
-              : teamQbDesire >= 1 || overallPick <= QB_SETTLED_DAMPEN_END_PICK
-                ? qbRevealedSlotBoost(overallPick)
-                : 1 + (slotAwarePickBoost(position, overallPick) - 1) * teamQbDesire
-            : slotAwarePickBoost(position, overallPick);
-        const weighted = entry.priority * boost;
-        if (weighted > bestWeighted) {
-          bestWeighted = weighted;
-          chosen = cp;
-          boardRank = r + 1;
-          boardEntry = entry;
-        }
-      }
-    }
+  applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
+  session.tradeUpsByTeam.set(
+    proposal.tradingUpTeamId,
+    (session.tradeUpsByTeam.get(proposal.tradingUpTeamId) ?? 0) + 1,
+  );
+  // Lock this deal's assets so a later same-round trade-up can't
+  // re-offer them off the stale snapshot.
+  session.committedSweetenerIds.add(proposal.swapAssetId);
+  for (const id of proposal.currentDraftPickIds) session.committedSweetenerIds.add(id);
+  for (const id of proposal.futurePickIds) session.committedSweetenerIds.add(id);
 
-    // QB-need REACH (2026-06-03): a team with NO answer at quarterback takes its
-    // best available QB even when a non-QB outranks him on the board — the
-    // classic "team reaches for a passer." Gated so it isn't a blind grab: the
-    // QB must be a CREDIBLE pick (his board priority ≥ QB_REACH_PRIORITY_RATIO ×
-    // the would-be pick's), so a desperate team reaches ~a round for a real QB
-    // but won't burn a premium slot on a camp arm. Only the top available QB on
-    // the board is considered (the others are worse). Fires whether the team's
-    // top pick was a board entry or it's about to fall to BPA.
-    // (Reaching a round early is DESPERATE behavior — desire 1.0 only, not
-    // the graded upgrade hunt. In-draft QB picks zero desire, so a team
-    // that already took a QB this round can't reach for a second one.)
-    if (chosen && chosen.nflProjectedPosition !== 'QB' && team && teamQbDesire >= 1) {
-      const topPriority = boardEntry?.priority ?? 0;
-      for (let r = 0; r < board.length && r < QB_REACH_MAX_BOARD_RANK; r++) {
-        const entry = board[r]!;
-        const cp = availableById.get(entry.collegePlayerId);
-        if (!cp) continue;
-        if (cp.nflProjectedPosition !== 'QB') continue;
-        if (entry.priority >= QB_REACH_PRIORITY_RATIO * topPriority) {
-          chosen = cp;
-          boardRank = r + 1;
-          boardEntry = entry;
-        }
-        break; // first QB found is the highest-priority available QB
-      }
-    }
+  const record: TradeUpRecord = {
+    seasonNumber: options.seasonNumber,
+    round: session.round,
+    overallPick: overallPickAtSlot,
+    onClockTeamId: proposal.onClockTeamId,
+    onClockAssetId: proposal.onClockAssetId,
+    tradingUpTeamId: proposal.tradingUpTeamId,
+    swapAssetId: proposal.swapAssetId,
+    currentDraftPickIds: proposal.currentDraftPickIds,
+    futurePickIds: proposal.futurePickIds,
+    targetCollegePlayerId: proposal.targetCollegePlayerId,
+    ratio: proposal.ratio,
+  };
+  session.tradeUps.push(record);
+  return record;
+}
 
-    // Fallback: BPA across the full available pool — pick the best
-    // available by tier then composite skill proxy.
-    if (!chosen) {
-      chosen = pickBestAvailable(availableById);
-    }
-    if (!chosen) break; // pool exhausted — abort the draft
+/**
+ * The NPC war room's selection for the slot: board walk with the slot-aware
+ * positional premium, the QB-need reach, then BPA fallback. Pure reads — it
+ * consumes no PRNG, so calling it to preview a pick cannot shift the stream.
+ */
+function chooseForTeam(
+  session: DraftSession,
+  teamId: TeamId,
+  team: TeamState,
+  overallPick: number,
+): {
+  chosen: CollegePlayer | null;
+  boardRank: number | null;
+  boardEntry: DraftBoardEntry | null;
+  needsAtPick: readonly Position[];
+  qbDesperateAtPick: boolean;
+} {
+  const { league, availableById } = session;
+  const board = league.draftBoards[teamId] ?? [];
 
-    // Convert-to-need: if this team's board planned to play the prospect at a
-    // different (convertible) spot, draft him there. The promoted player lines
-    // up at the assigned position; the pick records what he converted FROM.
-    const assignedPosition = boardEntry?.assignedPosition;
-    const convertedFromPosition =
-      assignedPosition && assignedPosition !== chosen.nflProjectedPosition
-        ? chosen.nflProjectedPosition
-        : undefined;
-    const promoted = promoteProspectToPlayer(prng.fork(`pick:${overallPick}`), {
-      prospect: chosen,
-      teamId,
-      signedOnTick: options.pickedOnTick,
-      overallPick,
-      salaryCap: league.salaryCap,
-      ...(assignedPosition ? { assignedPosition } : {}),
-    });
-    newPlayers.push(promoted.player);
-    newContracts.push(promoted.contract);
-    appendRosterAddition(rosterAdditions, teamId, promoted.player.id);
-    // A team that just took its QB is settled for the rest of this round (a
-    // team holding two top picks must not double-draft passers). The drafted QB
-    // isn't on the frozen-for-the-round roster yet, so the per-pick premier
-    // desire can't see him — track it explicitly.
-    if (promoted.player.position === 'QB') {
-      qbDesire.set(teamId, 0);
-      qbTakenTeams.add(teamId);
-      qbSettledTeams = buildQbSettledSet();
-    }
-    availableById.delete(chosen.id);
-    removed.add(chosen.id);
+  // Captured BEFORE this pick mutates the desire maps — what the war room
+  // acted on when it went on the clock (v0.147 snapshot). Inside the
+  // premier window the Rosen-aware desire applies (a bust-grading dev QB
+  // no longer settles the room).
+  const rawQbDesire = session.qbDesire.get(teamId) ?? 0;
+  const teamQbDesire =
+    overallPick <= QB_ROSEN_MAX_PICK && !session.qbTakenTeams.has(teamId)
+      ? Math.max(rawQbDesire, qbUpgradeDesire(team, league, { premierPick: overallPick }))
+      : rawQbDesire;
+  const qbDesperateAtPick = rawQbDesire >= 1;
 
-    picks.push({
-      seasonNumber: options.seasonNumber,
-      round,
-      overallPick,
-      teamId,
-      collegePlayerId: chosen.id,
-      promotedPlayerId: promoted.player.id,
-      contractId: promoted.contract.id satisfies ContractId,
-      pickedOnTick: options.pickedOnTick,
-      boardRankAtPick: boardRank,
-      boardPriorityAtPick: boardEntry?.priority ?? null,
-      boardReasonAtPick: boardEntry?.reason ?? null,
-      needsAtPick,
-      qbDesperateAtPick,
-      // Snapshot the prospect's public profile (v0.162) — `chosen` is filtered
-      // out of `collegePool` once the draft completes, so the replay card reads
-      // this. Pure reads of already-computed fields; consumes no PRNG.
-      prospectProfile: {
-        nflProjectedPosition: chosen.nflProjectedPosition,
-        collegePosition: chosen.collegePosition,
-        schoolId: chosen.schoolId,
-        classYear: chosen.classYear,
-        tier: chosen.tier,
-        archetype: chosen.archetype,
-        assumedArchetype: chosen.assumedArchetype,
-        isConversionCandidate: chosen.isConversionCandidate,
-        measurables: chosen.measurables,
-        collegeStats: chosen.collegeStats,
-      },
-      ...(convertedFromPosition ? { convertedFromPosition } : {}),
-      ...(pickAsset
-        ? { pickAssetId: pickAsset.id, originalTeamId: pickAsset.originalTeamId }
-        : {}),
-    });
-
-    if (pickAsset) consumedPickIds.add(pickAsset.id);
-
-    void team;
+  let needsAtPick = session.needsMemo.get(teamId);
+  if (!needsAtPick) {
+    needsAtPick = computeTeamNeeds(team, league)
+      .slice(0, 5)
+      .map((n) => n.position);
+    session.needsMemo.set(teamId, needsAtPick);
   }
 
-  return {
-    picks,
-    newPlayers,
-    newContracts,
-    rosterAdditionsByTeam: rosterAdditions,
-    removedFromCollegePool: removed,
-    consumedPickIds,
-    tradeUps,
+  // Walk the team's own board for the strongest available pick. At premier
+  // slots the pick is a SURPLUS decision, not raw board order (v0.143 — the
+  // Goatinator finding): the top remaining entries are re-weighted by the
+  // slot-aware positional premium — full strength at #1 overall, decayed
+  // back to plain board order by pick ~40 — so a board-topping guard no
+  // longer goes #1 over a near-equal QB/EDGE. Ties (and every pick past the
+  // decay window, where the boost is 1.0 everywhere) resolve to board order.
+  let chosen: CollegePlayer | null = null;
+  let boardRank: number | null = null;
+  let boardEntry: DraftBoardEntry | null = null;
+  {
+    let bestWeighted = -Infinity;
+    let considered = 0;
+    for (let r = 0; r < board.length && considered < SLOT_RERANK_DEPTH; r++) {
+      const entry = board[r]!;
+      const cp = availableById.get(entry.collegePlayerId);
+      if (!cp) continue;
+      considered++;
+      const position = entry.assignedPosition ?? cp.nflProjectedPosition;
+      // Need-aware QB surplus (v0.145, graded v0.150, revealed v0.152,
+      // premier-slot binary v0.154): INSIDE the premier window a team is
+      // either out of the QB market (settled room → dampen) or fully in
+      // it at the revealed value — holding a top-8 pick is itself the
+      // evidence your QB isn't the answer (Tennessee/Ward over a median
+      // Levis; nobody half-drafts a QB at #3). Beyond the window, the
+      // graded desire scales the surplus premium as before.
+      const boost =
+        position === 'QB'
+          ? teamQbDesire < QB_HUNT_DESIRE_MIN
+            ? qbSettledPickFactor(overallPick)
+            : teamQbDesire >= 1 || overallPick <= QB_SETTLED_DAMPEN_END_PICK
+              ? qbRevealedSlotBoost(overallPick)
+              : 1 + (slotAwarePickBoost(position, overallPick) - 1) * teamQbDesire
+          : slotAwarePickBoost(position, overallPick);
+      const weighted = entry.priority * boost;
+      if (weighted > bestWeighted) {
+        bestWeighted = weighted;
+        chosen = cp;
+        boardRank = r + 1;
+        boardEntry = entry;
+      }
+    }
+  }
+
+  // QB-need REACH (2026-06-03): a team with NO answer at quarterback takes its
+  // best available QB even when a non-QB outranks him on the board — the
+  // classic "team reaches for a passer." Gated so it isn't a blind grab: the
+  // QB must be a CREDIBLE pick (his board priority ≥ QB_REACH_PRIORITY_RATIO ×
+  // the would-be pick's), so a desperate team reaches ~a round for a real QB
+  // but won't burn a premium slot on a camp arm. Only the top available QB on
+  // the board is considered (the others are worse). Fires whether the team's
+  // top pick was a board entry or it's about to fall to BPA.
+  // (Reaching a round early is DESPERATE behavior — desire 1.0 only, not
+  // the graded upgrade hunt. In-draft QB picks zero desire, so a team
+  // that already took a QB this round can't reach for a second one.)
+  if (chosen && chosen.nflProjectedPosition !== 'QB' && teamQbDesire >= 1) {
+    const topPriority = boardEntry?.priority ?? 0;
+    for (let r = 0; r < board.length && r < QB_REACH_MAX_BOARD_RANK; r++) {
+      const entry = board[r]!;
+      const cp = availableById.get(entry.collegePlayerId);
+      if (!cp) continue;
+      if (cp.nflProjectedPosition !== 'QB') continue;
+      if (entry.priority >= QB_REACH_PRIORITY_RATIO * topPriority) {
+        chosen = cp;
+        boardRank = r + 1;
+        boardEntry = entry;
+      }
+      break; // first QB found is the highest-priority available QB
+    }
+  }
+
+  // Fallback: BPA across the full available pool — pick the best
+  // available by tier then composite skill proxy.
+  if (!chosen) {
+    chosen = pickBestAvailable(availableById);
+  }
+
+  return { chosen, boardRank, boardEntry, needsAtPick, qbDesperateAtPick };
+}
+
+/**
+ * Commit one selection: promote the prospect, mint the rookie deal, update the
+ * loop-carried state, and record the pick. Shared verbatim by the NPC path and
+ * the externally-supplied path — the only difference between an NPC pick and a
+ * human one is who chose the name.
+ */
+function commitPick(
+  session: DraftSession,
+  teamId: TeamId,
+  overallPick: number,
+  chosen: CollegePlayer,
+  boardRank: number | null,
+  boardEntry: DraftBoardEntry | null,
+  needsAtPick: readonly Position[],
+  qbDesperateAtPick: boolean,
+): { pick: DraftPickRecord; player: Player } {
+  const { league, options } = session;
+  const pickAsset = session.workingRoundAssets ? session.workingRoundAssets[session.index] : undefined;
+
+  // Convert-to-need: if this team's board planned to play the prospect at a
+  // different (convertible) spot, draft him there. The promoted player lines
+  // up at the assigned position; the pick records what he converted FROM.
+  const assignedPosition = boardEntry?.assignedPosition;
+  const convertedFromPosition =
+    assignedPosition && assignedPosition !== chosen.nflProjectedPosition
+      ? chosen.nflProjectedPosition
+      : undefined;
+  const promoted = promoteProspectToPlayer(session.prng.fork(`pick:${overallPick}`), {
+    prospect: chosen,
+    teamId,
+    signedOnTick: options.pickedOnTick,
+    overallPick,
+    salaryCap: league.salaryCap,
+    ...(assignedPosition ? { assignedPosition } : {}),
+  });
+  session.newPlayers.push(promoted.player);
+  session.newContracts.push(promoted.contract);
+  appendRosterAddition(session.rosterAdditions, teamId, promoted.player.id);
+  // A team that just took its QB is settled for the rest of this round (a
+  // team holding two top picks must not double-draft passers). The drafted QB
+  // isn't on the frozen-for-the-round roster yet, so the per-pick premier
+  // desire can't see him — track it explicitly.
+  if (promoted.player.position === 'QB') {
+    session.qbDesire.set(teamId, 0);
+    session.qbTakenTeams.add(teamId);
+    session.qbSettledTeams = buildQbSettledSet(session);
+  }
+  session.availableById.delete(chosen.id);
+  session.removed.add(chosen.id);
+
+  const pick: DraftPickRecord = {
+    seasonNumber: options.seasonNumber,
+    round: session.round,
+    overallPick,
+    teamId,
+    collegePlayerId: chosen.id,
+    promotedPlayerId: promoted.player.id,
+    contractId: promoted.contract.id satisfies ContractId,
+    pickedOnTick: options.pickedOnTick,
+    boardRankAtPick: boardRank,
+    boardPriorityAtPick: boardEntry?.priority ?? null,
+    boardReasonAtPick: boardEntry?.reason ?? null,
+    needsAtPick,
+    qbDesperateAtPick,
+    // Snapshot the prospect's public profile (v0.162) — `chosen` is filtered
+    // out of `collegePool` once the draft completes, so the replay card reads
+    // this. Pure reads of already-computed fields; consumes no PRNG.
+    prospectProfile: {
+      nflProjectedPosition: chosen.nflProjectedPosition,
+      collegePosition: chosen.collegePosition,
+      schoolId: chosen.schoolId,
+      classYear: chosen.classYear,
+      tier: chosen.tier,
+      archetype: chosen.archetype,
+      assumedArchetype: chosen.assumedArchetype,
+      isConversionCandidate: chosen.isConversionCandidate,
+      measurables: chosen.measurables,
+      collegeStats: chosen.collegeStats,
+    },
+    ...(convertedFromPosition ? { convertedFromPosition } : {}),
+    ...(pickAsset ? { pickAssetId: pickAsset.id, originalTeamId: pickAsset.originalTeamId } : {}),
   };
+  session.picks.push(pick);
+
+  if (pickAsset) session.consumedPickIds.add(pickAsset.id);
+
+  session.index++;
+  session.pending = null;
+  return { pick, player: promoted.player };
+}
+
+/**
+ * Advance the draft by one event. Returns the pick that fired, a trade-up that
+ * landed, or a pause because an externally-controlled team is on the clock.
+ *
+ * Throws if a slot is already waiting on `submitPick`/`autoPick` — advancing
+ * past it would fire that slot's trade-up check a second time.
+ */
+export function stepDraft(session: DraftSession): DraftStep {
+  if (session.pending) {
+    throw new Error(
+      `stepDraft: slot ${session.pending.overallPick} is waiting on an externally ` +
+        'supplied pick. Call submitPick() or autoPick() to resolve it.',
+    );
+  }
+
+  for (;;) {
+    if (isDraftComplete(session)) return { kind: 'complete' };
+
+    const tradeUp = evaluateTradeUpAtSlot(session);
+    if (tradeUp) return { kind: 'trade-up', tradeUp };
+
+    const pickAsset = session.workingRoundAssets
+      ? session.workingRoundAssets[session.index]
+      : undefined;
+    const teamId = pickAsset?.currentTeamId ?? session.options.draftOrder[session.index]!;
+    const team = session.league.teams[teamId];
+    if (!team) {
+      // Slot belongs to no known team — skip it exactly as the batch loop's
+      // `continue` did.
+      session.index++;
+      continue;
+    }
+
+    const overallPick = session.startingOverallPick + session.index;
+
+    if (session.externallyControlled.has(teamId)) {
+      session.pending = { index: session.index, teamId, overallPick };
+      return {
+        kind: 'on-the-clock',
+        teamId,
+        overallPick,
+        availableProspectIds: availableInBoardOrder(session, teamId),
+      };
+    }
+
+    const { chosen, boardRank, boardEntry, needsAtPick, qbDesperateAtPick } = chooseForTeam(
+      session,
+      teamId,
+      team,
+      overallPick,
+    );
+    if (!chosen) {
+      // Pool exhausted — abort the draft, exactly as the batch loop's `break`.
+      session.complete = true;
+      return { kind: 'complete' };
+    }
+
+    const { pick, player } = commitPick(
+      session,
+      teamId,
+      overallPick,
+      chosen,
+      boardRank,
+      boardEntry,
+      needsAtPick,
+      qbDesperateAtPick,
+    );
+    return { kind: 'pick', pick, player };
+  }
+}
+
+/** Still-available prospects, this team's board order first, then the rest. */
+function availableInBoardOrder(session: DraftSession, teamId: TeamId): readonly PlayerId[] {
+  const board = session.league.draftBoards[teamId] ?? [];
+  const out: PlayerId[] = [];
+  const seen = new Set<PlayerId>();
+  for (const entry of board) {
+    if (session.availableById.has(entry.collegePlayerId) && !seen.has(entry.collegePlayerId)) {
+      out.push(entry.collegePlayerId);
+      seen.add(entry.collegePlayerId);
+    }
+  }
+  for (const id of session.availableById.keys()) {
+    if (!seen.has(id)) out.push(id);
+  }
+  return out;
+}
+
+/**
+ * Resolve a pending slot with an externally-chosen prospect. The supplied
+ * prospect must still be available; anything else is a caller bug, not a
+ * recoverable state.
+ */
+export function submitPick(
+  session: DraftSession,
+  prospectId: PlayerId,
+): { pick: DraftPickRecord; player: Player } {
+  const pending = session.pending;
+  if (!pending) throw new Error('submitPick: no slot is on the clock.');
+
+  const chosen = session.availableById.get(prospectId);
+  if (!chosen) {
+    throw new Error(`submitPick: prospect ${String(prospectId)} is not available.`);
+  }
+
+  const team = session.league.teams[pending.teamId];
+  if (!team) throw new Error(`submitPick: unknown team ${String(pending.teamId)}.`);
+
+  // The board entry is looked up rather than assumed: a supplied pick may be
+  // entirely off this team's board, which is legitimate (and is exactly what
+  // `boardRankAtPick: null` means on the record).
+  const board = session.league.draftBoards[pending.teamId] ?? [];
+  const rank = board.findIndex((e) => e.collegePlayerId === prospectId);
+  const boardEntry = rank >= 0 ? board[rank]! : null;
+
+  let needsAtPick = session.needsMemo.get(pending.teamId);
+  if (!needsAtPick) {
+    needsAtPick = computeTeamNeeds(team, session.league)
+      .slice(0, 5)
+      .map((n) => n.position);
+    session.needsMemo.set(pending.teamId, needsAtPick);
+  }
+
+  return commitPick(
+    session,
+    pending.teamId,
+    pending.overallPick,
+    chosen,
+    rank >= 0 ? rank + 1 : null,
+    boardEntry,
+    needsAtPick,
+    (session.qbDesire.get(pending.teamId) ?? 0) >= 1,
+  );
+}
+
+/**
+ * Resolve a pending slot the way the NPC AI would have. This is "sim my pick" —
+ * and it runs the identical `chooseForTeam` the other 31 war rooms use, so an
+ * auto-picked slot is indistinguishable from a computed one.
+ */
+export function autoPick(session: DraftSession): { pick: DraftPickRecord; player: Player } | null {
+  const pending = session.pending;
+  if (!pending) throw new Error('autoPick: no slot is on the clock.');
+  const team = session.league.teams[pending.teamId];
+  if (!team) throw new Error(`autoPick: unknown team ${String(pending.teamId)}.`);
+
+  const { chosen, boardRank, boardEntry, needsAtPick, qbDesperateAtPick } = chooseForTeam(
+    session,
+    pending.teamId,
+    team,
+    pending.overallPick,
+  );
+  if (!chosen) {
+    session.complete = true;
+    session.pending = null;
+    return null;
+  }
+  return commitPick(
+    session,
+    pending.teamId,
+    pending.overallPick,
+    chosen,
+    boardRank,
+    boardEntry,
+    needsAtPick,
+    qbDesperateAtPick,
+  );
+}
+
+/** Collect the session's accumulated result in the batch-mode shape. */
+export function finishDraft(session: DraftSession): DraftRunResult {
+  return {
+    picks: session.picks,
+    newPlayers: session.newPlayers,
+    newContracts: session.newContracts,
+    rosterAdditionsByTeam: session.rosterAdditions,
+    removedFromCollegePool: session.removed,
+    consumedPickIds: session.consumedPickIds,
+    tradeUps: session.tradeUps,
+  };
+}
+
+/**
+ * Run a draft over the supplied order. Each team makes ONE pick in the
+ * order given; if `draftOrder` has 32 entries, this fires 32 picks
+ * (slice 5a's single round). Multi-round drafts will be modeled in
+ * slice 5b by calling this repeatedly with re-ordered orders.
+ *
+ * Selection logic (slice 5a):
+ *   - Picking team consults its `draftBoards[teamId]` entries.
+ *   - Walks the board top→bottom and picks the highest-priority
+ *     entry whose prospect is still available (eligible + declared +
+ *     not yet picked).
+ *   - If the entire board is exhausted of available prospects, the
+ *     team falls back to "BPA across the full pool" — picking the
+ *     highest-tier eligible declared prospect not yet selected. This
+ *     is a degenerate case for round 1 (boards are 50-deep, only 32
+ *     picks fire) but matters when multi-round drafts arrive.
+ *
+ * Deterministic for a given (prng, league, options) tuple.
+ *
+ * As of W4 this is a thin driver over the stepped session below. Batch and
+ * stepped mode therefore execute THE SAME loop body in the same order, which
+ * makes their results identical by construction rather than by a coincidence
+ * a test has to police. (The test polices it anyway — dual-gate discipline
+ * whenever draft code moves.)
+ */
+export function runDraft(
+  prng: Prng,
+  league: LeagueState,
+  options: RunDraftOptions,
+): DraftRunResult {
+  const session = beginDraft(prng, league, options);
+  while (!isDraftComplete(session)) {
+    const step = stepDraft(session);
+    if (step.kind === 'complete') break;
+  }
+  return finishDraft(session);
 }
 
 /**
