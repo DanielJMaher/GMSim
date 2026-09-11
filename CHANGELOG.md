@@ -12,6 +12,93 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+### Added
+
+- **`apps/game` — the alpha walking skeleton's shell, with the knowledge
+  boundary gated from commit one (W4 step 1).** `GAME_UI_FOUNDATION.md` D3a
+  ruled the game a separate app from the inspector, and §1 names the knowledge
+  boundary as one of three things expensive to rework later — so it is enforced
+  mechanically while the app is still empty and compliance is free.
+  `boundary/engine-imports.test.ts` scans every `from` / bare / dynamic import
+  form and fails on any engine subpath other than `@gmsim/engine/knowledge`
+  (values) and `@gmsim/engine/types` (type-only). It was **verified to bite,
+  not merely to pass**: a probe importing `@gmsim/engine`, `/season`, and a
+  non-type `/types` was caught on all three counts while `/knowledge` passed
+  clean. Source-scanning rather than ESLint because ESLint is not wired up in
+  this repo at all. The dev server sits on **5273, deliberately outside the
+  5173–5190 block** the inspector lives in, so the house "kill every listener
+  on 5173–5190 and relaunch" ritual can never take the game down with it.
+  `apps/game` ships with a real test file from the start so it does not repeat
+  `apps/web`'s zero-test blind spot (`GAME_UI_FOUNDATION.md` §8.7); Pages now
+  publishes both, inspector at the root URL and game at `/game/`.
+
+- **Knowledge-layer view projections: `leagueView` and the D2b coach's card
+  (W4 step 2).** Both follow `snapshot.ts`'s pattern — a typed projection plus
+  a recursive leak gate.
+
+  `leagueView` carries standings, schedule, results, and the playoff bracket.
+  These are public world facts per `GAME_UI_FOUNDATION.md` §2 and pass through
+  verbatim; the boundary's job here is making sure nothing rides along. Two
+  things are dropped: `GameResult.variance` — an engine-internal statement
+  about how much the dice mattered, not a fact about the football world, and
+  surfacing it would let a player read the simulation instead of the sport —
+  and `TeamState` itself, of which only identity crosses.
+
+  `rosterView` is the vision-central half: D2b's coach's card, built on the
+  governing principle that **knowledge scales with exposure** (your own
+  veterans > your own young players > rivals' veterans > rivals' young
+  players). `exposureOf` reproduces that as a *strict* ordering
+  (1.00 > 0.55 > 0.45 > 0.20) and the test gates the inequality directly. The
+  real `keySkillAverage` is perturbed by an exposure-scaled error and then
+  banded to a letter, so the number is **destroyed at the band rather than
+  hidden behind one**. The card is stable as D2b requires — the perception
+  error comes from a `Prng` seeded on (league seed, viewer, player), so it is
+  identical across renders and reproducible from a save, where `Math.random()`
+  would have broken card stability and save reproducibility in one stroke.
+  Tenure derives from `contract.signedOnTick`, which an extension re-stamps;
+  documented rather than hidden, since it is a *floor* on true tenure and can
+  therefore only make a club know a player slightly less well than it should.
+
+  Both leak gates were verified to bite: `leagueView`'s test asserts the source
+  game *has* `variance` before asserting the projection does not, and
+  `rosterView`'s recursive scan was confirmed to fail on an injected
+  `current: player.current`.
+
+### Changed
+
+- **The draft is now pick-steppable, and batch mode is a loop over it (W4 step
+  4, the keystone).** `runDraft`'s single 300-line `for` loop became an explicit
+  session — `beginDraft` / `stepDraft` / `submitPick` / `autoPick` /
+  `finishDraft` — and `runDraft` is a thin driver over `stepDraft`. The
+  requirement was NPC behaviour byte-identical to batch mode for the same seed;
+  rather than a second implementation that happens to agree, there is now **one
+  implementation and no second copy to drift**.
+
+  Verified rather than assumed: a hash over six full draft runs (three seeds ×
+  with/without pick assets, so the trade-up evaluator is exercised) was computed
+  against the pre-refactor code via a git checkout and then against the
+  refactor, and matched exactly (`ef7b764b…`). The **first attempt did not
+  match**, and the mismatch was a real defect rather than a serialization
+  artifact: because `stepDraft` yields when a trade-up lands, re-entering
+  re-evaluated the same slot's trade-up check and let a second deal fire where
+  the batch loop allowed one. Reasoning about the refactor did not catch that —
+  the hash did. `session.test.ts` carries a dedicated regression for it.
+
+  `externallyControlledTeamIds` implements the D7 seam
+  (`GAME_UI_FOUNDATION.md` §8.2): teams whose picks are *supplied* rather than
+  *computed*. The engine gains no concept of a player — no advantage, no extra
+  information, no different rules, just a slot that waits — which generalises
+  invariant #4 instead of excepting it and extends to multiple human GMs for
+  free. `autoPick` hands a slot back to the same selection logic the other 31
+  war rooms use, and auto-picking every controlled slot is asserted to
+  reproduce batch output exactly, so the seam is provably behaviour-neutral.
+
+  Known gap, named rather than hidden: a draft-room UI cannot call this
+  directly, since `apps/game` may only import `@gmsim/engine/knowledge`. Per
+  D1's growing rule the knowledge layer gets a draft-session facade alongside
+  `draftRoomView`; that lands with the remaining step-2 projections.
+
+
 ## [0.192.1] — 2026-09-11
 
 ### Changed
