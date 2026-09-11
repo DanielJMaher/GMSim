@@ -12,6 +12,8 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
 
 ## [Unreleased]
 
+## [0.192.1] — 2026-09-11
+
 ### Changed
 
 - **Engine performance pass (W2), measurement-first.** `node --prof` on the
