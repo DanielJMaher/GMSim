@@ -87,3 +87,37 @@ export {
   type BoxScoreView,
   type BoxScoreLineView,
 } from './box-score-view.js';
+
+// The OPAQUE league handle + the small command surface that drives it.
+// apps/game may import /types type-only, so any knowledge function returning a
+// real LeagueState would reopen the boundary it enforces -- GameLeague has no
+// readable members, so `league.players` is a type error rather than a policy
+// violation. See game-session.ts.
+export {
+  newGame,
+  advance,
+  phaseOf,
+  seedOf,
+  teamChoices,
+  asGameLeague,
+  type GameLeague,
+  type NewGameOptions,
+  type GamePhaseView,
+} from './game-session.js';
+
+// The draft room: the stepped driver behind a game-safe facade. Strips the
+// prospect's real tier, the raw board score, and rival need models.
+export {
+  openDraftRoom,
+  stepDraftRoom,
+  makeDraftPick,
+  autoDraftPick,
+  draftRoomView,
+  closeDraftRoom,
+  type DraftRoom,
+  type DraftRoomView,
+  type DraftRoomStep,
+  type DraftPickView,
+  type DraftBoardRowView,
+  type OpenDraftRoomOptions,
+} from './draft-room.js';
