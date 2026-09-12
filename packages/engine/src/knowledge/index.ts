@@ -78,3 +78,12 @@ export {
   type NewsSourceView,
   type NewsViewOptions,
 } from './news-view.js';
+
+// The box score. No driveLogView: drive logs are not persisted and a replay
+// reproduced 2 of 272 games when measured -- see box-score-view.ts.
+export {
+  boxScoreView,
+  findScheduledGame,
+  type BoxScoreView,
+  type BoxScoreLineView,
+} from './box-score-view.js';
