@@ -121,3 +121,24 @@ export {
   type DraftBoardRowView,
   type OpenDraftRoomOptions,
 } from './draft-room.js';
+
+// The war-room wall: your department's composite and the media consensus, with
+// the divergence gutter SCOUTING_PROCESS §3 is built around.
+export {
+  departmentBoard,
+  mediaBoard,
+  type BoardRowView,
+  type MediaBoardRowView,
+} from './board-view.js';
+
+// The scouting beat. Reuses prospectSnapshot for every read, so there is one
+// conversion path for prospect knowledge rather than two that can drift.
+export {
+  scoutingInbox,
+  type InboxItemView,
+  type ScoutBylineView,
+  type ScoutingInboxOptions,
+} from './scouting-inbox.js';
+
+// Your own book. Money crosses in full (§8.3); player QUALITY does not.
+export { capView, type CapView, type CapRowView } from './cap-view.js';
