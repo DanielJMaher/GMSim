@@ -11,6 +11,7 @@ import {
   autoDraftPick,
   draftRoomView,
   closeDraftRoom,
+  declineDraftTradeOffer,
 } from './draft-room.js';
 import type { TeamId } from '../types/ids.js';
 
@@ -66,7 +67,7 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
   const viewerTeamId = Object.keys((handle as never as { teams: object }).teams)[0] as TeamId;
 
   it('stops at the viewer’s slot instead of picking for them', () => {
-    const room = openDraftRoom(handle, { viewerTeamId });
+    const room = openDraftRoom(handle, { viewerTeamId, seasonNumber: 2 });
     let step = stepDraftRoom(room);
     let guard = 0;
     while (step.kind !== 'on-the-clock' && step.kind !== 'complete' && guard++ < 80) {
@@ -76,7 +77,7 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
   });
 
   it('shows the viewer a board with their own scouting read attached', () => {
-    const room = openDraftRoom(handle, { viewerTeamId });
+    const room = openDraftRoom(handle, { viewerTeamId, seasonNumber: 2 });
     const view = draftRoomView(room);
     expect(view.board.length).toBeGreaterThan(0);
     for (const row of view.board.slice(0, 10)) {
@@ -89,7 +90,7 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
   });
 
   it('marks a prospect unavailable once he is taken', () => {
-    const room = openDraftRoom(handle, { viewerTeamId });
+    const room = openDraftRoom(handle, { viewerTeamId, seasonNumber: 2 });
     let step = stepDraftRoom(room);
     let guard = 0;
     while (step.kind !== 'pick' && guard++ < 20) step = stepDraftRoom(room);
@@ -101,7 +102,7 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
   });
 
   it('accepts a supplied pick and records its board rank', () => {
-    const room = openDraftRoom(handle, { viewerTeamId });
+    const room = openDraftRoom(handle, { viewerTeamId, seasonNumber: 2 });
     let step = stepDraftRoom(room);
     let guard = 0;
     while (step.kind !== 'on-the-clock' && guard++ < 80) step = stepDraftRoom(room);
@@ -117,7 +118,7 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
   });
 
   it('can hand the pick back to the war room', () => {
-    const room = openDraftRoom(handle, { viewerTeamId });
+    const room = openDraftRoom(handle, { viewerTeamId, seasonNumber: 2 });
     let step = stepDraftRoom(room);
     let guard = 0;
     while (step.kind !== 'on-the-clock' && guard++ < 80) step = stepDraftRoom(room);
@@ -127,7 +128,7 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
   });
 
   it('leaks no prospect ground truth — recursively, across a full round', () => {
-    const room = openDraftRoom(handle, { viewerTeamId });
+    const room = openDraftRoom(handle, { viewerTeamId, seasonNumber: 2 });
     let guard = 0;
     for (;;) {
       const step = stepDraftRoom(room);
@@ -147,7 +148,7 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
   });
 
   it('closes back into a league handle the game can keep using', () => {
-    const room = openDraftRoom(handle, { viewerTeamId });
+    const room = openDraftRoom(handle, { viewerTeamId, seasonNumber: 2 });
     let guard = 0;
     for (;;) {
       const step = stepDraftRoom(room);
@@ -160,5 +161,65 @@ describe('knowledge/draftRoom (the facade the boundary requires)', () => {
     // The drafted rookies landed on real rosters.
     const asLeague = next as never as { players: Record<string, unknown> };
     expect(Object.keys(asLeague.players).length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Trade offers through the facade (M2's "offers to you").
+ *
+ * The leak risk here is specific and easy to miss: `TradeUpProposal.ratio` is
+ * the ENGINE's own valuation of the deal — effectively a "this is a good trade"
+ * score. Surfacing it would turn the judgement call the screen exists to force
+ * into a readout, so the view carries the terms and not the verdict.
+ */
+describe('draft-room trade offers', () => {
+  const handle2 = makeHandle('knowledge-draft-offers');
+  const teams = Object.keys((handle2 as never as { teams: object }).teams) as TeamId[];
+  const controlled = teams.filter((_, i) => i % 2 === 0);
+
+  /**
+   * Scan clubs until one is actually offered a trade, and ASSERT that one is.
+   *
+   * Not  on no-offer: an early return made both tests below pass while
+   * the facade produced zero trade-ups (it was opening the draft without pick
+   * assets, so the evaluator bailed immediately). Measured after the fix: 6 of
+   * 32 clubs see an offer and 142 trade-ups fire, so a scan finds one reliably
+   * while a single fixed club would not.
+   */
+  function findOffer() {
+    for (const viewerTeamId of teams) {
+      const room = openDraftRoom(handle2, { viewerTeamId, seasonNumber: 2 });
+      let guard = 0;
+      for (;;) {
+        const step = stepDraftRoom(room);
+        if (step.kind === 'complete') break;
+        if (step.kind === 'trade-offer') return { room, offer: step.offer };
+        if (step.kind === 'on-the-clock') autoDraftPick(room);
+        if (guard++ > 400) break;
+      }
+    }
+    throw new Error('no club was offered a trade — this suite would be vacuous');
+  }
+
+  it('surfaces the terms without the engine’s verdict on them', () => {
+    const { offer } = findOffer();
+    expect(offer.from.abbreviation.length).toBeGreaterThan(0);
+    expect(offer.overallPick).toBeGreaterThan(0);
+    expect(offer.sweetenerPickCount).toBeGreaterThanOrEqual(0);
+
+    const keys = new Set<string>();
+    allKeysDeep(offer, keys);
+    // `ratio` is the engine's valuation — the thing the player must judge.
+    expect(keys.has('ratio'), 'the offer leaked the engine’s own trade valuation').toBe(false);
+    for (const k of FORBIDDEN_KEYS) {
+      expect(keys.has(k), `trade offer leaked forbidden key "${k}"`).toBe(false);
+    }
+  });
+
+  it('answering an offer lets the room continue', () => {
+    const { room } = findOffer();
+    declineDraftTradeOffer(room);
+    const next = stepDraftRoom(room);
+    expect(next.kind).not.toBe('trade-offer');
   });
 });

@@ -119,12 +119,15 @@ export {
   autoDraftPick,
   draftRoomView,
   closeDraftRoom,
+  acceptDraftTradeOffer,
+  declineDraftTradeOffer,
   type DraftRoom,
   type DraftRoomView,
   type DraftRoomStep,
   type DraftPickView,
   type DraftBoardRowView,
   type OpenDraftRoomOptions,
+  type TradeOfferView,
 } from './draft-room.js';
 
 // The war-room wall: your department's composite and the media consensus, with

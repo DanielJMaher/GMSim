@@ -8,6 +8,9 @@ import {
   autoPick,
   finishDraft,
   isDraftComplete,
+  acceptTradeOffer,
+  declineTradeOffer,
+  pendingTradeOffer,
   type DraftStep,
 } from './event.js';
 import { rollJuniorDeclarations } from './declaration.js';
@@ -223,6 +226,9 @@ describe('stepped draft driver', () => {
       const step = stepDraft(session);
       if (step.kind === 'complete') break;
       if (step.kind === 'on-the-clock') autoPick(session);
+      // Offers now surface for controlled clubs; decline them so this test
+      // keeps measuring what it is about (nobody trades up ON THEIR BEHALF).
+      if (step.kind === 'trade-offer') declineTradeOffer(session);
     }
 
     const offenders = finishDraft(session)
@@ -308,5 +314,138 @@ describe('stepped draft driver', () => {
       seasonNumber: 2,
     });
     expect(() => submitPick(session, 'anything' as PlayerId)).toThrow(/no slot is on the clock/);
+  });
+});
+
+/**
+ * Trade offers to a supplied-decision team (M2's "offers to you").
+ *
+ * This closes a real gap rather than adding a feature. The D7 seam excluded
+ * controlled teams as trading-UP candidates, but left them exposed as on-clock
+ * TARGETS — and the deal auto-applied. An NPC could therefore take a human GM's
+ * pick without asking, which is not how a trade-up works: the on-clock team has
+ * to agree.
+ */
+describe('trade offers to a controlled team', () => {
+  const seed = 'step-trade-offer';
+
+  function sessionControllingEverything() {
+    const league = makeLeague(seed);
+    const draftOrder = Object.keys(league.teams).slice(0, 32) as TeamId[];
+    // Control every OTHER club. Controlling all 32 would leave no eligible
+    // buyer — the D7 seam excludes controlled teams as trading-UP candidates,
+    // so a fully-controlled draft can never produce an offer at all. Half
+    // controlled gives buyers on one side and targets on the other.
+    const controlled = draftOrder.filter((_, i) => i % 2 === 0);
+    return beginDraft(new Prng('r5'), league, {
+      draftOrder,
+      pickedOnTick: 100,
+      seasonNumber: 2,
+      pickAssets: pickAssetsFor(seed, draftOrder),
+      externallyControlledTeamIds: controlled,
+    });
+  }
+
+  it('yields an offer instead of executing it', () => {
+    const session = sessionControllingEverything();
+    let step = stepDraft(session);
+    let guard = 0;
+    while (step.kind !== 'trade-offer' && guard++ < 200) {
+      if (step.kind === 'on-the-clock') {
+        autoPick(session);
+        step = stepDraft(session);
+        continue;
+      }
+      if (step.kind === 'complete') break;
+      step = stepDraft(session);
+    }
+
+    expect(step.kind, 'no trade offer surfaced; this test would be vacuous').toBe('trade-offer');
+    if (step.kind !== 'trade-offer') return;
+    expect(pendingTradeOffer(session)).not.toBeNull();
+    expect(step.offer.tradingUpTeamId).not.toBe(step.offer.onClockTeamId);
+
+    // The session refuses to advance past an unanswered offer — the slot is
+    // not resolved until the on-clock team answers.
+    expect(() => stepDraft(session)).toThrow(/awaiting an answer/);
+  });
+
+  it('declining keeps the slot', () => {
+    const session = sessionControllingEverything();
+    let step = stepDraft(session);
+    let guard = 0;
+    while (step.kind !== 'trade-offer' && guard++ < 200) {
+      if (step.kind === 'on-the-clock') { autoPick(session); }
+      if (step.kind === 'complete') break;
+      step = stepDraft(session);
+    }
+    if (step.kind !== 'trade-offer') return;
+
+    const slotOwner = step.offer.onClockTeamId;
+    declineTradeOffer(session);
+    expect(pendingTradeOffer(session)).toBeNull();
+
+    // Next event is that same club on the clock — they kept the pick.
+    const next = stepDraft(session);
+    expect(next.kind).toBe('on-the-clock');
+    if (next.kind === 'on-the-clock') expect(next.teamId).toBe(slotOwner);
+  });
+
+  it('accepting hands the slot to the trading-up club', () => {
+    const session = sessionControllingEverything();
+    let step = stepDraft(session);
+    let guard = 0;
+    while (step.kind !== 'trade-offer' && guard++ < 200) {
+      if (step.kind === 'on-the-clock') { autoPick(session); }
+      if (step.kind === 'complete') break;
+      step = stepDraft(session);
+    }
+    if (step.kind !== 'trade-offer') return;
+
+    const buyer = step.offer.tradingUpTeamId;
+    const record = acceptTradeOffer(session);
+    expect(record).not.toBeNull();
+    expect(record!.tradingUpTeamId).toBe(buyer);
+    expect(pendingTradeOffer(session)).toBeNull();
+
+    // The buyer is always an NPC — the seam excludes controlled clubs as
+    // trading-UP candidates — so the slot resolves as a PICK, not another
+    // on-the-clock yield. (A first version asserted 'on-the-clock' here and
+    // failed; that was my assumption, not the engine's behaviour.)
+    const next = stepDraft(session);
+    expect(next.kind).toBe('pick');
+    if (next.kind === 'pick') expect(next.pick.teamId).toBe(buyer);
+  });
+
+  it('refuses accept/decline when nothing is pending', () => {
+    const league = makeLeague('step-no-offer');
+    const draftOrder = Object.keys(league.teams).slice(0, 32) as TeamId[];
+    const session = beginDraft(new Prng('r'), league, {
+      draftOrder,
+      pickedOnTick: 100,
+      seasonNumber: 2,
+    });
+    expect(() => acceptTradeOffer(session)).toThrow(/no offer is pending/);
+    expect(() => declineTradeOffer(session)).toThrow(/no offer is pending/);
+  });
+
+  it('never surfaces an offer in an NPC-only draft', () => {
+    // The batch path must be untouched: with no controlled clubs, every
+    // proposal executes as before and no offer is ever raised.
+    const league = makeLeague('step-npc-only');
+    const draftOrder = Object.keys(league.teams).slice(0, 32) as TeamId[];
+    const session = beginDraft(new Prng('r6'), league, {
+      draftOrder,
+      pickedOnTick: 100,
+      seasonNumber: 2,
+      pickAssets: pickAssetsFor('step-npc-only', draftOrder),
+    });
+    let guard = 0;
+    for (;;) {
+      const step = stepDraft(session);
+      if (step.kind === 'complete') break;
+      expect(step.kind).not.toBe('trade-offer');
+      if (guard++ > 400) break;
+    }
   });
 });

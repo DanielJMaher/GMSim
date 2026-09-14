@@ -18,6 +18,7 @@ import {
   applyTradeUpToWorkingAssets,
   type TradeUpRecord,
   type TeamChartContext,
+  type TradeUpProposal,
 } from './trade-up.js';
 import {
   computeChartModifiers,
@@ -166,6 +167,16 @@ export type DraftStep =
       /** Prospect ids still available, in this team's board order first. */
       availableProspectIds: readonly PlayerId[];
     }
+  | {
+      /**
+       * An NPC wants to trade up into a supplied-decision team's slot. The
+       * session will not advance until `acceptTradeOffer` or `declineTradeOffer`
+       * answers it -- a trade-up needs the on-clock team to agree.
+       */
+      kind: 'trade-offer';
+      offer: TradeUpProposal;
+      overallPick: number;
+    }
   | { kind: 'complete' };
 
 /**
@@ -195,6 +206,12 @@ export interface DraftSession {
    * batch-equivalence hash, not by reasoning — worth the field and this comment.
    */
   tradeUpCheckedIndex: number;
+  /**
+   * A trade-up aimed at a supplied-decision team, waiting on their answer.
+   * While set, the slot does not resolve: an NPC cannot take a human GM's pick
+   * without them accepting. Always null in batch mode.
+   */
+  pendingOffer: TradeUpProposal | null;
   /** Set once the pool is exhausted or every slot has fired. */
   complete: boolean;
   /**
@@ -304,6 +321,7 @@ export function beginDraft(
     externallyControlled: new Set(options.externallyControlledTeamIds ?? []),
     index: 0,
     tradeUpCheckedIndex: -1,
+    pendingOffer: null,
     complete: false,
     pending: null,
     availableById,
@@ -345,14 +363,24 @@ export function isDraftComplete(session: DraftSession): boolean {
  * The trade-up check that fires BEFORE a pick so the picking team reflects any
  * same-round ownership flip. Returns the record if one landed.
  */
-function evaluateTradeUpAtSlot(session: DraftSession): TradeUpRecord | null {
+/**
+ * Find a trade-up for this slot WITHOUT applying it.
+ *
+ * Split from the application step so an offer aimed at a supplied-decision team
+ * can be surfaced for a decision instead of executed. A trade-up requires the
+ * on-clock team to AGREE — an NPC cannot take a human GM's pick without asking,
+ * and before this split it could: the D7 seam excluded controlled teams as
+ * trading-UP candidates but left them exposed as on-clock targets, and the deal
+ * auto-applied.
+ */
+function proposeTradeUpAtSlot(session: DraftSession): TradeUpProposal | null {
   const { workingRoundAssets, league, options } = session;
   if (!workingRoundAssets) return null;
   if (session.tradeUpCheckedIndex === session.index) return null;
   session.tradeUpCheckedIndex = session.index;
 
   const overallPickAtSlot = session.startingOverallPick + session.index;
-  const proposal = evaluateTradeUpForPick({
+  return evaluateTradeUpForPick({
     onClockIndex: session.index,
     overallPick: overallPickAtSlot,
     round: session.round,
@@ -370,7 +398,22 @@ function evaluateTradeUpAtSlot(session: DraftSession): TradeUpRecord | null {
     // Empty in batch mode, so NPC-only drafts are unaffected.
     externallyControlledTeams: session.externallyControlled,
   });
-  if (!proposal) return null;
+}
+
+/**
+ * Execute a proposal: flip the assets, count it against the trading-up team's
+ * cap, lock the committed picks, and record it.
+ *
+ * Unchanged from the pre-split behaviour — only its call site moved, so an
+ * NPC-only draft applies every proposal exactly where it used to.
+ */
+function applyTradeUpProposal(
+  session: DraftSession,
+  proposal: TradeUpProposal,
+): TradeUpRecord | null {
+  const { workingRoundAssets, options } = session;
+  if (!workingRoundAssets) return null;
+  const overallPickAtSlot = session.startingOverallPick + session.index;
 
   applyTradeUpToWorkingAssets(workingRoundAssets, proposal);
   session.tradeUpsByTeam.set(
@@ -618,6 +661,12 @@ function commitPick(
  * past it would fire that slot's trade-up check a second time.
  */
 export function stepDraft(session: DraftSession): DraftStep {
+  if (session.pendingOffer) {
+    throw new Error(
+      'stepDraft: a trade-up offer is awaiting an answer. Call acceptTradeOffer() ' +
+        'or declineTradeOffer() to resolve it.',
+    );
+  }
   if (session.pending) {
     throw new Error(
       `stepDraft: slot ${session.pending.overallPick} is waiting on an externally ` +
@@ -628,8 +677,24 @@ export function stepDraft(session: DraftSession): DraftStep {
   for (;;) {
     if (isDraftComplete(session)) return { kind: 'complete' };
 
-    const tradeUp = evaluateTradeUpAtSlot(session);
-    if (tradeUp) return { kind: 'trade-up', tradeUp };
+    const proposal = proposeTradeUpAtSlot(session);
+    if (proposal) {
+      // A deal aimed at a supplied-decision team is an OFFER, not an event: a
+      // trade-up needs the on-clock team to agree, and an NPC must not take a
+      // human GM's pick without being accepted. Every other proposal applies
+      // immediately, exactly as before — which is why an NPC-only draft is
+      // untouched (`externallyControlled` is empty there, so this never fires).
+      if (session.externallyControlled.has(proposal.onClockTeamId)) {
+        session.pendingOffer = proposal;
+        return {
+          kind: 'trade-offer',
+          offer: proposal,
+          overallPick: session.startingOverallPick + session.index,
+        };
+      }
+      const tradeUp = applyTradeUpProposal(session, proposal);
+      if (tradeUp) return { kind: 'trade-up', tradeUp };
+    }
 
     const pickAsset = session.workingRoundAssets
       ? session.workingRoundAssets[session.index]
@@ -962,4 +1027,37 @@ function appendRosterAddition(
     map.set(teamId, list);
   }
   list.push(playerId);
+}
+
+/**
+ * Accept a trade-up offer aimed at your slot.
+ *
+ * The deal then executes exactly as an NPC-accepted one would — same asset
+ * flip, same per-team trade-up count, same committed-sweetener locking. You
+ * gave up the slot, so the session moves on to whoever now owns it.
+ */
+export function acceptTradeOffer(session: DraftSession): TradeUpRecord | null {
+  const offer = session.pendingOffer;
+  if (!offer) throw new Error('acceptTradeOffer: no offer is pending.');
+  session.pendingOffer = null;
+  return applyTradeUpProposal(session, offer);
+}
+
+/**
+ * Decline a trade-up offer. The slot stays yours and the draft proceeds to your
+ * pick.
+ *
+ * The declined proposal is discarded rather than re-offered: the slot's
+ * trade-up check has already fired (`tradeUpCheckedIndex`), so the same deal
+ * cannot come back around this slot. That mirrors a real war room — a rejected
+ * call does not automatically ring again while you are on the clock.
+ */
+export function declineTradeOffer(session: DraftSession): void {
+  if (!session.pendingOffer) throw new Error('declineTradeOffer: no offer is pending.');
+  session.pendingOffer = null;
+}
+
+/** The offer awaiting an answer, if any. */
+export function pendingTradeOffer(session: DraftSession): TradeUpProposal | null {
+  return session.pendingOffer;
 }

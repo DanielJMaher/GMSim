@@ -45,10 +45,14 @@ import {
   finishDraft,
   isDraftComplete,
   applyDraftResult,
+  acceptTradeOffer,
+  declineTradeOffer,
   type DraftSession,
 } from '../draft/index.js';
 import type { DraftPickRecord } from '../types/college.js';
+import type { TradeUpProposal } from '../draft/trade-up.js';
 import { computeDraftOrder } from '../draft/draft-order.js';
+import { buildSlotMap, picksForRoundInSlotOrder } from '../draft/picks.js';
 import { computeRecords } from '../season/standings.js';
 import { prospectSnapshot, type ProspectSnapshot } from './snapshot.js';
 import type { TeamIdentityView } from './league-view.js';
@@ -116,6 +120,8 @@ export interface DraftRoom {
   pending: { overallPick: number; round: number } | null;
   /** @internal */
   picks: DraftPickView[];
+  /** @internal An offer awaiting your answer. */
+  pendingOffer: TradeOfferView | null;
 }
 
 export interface OpenDraftRoomOptions {
@@ -123,6 +129,17 @@ export interface OpenDraftRoomOptions {
   viewerTeamId: TeamId;
   /** Round to run. Defaults to 1. */
   round?: number;
+  /**
+   * Which draft class to run. Defaults to `league.seasonNumber`, which is
+   * correct in the normal lifecycle — by the time the offseason reaches the
+   * draft, the season number has already advanced to the year being drafted
+   * into.
+   *
+   * Worth overriding only outside that flow. A freshly generated league sits at
+   * season 1 and carries picks for seasons 2-4, because season 1's draft
+   * happened during genesis; opening a room there needs `seasonNumber: 2`.
+   */
+  seasonNumber?: number;
 }
 
 function identityOf(league: LeagueState, teamId: TeamId): TeamIdentityView {
@@ -187,15 +204,55 @@ function pickView(league: LeagueState, record: DraftPickRecord): DraftPickView {
 export function openDraftRoom(handle: GameLeague, options: OpenDraftRoomOptions): DraftRoom {
   const league = unwrapGameLeague(handle);
   const round = options.round ?? 1;
-  const draftOrder = computeDraftOrder(computeRecords(league));
+
+  // Pick ASSETS, built the way the lifecycle builds them — not a bare
+  // `draftOrder`. This is load-bearing, not bookkeeping: the trade-up evaluator
+  // mutates the working asset list, so `proposeTradeUpAtSlot` returns null
+  // immediately when assets are absent. Opening the room without them produced
+  // a draft with NO trade-ups at all, measured at 0 offers across all 32
+  // viewer clubs — which would have made the offers-to-you screen permanently
+  // silent in the real game.
+  const seasonNumber = options.seasonNumber ?? league.seasonNumber;
+  const slotMap = buildSlotMap(computeDraftOrder(computeRecords(league)));
+  const roundAssets = picksForRoundInSlotOrder(
+    league.draftPicks,
+    seasonNumber,
+    round,
+    slotMap,
+  );
+
+  // Fail LOUDLY rather than running a draft with nothing in it. An empty asset
+  // list silently produces a zero-pick round with no trade-ups and no offers,
+  // which is indistinguishable from "the feature is broken" -- and did in fact
+  // read that way until this was measured (0 offers across all 32 clubs).
+  if (roundAssets.length === 0) {
+    const available = [...new Set(league.draftPicks.map((p) => p.seasonNumber))].sort();
+    throw new Error(
+      `openDraftRoom: no round-${round} picks exist for season ${seasonNumber}. ` +
+        `Seasons with picks: ${available.join(", ") || "none"}. ` +
+        'A freshly generated league sits at season 1 but carries picks from season 2 ' +
+        'onward, because season 1 drafted during genesis -- pass seasonNumber explicitly.',
+    );
+  }
+
+  const draftOrder = roundAssets.map((a) => a.currentTeamId);
+
   const session = beginDraft(new Prng(`${league.seed}::draft-${league.seasonNumber}`), league, {
     draftOrder,
     pickedOnTick: league.tick,
-    seasonNumber: league.seasonNumber,
+    seasonNumber,
     round,
+    pickAssets: roundAssets,
     externallyControlledTeamIds: [options.viewerTeamId],
   });
-  return { session, league, viewerTeamId: options.viewerTeamId, pending: null, picks: [] };
+  return {
+    session,
+    league,
+    viewerTeamId: options.viewerTeamId,
+    pending: null,
+    picks: [],
+    pendingOffer: null,
+  };
 }
 
 /** What one step of the room produced. */
@@ -203,6 +260,7 @@ export type DraftRoomStep =
   | { kind: 'pick'; pick: DraftPickView }
   | { kind: 'trade-up'; overallPick: number; tradingUpTeam: TeamIdentityView }
   | { kind: 'on-the-clock'; overallPick: number; round: number }
+  | { kind: 'trade-offer'; offer: TradeOfferView }
   | { kind: 'complete' };
 
 /** Advance the room by one event. */
@@ -228,6 +286,13 @@ export function stepDraftRoom(room: DraftRoom): DraftRoomStep {
     case 'on-the-clock': {
       room.pending = { overallPick: step.overallPick, round: room.session.round };
       return { kind: 'on-the-clock', overallPick: step.overallPick, round: room.session.round };
+    }
+
+    case 'trade-offer': {
+      // The phone rings. Nothing resolves until you answer.
+      const offer = tradeOfferView(room, step.offer, step.overallPick);
+      room.pendingOffer = offer;
+      return { kind: 'trade-offer', offer };
     }
     default:
       return { kind: 'complete' };
@@ -293,4 +358,73 @@ export function draftRoomView(room: DraftRoom): DraftRoomView {
  */
 export function closeDraftRoom(room: DraftRoom): GameLeague {
   return asGameLeague(applyDraftResult(room.league, finishDraft(room.session)));
+}
+
+/**
+ * A trade-up offer for your slot, as the room presents it.
+ *
+ * What crosses: who is calling, what they are offering (their pick in this
+ * round plus any sweeteners), and what it costs you (this slot). Those are the
+ * terms of a deal being proposed TO you — you would hear all of it on the
+ * phone.
+ *
+ * What does not: `ratio`. That is the engine's own valuation of the deal —
+ * effectively a "this is a good trade" score — and handing it over would turn
+ * a judgement call into a readout. Whether the haul is worth your slot is
+ * exactly the decision the screen exists to make you take.
+ */
+export interface TradeOfferView {
+  /** The slot they want. */
+  overallPick: number;
+  /** The club calling. */
+  from: TeamIdentityView;
+  /** Their pick in this round that would become yours. */
+  swapPick: { round: number; overallPick: number | null };
+  /** Later picks in THIS draft they are adding. */
+  sweetenerPickCount: number;
+  /** Picks in future drafts they are adding. */
+  futurePickCount: number;
+  /** The prospect they are moving up for, if your scouts know who he is. */
+  targetProspect: { firstName: string; lastName: string; projectedPosition: Position } | null;
+}
+
+function tradeOfferView(room: DraftRoom, offer: TradeUpProposal, overallPick: number): TradeOfferView {
+  const league = room.league;
+  const cp = league.collegePool.find((c) => c.id === offer.targetCollegePlayerId);
+  // Only name the target if this club has actually scouted him — otherwise the
+  // offer itself would leak a prospect the room has never seen.
+  const known =
+    cp && (league.draftBoards[room.viewerTeamId] ?? []).some(
+      (e) => String(e.collegePlayerId) === String(cp.id),
+    );
+
+  const swap = league.draftPicks?.find((p) => p.id === offer.swapAssetId);
+
+  return {
+    overallPick,
+    from: identityOf(league, offer.tradingUpTeamId),
+    swapPick: { round: swap?.round ?? 0, overallPick: null },
+    sweetenerPickCount: offer.currentDraftPickIds.length,
+    futurePickCount: offer.futurePickIds.length,
+    targetProspect:
+      known && cp
+        ? {
+            firstName: cp.firstName,
+            lastName: cp.lastName,
+            projectedPosition: cp.nflProjectedPosition,
+          }
+        : null,
+  };
+}
+
+/** Accept the offer on the table. Your slot goes; their picks come back. */
+export function acceptDraftTradeOffer(room: DraftRoom): void {
+  acceptTradeOffer(room.session);
+  room.pendingOffer = null;
+}
+
+/** Turn the offer down and keep your pick. */
+export function declineDraftTradeOffer(room: DraftRoom): void {
+  declineTradeOffer(room.session);
+  room.pendingOffer = null;
 }
