@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createLeague } from '../league/generate.js';
 import { simulateSeason } from '../season/runner.js';
 import { asGameLeague } from './game-session.js';
-import { departmentBoard, mediaBoard } from './board-view.js';
+import { departmentBoard, mediaBoard, requestVisit } from './board-view.js';
 import { scoutingInbox } from './scouting-inbox.js';
 import { capView } from './cap-view.js';
 import type { TeamId } from '../types/ids.js';
@@ -141,6 +141,40 @@ describe('knowledge/departmentBoard + mediaBoard', () => {
 
   it('returns an empty board for an unknown club rather than throwing', () => {
     expect(departmentBoard(handle, 'no-such-team' as TeamId)).toEqual([]);
+  });
+
+  /**
+   * The visit flag is the WHOLE visit mechanic in alpha. §5's spending screen
+   * was cut (Daniel, 2026-09-12) and the teeth kept by auto-spending against
+   * these flags, so if the flag did not round-trip the design would have lost
+   * its only lever on "the ONLY reliable access to the flags consensus hides".
+   */
+  it('round-trips a visit flag on the board', () => {
+    const target = board[3]!;
+    expect(target.visitRequested).toBe(false);
+
+    const flagged = requestVisit(handle, teamId, target.prospectId);
+    const afterFlag = departmentBoard(flagged, teamId).find(
+      (r) => r.prospectId === target.prospectId,
+    )!;
+    expect(afterFlag.visitRequested).toBe(true);
+
+    const cleared = requestVisit(flagged, teamId, target.prospectId, false);
+    const afterClear = departmentBoard(cleared, teamId).find(
+      (r) => r.prospectId === target.prospectId,
+    )!;
+    expect(afterClear.visitRequested).toBe(false);
+
+    // And the original handle is untouched — commands swap handles, never mutate.
+    expect(departmentBoard(handle, teamId)[3]!.visitRequested).toBe(false);
+  });
+
+  it('does not double-flag the same prospect', () => {
+    const target = board[2]!;
+    const once = requestVisit(handle, teamId, target.prospectId);
+    const twice = requestVisit(once, teamId, target.prospectId);
+    // Same handle back when nothing changed.
+    expect(twice).toBe(once);
   });
 });
 

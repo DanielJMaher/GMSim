@@ -61,6 +61,8 @@ export function advanceCollegeScoutingCycle(
     scoutsByTeam as Readonly<Record<TeamId, readonly CollegeScout[]>>,
     league.collegePool,
     observedOnTick,
+    0,
+    league.scoutAssignments,
   );
 
   // ── Sleepers ──────────────────────────────────────────────────────

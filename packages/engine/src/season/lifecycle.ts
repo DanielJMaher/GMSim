@@ -1817,6 +1817,7 @@ function applyCollegeWeek(league: LeagueState, prng: PrngClass): LeagueState {
     formBias,
     knownIds,
     league.tick,
+    league.scoutAssignments,
   );
   const nextCollegeObs =
     weeklyScoutObs.length > 0

@@ -129,6 +129,7 @@ export {
   mediaBoard,
   type BoardRowView,
   type MediaBoardRowView,
+  requestVisit,
 } from './board-view.js';
 
 // The scouting beat. Reuses prospectSnapshot for every read, so there is one
@@ -142,3 +143,12 @@ export {
 
 // Your own book. Money crosses in full (§8.3); player QUALITY does not.
 export { capView, type CapView, type CapRowView } from './cap-view.js';
+
+// The assignments screen: position-only per Daniel's scope-back. Coverage
+// follows the assignment; accuracy does NOT, which is what makes
+// mis-assignment bite without a bespoke penalty existing to drift.
+export {
+  scoutStaffView,
+  assignScout,
+  type ScoutStaffRowView,
+} from './scout-staff.js';

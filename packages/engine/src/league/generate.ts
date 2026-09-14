@@ -305,6 +305,10 @@ export function createLeague(options: CreateLeagueOptions): LeagueState {
     watchLists,
     collegePool,
     collegeScouts: collegeScouts as Readonly<Record<ScoutId, CollegeScout>>,
+    // Empty by design: no club supplies assignments at genesis, so every
+    // scout follows his own nose (`knownSpecialty`) exactly as before.
+    scoutAssignments: {},
+    visitRequests: {},
     collegeObservations,
     mediaCollegeObservations: [],
     // Initial draft boards — pure derivation from teams + college

@@ -39,7 +39,7 @@ import type { Position } from '../types/enums.js';
 import type { DraftBoardReason } from '../types/college.js';
 import { computeMediaConsensusBoard } from '../media/mock-boards.js';
 import { confidenceLabel, type ConfidenceLabel } from './snapshot.js';
-import { unwrapGameLeague, type GameLeague } from './game-session.js';
+import { asGameLeague, unwrapGameLeague, type GameLeague } from './game-session.js';
 
 /** One name on a board, as the room may see it. */
 export interface BoardRowView {
@@ -59,6 +59,11 @@ export interface BoardRowView {
   confidence: ConfidenceLabel;
   /** How many independent reports this club has filed on him. */
   observationCount: number;
+  /**
+   * Flagged for a top-30 visit. The flag is not decoration: visits auto-spend
+   * against it, so this is the player's one lever on the scarce deep look.
+   */
+  visitRequested: boolean;
   /**
    * Where the media consensus slots him, for §3's divergence gutter. Null when
    * the outlets have not ranked him — itself a signal, since a name your
@@ -121,6 +126,7 @@ export function departmentBoard(
 ): readonly BoardRowView[] {
   const league = unwrapGameLeague(handle);
   const entries = league.draftBoards[teamId] ?? [];
+  const requested = new Set((league.visitRequests[teamId] ?? []).map(String));
 
   const mediaRankById = new Map<string, number>();
   for (const row of mediaBoard(handle, depth)) {
@@ -142,8 +148,50 @@ export function departmentBoard(
       reason: entry.reason,
       confidence: confidenceLabel(entry.meanConfidence),
       observationCount: entry.observationCount,
+      visitRequested: requested.has(String(entry.collegePlayerId)),
       mediaRank: mediaRankById.get(String(entry.collegePlayerId)) ?? null,
     });
   });
   return rows;
+}
+
+/**
+ * Flag or unflag a prospect for a top-30 visit.
+ *
+ * This is the whole visit mechanic in alpha. SCOUTING_PROCESS §5 designed a
+ * spending screen around the 30 visits; Daniel cut that screen (2026-09-12) but
+ * kept the teeth by having visits AUTO-SPEND against these flags. So the flag is
+ * the lever: `runCoachVisits` honours requested prospects first, in the order
+ * they were flagged, then fills remaining slots from the board top-down.
+ *
+ * Without this, cutting the screen would have removed the design's danger
+ * entirely — §5 calls visits "the ONLY reliable access to the flags that
+ * consensus hides", so a player with no way to direct them cannot outperform
+ * consensus on character or medical no matter how well they scout.
+ *
+ * Returns a new handle; the caller swaps it in.
+ */
+export function requestVisit(
+  handle: GameLeague,
+  teamId: TeamId,
+  prospectId: PlayerId,
+  wanted = true,
+): GameLeague {
+  const league = unwrapGameLeague(handle);
+  const current = league.visitRequests[teamId] ?? [];
+  const has = current.some((id) => String(id) === String(prospectId));
+
+  let nextList: readonly PlayerId[];
+  if (wanted) {
+    if (has) return handle;
+    nextList = [...current, prospectId];
+  } else {
+    if (!has) return handle;
+    nextList = current.filter((id) => String(id) !== String(prospectId));
+  }
+
+  return asGameLeague({
+    ...league,
+    visitRequests: { ...league.visitRequests, [teamId]: nextList },
+  });
 }

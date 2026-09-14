@@ -88,7 +88,8 @@ export function runCoachVisits(
     const coach = league.coaches[team.headCoachId];
     if (!coach) continue;
     const board = league.draftBoards[team.identity.id] ?? [];
-    const targets = pickVisitTargets(board, prospectById, visitsPerTeam);
+    const requested = league.visitRequests[team.identity.id] ?? [];
+    const targets = pickVisitTargets(board, prospectById, visitsPerTeam, requested);
     if (targets.length === 0) continue;
 
     const accuracy = coachVisitAccuracy(coach);
@@ -123,18 +124,49 @@ export function applyCoachVisits(
   };
 }
 
+/**
+ * Choose who a club's head coach actually visits.
+ *
+ * REQUESTED prospects go first, in the order the club asked for them, then the
+ * board fills any remaining slots top-down. That is the auto-spend Daniel ruled
+ * (2026-09-12) in place of a visit-spending screen: the player flags "needs a
+ * visit" on their board and the flags are honoured here, without a new UI.
+ *
+ * SCOUTING_PROCESS §5 makes this the one scarce resource that matters — visits
+ * are "the ONLY reliable access to the flags that consensus hides" — so
+ * spending them by flag keeps the design's teeth even with the spending screen
+ * cut from alpha.
+ *
+ * With no requests (every NPC club, and a player who never flags anyone) this
+ * is byte-identical to the previous board-top-down behaviour: the requested
+ * loop simply does not execute.
+ */
 function pickVisitTargets(
   board: readonly DraftBoardEntry[],
   prospectById: Map<PlayerId, CollegePlayer>,
   k: number,
+  requested: readonly PlayerId[] = [],
 ): CollegePlayer[] {
   const out: CollegePlayer[] = [];
+  const taken = new Set<string>();
+
+  for (const prospectId of requested) {
+    if (out.length >= k) break;
+    const cp = prospectById.get(prospectId);
+    if (!cp || !cp.isDraftEligible) continue;
+    if (taken.has(String(cp.id))) continue;
+    out.push(cp);
+    taken.add(String(cp.id));
+  }
+
   for (const entry of board) {
+    if (out.length >= k) break;
     const cp = prospectById.get(entry.collegePlayerId);
     if (!cp) continue;
     if (!cp.isDraftEligible) continue;
+    if (taken.has(String(cp.id))) continue;
     out.push(cp);
-    if (out.length >= k) break;
+    taken.add(String(cp.id));
   }
   return out;
 }

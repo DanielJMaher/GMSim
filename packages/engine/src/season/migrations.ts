@@ -110,6 +110,13 @@ export function migrateLeagueForward(league: LeagueState): LeagueState {
     next = { ...next, collegePool: pool };
   }
 
+  // Scout assignments: absent on every save predating the scoped-back
+  // assignment screen. Backfilled EMPTY, which reproduces the prior behaviour
+  // exactly — no assignment means the scout follows his own knownSpecialty.
+  if (!next.scoutAssignments) {
+    next = { ...next, scoutAssignments: {} };
+  }
+
   // v0.33.0 college scouts + observations + per-team collegeScoutIds.
   // Detect missing-field state via collegeScouts (the league-level
   // map). If absent, generate scouts for every team deterministically.

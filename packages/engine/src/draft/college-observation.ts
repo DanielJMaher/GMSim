@@ -5,6 +5,7 @@ import type { TeamId, PlayerId } from '../types/ids.js';
 import { STATE_TO_REGION } from '../types/college.js';
 import { COLLEGE_SCHOOLS } from '../data/colleges/index.js';
 import { positionGroupFor } from '../players/position-group.js';
+import type { PositionGroup } from '../types/enums.js';
 import { composedQuirkEffect } from '../scouting/quirks.js';
 
 const SCHOOL_BY_ID = new Map(COLLEGE_SCHOOLS.map((s) => [s.id, s] as const));
@@ -127,6 +128,19 @@ export function generateInitialCollegeObservations(
    * a concentrated, hands-on look at the participants.
    */
   accuracyBonus = 0,
+  /**
+   * Per-scout coverage assignment (`LeagueState.scoutAssignments`). A scout
+   * with an entry here is pointed at that position group instead of his own
+   * `knownSpecialty`; a scout without one follows his own nose, which is both
+   * the prior behaviour and the neglect default SCOUTING_PROCESS §4 wants.
+   *
+   * Crucially this redirects COVERAGE only. `generateCollegeObservation` still
+   * reads `scout.trueAccuracy[...]` keyed on his real specialty, so a DB
+   * specialist pointed at interior OL genuinely reads like a generalist —
+   * §4's "mis-assignment bites" falls out of the split rather than needing a
+   * penalty of its own.
+   */
+  assignments: Readonly<Record<string, PositionGroup>> = {},
 ): CollegePlayerObservation[] {
   const observations: CollegePlayerObservation[] = [];
 
@@ -138,7 +152,8 @@ export function generateInitialCollegeObservations(
     const scouts = scoutsByTeam[teamId] ?? [];
     for (const scout of scouts) {
       const scoutPrng = prng.fork(`cobs:${scout.id}`);
-      const candidates = byGroup.get(scout.knownSpecialty) ?? [];
+      const coverageGroup = assignments[String(scout.id)] ?? scout.knownSpecialty;
+      const candidates = byGroup.get(coverageGroup) ?? [];
       if (candidates.length === 0) continue;
 
       const targets = sampleByRegion(
@@ -197,6 +212,8 @@ export function generateWeeklyScoutObservations(
   formBias: ReadonlyMap<PlayerId, number>,
   knownProspectIds: ReadonlySet<string>,
   observedOnTick: number,
+  /** Same coverage assignment as the full sweep. See that overload. */
+  assignments: Readonly<Record<string, PositionGroup>> = {},
 ): CollegePlayerObservation[] {
   const observations: CollegePlayerObservation[] = [];
 
@@ -213,7 +230,8 @@ export function generateWeeklyScoutObservations(
 
   for (const teamId of Object.keys(scoutsByTeam) as TeamId[]) {
     for (const scout of scoutsByTeam[teamId] ?? []) {
-      const candidates = byGroup.get(scout.knownSpecialty) ?? [];
+      const coverageGroup = assignments[String(scout.id)] ?? scout.knownSpecialty;
+      const candidates = byGroup.get(coverageGroup) ?? [];
       if (candidates.length === 0) continue;
       const scoutPrng = prng.fork(`wk-cobs:${scout.id}`);
       const targets = sampleByRegion(

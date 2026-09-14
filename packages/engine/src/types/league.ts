@@ -1,3 +1,4 @@
+import type { PositionGroup } from './enums.js';
 import type { TeamState } from './team.js';
 import type { Player } from './player.js';
 import type { Owner, Gm, HeadCoach, Coordinator, TeamPersonality } from './personnel.js';
@@ -146,6 +147,40 @@ export interface LeagueState {
    * coverage matters for college).
    */
   collegeScouts: Readonly<Record<ScoutId, CollegeScout>>;
+
+  /**
+   * Per-scout coverage assignment: which position group each college scout is
+   * pointed at this cycle. A SUPPLIED decision in the D7 sense -- NPC clubs
+   * supply nothing and their scouts follow their own noses (the current
+   * behaviour, and the neglect default SCOUTING_PROCESS §4 wants).
+   *
+   * Deliberately position ONLY, no region (Daniel, 2026-09-12: "just assign
+   * them to a position they will scout, not a region. all scouts will be
+   * national for now, but keep it built in that they can be subsetted by
+   * area"). The region machinery (`preferredRegion`, `sampleByRegion`) is
+   * retained untouched so an area assignment can layer on later without
+   * rebuilding coverage.
+   *
+   * NOTE it does NOT move a scout's accuracy: `trueAccuracy` still keys on his
+   * own `knownSpecialty`, so a DB specialist pointed at interior OL reads like
+   * a generalist. That is §4's "mis-assignment bites", and it falls out of the
+   * split rather than needing its own penalty.
+   */
+  scoutAssignments: Readonly<Record<ScoutId, PositionGroup>>;
+
+  /**
+   * Prospects a club has flagged for a top-30 visit, in the order it wants
+   * them. Another SUPPLIED decision: NPC clubs request nothing and their coach
+   * simply walks the board top-down, exactly as before.
+   *
+   * This is the auto-spend Daniel ruled (2026-09-12) in place of a visit
+   * screen: the player flags "needs a visit" on their board and the flags are
+   * honoured, with no new UI. It matters more than a convenience, because
+   * SCOUTING_PROCESS §5 makes visits "the ONLY reliable access to the flags
+   * that consensus hides" — cutting the spending screen without this would have
+   * removed the teeth from the whole "dangerous neglect" design.
+   */
+  visitRequests: Readonly<Record<TeamId, readonly PlayerId[]>>;
 
   /**
    * Attributed observations of college prospects produced by college
