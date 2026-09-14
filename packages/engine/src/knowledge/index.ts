@@ -154,3 +154,19 @@ export {
   assignScout,
   type ScoutStaffRowView,
 } from './scout-staff.js';
+
+// The free-agency market (D7 seam). Every component of a rival's bid stays
+// hidden -- the player learns who overpays by WATCHING, which only works if the
+// outcome is public and the reasoning never is.
+export {
+  openFreeAgency,
+  stepFreeAgencyMarket,
+  submitFaOffers,
+  faMarketView,
+  closeFreeAgency,
+  type FaMarket,
+  type FaMarketView,
+  type FaMarketStep,
+  type FaPlayerView,
+  type FaSigningView,
+} from './fa-market.js';

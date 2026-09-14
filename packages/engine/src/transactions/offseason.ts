@@ -18,7 +18,7 @@ import {
 } from '../contracts/cap.js';
 import { makeFreeAgentContract } from './free-agency.js';
 import { auctionFreeAgent } from './fa-bidding.js';
-import type { FaBidderDetail } from './fa-bidding.js';
+import type { FaBidderDetail, SuppliedBid } from './fa-bidding.js';
 import { computeStarterCaliberIds } from '../players/starter-caliber.js';
 import { leagueMinimumSalary } from '../contracts/constants.js';
 import { ContractId } from '../types/ids.js';
@@ -479,7 +479,96 @@ export function applyCapCutRelease(
  * room — guaranteeing rosters approach 53 even when scheme/need/cap
  * pinches in the auction.
  */
-export function refillRosters(league: LeagueState, signedOnTick: number): LeagueState {
+/**
+ * The D7 seam: free agency as a stepped, wave-resolved session
+ * (`D7_FA_SEAM.md`, approved 2026-09-14).
+ *
+ * `refillRosters` below is now a thin loop over `stepFreeAgency`, exactly as
+ * `runDraft` is a thin loop over `stepDraft`. That is the load-bearing safety
+ * property: **one implementation of the market, not two that can drift**, so
+ * NPC-only behaviour is identical by construction rather than by a coincidence
+ * a test has to police.
+ *
+ * ## Waves are pause points, NOT a change to resolution order
+ *
+ * The pool is already tier-sorted (`compareForSigning`: STAR → STARTER →
+ * BACKUP → FRINGE), so wave boundaries exist for free. A wave boundary is a
+ * place the loop can YIELD; it does not reorder anything, does not re-sort the
+ * pool, and does not recompute `starterCaliberIds`.
+ *
+ * That last point is the specific hazard the design named. `starterCaliberIds`
+ * is computed ONCE for the whole FA period with an explicit PERF note, and
+ * `orderedPool` likewise. Both live on the session and are `readonly`, so
+ * re-entering a yielded wave cannot rebuild either — which would have changed
+ * every downstream auction.
+ */
+
+/** One wave of the market. Tiers, because the pool is already sorted by them. */
+export type FaWave = Player['tier'];
+
+/** An offer supplied from outside the NPC AI (the D7 seam). */
+export interface FaOffer {
+  playerId: PlayerId;
+  /** The most this club will pay, in cash terms — the same units NPC bids use. */
+  maxCash: number;
+  /**
+   * Lower goes first. Offers are entered in priority order and only while the
+   * club still has room, so a GM who bids on more talent than they can afford
+   * signs down their board and stops rather than blowing the cap.
+   */
+  priority: number;
+}
+
+export type FaStep =
+  | { kind: 'wave-open'; wave: FaWave; availablePlayerIds: readonly PlayerId[] }
+  | { kind: 'signing'; playerId: PlayerId; teamId: TeamId; wave: FaWave }
+  | { kind: 'unsigned'; playerId: PlayerId; wave: FaWave }
+  | { kind: 'wave-closed'; wave: FaWave }
+  | { kind: 'fill-up'; playerId: PlayerId; teamId: TeamId }
+  | { kind: 'complete' };
+
+/**
+ * A free-agency period in progress. Mutable by design and shared by the batch
+ * and stepped paths — the same reasoning as `DraftSession`.
+ *
+ * Treat as opaque: the exported functions are the API.
+ */
+export interface FaSession {
+  /** @internal */ working: LeagueState;
+  /** @internal The pool, computed ONCE. Never re-sorted. */
+  readonly orderedPool: readonly PlayerId[];
+  /** @internal Computed ONCE for the period — see starter-caliber.ts's PERF note. */
+  readonly starterCaliberIds: ReadonlySet<PlayerId>;
+  /** @internal Tier of each pooled player, captured up front so a signing cannot shift wave boundaries. */
+  readonly waveOf: ReadonlyMap<string, FaWave>;
+  /** @internal */ readonly signedOnTick: number;
+  /** @internal */ readonly externallyControlled: ReadonlySet<TeamId>;
+  /** @internal Offers by team, already priority-sorted. */
+  readonly offers: Map<string, FaOffer[]>;
+  /** @internal */ index: number;
+  /** @internal Shared across BOTH passes, exactly as the original loop did. */
+  signCounter: number;
+  /** @internal */ stillUnsigned: PlayerId[];
+  /** @internal */ fillIndex: number;
+  /** @internal */ phase: 'auction' | 'fill-up' | 'done';
+  /** @internal The wave currently open, so open/close events fire once each. */
+  openWave: FaWave | null;
+}
+
+export interface BeginFreeAgencyOptions {
+  signedOnTick: number;
+  /**
+   * Clubs whose bids are SUPPLIED rather than COMPUTED. They get no advantage,
+   * no extra information and no different rules — the same auction, pricing and
+   * cap. Empty in batch mode, which is what keeps `refillRosters` identical.
+   */
+  externallyControlledTeamIds?: readonly TeamId[];
+}
+
+export function beginFreeAgency(
+  league: LeagueState,
+  options: BeginFreeAgencyOptions,
+): FaSession {
   const orderedPool = sortedFreeAgentPool(league);
   // Talent Allocation Track 1 (2026-08-04/05): computed ONCE for the whole
   // FA period, not per free agent — see starter-caliber.ts's PERF note.
@@ -488,48 +577,199 @@ export function refillRosters(league: LeagueState, signedOnTick: number): League
   // blueprint-count maps computed once per offseason elsewhere.
   const starterCaliberIds = computeStarterCaliberIds(Object.values(league.players));
 
-  let working = league;
-  let signCounter = 0;
-  const stillUnsigned: PlayerId[] = [];
+  // Tier captured up front: a player's tier is stable, but reading it from
+  // `working` mid-period would couple wave boundaries to signing order.
+  const waveOf = new Map<string, FaWave>();
+  for (const id of orderedPool) {
+    const p = league.players[id];
+    if (p) waveOf.set(String(id), p.tier);
+  }
 
-  for (const playerId of orderedPool) {
-    const player = working.players[playerId];
-    if (!player || player.teamId !== null) continue;
+  return {
+    working: league,
+    orderedPool,
+    starterCaliberIds,
+    waveOf,
+    signedOnTick: options.signedOnTick,
+    externallyControlled: new Set(options.externallyControlledTeamIds ?? []),
+    offers: new Map(),
+    index: 0,
+    signCounter: 0,
+    stillUnsigned: [],
+    fillIndex: 0,
+    phase: 'auction',
+    openWave: null,
+  };
+}
 
-    const auction = auctionFreeAgent(working, player, starterCaliberIds);
+/** True once both the auction sweep and the fill-up pass have run out. */
+export function isFreeAgencyComplete(session: FaSession): boolean {
+  return session.phase === 'done';
+}
+
+/**
+ * Supply a club's offers for the open wave.
+ *
+ * Offers are per-wave and expire with it: an offer targets a specific player
+ * who is signed or not by the time the wave closes, so there is nothing to
+ * carry forward. What carries is cap room, which a losing bid never spent.
+ */
+export function submitOffers(
+  session: FaSession,
+  teamId: TeamId,
+  offers: readonly FaOffer[],
+): void {
+  const sorted = [...offers].sort((a, b) => a.priority - b.priority);
+  session.offers.set(String(teamId), sorted);
+}
+
+/** Still-unsigned players in the given wave, in pool order. */
+function availableInWave(session: FaSession, wave: FaWave): readonly PlayerId[] {
+  const out: PlayerId[] = [];
+  for (let i = session.index; i < session.orderedPool.length; i++) {
+    const id = session.orderedPool[i]!;
+    if (session.waveOf.get(String(id)) !== wave) break;
+    const player = session.working.players[id];
+    if (player && player.teamId === null) out.push(id);
+  }
+  return out;
+}
+
+/**
+ * The supplied bids that should be entered for this player, as extra entries in
+ * the auction's bid table.
+ *
+ * A club's offer is only entered while it still has room for it — the same
+ * condition an NPC bidder faces. That is what stops a batched wave from letting
+ * a GM win five stars they cannot pay for: they sign down their priority order
+ * and stop.
+ */
+function suppliedBidsFor(session: FaSession, playerId: PlayerId): SuppliedBid[] {
+  if (session.offers.size === 0) return [];
+  const out: SuppliedBid[] = [];
+  for (const [teamIdStr, offers] of session.offers) {
+    const teamId = teamIdStr as TeamId;
+    const offer = offers.find((o) => String(o.playerId) === String(playerId));
+    if (!offer) continue;
+    const team = session.working.teams[teamId];
+    if (!team) continue;
+    const capRoom = session.working.salaryCap - teamCapUsage(team, session.working);
+    if (capRoom < offer.maxCash) continue; // no room: not entered, as for any club
+    out.push({ teamId, cash: offer.maxCash, capRoom });
+  }
+  return out;
+}
+
+/**
+ * Advance the market by one event.
+ *
+ * With no supplied offers this walks the identical sequence the original single
+ * loop did: same pool, same order, same `auctionFreeAgent` calls, same shared
+ * `signCounter`, same single fill-up pass at the end. The wave events are pure
+ * yields that touch nothing.
+ */
+export function stepFreeAgency(session: FaSession): FaStep {
+  if (session.phase === 'done') return { kind: 'complete' };
+
+  if (session.phase === 'auction') {
+    // Close the wave that just finished, then open the next one — each fires
+    // exactly once per wave.
+    if (session.index >= session.orderedPool.length) {
+      if (session.openWave !== null) {
+        const closed = session.openWave;
+        session.openWave = null;
+        return { kind: 'wave-closed', wave: closed };
+      }
+      session.phase = 'fill-up';
+      return stepFreeAgency(session);
+    }
+
+    const playerId = session.orderedPool[session.index]!;
+    const wave = session.waveOf.get(String(playerId)) ?? 'FRINGE';
+
+    if (session.openWave !== wave) {
+      if (session.openWave !== null) {
+        const closed = session.openWave;
+        session.openWave = null;
+        return { kind: 'wave-closed', wave: closed };
+      }
+      session.openWave = wave;
+      return { kind: 'wave-open', wave, availablePlayerIds: availableInWave(session, wave) };
+    }
+
+    session.index++;
+    const player = session.working.players[playerId];
+    if (!player || player.teamId !== null) return stepFreeAgency(session);
+
+    const auction = auctionFreeAgent(
+      session.working,
+      player,
+      session.starterCaliberIds,
+      suppliedBidsFor(session, playerId),
+    );
     if (auction.winnerTeamId) {
-      const team = working.teams[auction.winnerTeamId]!;
-      const idSuffix = `${team.identity.abbreviation}_FA${working.seasonNumber}_${signCounter++}`;
-      working = signAuctionWinner(
-        working,
+      const team = session.working.teams[auction.winnerTeamId]!;
+      const idSuffix = `${team.identity.abbreviation}_FA${session.working.seasonNumber}_${session.signCounter++}`;
+      session.working = signAuctionWinner(
+        session.working,
         auction.winnerTeamId,
         playerId,
         idSuffix,
-        signedOnTick,
+        session.signedOnTick,
         auction.valuationMultiplier,
         auction.runnersUp,
         auction.bidders,
       );
-    } else {
-      stillUnsigned.push(playerId);
+      return { kind: 'signing', playerId, teamId: auction.winnerTeamId, wave };
     }
+    session.stillUnsigned.push(playerId);
+    return { kind: 'unsigned', playerId, wave };
   }
 
   // Fill-up pass: any FA still unsigned takes a vet-minimum deal at the
   // most-depleted team that has roster space and at least minimum cap room.
-  for (const playerId of stillUnsigned) {
-    const player = working.players[playerId];
+  while (session.fillIndex < session.stillUnsigned.length) {
+    const playerId = session.stillUnsigned[session.fillIndex++]!;
+    const player = session.working.players[playerId];
     if (!player || player.teamId !== null) continue;
 
-    const teamId = pickFillUpTeam(working);
+    const teamId = pickFillUpTeam(session.working);
     if (!teamId) break; // no team has space + min-cap-room remaining
 
-    const team = working.teams[teamId]!;
-    const idSuffix = `${team.identity.abbreviation}_FAmin${working.seasonNumber}_${signCounter++}`;
-    working = signMinimumTo(working, teamId, playerId, idSuffix, signedOnTick);
+    const team = session.working.teams[teamId]!;
+    const idSuffix = `${team.identity.abbreviation}_FAmin${session.working.seasonNumber}_${session.signCounter++}`;
+    session.working = signMinimumTo(
+      session.working,
+      teamId,
+      playerId,
+      idSuffix,
+      session.signedOnTick,
+    );
+    return { kind: 'fill-up', playerId, teamId };
   }
 
-  return working;
+  session.phase = 'done';
+  return { kind: 'complete' };
+}
+
+/** The league with this period's signings folded in. */
+export function finishFreeAgency(session: FaSession): LeagueState {
+  return session.working;
+}
+
+/**
+ * Sign every remaining free agent the NPC market would.
+ *
+ * Now a thin loop over `stepFreeAgency`, so batch and stepped mode execute the
+ * SAME market. Byte-identity with the pre-D7 implementation is therefore a
+ * property of there being one implementation, not of two agreeing.
+ */
+export function refillRosters(league: LeagueState, signedOnTick: number): LeagueState {
+  const session = beginFreeAgency(league, { signedOnTick });
+  while (!isFreeAgencyComplete(session)) {
+    stepFreeAgency(session);
+  }
+  return finishFreeAgency(session);
 }
 
 /**

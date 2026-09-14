@@ -135,6 +135,28 @@ export interface PreferenceFactors {
 }
 
 /**
+ * Preference breakdown for a SUPPLIED bid: neutral throughout.
+ *
+ * A human GM has no archetype-market pull, no owner quirks and no coach
+ * relationships nudging their number around — their enthusiasm is already IN
+ * the figure they offered. Applying a multiplier on top would hand the seam an
+ * advantage it explicitly refuses ("no advantage, no extra information, and no
+ * different rules").
+ */
+const NEUTRAL_PREFERENCE_FACTORS: PreferenceFactors = {
+  total: 1,
+  archetypeMarket: 0,
+  ownerQuirks: 0,
+  hcQuirks: 0,
+  hcPlayerRelationships: 0,
+  startingOpportunity: 0,
+  archetypeLabel: null,
+  ownerQuirkLabels: [],
+  hcQuirkLabels: [],
+  startingOpportunityLabel: null,
+};
+
+/**
  * Standard tier ANCHOR — the dollar reference the auction scales around.
  * Tier separation is deliberately steep (a STAR anchor ~15× a FRINGE one)
  * so the position-scaled top-of-market (a STAR QB) reaches real OTC
@@ -279,6 +301,12 @@ export function auctionFreeAgent(
   league: LeagueState,
   player: Player,
   starterCaliberIds?: ReadonlySet<PlayerId>,
+  /**
+   * Bids supplied from outside the NPC AI (the D7 seam). EMPTY in batch mode,
+   * which is what keeps `refillRosters` byte-identical: an empty array adds
+   * nothing to the table and changes no sort.
+   */
+  suppliedBids: readonly SuppliedBid[] = [],
 ): FaAuctionResult {
   const blueprintByPos = new Map<Position, number>();
   for (const slot of ROSTER_BLUEPRINT_53) blueprintByPos.set(slot.position, slot.count);
@@ -288,7 +316,7 @@ export function auctionFreeAgent(
   // for standalone/test callers that don't have one handy.
   const ids = starterCaliberIds ?? computeStarterCaliberIds(Object.values(league.players));
 
-  const bids = collectBids(league, player, blueprintByPos, ids);
+  const bids = collectBids(league, player, blueprintByPos, ids, suppliedBids);
   if (bids.length === 0) {
     return {
       winnerTeamId: null,
@@ -348,6 +376,22 @@ export function auctionFreeAgent(
   };
 }
 
+/**
+ * A bid supplied from OUTSIDE the NPC AI (the D7 seam, D7_FA_SEAM.md).
+ *
+ * It enters the same table, is sorted by the same rule, and is priced by the
+ * same second-price resolution as every computed bid. The supplying club gets
+ * no advantage and no different rules -- only the decision arrives from
+ * elsewhere.
+ */
+export interface SuppliedBid {
+  teamId: TeamId;
+  /** Cash valuation, in the same units computeTeamCashBid produces. */
+  cash: number;
+  /** The club cap room at the moment the offer was checked. */
+  capRoom: number;
+}
+
 interface Bid {
   teamId: TeamId;
   cash: number;
@@ -389,10 +433,20 @@ function collectBids(
   player: Player,
   blueprintByPos: Map<Position, number>,
   starterCaliberIds: ReadonlySet<PlayerId>,
+  suppliedBids: readonly SuppliedBid[] = [],
 ): Bid[] {
   const standardY1 = positionScaledStandardY1(player, league);
   const bids: Bid[] = [];
+  /**
+   * Clubs whose bid for THIS player arrived from outside. Their computed bid is
+   * skipped so the supplied one replaces it rather than competing with it —
+   * otherwise a club could bid against itself, and the second-price resolution
+   * would price the winner off their own shadow.
+   */
+  const supplied = new Map(suppliedBids.map((b) => [String(b.teamId), b]));
+
   for (const team of Object.values(league.teams)) {
+    if (supplied.has(String(team.identity.id))) continue;
     if (team.rosterIds.length >= 53) continue;
 
     // Positional need — skip teams already at or above blueprint at
@@ -457,6 +511,26 @@ function collectBids(
       watchListReason: watch.reason,
     });
   }
+  // Supplied bids enter the SAME table, to be sorted and second-priced with
+  // every other. `preference` is 1.0 because a human GM's enthusiasm is already
+  // expressed in the number they offered — there is no hidden multiplier to
+  // apply on top, and giving them one would be an advantage the seam explicitly
+  // refuses.
+  for (const b of suppliedBids) {
+    bids.push({
+      teamId: b.teamId,
+      cash: b.cash,
+      cashBaseline: b.cash,
+      preference: 1,
+      perceived: b.cash,
+      capRoom: b.capRoom,
+      preferenceFactors: NEUTRAL_PREFERENCE_FACTORS,
+      watchListMultiplier: 1,
+      watchListPriority: null,
+      watchListReason: null,
+    });
+  }
+
   return bids;
 }
 
