@@ -38,6 +38,7 @@ import type { TeamId } from '../types/ids.js';
 import type { LifecyclePhase } from '../season/lifecycle.js';
 import { createLivingLeague, type GenesisProgressEvent } from '../season/genesis.js';
 import { tickPhase } from '../season/lifecycle.js';
+import { migrateLeagueForward } from '../season/migrations.js';
 
 declare const GAME_LEAGUE: unique symbol;
 
@@ -129,6 +130,36 @@ export function seedOf(handle: GameLeague): string {
  */
 export function advance(handle: GameLeague): GameLeague {
   return asGameLeague(tickPhase(unwrapGameLeague(handle)));
+}
+
+/**
+ * Serialize a league for storage.
+ *
+ * Returns the handle itself, typed as opaque JSON. That reads like a trick and
+ * is worth being explicit about: `GameLeague` is a `LeagueState` at runtime, so
+ * `JSON.stringify` on it produces a complete save — while the TYPE still gives
+ * the caller nothing readable. The save layer round-trips the whole league
+ * without ever naming a field on it, which is exactly the property the opaque
+ * handle exists to provide.
+ */
+export function serializeGame(handle: GameLeague): unknown {
+  return handle;
+}
+
+/**
+ * Restore a league from storage.
+ *
+ * Runs `migrateLeagueForward`, so a save written before a field existed is
+ * healed on load rather than crashing at first use — that is the whole reason
+ * the engine keeps a forward migration, and a save layer that skipped it would
+ * make every future field addition a save break.
+ *
+ * Does NOT validate the version: an app that lets a newer save load into an
+ * older build has a UX problem the engine cannot see, and D4 puts that check in
+ * the app ("loading a NEWER save than the app politely refuses").
+ */
+export function restoreGame(data: unknown): GameLeague {
+  return asGameLeague(migrateLeagueForward(data as LeagueState));
 }
 
 /** Every club, for the new-game team picker. Identity only. */

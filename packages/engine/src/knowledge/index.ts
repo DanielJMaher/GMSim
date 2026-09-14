@@ -100,6 +100,8 @@ export {
   seedOf,
   teamChoices,
   asGameLeague,
+  serializeGame,
+  restoreGame,
   type GameLeague,
   type NewGameOptions,
   type GamePhaseView,
