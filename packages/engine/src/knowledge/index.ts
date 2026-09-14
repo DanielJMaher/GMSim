@@ -83,9 +83,12 @@ export {
 // reproduced 2 of 272 games when measured -- see box-score-view.ts.
 export {
   boxScoreView,
+  driveLogView,
   findScheduledGame,
   type BoxScoreView,
   type BoxScoreLineView,
+  type DriveLogView,
+  type DriveView,
 } from './box-score-view.js';
 
 // The OPAQUE league handle + the small command surface that drives it.

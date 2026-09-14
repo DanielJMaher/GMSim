@@ -25,28 +25,13 @@ import { keySkillAverage } from '../archetypes/key-skill.js';
  * Magistrate calibration) are preserved.
  */
 
-export type DriveResult =
-  | 'TD'
-  | 'FG'
-  | 'MISSED_FG'
-  | 'PUNT'
-  | 'TURNOVER'
-  | 'DOWNS'
-  | 'SAFETY'
-  | 'END_HALF';
-
-export interface DriveOutcome {
-  offense: 'home' | 'away';
-  result: DriveResult;
-  plays: number;
-  yards: number;
-  /** Game-clock seconds this drive consumed (v0.178 — the clock IS the
-   *  half budget; see the CLOCK_* constants). 0 on END_HALF markers. */
-  clock: number;
-  /** Field position the drive started at (own-yards 0-100), P1 v0.179 —
-   *  set by the possession-chain from the prior drive's transition. */
-  start: number;
-}
+// `DriveResult` / `DriveOutcome` moved to `types/game.ts` when the drive log
+// became PERSISTED on `GameResult` — a type that goes into the save belongs in
+// the types layer, and `types/` importing from `games/` would invert the
+// layering. Imported for local use and re-exported so every existing import of
+// these names from `games/drive-sim.js` keeps working unchanged.
+import type { DriveResult, DriveOutcome } from '../types/game.js';
+export type { DriveResult, DriveOutcome };
 
 /** Per-player accrued game stat line (subset of PlayerSeasonStats). */
 export interface PlayerStatLine {

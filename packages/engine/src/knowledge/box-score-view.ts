@@ -8,41 +8,44 @@
  * ground truth. So the join projects **name and position only**; nothing else
  * off the player record is copied, and the leak gate scans for the rest.
  *
- * ## There is no `driveLogView`, and the reason is measured
+ * ## `driveLogView` reads a PERSISTED log, and the reason is measured
  *
- * Drive logs are NOT persisted: `GameResult` stores scores, team stats,
- * injuries and per-player lines, while the drive-by-drive log lives only on
- * `DriveGameResult`, the sim's return value, which is discarded. The Game Lab
- * shows drives by re-simulating, but it is a LAB — it sims hypothetical
- * matchups against current rosters and never claims to replay a game that
- * happened.
+ * Drive logs used to live only on `DriveGameResult`, the sim's return value,
+ * which was discarded. The Game Lab shows drives by re-simulating — but it is a
+ * LAB: it sims hypothetical matchups against current rosters and never claims
+ * to replay a game that happened.
  *
  * A replay's SEED is derivable (`${seed}::season-${N}` forked by `week-${W}`
  * then the game id). The league STATE at kickoff is not: injuries propagate,
  * players move to IR, rosters change. So a replay runs the right dice against
  * the wrong personnel.
  *
- * A self-verifying version was built and measured before being removed — replay
- * the game, compare the replayed score to the recorded score, and return a
+ * A self-verifying version was built and measured before being abandoned —
+ * replay the game, compare the replayed score to the recorded one, return a
  * chart only on a match. Across a full simulated season it reproduced
  * **2 of 272 games (0.7%)**, and score equality is weak evidence besides: two
  * different games can land on the same final score, so even those two are more
- * likely coincidences than faithful replays. A chart that appears almost never
- * and may be wrong when it does is worse than no chart.
+ * likely coincidences than faithful replays.
  *
- * This also corrects `GAME_UI_FOUNDATION.md` §5, which assumes game results are
- * re-simmable from (matchup id × seed) and builds the alpha triage flow on it.
- * Measured: they are not.
+ * That measurement also corrects `GAME_UI_FOUNDATION.md` §5, which assumed game
+ * results are re-simmable from (matchup id × seed) and built the alpha triage
+ * flow on it. They are not.
  *
- * A real drive chart therefore requires persisting the drive log on
- * `GameResult` (~240KB per season) — a save-format change, and a deliberate
- * decision rather than something to slip in behind a view.
+ * So the log is now PERSISTED on `GameResult` (Daniel's call, 2026-09-14). The
+ * field is optional, so a save written before it existed stays loadable and
+ * simply shows no chart.
  */
 
 import type { LeagueState } from '../types/league.js';
 import type { GameId, PlayerId, TeamId } from '../types/ids.js';
 import type { Position } from '../types/enums.js';
-import type { GameKind, ScheduledGame, TeamGameStats, GameInjury } from '../types/game.js';
+import type {
+  GameKind,
+  ScheduledGame,
+  TeamGameStats,
+  GameInjury,
+  DriveResult,
+} from '../types/game.js';
 import type { PlayerGameStats } from '../types/stats.js';
 import type { TeamIdentityView } from './league-view.js';
 
@@ -243,4 +246,50 @@ export function boxScoreView(league: LeagueState, gameId: GameId): BoxScoreView 
   };
   if (game.result.emergencyQb) view.emergencyQb = game.result.emergencyQb;
   return view;
+}
+
+/** One drive, as the chart draws it. */
+export interface DriveView {
+  offense: 'home' | 'away';
+  result: DriveResult;
+  plays: number;
+  yards: number;
+  /** Seconds of game clock consumed. */
+  clock: number;
+  /** Own-yards 0-100 the drive started at. */
+  start: number;
+}
+
+export interface DriveLogView {
+  gameId: GameId;
+  /** Drives in order. Empty for a game played before drive logs were kept. */
+  drives: readonly DriveView[];
+}
+
+/**
+ * The drive chart for a played game.
+ *
+ * Now a straight read of the PERSISTED log rather than a replay. The replay
+ * approach was built, measured at 2 of 272 games reproducible, and removed —
+ * see this file's header. Persisting the log was Daniel's call (2026-09-14).
+ *
+ * Returns null when the game has no log, which is the honest answer for a save
+ * written before drive logs were kept: the UI omits the chart rather than
+ * drawing an empty one.
+ */
+export function driveLogView(league: LeagueState, gameId: GameId): DriveLogView | null {
+  const game = findScheduledGame(league, gameId);
+  if (!game?.result?.driveLog || game.result.driveLog.length === 0) return null;
+
+  return {
+    gameId: game.id,
+    drives: game.result.driveLog.map((d) => ({
+      offense: d.offense,
+      result: d.result,
+      plays: d.plays,
+      yards: d.yards,
+      clock: d.clock,
+      start: d.start,
+    })),
+  };
 }

@@ -19,6 +19,37 @@ export interface ScheduledGame {
 export type GameKind = 'PRESEASON' | 'REGULAR' | 'WILD_CARD' | 'DIVISIONAL' | 'CONFERENCE' | 'SUPER_BOWL';
 
 /**
+ * How a drive ended.
+ *
+ * Lives in `types/` rather than `games/drive-sim.ts` because it is now
+ * PERSISTED on `GameResult` — a type that goes into the save belongs in the
+ * types layer, and `types/` importing from `games/` would invert the layering.
+ * `drive-sim.ts` re-exports both names, so every existing import still works.
+ */
+export type DriveResult =
+  | 'TD'
+  | 'FG'
+  | 'MISSED_FG'
+  | 'PUNT'
+  | 'TURNOVER'
+  | 'DOWNS'
+  | 'SAFETY'
+  | 'END_HALF';
+
+export interface DriveOutcome {
+  offense: 'home' | 'away';
+  result: DriveResult;
+  plays: number;
+  yards: number;
+  /** Game-clock seconds this drive consumed (v0.178 — the clock IS the
+   *  half budget; see the CLOCK_* constants). 0 on END_HALF markers. */
+  clock: number;
+  /** Field position the drive started at (own-yards 0-100), P1 v0.179 —
+   *  set by the possession-chain from the prior drive's transition. */
+  start: number;
+}
+
+/**
  * Result of a played game. Stats are intentionally minimal here —
  * they're enough to feed downstream systems (development, media,
  * standings) without committing to play-by-play resolution. Per-player
@@ -47,6 +78,26 @@ export interface GameResult {
    * `emergency-qb-game` transaction log entry — see `season/lifecycle.ts`.
    */
   emergencyQb?: { home?: PlayerId; away?: PlayerId };
+
+  /**
+   * Drive-by-drive log, present for bottom-up games (the default engine).
+   *
+   * Persisted deliberately, because it CANNOT be recovered later. The drive
+   * sim's PRNG seed is derivable, but the league STATE at kickoff is not —
+   * injuries propagate, players move to IR, rosters change — so replaying a
+   * past game runs the right dice against the wrong personnel. Measured
+   * 2026-09-11: a self-verifying replay (return a chart only when the replayed
+   * score matches the recorded one) reproduced **2 of 272 games**, and score
+   * equality is weak evidence besides.
+   *
+   * This also corrects `GAME_UI_FOUNDATION.md` §5, which assumed results are
+   * re-simmable from (matchup id × seed) and built the alpha triage flow on it.
+   *
+   * Optional so that saves written before it existed stay valid — a box score
+   * from an older save simply shows no chart, rather than the save failing to
+   * load.
+   */
+  driveLog?: readonly DriveOutcome[];
 }
 
 export interface TeamGameStats {

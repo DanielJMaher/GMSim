@@ -160,6 +160,12 @@ function simulateGameBottomUp(prng: Prng, options: SimulateGameOptions): Schedul
     injuries: rollInjuries(prng, homeTeam, awayTeam, league),
     variance: 'moderate',
     playerStats,
+    // Persisted because it cannot be recovered later: the drive sim's seed is
+    // derivable but the league STATE at kickoff is not, so a replay runs the
+    // right dice against the wrong personnel. Measured at 2/272 games
+    // reproducible before this landed. END_HALF markers are kept — they are
+    // how a chart knows where the halves break.
+    driveLog: sim.driveLog,
     ...(sim.emergencyQb
       ? {
           emergencyQb: {
