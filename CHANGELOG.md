@@ -94,6 +94,178 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   makes the overall literally the mean of the perceived key skills — grade and
   prose are two views of one read, and cannot contradict each other.
 
+- **`newsView` — the season hub's league feed, with outlet reliability kept off
+  the byline (W4 step 2).** Media reports plus the public transaction wire,
+  newest first, filterable by club and tick. The real risk here was never a
+  rating: `MediaOutlet.accuracySpectrum` (1 = sensationalist, 10 = insider) and
+  `hypeSpectrum` are the engine's ground truth about who is worth believing,
+  which the North Star says the player learns by *watching*. The feed carries an
+  outlet's name and public character (tier, focus) and never a spectrum. It
+  wraps `season/news.ts`'s existing `deriveNewsFeed` rather than re-deriving
+  headlines — a hand-rolled first version was deleted (~60 lines), and the
+  wrapper gained the bodies and bylines the duplicate lacked.
+  `locker-room-incident` surfaces only when `mediaLeak` is true, with an
+  anonymous-source byline and never a mood value.
+
+  The gates caught three things in this work. `MediaTier`'s `tier` collided with
+  the banned ground-truth `TalentTier` in the recursive leak scan; the field was
+  renamed `outletTier` rather than unbanning `tier`, because the scan is only a
+  reliable detector while `tier` stays banned everywhere. The kind allow-list
+  test **passed for the wrong reason**: admitting the banned kinds changed
+  nothing, because `deriveNewsFeed` already drops them all — so it is now
+  asserted on an exported predicate and verified to fail when a banned kind is
+  admitted. That check also proved the module's own header comment false (it
+  claimed `season/news.ts` renders `mood-shift` and `roster-floor-violation`; it
+  suppresses them), so the allow-list is documented as **currently inert**. It
+  stays as a fail-closed guard against a future inspector feature piping
+  diagnostics into a player-facing feed.
+
+- **`boxScoreView` (W4 step 2).** A box score is printed in the paper, so the
+  boundary's only real work is the join: turning a `playerId` into a readable
+  line copies name and position *only*. Stat groups a player recorded nothing in
+  are omitted. The drive chart meant to sit beside it is covered under Changed.
+
+- **The opaque `GameLeague` handle and the draft-room facade — closing a
+  boundary hole D1 never addressed (W4 step 2).** D1 rules that the game imports
+  `@gmsim/engine/knowledge` and nothing else, but only ever discussed *view
+  projections*. A game must also create and advance a league, and `apps/game`
+  can name `LeagueState` through its legal type-only `/types` import — so any
+  knowledge function returning a real `LeagueState` would let the UI read
+  `league.players[id].current.speed` with every leak gate bypassed, and the
+  import gate could not object because both imports are legal. `GameLeague` is
+  therefore opaque by construction: a branded type with no readable members,
+  deliberately *not* `LeagueState & { brand }`, which stays structurally
+  readable. `league.players` is a type error rather than a policy violation —
+  the North Star's "a prop typed `{ speed: 88 }` is broken by definition" only
+  holds if the UI cannot obtain the object that has `speed` on it. The command
+  surface is kept small: `newGame` (the ~80s living-league path, with
+  `onProgress`), `advance` (plain `tickPhase`, so a game-driven league walks the
+  identical path a test-driven one does), `phaseOf`, `seedOf` (Daniel's
+  test-seed design needs a tester to be able to say which world they were in),
+  and `teamChoices`.
+
+  The draft-room facade (`openDraftRoom` / `stepDraftRoom` / `makeDraftPick` /
+  `autoDraftPick` / `draftRoomView` / `closeDraftRoom`) runs over the stepped
+  driver with the viewer's club registered externally-controlled. It strips
+  `prospectProfile.tier` — the prospect's *real* quality band, which beside a
+  pick would hand the player a perfect draft grade the instant a name came off
+  the board — along with `boardPriorityAtPick` (a raw board score) and rivals'
+  `qbDesperateAtPick` / `needsAtPick` (another club's decision model, learned by
+  watching). Board rank survives; a rank is what a board is. The tier leak gate
+  was verified to bite on an injected `profile.tier`.
+
+- **`departmentBoard`, `mediaBoard`, `scoutingInbox`, `capView` — every IN
+  alpha screen now has its data layer (W4 step 2 complete).** The board's
+  divergence gutter (`SCOUTING_PROCESS` §3: "your board #12 / scouts #19 /
+  media #31") needs two of its three columns from the engine; the player's own
+  ordering is save-side. `departmentBoard` strips `priority`,
+  `observedSkillScore` (a perceived rating is still a rating) and `schemeFit`,
+  whose own docstring says it uses the *true* archetype. `mediaBoard` is
+  deliberately **unweighted** even though the consensus function accepts
+  per-outlet weights: weighting by `accuracySpectrum` would quietly encode the
+  reliability ranking the player is meant to learn. `scoutingInbox` reuses
+  `prospectSnapshot` for every read — one conversion path for prospect knowledge
+  instead of two that can drift — and scout bylines carry name, known specialty
+  and tenure but never `trueAccuracy` (§6: "learnable only by tracking their
+  calls"). `capView` is the one place the North Star is generous: your own book
+  crosses in full, including `capFreedIfReleased`, which **can be negative and
+  is meant to be** — the dead-money trap Roster Floor Fix A guards the NPC AI
+  against, which a player-facing cuts screen must not hide either. Quality does
+  not cross the cap table.
+
+  Two things the gates caught. `mediaBoard` is **empty on a fresh
+  `createLeague`** — media college observations come from the college season,
+  which is worth knowing before a UI renders an empty consensus and calls it a
+  bug. And `schemeFit` was a second name collision: numeric and
+  ground-truth-derived on `DraftBoardEntry`, a sanctioned qualitative string on
+  `ProspectSnapshot`. The string is shipped API, so this time the scanner got
+  smarter (banned only when numeric) instead of a field being renamed; verified
+  to bite on an injected `entry.schemeFit`.
+
+- **Scout assignment, scoped back to position-only, and visits that auto-spend
+  against the board's flags (`SCOUTING_PROCESS` §4–§5).** Daniel's scope-back
+  (2026-09-12): a scout is assigned a position group, not a region; all scouts
+  are national for now, but the area machinery stays. `preferredRegion` and
+  `sampleByRegion` are untouched and still shape what each scout happens to see,
+  so an area assignment can layer on later as a second field.
+  `LeagueState.scoutAssignments` is a *supplied* decision in the D7 sense: NPC
+  clubs supply nothing and their scouts follow their own `knownSpecialty`, which
+  is both the prior behaviour and the neglect default §4 wants.
+  **Mis-assignment bites without a penalty being written**: the assignment
+  redirects coverage only, while observation accuracy still keys on the scout's
+  own specialty, so a DB specialist pointed at interior OL genuinely produces
+  generalist reads — and there is no constant to drift out of calibration.
+  Threaded through both the per-season and the weekly in-season sweep; missing
+  the weekly path would have made assignments silently half-effective.
+
+  Daniel cut the §5 visit screen but kept its teeth: `LeagueState.visitRequests`
+  makes visits auto-spend against the board's "needs a visit" flags.
+  `pickVisitTargets` takes requested prospects first, in flag order, then fills
+  from the board top-down. Without it, cutting the screen would have removed the
+  danger from the whole neglect design, since §5 calls visits "the ONLY reliable
+  access to the flags that consensus hides". Both fields are
+  migration-backfilled empty and inert when empty by construction, so every
+  existing save reproduces its prior behaviour. Knowledge surface:
+  `scoutStaffView`, `assignScout`, `requestVisit`, and `visitRequested` on
+  `BoardRowView`.
+
+  A test here asserted something the engine never promised — that each scout is
+  more accurate at his known specialty than at any other group — and failed
+  (0.603 vs 0.620). `generateCollegeScout` randomises per-group accuracy *then*
+  adds the specialty bonus, so an individual can be better outside his
+  reputation. That suits §6, whose premise is that reputation and reliability
+  are different things the player learns apart; re-gated at the population
+  level, where the bonus is actually promised. Gates: a 36-file run including
+  the entire season suite and the league-tick benchmark, 342 passed / 7 skipped
+  / 0 failed.
+
+- **The save wrapper — IndexedDB, autosave, one slot, no UI (W4 step 3).**
+  Daniel cut the save *screen* for alpha, but the wrapper is not optional: the
+  player's board lives outside `LeagueState` by design (`SCOUTING_PROCESS` §3 —
+  the engine holds no player-team privilege), so without persistence the heart
+  of the game would not survive a page refresh, and a league costs ~80s to
+  build. The league round-trips to IndexedDB **without the save module ever
+  reading a field on it**: `GameLeague` serializes completely at runtime while
+  its type gives the caller nothing, which is the property the handle exists
+  for, and the boundary gate passes on the most engine-adjacent file in the app
+  with no widening. `restoreGame` runs the engine's forward migration, so a save
+  written before a field existed is healed on load rather than crashing at first
+  use. `compareVersions` is numeric per component, not lexical — `"0.9.0" >
+  "0.10.0"` as strings would refuse a readable save, and 0.x is exactly GMSim's
+  range. The seed is duplicated onto the save record so a save can be identified
+  without deserializing a multi-MB league. Gates: `apps/game` 12/12.
+
+- **Trade offers to a controlled club — and a fix to the facade that made them
+  impossible.** Closes the last engine blocker for the alpha screens. The review
+  fix to the stepped draft (under Changed, below) kept NPCs trading *into* a
+  controlled club's slot as "ordinary draft-day misfortune". **That was wrong**:
+  a trade-up requires the on-clock team to agree, so an NPC was taking a human
+  GM's pick without asking. `proposeTradeUpAtSlot` is now split from
+  `applyTradeUpProposal`; a proposal aimed at a controlled club yields a
+  `trade-offer` the club answers with `acceptTradeOffer` / `declineTradeOffer`,
+  and `stepDraft` refuses to advance past an unanswered offer. The split touched
+  the hot path, so the draft hash was re-run: `ef7b764b…` unchanged, with 27
+  trade-ups fired (the probe asserts a non-zero count, so a vacuous match is
+  impossible). `TradeOfferView` carries the terms — who is calling, their swap
+  pick, sweetener and future-pick counts, and the target prospect only if your
+  own scouts have him on the board — but **not `ratio`**, the engine's own
+  valuation of the deal, which would turn the judgement the screen exists to
+  force into a readout.
+
+  The first facade tests early-returned when no offer arose, and passed.
+  Measured: **0 of 32 viewer clubs saw an offer, and 0 trade-ups fired at
+  all** — `openDraftRoom` never passed `pickAssets`, and the evaluator returns
+  null without them. The offers screen would have been permanently silent in the
+  real game behind a fully green suite. Fixed by building real assets the way
+  the lifecycle does (`buildSlotMap` + `picksForRoundInSlotOrder`): 6 of 32
+  clubs now see an offer and 142 trade-ups fire. Two guards keep it from
+  recurring silently: `openDraftRoom` throws when the season has no picks,
+  naming which seasons do (a fresh league sits at season 1 but carries picks
+  from season 2 onward, so the old code silently ran a zero-pick draft), and the
+  offer gates scan clubs and assert one is offered a trade instead of skipping
+  when none is. Gates: `draft/` + `knowledge/` 403 passed / 2 skipped / 0
+  failed (43 files).
+
 ### Changed
 
 - **The draft is now pick-steppable, and batch mode is a loop over it (W4 step
@@ -126,7 +298,8 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   Known gap, named rather than hidden: a draft-room UI cannot call this
   directly, since `apps/game` may only import `@gmsim/engine/knowledge`. Per
   D1's growing rule the knowledge layer gets a draft-session facade alongside
-  `draftRoomView`; that lands with the remaining step-2 projections.
+  `draftRoomView`; that lands with the remaining step-2 projections. *(Closed
+  before release by the draft-room facade — see `GameLeague` under Added.)*
 
   A review pass found the seam was **only half-honoured**: the trade-up
   evaluator swept every later slot as a trading-up candidate without consulting
@@ -135,11 +308,122 @@ While `0.x.x`, minor bumps may include breaking changes. Save format is not stab
   auto-accepted for it — against the seam's own contract. Reproduced concretely
   (two teams, picks 13 and 15) and gated. The reverse case, an NPC trading
   *into* a controlled team's slot, stays allowed: that is ordinary draft-day
-  misfortune. `finishDraft` also now returns a snapshot rather than the
+  misfortune. *(Wrong, and reversed before release: a trade-up needs the
+  on-clock team's consent — see trade offers under Added.)* `finishDraft` also
+  now returns a snapshot rather than the
   session's live collections, which a stepped UI calling it mid-draft would
   otherwise watch grow underneath it with unchanged identity. Both changes are
   behaviour-neutral for NPC-only drafts — the batch-equivalence hash still
   matches (`ef7b764b…`).
+
+- **Free agency is wave-steppable, and `refillRosters` is a loop over it — the
+  D7 seam for supplied bids.** Implements `D7_FA_SEAM.md` (approved by Daniel
+  2026-09-14) the way the draft driver was built: `refillRosters` is a thin loop
+  over `stepFreeAgency`, so there is one implementation of the market and
+  NPC-only behaviour is identical by construction. Waves break at tier
+  boundaries, which cost nothing to find because the pool is already
+  tier-sorted, and they are pause points, not a change to resolution order. The
+  design's named hazard is prevented structurally: `orderedPool` and
+  `starterCaliberIds` are `readonly` on the session, so re-entering a yielded
+  wave cannot re-sort the pool or recompute the starter set, and each player's
+  tier is captured up front so wave boundaries cannot couple to signing order.
+  Supplied bids enter the same table, sorted and second-priced identically, with
+  two deliberate calls: a supplying club's *computed* bid is skipped (otherwise
+  it bids against its own shadow and sets its own second price), and supplied
+  bids carry neutral preference factors (a human GM's enthusiasm is already in
+  the number offered; a multiplier on top is exactly the advantage the seam
+  refuses).
+
+  **The first byte-identity check was vacuous.** It hashed `refillRosters` on
+  `applyContractExpirations(simulateSeason(createLeague(…)))` and matched on the
+  first try — but that construction yields **zero free agents**
+  (`simulateSeason` leaves no contract at `yearsRemaining <= 0`), so both
+  implementations trivially did nothing. The P2–P4 tests caught it by failing
+  with "expected 0 to be greater than 0". The draft refactor failed on a logic
+  defect, which surfaces red; this passed on a measurement defect, which
+  surfaces green and is strictly more dangerous. Redone by hashing a full
+  `advanceSeason` across 3 seeds, with the baseline taken in a git worktree at
+  the pre-refactor commit: `b25b0c9c…`, **2130 signings**, identical on both
+  sides. The probe now asserts a signing count and the suite carries a
+  >100-free-agent guard. Gates (`fa-session` 8/8, on a real market): the seam is
+  neutral when a controlled club supplies nothing; the player loses when it
+  underbids and wins when it bids seriously; priority binds, so an over-eager GM
+  signs down its board and stops rather than blowing the cap.
+
+  Knowledge facade: `openFreeAgency` / `stepFreeAgencyMarket` / `submitFaOffers`
+  / `faMarketView` / `closeFreeAgency`. Every component of a rival's bid stays
+  hidden (`cashValuation`, `preferenceMultiplier`, `perceivedBid`,
+  `capRoomAtTime`, `preferenceFactors`, the watch-list fields), since those let a
+  player compute rival behaviour instead of learning it. Once a signing
+  resolves, what crosses is destination, terms, and whether *you* were outbid —
+  a boolean, not a margin, because in the real sport you learn that you lost,
+  not by how much.
+
+- **The drive log is persisted on `GameResult`, so every game has a drive chart
+  (Daniel's call, 2026-09-14).** Coverage 2/272 → **272/272**. Drive logs used
+  to be discarded after each game, and replaying them was measured first and
+  failed: the drive sim's seed is derivable (`${seed}::season-${N}` →
+  `week-${W}` → gameId), but the league *state* at kickoff is not — injuries
+  propagate and rosters change, so a replay runs the right dice against the
+  wrong personnel. A self-verifying replay (a chart returned only when the
+  replayed score matched the recorded one) reproduced **2 of 272 games**, and
+  score equality is weak evidence anyway, so those two were likely
+  coincidences — a chart that could be wrong exactly when it appears. That also
+  falsified `GAME_UI_FOUNDATION.md` §5, which assumed results are re-simmable
+  from (matchup id × seed). Cost, measured: **508 KB per season (1914
+  bytes/game), about 2× the ~240 KB estimated beforehand** — but
+  `LeagueState.schedule` holds only the current season, so it is a flat
+  steady-state cost, not cumulative. The size instrument is a permanent test.
+  The field is optional, so an older save still loads and `driveLogView` returns
+  null for its games (the UI omits the section rather than drawing a blank one).
+  A gate asserts the chart agrees with the box score — scoring drives must
+  account for the points. `DriveOutcome` / `DriveResult` moved from
+  `games/drive-sim.ts` to `types/game.ts`, since a persisted type belongs in the
+  types layer and `types/` importing `games/` would invert the layering;
+  `drive-sim.ts` re-exports both, so no import changed. Gates: 142 passed across
+  18 files, including the league-tick benchmark.
+
+### Tests
+
+- **QB room-size distribution gate (`TALENT_EROSION` S2-Q0), and a correction to
+  the room-supply claim it rests on.** Talent Allocation Track 2 cut the QB
+  blueprint 3→2 and passed its gates on the *mean* QBs per roster while the
+  share of three-deep rooms collapsed (73.3% → 29.1%) — which in turn broke the
+  ladder ratio the erosion investigation samples, and two sessions passed before
+  anyone noticed. `players/qb-room-size.test.ts` gates the distribution.
+  Re-running the doc's own probe unmodified on current dist gave an active+PS
+  share of 63.5% (doc 61.2%, real bar 61.1%), so the engine has not regressed —
+  but the share is not flat across a walk. Seasons 0–2 are a genesis transient
+  (40–50%); at steady state (seasons 3–12) it runs **~69%, about 8pp hot**
+  against the real bar, which the pooled number concealed. **Named residual**,
+  recorded open rather than blessed by a band. The gate is a one-sided
+  anti-collapse floor over the steady-state window, deliberately not a realism
+  bar: this file's seeds read 0.625 and the probe's seeds 0.705 (~8pp seed-set
+  variance on top of ~0.045 SE at n=6), so a 0.50 floor (~2.8 SE) would
+  eventually flake; it sits at 0.45 (~3.9 SE), still catching a ~28% relative
+  drop. A review pass moved its ~160s of simulation from the `describe` body
+  into `beforeAll` — at collection time it could not be filtered out by `-t` and
+  reported ~4ms per test to the timing audit.
+
+### Documentation
+
+- `D7_FA_SEAM.md` (Drive-backed) answers `GAME_UI_FOUNDATION.md` §8.2's two open
+  questions from the code — waves break at tier boundaries, and unspent offers
+  do not carry forward (an offer resolves with its player; what carries is cap
+  room) — and raises one §8.2 missed, **winning too much**, resolved by
+  priority-bound offers that enter the bid table only while the club still has
+  room. Its safety property, verify byte-identity by hash rather than assertion,
+  is what exposed the vacuous first check above.
+- `TALENT_EROSION_s2q0_result.md` (Drive-backed): the S2-Q0 result above, plus
+  the ladder-panel restatement (a re-sample, not a measured improvement).
+- `ROSTER_FLOOR_p5_result.md` (Drive-backed): **Fix D improves allocation
+  metrics** — P5 resolved to its own falsifier's bonus branch. A controlled
+  worktree A/B on identical seeds, both arms pre-W5 (W5's `rollSkills` draw
+  re-rolls every world): QB-room ladder ratio 0.586 → 0.700 (+19%), zero-starter
+  rooms 25.8% → 22.7%, multi-starter rooms 26.8% → 22.9%, with room supply flat
+  (3+-QB rooms 71.6% → 70.6%) — which rules out the supply-coupling artifact
+  that inflated an earlier clustering win. D-2 was over-firing. The erosion
+  finding is unaffected: 0.700 is still far below the real 2.03.
 
 
 ## [0.192.1] — 2026-09-11
